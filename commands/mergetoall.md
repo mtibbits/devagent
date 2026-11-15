@@ -48,8 +48,9 @@ When the issue has a recorded MR (`mr_url`, set by ship), the script reads
 the MR's CI once (bounded at 20 s) after its auto-skips and before it
 fetches or prompts, prints one `CI …:` line, and acts on it:
 
-- **Green** (`CI PASSED`), or a backend with no `mr-checks` (`CI NOT
-  CHECKED`): merges as before. A configured backend whose script is missing
+- **Green** (`CI PASSED`), a backend with no `mr-checks` (`CI NOT
+  CHECKED`), or the local code backend (`CI not applicable: local code
+  backend`, #1016; the backend is not called): merges as before. A configured backend whose script is missing
   reads `CI UNKNOWN` and holds.
 - **Pending or unknown** (`CI PENDING`, `CI UNKNOWN`): exits 1 with
   `mergetoall: not merging until CI is green; nothing was marked`. Row 19

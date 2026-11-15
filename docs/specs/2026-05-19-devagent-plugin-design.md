@@ -94,7 +94,8 @@ devAgent/
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
-│   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
+│   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh;
+│   │                        #   local.sh — #1016 git only, no forge (§9.2)
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── docs-site/           # #465: pandoc template, link filter, static/ template assets for build-docs-site.sh;
 │   │                        #   fetch-policy scanner check-fetches.py (#1030)
@@ -548,6 +549,15 @@ is to move the issues to GitHub, or to run without a policy (#1009). Until
 then `sync --all` ends at such a project once it has a shipped MR (exit 9,
 as for any host refusal), so the projects listed after it are not checked.
 
+**Local projects.** With a policy on the host, a project in scope whose
+`code_source.backend` is `local` refuses at every entry point
+(`local-backend`, exit 9): its merge state is a record file and branch
+ancestry (§9.2), which trust cannot attest. Only a project in scope refuses;
+out of scope the check is not reached. The fix is to switch `code_source`
+to `github`, or to run without a policy (#1016). Until then `sync --all`
+ends at such a project once it has a shipped MR (exit 9, as for any host
+refusal).
+
 **Validation.** Fail closed: an unknown key, a wrong type, an identity entry
 that is not an immutable id (`github:`/`gitlab:` numeric user ids, `jira:`
 account ids; never a login or display name), an empty `worker_identities` or
@@ -855,7 +865,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 15 | `/devagent:review` | skill | `superpowers:requesting-code-review` (superpowers absent ⇒ the wrapper's own dispatched-review fallback + nudge, #541) |
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
-| 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
+| 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream. On the local code backend (#1016) it pushes nothing, asks no `push_mr`, prints its plan at every ship and writes a local MR record (§9.2) |
 | 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_to_all_prs` only (#885 retired the `merge_mr` fallback; `doctor` warns on `merge_mr` without it); squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
 | 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head`; otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
@@ -1033,7 +1043,8 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
 
 `--auto` does **not**:
 - Bypass permission gates. If `permissions.push_mr=false`, `ship`
-  still halts and prompts `y/N`.
+  still halts and prompts `y/N` (the local code backend excepted: it
+  pushes nothing, so `push_mr` is not asked, #1016).
 - Continue past a step that exits `[!]`. STUCK halts the chain.
 - Continue past a step whose script exits non-zero.
 - Override `$NOTE`. `$NOTE` is preserved across the chain and passed
@@ -1061,7 +1072,9 @@ After ship, the MR's CI status is reported, never waited for (#782):
   <name> [<CONCLUSION>] <link>; …` (the bracket only for a conclusion other
   than FAILURE/ERROR), `CI NONE: no checks reported on …`, `CI UNKNOWN:
   <url>: <reason>` (a failed, timed-out or unparseable read; never read as
-  none or green), or `CI NOT CHECKED: <backend> has no mr-checks`. A merged
+  none or green), `CI NOT CHECKED: <backend> has no mr-checks`, or `CI not
+  applicable: local code backend` (#1016: the local backend has no CI and is
+  not called; it proceeds under every `ci_gate`). A merged
   or closed MR prints nothing. A STUCK or `[?]` row returns first and prints
   none, and so does a `--through` target that is already complete. Each
   change of `<result> <sha7>` also writes one `ci:` log line. The cost is one
@@ -1755,7 +1768,7 @@ Gate set:
 
 | Gate | Used by |
 |---|---|
-| `push_mr` | `ship.sh` |
+| `push_mr` | `ship.sh` (not asked on the local code backend, #1016: nothing leaves the machine) |
 | `merge_mr` | `mergemr.sh` (#885; read directly, see above) |
 | `merge_to_all_prs` | `mergetoall.sh` (#885 retired its `merge_mr` fallback) |
 | `commit_devdoc` | `cleanup.sh`, `statusreport.sh` |
@@ -1933,7 +1946,8 @@ Two separate backend dimensions per project:
   of `<N>.md` files on disk (#1009), or a custom in-house tracker.
 - **Code source** — where branches push and MRs file. Often the same
   as issue source; diverges when issues live in JIRA but code lives
-  in GitHub/GitLab.
+  in GitHub/GitLab. The local code backend (`local`, #1016) has no
+  forge: git alone, in the project's source repo.
 
 ### 9.1 Issue backend contract (`scripts/issue/<backend>.sh`)
 
@@ -2282,6 +2296,102 @@ verb". The merge step calls it on a GitHub project only; on any other code
 backend it reads `mr-state` and never merges. `scripts/lib/ci.sh`
 (`ci_read_view`) parses it with the same parser as `mr-checks`.
 
+**The local code backend** (`scripts/code/local.sh`, #1016) answers the
+contract with git alone, for a project that pushes nothing and has no forge.
+`local` is a built-in name: a custom backend saved as `scripts/code/local.sh`
+is replaced. It needs git 2.31 or newer (`rev-parse --path-format`). Every
+verb takes `--key <value>` once and ignores it; options follow a verb's
+positionals, which are taken by count.
+
+```
+push-branch    <remote> <branch>          → nothing; exit 0, always
+create-mr      <repo> <title> <body-file> <head> <base> [--draft]
+                                          → the reference; 0; 1 not a repository,
+                                            head or base not a local branch, a merged
+                                            or closed record, a failed write, git too
+                                            old; 5 an unreadable record
+mr-state       <ref>                      → open|merged|closed; 0; 1 not a reference,
+                                            no record, git could not answer;
+                                            5 a malformed record
+mr-comments    <ref>                      → ## Comments (0); exits as mr-state
+branch-exists  <repo> <branch>            → 0 exists, 1 does not, 2 cannot tell
+merged-pr-head <repo> <branch>            → 0 merged, 1 not merged or no record,
+                                            2 cannot tell
+merge-mr, issue-mrs, mr-checks, mr-view   → 78, whatever the arguments
+```
+
+Exit 2 is otherwise usage. `merge-mr` exits 78 until #1010 adds the local
+merge. `<body-file>` is not read: the body stays in `mr.md`. `--draft` prints
+`draft: not applicable (local code backend)` and records `open`;
+`push-branch` prints `push: not applicable (local code backend)`. The repo
+is named only by argument; a verb never reads HEAD or the working tree, and
+only `create-mr` writes.
+
+The reference names the source repo's git common dir and the head branch,
+each percent-encoded (every byte outside `A-Za-z0-9._~-` becomes `%XX`,
+upper-case hex, over the UTF-8 bytes; `bc_urlenc`):
+
+```
+reference  = "local:" enc-dir "#" enc-branch
+enc-dir    = 1*unit        ; <common-dir>, percent-encoded
+enc-branch = 1*unit        ; the head branch name, percent-encoded
+unit       = A-Z / a-z / 0-9 / "." / "_" / "~" / "-" / "%" HEX HEX      ; HEX = 0-9 A-F
+```
+
+`<common-dir>` is the line `git -C <repo> rev-parse --path-format=absolute
+--git-common-dir` prints, so the root, a subdirectory, a linked worktree and
+(on Git Bash) the `/c/x`, `C:/x` and `C:\x` spellings give one reference. A
+reference is valid only in this shape, when re-encoding each decoded part
+gives it back byte for byte (`%2f`, `%41` and `%00` are refused), when the
+directory is absolute, and when the branch is neither `.` nor `..`.
+
+The record is `<common-dir>/devagent/local-mr/<enc-branch>`, LF lines:
+
+```
+version: 1
+state: open
+head: feat/12-a#b%c.d
+base: main
+head_sha: <40 or 64 lower-case hex>
+merge_commit: -
+title: <the title, on one line>
+```
+
+Each of the seven keys appears exactly once, in any order, and no other line
+(a trailing CR is dropped); `merge_commit: -` is the empty form. Anything
+else is a malformed record. `create-mr` writes `open` (a temp file, then one
+rename); `merged` will be written by #1010's `merge-mr` and is until then
+only derived; `closed` is derived, or set by a hand edit. Nothing writes a
+stored `closed` today.
+
+The state of a record, shared by `mr-state`, `merged-pr-head` and a second
+`create-mr`:
+
+1. `merged`: the record says `merged`, or `head_sha` is an ancestor of
+   `refs/heads/<base>`;
+2. `closed`: the record says `closed`, or `refs/heads/<head>` does not exist;
+3. `open`: otherwise.
+
+A missing commit or base branch is "not an ancestor"; any other git failure
+fails the verb, never reading as open or closed. A second `create-mr` on an
+`open` record rewrites its `head_sha`, title and base; on a `merged` or
+`closed` one it exits 1 with `a merged or closed local MR exists for this
+branch; ship from a new branch`, leaving the record as it was. To ship from
+a new branch: create it (`git branch <new> <old>`, then commit), set
+`branch = "<new>"` in the project's state file by hand, and run
+`/devagent:ship` again.
+
+Limits. A hand `git merge --squash` leaves no ancestry, so the MR stays
+`open` while the head branch is kept; once the branch is deleted it reads
+`closed` and mergemr stops `[!]`. Mark step 20 `[x]` with
+`/devagent:checklist-mark` before deleting a squashed branch. A stacked
+child merged by hand into the default branch also stays `open`, because
+ancestry is checked against its recorded parent base: mark the step by hand,
+or re-ship once the parent is merged, which rewrites `base`. On a clone that
+has an `origin`, a local ship never pushes, so a suite artifact's
+`upstream:` reads `(unpushed)`; preship then needs `source_remote` unset or
+`origin`, and otherwise an operator attestation.
+
 ### 9.3 Markdown shapes: `fetch` and `mr-comments`
 
 ```markdown
@@ -2475,6 +2585,7 @@ on `<repo>`'s host, the id `events` reports for that account.
 - `issue/gitlab.sh`, `code/gitlab.sh` — prefer `glab`, fall back to `curl` against REST v4
 - `issue/jira.sh` — `curl` against REST API
 - `issue/disk.sh` — wraps `scripts/lib/disk-issue.py` (#1009)
+- `code/local.sh` — git only, no forge; a local MR is a record file (#1016, §9.2)
 - `issue/custom.sh`, `code/custom.sh` — stub printing helpful "not implemented; see README"
 
 ## 10. Auth subsystem

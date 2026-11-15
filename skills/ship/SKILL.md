@@ -51,6 +51,14 @@ When present, `ship.sh` forces `--draft` on the PR regardless of
 project config. Remove the marker to resume normal (non-draft) behavior
 on the next ship invocation.
 
+## Local code backend
+
+With `code_source.backend = "local"` (#1016) nothing is pushed and
+`push_mr` is not asked: ship prints its plan and records a local MR in the
+repo's git dir. `--draft` does not apply. After a hand merge a re-ship
+refuses; ship from a new branch: create it, set the state file's `branch`
+to it by hand, and run ship again.
+
 ## Run the script
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh" <argument tail>

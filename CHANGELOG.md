@@ -16,6 +16,18 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the local code backend (#1016).** `code_source.backend = "local"`
+  ships without a forge: nothing is pushed and `push_mr` is not asked; ship
+  prints its plan and records a local MR under the source repo's git dir,
+  named by a `local:` reference. `mr-state` reads that record and branch
+  ancestry, so a hand merge reads `merged`; `merge-mr` exits 78 until #1010.
+  The branch step resolves a local `default_baseline` with no fetch, the CI
+  line reads `CI not applicable: local code backend`, and under a trust
+  policy a local project in scope refuses (`local-backend`, exit 9). Needs
+  git 2.31 or newer. `local` is now a built-in code backend name, so a
+  custom backend saved as `scripts/code/local.sh` is replaced; rename it.
+  `bc_urlenc` joins `scripts/lib/backend-common.sh` (#793's encoder).
+
 - **Changed: `/devagent:pull <project> <issue-num> [--origin|--fork]` takes
   its source from config (#1099).** A flagless pull reads the new
   `[project.<p>] default_issue_source` (`"origin"` or `"fork"`), else the
