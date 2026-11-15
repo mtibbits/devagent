@@ -354,3 +354,15 @@ _local_baseline_fixture() {
     [ "$(git -C "$SOURCE_DIR" for-each-ref --format='%(refname:short)' refs/heads | sort | tr '\n' ' ')" = "master other " ]
     [ ! -e "$FETCH_MARKER" ]
 }
+
+@test "#1016 branch (local): a leftover origin/main default_baseline dies, not a frozen remote-tracking ref" {
+    _local_baseline_fixture local
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.default_baseline" origin/main
+    git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main main
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"default_baseline 'origin/main'"* ]]
+    [[ "$output" == *"a local project's default_baseline must be an existing local branch"* ]]
+    [ "$(git -C "$SOURCE_DIR" for-each-ref --format='%(refname:short)' refs/heads | sort | tr '\n' ' ')" = "main other " ]
+    [ ! -e "$FETCH_MARKER" ]
+}

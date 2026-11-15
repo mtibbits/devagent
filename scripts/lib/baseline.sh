@@ -77,8 +77,11 @@ baseline_resolve() {
   # load-bearing: 2>&1 binds stderr to the capture, THEN 1>/dev/null drops stdout.
   [ "$code_local" = 1 ] \
     || fetch_err="$("$DEVAGENT_GIT" fetch --quiet "$base_remote" 2>&1 1>/dev/null)" || fetch_failed=1
-  # Resolve baseline ref.
-  if baseline_sha="$("$DEVAGENT_GIT" rev-parse --verify "$baseline" 2>/dev/null)"; then
+  # Resolve baseline ref. #1016: a local project's default_baseline resolves only as
+  # a local branch — a leftover origin/main would resolve to a ref nothing fetches.
+  local ref="$baseline"
+  [ "$code_local" = 1 ] && [ "$baseline_override" -eq 0 ] && ref="refs/heads/$baseline^{commit}"
+  if baseline_sha="$("$DEVAGENT_GIT" rev-parse --verify "$ref" 2>/dev/null)"; then
       :
   elif [ "$baseline_override" -eq 1 ]; then
       # An explicit per-issue override that does not resolve is a hard error —

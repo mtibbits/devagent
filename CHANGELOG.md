@@ -21,9 +21,10 @@ the README's "Versioning & releases" section has the release procedure.
   prints its plan and records a local MR under the source repo's git dir,
   named by a `local:` reference. `mr-state` reads that record and branch
   ancestry, so a hand merge reads `merged`; `merge-mr` exits 78 until #1010.
-  The branch step resolves a local `default_baseline` with no fetch, the CI
-  line reads `CI not applicable: local code backend`, and under a trust
-  policy a local project in scope refuses (`local-backend`, exit 9). Needs
+  The branch step resolves a local `default_baseline` as a local branch,
+  with no fetch, the CI line reads `CI not applicable: local code backend`,
+  and under a trust policy a local project in scope refuses
+  (`local-backend`, exit 9). Needs
   git 2.31 or newer. `local` is now a built-in code backend name, so a
   custom backend saved as `scripts/code/local.sh` is replaced; rename it.
   `bc_urlenc` joins `scripts/lib/backend-common.sh` (#793's encoder).
