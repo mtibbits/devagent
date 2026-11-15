@@ -25,8 +25,10 @@
 #   {{count:<key>}}         the count, in decimal
 # A placeholder for an unknown key, a count whose file is missing, or a count
 # of zero fails the build (exit 5): a blank or a zero is never published. In a
-# Markdown table cell, write \| for the |. A placeholder may not sit in a page
-# title (the H1). There is no escape: v1.0 fills them everywhere, code included.
+# Markdown table cell, write \| for the |. A label is plain text: no markup, no
+# < > or ". A placeholder may not sit in a page title (the H1) or inside a tag
+# (an attribute value). There is no escape: v1.0 fills them everywhere, code
+# included.
 #
 # Rendered examples (the build's tests run each through the filler):
 #   example: {{live:devagent|devagent}} -> <a href="index.html">devagent</a>

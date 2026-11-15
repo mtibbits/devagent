@@ -1939,6 +1939,24 @@ family_versioned() {
   printf '%s\n' '<style>' 'nav[aria-label="Pages"] a:hover { color: red; }' 'article p, main > footer > a { margin: 0; }' \
     '@media (prefers-reduced-motion: no-preference) { .family-motion nav[aria-label="Pages"] a { color: red; } }' '</style>' > "$d/s4.html"
   fc_row 0 '' scope "$d/s4.html" "$d/top.html" "$d/foot.html"
+  # with the template's markers, the page's own ancestors of the partials
+  # (main, footer.site-footer) scope nothing: rules under them still reach
+  # the footer partial. Child and class scoping that cannot reach it pass.
+  local frame='<body>
+<!--family-topbar-->
+<div class="layout"><main class="family-sheet"><article><p>x</p></article>
+<footer>Built from <a href="x">x</a></footer>
+<footer class="site-footer">
+<!--family-footer-->
+<p class="site-links"><a href="r">r</a></p>
+</footer></main></div></body>'
+  local sel
+  for sel in 'main p' '.site-footer li' 'main > footer div' 'main a' '.family-sheet ul'; do
+    printf '<style>\n%s { color: red; }\n</style>\n%s\n' "$sel" "$frame" > "$d/s5.html"
+    fc_row 1 "'$sel' reaches family markup" scope "$d/s5.html" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+  done
+  printf '<style>\n%s\n</style>\n%s\n' 'article p, main > footer > a, .site-links a, main > footer, * { margin: 0; }' "$frame" > "$d/s6.html"
+  fc_row 0 '' scope "$d/s6.html" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
   # usage
   run fc nosuch "$css"
   [ "$status" -eq 2 ]
@@ -2074,6 +2092,12 @@ fp_settings_row() {
   fp_fail_row '{{live:home| }}' 'unknown placeholder {{live:home|}}'
   fp_fail_row '{{x}}' 'unknown placeholder {{x}}'
   fp_fail_row '{{}}' 'unknown placeholder {{}}'
+  # an unclosed placeholder cannot swallow markup up to a later "}}"
+  fp_fail_row 'See {{live:gantry|Gantry</p><h2 id="x">Next</h2><p>Use <code>a}}</code>' 'unclosed placeholder starting {{live:'
+  # a label is plain text: markup in it is refused, not inserted
+  fp_fail_row '{{live:gantry|<em>Gantry</em>}}' 'unclosed placeholder starting {{live:'
+  # a placeholder inside a tag (an attribute value) would write broken HTML
+  fp_fail_row '<img alt="{{live:home|Home}}" src="a.png">' 'placeholder inside a tag: {{live:home|Home}}'
   fp_fail_row '{{count:zzz}}' 'unknown placeholder {{count:zzz}}'
   fp_fail_row 'ok {{live:gantry|G' 'unclosed placeholder starting {{live:'
   fp_fail_row 'ok {{count:n' 'unclosed placeholder starting {{count:'

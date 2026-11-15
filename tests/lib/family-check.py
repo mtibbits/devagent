@@ -33,10 +33,11 @@ Subcommands:
                                    no placeholder left, balanced, one root, no
                                    document/script/style tags or on*= handlers,
                                    every class defined in family.css
-  scope    <page> <partial>...     no page rule reaches family markup: a selector
-                                   whose last compound is a bare element the
-                                   partials use, with nothing scoping it, or a
-                                   class the partials use
+  scope    <page> <partial>...     no page rule matches an element that came from
+                                   a partial, with the partials inserted at the
+                                   page's marker lines (appended when it has
+                                   none) and each live placeholder rendered both
+                                   ways
   placement <page> <partial>...    each partial's root element is in the page's
                                    markup once, outside <noscript>, <script>,
                                    <template> and comments
@@ -256,44 +257,6 @@ def split_top(s, sep):
             cur += c
     out.append(cur)
     return [x.strip() for x in out if x.strip()]
-
-
-def compounds(sel):
-    """The compound selectors of one complex selector, left to right."""
-    out, depth, cur, q = [], 0, "", None
-    for c in sel:
-        if q:
-            cur += c
-            if c == q:
-                q = None
-            continue
-        if c in "\"'":
-            q = c
-        elif c in "([":
-            depth += 1
-        elif c in ")]":
-            depth -= 1
-        if depth == 0 and (c.isspace() or c in ">+~"):
-            if cur:
-                out.append(cur)
-            cur = ""
-        else:
-            cur += c
-    if cur:
-        out.append(cur)
-    return out
-
-
-def compound_parts(comp):
-    """(element or '', classes, has_id, has_attr)."""
-    has_attr = "[" in comp
-    c = re.sub(r"\[[^\]]*\]", "", comp)
-    c = re.sub(r"::?[A-Za-z-]+(\([^)]*\))?", "", c)
-    m = re.match(r"([A-Za-z][A-Za-z0-9-]*|\*)", c)
-    el = m.group(1).lower() if m else ""
-    classes = set(re.findall(r"\.([A-Za-z0-9_-]+)", c))
-    has_id = bool(re.search(r"#[A-Za-z_-]", c))
-    return el, classes, has_id, has_attr
 
 
 # ------------------------------------------------------------------ html reader
@@ -532,43 +495,198 @@ def cmd_contrast(files):
     return rep.done()
 
 
-SCOPE_NEUTRAL = {"html", "body", "*", ""}
+class Node:
+    def __init__(self, tag, attrs, parent, family):
+        self.tag = tag
+        self.attrs = attrs
+        self.parent = parent
+        self.children = []
+        self.family = family  # the partial it came from, or None
+        self.classes = set((attrs.get("class") or "").split())
+
+
+class Tree(html.parser.HTMLParser):
+    """A DOM good enough for selector matching. Elements inside a
+    <!--family:NAME--> ... <!--/family--> span belong to partial NAME."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = Node("#root", {}, None, None)
+        self.cur = self.root
+        self.family = []
+        self.nodes = []
+
+    def _open(self, tag, attrs, void):
+        n = Node(tag, {k: (v or "") for k, v in attrs}, self.cur, self.family[-1] if self.family else None)
+        self.cur.children.append(n)
+        self.nodes.append(n)
+        if not void:
+            self.cur = n
+
+    def handle_starttag(self, tag, attrs):
+        self._open(tag, attrs, tag in VOID)
+
+    def handle_startendtag(self, tag, attrs):
+        self._open(tag, attrs, True)
+
+    def handle_endtag(self, tag):
+        n = self.cur
+        while n is not self.root and n.tag != tag:
+            n = n.parent
+        if n is not self.root:
+            self.cur = n.parent
+
+    def handle_comment(self, data):
+        if data.startswith("family:"):
+            self.family.append(data[len("family:"):])
+        elif data == "/family" and self.family:
+            self.family.pop()
+
+
+ATTR_RE = re.compile(r"\[\s*([A-Za-z_:][-A-Za-z0-9_:.]*)\s*(?:([~|^$*]?=)\s*(\"[^\"]*\"|'[^']*'|[^\]\s]+)\s*)?\]")
+
+
+def compound_match(comp, node):
+    """Whether one compound selector can match node. Pseudo-classes and
+    pseudo-elements are assumed to match (a rule under :hover still styles the
+    element); :not() is ignored, which can only over-report."""
+    attrs = ATTR_RE.findall(comp)
+    c = ATTR_RE.sub("", comp)
+    c = re.sub(r"::?[A-Za-z-]+(\([^)]*\))?", "", c)
+    m = re.match(r"([A-Za-z][A-Za-z0-9-]*|\*)", c)
+    if m and m.group(1) != "*" and m.group(1).lower() != node.tag:
+        return False
+    if not set(re.findall(r"\.([A-Za-z0-9_-]+)", c)) <= node.classes:
+        return False
+    for i in re.findall(r"#([A-Za-z0-9_-]+)", c):
+        if node.attrs.get("id") != i:
+            return False
+    for name, op, val in attrs:
+        if name.lower() not in node.attrs:
+            return False
+        if op == "=":
+            if node.attrs[name.lower()] != val.strip("\"'"):
+                return False
+    return True
+
+
+def split_complex(sel):
+    """[(compound, combinator to its left)] right to left; the leftmost has ''."""
+    parts, depth, cur, q = [], 0, "", None
+    tokens = []
+    for ch in sel:
+        if q:
+            cur += ch
+            if ch == q:
+                q = None
+            continue
+        if ch in "\"'":
+            q = ch
+        elif ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if depth == 0 and (ch.isspace() or ch in ">+~"):
+            if cur:
+                tokens.append(cur)
+                cur = ""
+            if ch in ">+~":
+                tokens.append(ch)
+            elif tokens and tokens[-1] not in (">", "+", "~", " "):
+                tokens.append(" ")
+            continue
+        cur += ch
+    if cur:
+        tokens.append(cur)
+    while tokens and tokens[-1] == " ":
+        tokens.pop()
+    # collapse " " next to an explicit combinator
+    clean = []
+    for t in tokens:
+        if t in (">", "+", "~") and clean and clean[-1] == " ":
+            clean[-1] = t
+        elif t == " " and clean and clean[-1] in (">", "+", "~"):
+            continue
+        else:
+            clean.append(t)
+    comps = clean[0::2]
+    combs = [""] + clean[1::2]
+    parts = list(zip(comps, combs))
+    return parts[::-1]
+
+
+def selector_match(parts, node):
+    """parts from split_complex (right to left)."""
+    comp, comb = parts[0]
+    if not compound_match(comp, node):
+        return False
+    if len(parts) == 1:
+        return True
+    rest = parts[1:]
+    if comb == ">":
+        return node.parent is not None and node.parent.tag != "#root" and selector_match(rest, node.parent)
+    if comb == " ":
+        a = node.parent
+        while a is not None and a.tag != "#root":
+            if selector_match(rest, a):
+                return True
+            a = a.parent
+        return False
+    sibs = [s for s in (node.parent.children if node.parent else [])]
+    i = sibs.index(node)
+    before = sibs[:i]
+    if comb == "+":
+        return bool(before) and selector_match(rest, before[-1])
+    return any(selector_match(rest, s) for s in before)
+
+
+LIVE_IN_PARTIAL = re.compile(r"\{\{live:[a-z0-9][a-z0-9-]*\|([^{}|]+)\}\}")
+MARKER = {"family-topbar.html": "<!--family-topbar-->", "family-footer.html": "<!--family-footer-->"}
 
 
 def cmd_scope(files):
+    """scope <page> <partial>... — build the page with each partial inserted
+    at its marker line (<!--family-topbar-->, <!--family-footer-->; a page
+    without the marker gets the partial appended), each live placeholder
+    rendered both ways, then match every selector of the page's <style>
+    against the elements that came from a partial."""
+    import os
     if len(files) < 2:
         usage("scope takes page.html, then one or more partials")
     page_path, partials = files[0], files[1:]
     rep = Report("scope")
-    ptags, pclasses, where = set(), set(), {}
+    page = read(page_path)
+    pclasses = set()
     for p in partials:
-        tags, classes = markup_of(read(p))
-        for t in tags:
-            where.setdefault(t, p)
-        ptags |= tags
-        pclasses |= classes
+        name = os.path.basename(p)
+        body = LIVE_IN_PARTIAL.sub(r'<a href="#">\1</a><span class="family-coming">\1 <small>coming</small></span>', read(p))
+        pclasses |= markup_of(body)[1]
+        wrapped = f"<!--family:{name}-->\n{body}\n<!--/family-->"
+        mark = MARKER.get(name)
+        if mark and mark in page:
+            page = page.replace(mark, wrapped, 1)
+        else:
+            page = page.replace("</body>", wrapped + "\n</body>", 1) if "</body>" in page else page + "\n" + wrapped
+    tree = Tree()
+    tree.feed(STYLE_EL_RE.sub("", page))
+    tree.close()
+    family = [n for n in tree.nodes if n.family]
+    if not family:
+        rep.bad(page_path, 0, "no element came from a partial")
     for rule in css_of(page_path, read(page_path)):
         for sel in split_top(rule.sel, ","):
             rep.subjects += 1
-            comps = compounds(sel)
-            if not comps:
+            parts = split_complex(sel)
+            if not parts or parts[0][0] in ("*", "html", "body", ":root"):
                 continue
-            el, classes, has_id, has_attr = compound_parts(comps[-1])
-            hit = sorted(classes & pclasses)
-            if hit:
-                rep.bad(page_path, rule.line, f"'{sel}' styles family markup (.{hit[0]})")
+            hits = [n for n in family if selector_match(parts, n)]
+            if not hits:
                 continue
-            if classes or has_id or has_attr or el not in ptags:
-                continue
-            scoped = False
-            for c in comps[:-1]:
-                e, cl, i, at = compound_parts(c)
-                if i or at or (cl - pclasses and not all(x.startswith("family-") for x in cl - pclasses)):
-                    scoped = True
-                elif e and e not in ptags and e not in SCOPE_NEUTRAL:
-                    scoped = True
-            if not scoped:
-                rep.bad(page_path, rule.line, f"'{sel}' reaches family markup (<{el}> in {where.get(el, 'a partial')})")
+            classes = set(re.findall(r"\.([A-Za-z0-9_-]+)", ATTR_RE.sub("", parts[0][0]))) & pclasses
+            if classes:
+                rep.bad(page_path, rule.line, f"'{sel}' styles family markup (.{sorted(classes)[0]})")
+            else:
+                rep.bad(page_path, rule.line, f"'{sel}' reaches family markup (<{hits[0].tag}> in {hits[0].family})")
     return rep.done()
 
 

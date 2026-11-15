@@ -18,10 +18,14 @@ rendered example of each kind. In short:
                           when it is not
   {{count:<key>}}         the number of lines of the count's source file that
                           match its regex, in decimal; a zero is refused
-A candidate is "{{", a non-space character, then anything but braces up to
-"}}"; it may span lines (pandoc wraps a long label), and a label's whitespace
-is collapsed. "${{ x }}" (a space after "{{") is text. Placeholders are filled
-over the whole page, <head> and code included: v1.0 has no escape.
+A candidate is "{{", a non-space character, then anything but braces, "<", ">"
+and '"' up to "}}"; it may span lines (pandoc wraps a long label), and a
+label's whitespace is collapsed. A label is plain text: markup in it leaves
+the placeholder unclosed, which is refused, so an unclosed placeholder can
+never swallow the markup up to a later "}}". A placeholder inside a tag (an
+attribute value) is refused too. "${{ x }}" (a space after "{{") is text.
+Placeholders are filled over the whole page, <head> and code included: v1.0
+has no escape.
 
 Files are read and written as bytes through a strict UTF-8 decode with no
 newline translation, so CRLF and non-ASCII text outside a placeholder survive.
@@ -43,8 +47,8 @@ import sys
 
 PROG = "fill-placeholders"
 
-CANDIDATE = re.compile(r"\{\{(?=\S)([^{}]*)\}\}")
-LIVE = re.compile(r"live:([a-z0-9][a-z0-9-]*)\|([^{}|]+)")
+CANDIDATE = re.compile(r"\{\{(?=\S)([^{}<>\"]*)\}\}")
+LIVE = re.compile(r"live:([a-z0-9][a-z0-9-]*)\|([^{}|<>\"]+)")
 COUNT = re.compile(r"count:([a-z0-9][a-z0-9-]*)")
 LEFTOVER = re.compile(r"\{\{(live|count):")
 
@@ -160,6 +164,10 @@ def fill(settings, text):
     def sub(m):
         nonlocal n
         n += 1
+        s = m.string
+        if s.rfind("<", 0, m.start()) > s.rfind(">", 0, m.start()):
+            raise Refusal(5, "placeholder inside a tag: {{" + " ".join(m.group(1).split()) + "}}"
+                          " (an attribute cannot hold the rendered markup)")
         return render(settings, m.group(1))
 
     out = CANDIDATE.sub(sub, text)
