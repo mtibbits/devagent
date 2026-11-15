@@ -51,6 +51,7 @@ Subcommands:
                                    same-site linked stylesheets
 """
 import html.parser
+import os
 import re
 import sys
 
@@ -257,37 +258,6 @@ def split_top(s, sep):
             cur += c
     out.append(cur)
     return [x.strip() for x in out if x.strip()]
-
-
-# ------------------------------------------------------------------ html reader
-
-class Markup(html.parser.HTMLParser):
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.tags = set()
-        self.classes = set()
-
-    def handle_starttag(self, tag, attrs):
-        self.tags.add(tag)
-        for k, v in attrs:
-            if k == "class" and v:
-                self.classes.update(v.split())
-
-
-# A {{live:...}} placeholder renders as <a href> (live) or as
-# <span class="family-coming">LABEL <small>coming</small></span> (not live).
-LIVE_RENDERS = ({"a", "span", "small"}, {"family-coming"})
-
-
-def markup_of(text):
-    p = Markup()
-    p.feed(text)
-    p.close()
-    tags, classes = set(p.tags), set(p.classes)
-    if "{{live:" in text:
-        tags |= LIVE_RENDERS[0]
-        classes |= LIVE_RENDERS[1]
-    return tags, classes
 
 
 # ------------------------------------------------------------------ colours
@@ -650,7 +620,6 @@ def cmd_scope(files):
     without the marker gets the partial appended), each live placeholder
     rendered both ways, then match every selector of the page's <style>
     against the elements that came from a partial."""
-    import os
     if len(files) < 2:
         usage("scope takes page.html, then one or more partials")
     page_path, partials = files[0], files[1:]
@@ -660,7 +629,7 @@ def cmd_scope(files):
     for p in partials:
         name = os.path.basename(p)
         body = LIVE_IN_PARTIAL.sub(r'<a href="#">\1</a><span class="family-coming">\1 <small>coming</small></span>', read(p))
-        pclasses |= markup_of(body)[1]
+        pclasses.update(c for _t, a, _l, _s in tags_of(body) for c in (a.get("class") or "").split())
         wrapped = f"<!--family:{name}-->\n{body}\n<!--/family-->"
         mark = MARKER.get(name)
         if mark and mark in page:
@@ -730,7 +699,6 @@ def contract_live(path, filler, rep):
     """Each '# example: <input> -> <output>' line of a live settings file
     renders as written through the real filler, with that file as settings.
     An output of <N> stands for a positive decimal (a count)."""
-    import os
     import subprocess
     import tempfile
     text = read(path)
@@ -925,7 +893,6 @@ def cmd_hidden(files):
     page shows everything): no hidden attribute, no style= that hides, and no
     rule outside @media in any stylesheet the page uses (its <style>, and each
     same-site <link rel=stylesheet>) that hides."""
-    import os
     rep = Report("hidden")
     for path in files:
         rep.subjects += 1

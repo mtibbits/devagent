@@ -158,14 +158,9 @@
   function wire() {
     var button = document.querySelector(CONTROL);
     if (!button) return;
-    if (reducedMotion) {
+    if (reducedMotion || !available) {
       button.disabled = true;
-      button.textContent = LABEL_REDUCED;
-      return;
-    }
-    if (!available) {
-      button.disabled = true;
-      button.textContent = LABEL_OFF;
+      button.textContent = reducedMotion ? LABEL_REDUCED : LABEL_OFF;
       return;
     }
     button.disabled = false;
@@ -185,9 +180,7 @@
     var now = read();
     if (!now.ok) return false;
     var v = parse(now.raw);
-    for (var i = 0; i < v.records.length; i++) {
-      if (v.records[i] === name) return false;
-    }
+    if (v.records.indexOf(name) !== -1) return false;
     return write([v.choice].concat(v.records, [name]).join(' '));
   };
 

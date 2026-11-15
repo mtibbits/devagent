@@ -65,7 +65,6 @@ class Refusal(Exception):
     def __init__(self, rc, msg):
         super().__init__(msg)
         self.rc = rc
-        self.msg = msg
 
 
 def usage(msg):
@@ -159,18 +158,14 @@ def render(settings, body):
 
 def fill(settings, text):
     """(filled text, placeholders filled); raises Refusal(5)."""
-    n = 0
-
     def sub(m):
-        nonlocal n
-        n += 1
         s = m.string
         if s.rfind("<", 0, m.start()) > s.rfind(">", 0, m.start()):
             raise Refusal(5, "placeholder inside a tag: {{" + " ".join(m.group(1).split()) + "}}"
                           " (an attribute cannot hold the rendered markup)")
         return render(settings, m.group(1))
 
-    out = CANDIDATE.sub(sub, text)
+    out, n = CANDIDATE.subn(sub, text)
     left = LEFTOVER.search(out)
     if left:
         raise Refusal(5, "unclosed placeholder starting {{" + left.group(1) + ":")
@@ -178,8 +173,8 @@ def fill(settings, text):
 
 
 def required_keys(static):
-    """[(key, partial name)] for each live key a family partial uses."""
-    keys = []
+    """{key: partial name} for each live key a family partial uses."""
+    keys = {}
     for name in PARTIALS:
         p = os.path.join(static, name)
         try:
@@ -188,8 +183,8 @@ def required_keys(static):
             raise Refusal(4, f"{p}:0: not found (the top bar and footer partials name the required live keys)")
         for m in CANDIDATE.finditer(text):
             lm = LIVE.fullmatch(m.group(1))
-            if lm and all(k != lm.group(1) for k, _ in keys):
-                keys.append((lm.group(1), name))
+            if lm:
+                keys.setdefault(lm.group(1), name)
     return keys
 
 
@@ -230,16 +225,16 @@ def main(argv):
     try:
         settings = Settings(settings_path)
     except Refusal as r:
-        print(f"{PROG}: {r.msg}", file=sys.stderr)
+        print(f"{PROG}: {r}", file=sys.stderr)
         return r.rc
 
     if check:
         try:
-            for key, partial in required_keys(static):
+            for key, partial in required_keys(static).items():
                 if key not in settings.live:
                     raise Refusal(4, f"{settings_path}:0: missing required key '{key}' (used by {partial})")
         except Refusal as r:
-            print(f"{PROG}: {r.msg}", file=sys.stderr)
+            print(f"{PROG}: {r}", file=sys.stderr)
             return r.rc
         print(f"{PROG}: settings ok: {len(settings.live)} live, {len(settings.counts)} count")
         return 0
@@ -253,7 +248,7 @@ def main(argv):
                 raise Refusal(5, "is not UTF-8")
             out, n = fill(settings, text)
         except Refusal as r:
-            print(f"{PROG}: {path}: {r.msg}", file=sys.stderr)
+            print(f"{PROG}: {path}: {r}", file=sys.stderr)
             bad += 1
             continue
         total += n

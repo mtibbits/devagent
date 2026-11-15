@@ -368,15 +368,23 @@ command -v "$py" >/dev/null 2>&1 \
   || die 3 "python cannot run: '$py' is not a working python3 3.8+ (a Windows Store python3 stub is found but cannot run; DEVAGENT_PYTHON names another interpreter)"
 "$py" -I "$tmpl/check-fetches.py" --self-test >/dev/null 2>&1 \
   || die 3 "python's html.parser is too old: '$py' lacks the 2025 html.parser security fixes the fetch scan relies on (DEVAGENT_PYTHON names another interpreter)"
-# The live settings file, and the live keys the partials use. The filler's
-# exit status is mapped, never its prose: 4 is a bad settings file.
-fill_rc=0
-"$py" -I -X utf8 "$tmpl/fill-placeholders.py" --settings "$src/live.txt" --static "$static_dir" --check >/dev/null || fill_rc=$?
-case "$fill_rc" in
-  0) ;;
-  4) die 4 "the live settings file is malformed (the fill-placeholders line above names the line)" ;;
-  *) die 8 "the placeholder fill did not complete (fill-placeholders exited $fill_rc)" ;;
-esac
+# fill_placeholders <rc> <message> <arg>...: run the filler over live.txt. Its
+# exit status is mapped, never its prose: <rc> is the one refusal this call
+# expects (4 a bad settings file, 5 an unfillable placeholder) and dies with
+# <message>; any other non-zero status is a fill that did not complete.
+fill_placeholders() {
+  local want="$1" msg="$2" rc=0
+  shift 2
+  "$py" -I -X utf8 "$tmpl/fill-placeholders.py" --settings "$src/live.txt" "$@" || rc=$?
+  case "$rc" in
+    0) ;;
+    "$want") die "$want" "$msg" ;;
+    *) die 8 "the placeholder fill did not complete (fill-placeholders exited $rc)" ;;
+  esac
+}
+# The live settings file, and the live keys the partials use.
+fill_placeholders 4 "the live settings file is malformed (the fill-placeholders line above names the line)" \
+  --static "$static_dir" --check >/dev/null
 
 command -v pandoc >/dev/null 2>&1 \
   || die 3 "pandoc is not installed (Debian/Ubuntu: sudo apt-get install pandoc)"
@@ -435,19 +443,25 @@ trap 'rm -rf "$work"' EXIT
 # neither pandoc reader touches the body.
 marker='<!--docs-site-body-->'
 printf '%s\n' "$marker" > "$work/marker.md"
-splice() {
-  local frame="$work/$1.frame.html" page="$src/$1.html" hits at
-  hits="$(grep -nxF -- "$marker" "$frame" || true)"
+# replace_marker <from> <marker> <insert> <to> <page>: <from>'s one line that
+# is exactly <marker>, replaced by <insert>'s bytes, written to <to>. The
+# marker must occur exactly once, so a page body carrying a marker line is
+# refused.
+replace_marker() {
+  local from="$1" mark="$2" insert="$3" to="$4" hits at n=0
+  hits="$(grep -nxF -- "$mark" "$from" || true)"
   case "$hits" in
-    ''|*$'\n'*) die 5 "pandoc did not keep the body marker in $1.html" ;;
+    ''|*$'\n'*)
+      [ -z "$hits" ] || n="$(printf '%s\n' "$hits" | wc -l)"
+      die 5 "$5: expected one $mark line, found $((n))" ;;
   esac
   at="${hits%%:*}"
   {
-    head -n "$((at - 1))" "$frame"
-    cat "$page"
-    [ -z "$(tail -c 1 "$page")" ] || printf '\n'
-    tail -n "+$((at + 1))" "$frame"
-  } > "$out/$1.html"
+    head -n "$((at - 1))" "$from"
+    cat "$insert"
+    [ -z "$(tail -c 1 "$insert")" ] || printf '\n'
+    tail -n "+$((at + 1))" "$from"
+  } > "$to"
 }
 
 for p in "${pages[@]}"; do
@@ -476,7 +490,8 @@ for p in "${pages[@]}"; do
     --metadata srcname="$p.${kind[$p]}" \
     --output="$dest" "$input" \
     || die 5 "pandoc failed on $src/$p.${kind[$p]}"
-  [ "${kind[$p]}" = md ] || splice "$p"
+  [ "${kind[$p]}" = md ] \
+    || replace_marker "$work/$p.frame.html" "$marker" "$src/$p.html" "$out/$p.html" "$p.html"
 done
 
 # Stubs: static HTML that loads nothing under the site CSP and asks not to be
@@ -507,39 +522,19 @@ done
 if [ -d "$src/assets" ]; then cp -R "$src/assets" "$out/assets"; fi
 cp -R "$static_dir" "$out/static"
 
-# The family partials, inserted byte for byte at page.html's marker lines
-# (like splice: the marker must occur exactly once, so a page body carrying a
-# marker line is refused). Written to a temp file, then moved over the page.
-insert_partial() {
-  local page="$1" mark="$2" part="$3" hits at tmp="$work/${1##*/}.partial.tmp" n
-  n="$(grep -cxF -- "$mark" "$page" || true)"
-  [ "$n" = 1 ] || die 5 "${page##*/}: expected one $mark line, found ${n:-0}"
-  hits="$(grep -nxF -- "$mark" "$page")"
-  at="${hits%%:*}"
-  {
-    head -n "$((at - 1))" "$page"
-    cat "$part"
-    [ -z "$(tail -c 1 "$part")" ] || printf '\n'
-    tail -n "+$((at + 1))" "$page"
-  } > "$tmp"
-  mv "$tmp" "$page"
-}
+# The family partials, inserted byte for byte at page.html's marker lines,
+# through a temp file and back over the page.
 page_files=()
 for p in "${pages[@]}"; do
-  insert_partial "$out/$p.html" '<!--family-topbar-->' "$static_dir/family-topbar.html"
-  insert_partial "$out/$p.html" '<!--family-footer-->' "$static_dir/family-footer.html"
-  page_files+=("$out/$p.html")
+  f="$out/$p.html"
+  replace_marker "$f" '<!--family-topbar-->' "$static_dir/family-topbar.html" "$work/partial.tmp" "$p.html"
+  replace_marker "$work/partial.tmp" '<!--family-footer-->' "$static_dir/family-footer.html" "$f" "$p.html"
+  page_files+=("$f")
 done
 # Then the placeholders, over every content page at once (the partials'
-# included). The exit status is mapped, never the prose: 5 is a placeholder
-# that could not be filled, and the filler writes nothing then.
-fill_rc=0
-"$py" -I -X utf8 "$tmpl/fill-placeholders.py" --settings "$src/live.txt" -- "${page_files[@]}" || fill_rc=$?
-case "$fill_rc" in
-  0) ;;
-  5) die 5 "a placeholder could not be filled (the fill-placeholders line above names the page and placeholder)" ;;
-  *) die 8 "the placeholder fill did not complete (fill-placeholders exited $fill_rc)" ;;
-esac
+# included); the filler writes nothing when one cannot be filled.
+fill_placeholders 5 "a placeholder could not be filled (the fill-placeholders line above names the page and placeholder)" \
+  -- "${page_files[@]}"
 
 # Independent count: what landed on disk, not what the loops believe they
 # wrote. Every top-level .html is a content page or a stub.
