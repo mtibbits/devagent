@@ -942,10 +942,12 @@ Partly delivered. A requirement here that is not built yet starts with
   comments, change events and the account its credential belongs to. It
   reads success, usage error, auth failure, not found, malformed response and
   not implemented as distinct exit codes.
-- EI-2: Code-forge backend contract (GitHub, GitLab or a custom backend):
-  devagent pushes a branch, opens an MR (as a draft on request), reads an
-  MR's state, comments, CI checks and the MRs linked to issues, and merges an
-  MR at a matched head.
+- EI-2: Code-forge backend contract (GitHub, GitLab, the local code backend
+  or a custom backend): devagent pushes a branch, opens an MR (as a draft on
+  request), reads an MR's state, comments, CI checks and the MRs linked to
+  issues, and merges an MR at a matched head. The local code backend pushes
+  nothing and has no comments or CI checks: its MR is a record in the source
+  repository's git directory.
 - EI-3: git: devagent creates branches and worktrees, commits, diffs against
   a baseline, pushes and squash-merges in the project's source repository,
   and commits to the project's devdoc repository.
@@ -1038,7 +1040,8 @@ From the design spec's permission gates and gates under trust:
 
 - CON-6: Each permission gate is set per project: `true` proceeds, `false`
   asks before each remote-visible action, and an unset gate counts as
-  `false`.
+  `false`. A ship on the local code backend asks no `push_mr`, because
+  nothing leaves the machine.
 - CON-7: The script that performs a gated action enforces the gate, not the
   chaining layer.
 - CON-8: Neither `--auto` nor the operator's note can suppress or override a

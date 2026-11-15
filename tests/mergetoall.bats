@@ -369,6 +369,18 @@ _state() { _devagent_toml get "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" 
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
 }
 
+@test "#1016 mergetoall prints the local CI line and goes on to merge" {
+    local cfg="$HOME/.claude/devagent/config.toml"
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.code_source.backend" local
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.ci_gate" block
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" mr_url "local:%2Fx%2F.git#feat%2F1-x"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CI not applicable: local code backend"* ]]
+    ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+}
+
 @test "#782 green on the MR head with an unpushed local commit holds, nothing marked" {
     _ci_mta green
     ( cd "$SOURCE_DIR" && echo nit >> a.txt \

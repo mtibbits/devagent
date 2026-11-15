@@ -37,6 +37,10 @@ run_backend_suite() {
   run_backend_suite disk
 }
 
+@test "contract: local code backend" {
+  run_backend_suite local
+}
+
 @test "contract: every issue backend answers issue-list without a repo with 1 or 78, never 2 (#706)" {
   local f n=0
   for f in "${BATS_DIR}/../scripts/issue/"*.sh; do

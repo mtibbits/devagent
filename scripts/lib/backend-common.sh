@@ -20,6 +20,27 @@ bc_have_cli() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# Percent-encode $1 (#793, #1016): every byte outside A-Za-z0-9._~- becomes
+# %XX, upper-case hex, over the value's bytes (UTF-8 for UTF-8 text). Prints
+# no newline; an empty value prints nothing. Pure bash: the byte walk runs
+# under a function-local LC_ALL=C, so the caller's locale is unchanged and
+# every locale gives the same bytes. The member list is explicit because a
+# range such as [a-z] follows the locale's collation.
+# Usage: bc_urlenc <value>
+bc_urlenc() {
+  local LC_ALL=C
+  local s="${1-}" out="" c i hex
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      [ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~-])
+        out+="$c" ;;
+      *) printf -v hex '%%%02X' "'$c"; out+="$hex" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
 # Print a "not implemented" message to stderr and exit 78 (EX_CONFIG).
 # Usage: bc_die_not_implemented <backend> <verb>
 bc_die_not_implemented() {

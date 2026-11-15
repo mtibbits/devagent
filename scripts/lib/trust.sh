@@ -503,6 +503,7 @@ _trust_disk_project() {
 # every check passed); otherwise exits 9 (refuse) or 10 (try_later). Sets
 # TRUST_IN_SCOPE (0|1) and, in scope, TRUST_WHOAMI (<backend>:<id>). In
 # scope, in order:
+#   0. the project's code backend is not the local one (#1016: local-backend);
 #   1. permissions.transition_issue = true (the quarantine and claim writes);
 #   2. no bare github OWNER/REPO while GH_HOST is set;
 #   3. per in-scope source, whoami: 2|78 unsupported (9), 75 could not run
@@ -524,6 +525,9 @@ trust_entry_check() {
   # read as out of scope; trust fails closed for it instead.
   _trust_disk_project "$project" && refuse disk-backend
   trust_project_scope "$project" "$source" || return 0
+  # #1016: in scope, a local code backend refuses before the checks below — its
+  # merge state is a file and its ancestry, which trust cannot attest.
+  config_code_is_local "$project" && refuse local-backend
   TRUST_IN_SCOPE=1
 
   transition_gate_open "$project" || refuse transition-off "$project"

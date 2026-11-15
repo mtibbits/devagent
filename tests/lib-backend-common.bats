@@ -222,3 +222,38 @@ _capped_caller() { local BC_MAX_PAGES=2; local rc=0; "$@" >/dev/null || rc=$?; e
   [ "$(_calls)" -eq 3 ]
   [[ "$output" == *"bc_jira_paginate: page at startAt=200 of https://jira.invalid/c repeats the page at startAt=0"* ]]
 }
+
+# #1016 / #793: bc_urlenc, the shared percent-encoder (D-ref's byte class).
+@test "bc_urlenc encodes every byte outside the unreserved set" {
+  local out
+  out="$(bc_urlenc 'g/p a+b~c.d_e-f!*(é)')"
+  [ "$out" = 'g%2Fp%20a%2Bb~c.d_e-f%21%2A%28%C3%A9%29' ]
+  out="$(bc_urlenc "it's")"
+  [ "$out" = 'it%27s' ]
+  out="$(bc_urlenc 'a%2Fb')"
+  [ "$out" = 'a%252Fb' ]
+  run bc_urlenc ''
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # No trailing newline: the byte count is the encoding's own.
+  [ "$(bc_urlenc 'ab' | wc -c)" -eq 2 ]
+}
+
+@test "bc_urlenc gives the same bytes under LC_ALL=C and a UTF-8 locale" {
+  local v='feat/é#ü%x y' a b c
+  a="$(LC_ALL=C bc_urlenc "$v")"
+  b="$(LC_ALL=C.UTF-8 bc_urlenc "$v")"
+  c="$(LC_ALL=en_US.UTF-8 bc_urlenc "$v" 2>/dev/null)"
+  [ "$a" = 'feat%2F%C3%A9%23%C3%BC%25x%20y' ]
+  [ "$a" = "$b" ]
+  [ "$a" = "$c" ]
+}
+
+@test "bc_urlenc leaves the caller's locale alone" {
+  LC_ALL=C.UTF-8
+  bc_urlenc 'é' >/dev/null
+  [ "$LC_ALL" = C.UTF-8 ]
+  LC_ALL=C
+  bc_urlenc 'é' >/dev/null
+  [ "$LC_ALL" = C ]
+}
