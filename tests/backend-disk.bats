@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=gitbash
 # tests/backend-disk.bats — #1009: the disk issue backend, scripts/issue/disk.sh.
 # Every verb and every cell of its exit table (spec §9.1). The backend reads and
 # writes issue files only through scripts/lib/disk-issue.py (#1008). Run on its

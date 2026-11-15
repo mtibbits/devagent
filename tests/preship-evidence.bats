@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=gitbash
 # #359 preship-evidence.sh — verification #4. Reads mr.md + suite-count artifact +
 # git; no bats/pytest execution, so no nesting concern.
 load 'helpers/common'

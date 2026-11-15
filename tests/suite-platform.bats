@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=gitbash
 # #654: every suite-count artifact records the platform that produced it, and the operator
 # who RUNS preship may declare which platforms count. run-suite.sh appends
 #   platform: os=<uname -s> kernel=<uname -r> fs=<filesystem type of the measured tree> modes=posix|no-op

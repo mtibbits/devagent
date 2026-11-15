@@ -6,7 +6,8 @@
 devAgent is developed and tested on **Linux** (including WSL on Windows), inside
 [Claude Code](https://claude.com/claude-code). macOS is currently untested:
 the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
-`readlink -f`) and bash ≥ 4.4 (the resolver libs use namerefs), and CI runs Linux only. You need:
+`readlink -f`) and bash ≥ 4.4 (the resolver libs use namerefs). CI runs the full suite on Linux,
+and runs the `gitbash`-tagged test files under Git Bash on Windows. You need:
 
 - **Claude Code** — developed and verified against **2.1.223**; earlier
   versions are untested.

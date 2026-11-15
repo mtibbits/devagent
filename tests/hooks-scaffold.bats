@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=gitbash
 # #453: the hooks scaffold — shared conventions in hooks/lib/hook-common.sh that the
 # guard children (#454/#455/#457) and the SessionStart child (#456) inherit. Pins the
 # #352 contract at the SCAFFOLD level: opt-in default-off gate, per-call override,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=gitbash
 # #894 evidence-stamp.sh: writes the suite:, files: and platform: lines of mr.md's
 # ## Evidence block from the newest suite-count artifact and git, and refuses (mr.md
 # untouched) when the artifact cannot honestly describe HEAD. The stamper and

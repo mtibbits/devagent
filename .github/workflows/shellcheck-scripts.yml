@@ -1,6 +1,6 @@
 # Gates against shellcheck errors in scripts/.
 # shellcheck is pre-installed on ubuntu-24.04; no apt step needed.
-# Scope: all *.sh files under scripts/ (78 files, 7.7k lines).
+# Scope: all *.sh files under scripts/.
 # Severity=error: scripts/ passes today; gate lands green immediately.
 # tests/*.bats is excluded — blanket shellcheck has many pre-existing
 # non-error findings there — see shellcheck.yml for the SC2314-specific gate.

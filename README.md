@@ -66,10 +66,12 @@ scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (J
 as appropriate for your backend.
 
 **Supported platforms.** devAgent is developed and tested on **Linux**, including
-WSL on Windows; CI runs Linux only. macOS is currently untested: the scripts
+WSL on Windows; CI runs the full suite on Linux, and runs the `gitbash`-tagged test
+files under Git Bash on Windows. macOS is currently untested: the scripts
 assume GNU coreutils (`stat -c`, GNU `sed -i`, `readlink -f`). Native Git Bash on
-Windows can run the plugin but is not a supported environment for the test suite
-(see [Running the test suite](#running-the-test-suite)).
+Windows can run the plugin, but the full suite needs a filesystem where `chmod`
+works, which Git Bash's default `noacl` mounts are not; the `gitbash`-tagged files
+run on Windows CI (see [Running the test suite](#running-the-test-suite)).
 
 **Claude Code version.** Developed and verified against Claude Code **2.1.223**;
 earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,
@@ -408,8 +410,8 @@ checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
 mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
 with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
 is fine for individual scripts (a preship check there attests the WSL tree,
-below) — it is not a supported environment for the suite, and that is a
-property of the mount, not a defect to repair. Run the suite in the WSL clone on the
+below), but not for the full suite; the `gitbash`-tagged files run on Windows
+CI. That `noacl` limit is a property of the mount, not a defect to repair. Run the suite in the WSL clone on the
 issue's branch, never a detached SHA: `git fetch origin && git checkout <branch>`
 the first time, and `git merge --ff-only origin/<branch>` after that.
 
@@ -604,6 +606,21 @@ serial. Invoking bats directly:
 ```sh
 LC_ALL=C.UTF-8 bats --jobs 4 --no-parallelize-within-files tests/
 ```
+
+**The `gitbash` tag (#1096).** A test file that also runs under Git Bash on Windows
+carries the literal column-0 line `# bats file_tags=gitbash`, directly after its
+shebang; other tags may sit before or after `gitbash` on that line, comma-separated.
+The `Git Bash tagged files` job in `.github/workflows/gitbash.yml` runs every tagged
+file on a pinned Windows runner, one bats invocation per file. Add the tag when a test
+exercises behaviour that differs under Git Bash (drive-letter paths, MSYS path
+rewriting, a native Windows `python3`, CRLF), and only when the whole file passes in
+that job. A tagged file keeps skipping, each with a reason, the tests that cannot run
+there: POSIX file modes (the `is_git_bash` pattern in `tests/backend-disk.bats`), real
+symlinks, or a tool the runner lacks. The job fails on a skip without a reason, on a
+file whose every test skipped, and on any other spelling of `gitbash` on a `file_tags`
+comment line (an indented line, `#bats`, a different case, `gitbash2`), so such a
+misspelling cannot silently drop a file from the run. On Linux the line is inert: `test.yml`
+passes no `--filter-tags`.
 
 ### Writing a new test file
 
