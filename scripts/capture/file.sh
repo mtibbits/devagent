@@ -190,6 +190,19 @@ if [[ "${gate_exempt}" -ne 1 && "${gate}" != "true" && "${YES}" -ne 1 ]]; then
     _remedy="Re-run with --yes to proceed, or set
 [project.<name>.permissions].push_mr = true in config.toml."
   fi
+  # #1101 D7: the labels: line prints only when tiers.toml exists, so a capture
+  # without one gets a byte-identical plan.
+  _labels_line=""
+  if [[ "${has_tiers}" -eq 1 ]]; then
+    _l="${_tier_label_thinking}${_tier_label_thinking:+${_tier_label_checking:+ }}${_tier_label_checking}"
+    if [[ -z "${_l}" ]]; then
+      _l="(none)"
+      [[ "${_tier_out_thinking}${_tier_out_checking}" != *"not applied (no project)"* ]] \
+        || _l="(none; not applied (no project))"
+    fi
+    _labels_line="  labels:  ${_l}
+"
+  fi
   cat >&2 <<EOF
 ${_gate_line}
 
@@ -198,7 +211,7 @@ Plan:
   repo:    ${_repo}
   title:   $(head -n1 "${draft}" | sed 's/^# *//')
   body:    ${draft}
-
+${_labels_line}
 ${_remedy}
 EOF
   exit 4
@@ -216,13 +229,47 @@ title="$(devagent_draft_h1 "${draft}")"
 backend_script="${DEVAGENT_ISSUE_BACKEND_DIR:?DEVAGENT_ISSUE_BACKEND_DIR not set}/${backend}.sh"
 [[ -x "${backend_script}" ]] || { echo "backend not executable: ${backend_script}" >&2; exit 3; }
 
+# #1101: look each departing label up on the tracker, after the gate and before
+# .pending. github, gitlab and any custom/unknown backend are CHECKED through the
+# same backend script as create (state-exists: 0 exists, 4 missing, anything else
+# undetermined); jira and disk take labels as given. A lookup never changes the
+# exit code: a label that cannot be confirmed is left off and reported.
+_label_args=()
+for _cls in thinking checking; do
+  _lv="_tier_label_${_cls}"; _lbl="${!_lv}"
+  [[ -n "${_lbl}" ]] || continue
+  case "${_shape}" in
+    jira|disk)
+      _label_args+=(--label "${_lbl}")
+      printf -v "_tier_out_${_cls}" '%s' "applied as ${_lbl}" ;;
+    *)
+      _lrc=0
+      "${backend_script}" state-exists "${repo}" "${_lbl}" >/dev/null || _lrc=$?
+      case "${_lrc}" in
+        0)
+          _label_args+=(--label "${_lbl}")
+          _out="applied as ${_lbl}" ;;
+        4)
+          _out="not applied (label missing); add it to the issue before its first pull, after creating it"
+          case "${_shape}" in
+            github) _out+=": gh label create ${_lbl} --repo ${repo}" ;;
+            gitlab) _out+=": glab label create --name ${_lbl} --repo ${repo}" ;;
+            *)      _out+=" on the tracker" ;;
+          esac ;;
+        *)
+          _out="not applied (lookup failed); state-exists exit ${_lrc}" ;;
+      esac
+      printf -v "_tier_out_${_cls}" '%s' "${_out}" ;;
+  esac
+done
+
 # #113: mark the create→filed.toml window. If the script dies after the remote
 # create but before filed.toml is written, this marker survives and blocks a
 # duplicate re-file (see the guard above). Cleared once filed.toml is written.
 : >"${pending}"
 
 _rc=0
-issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")" || _rc=$?
+issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}" ${_label_args[@]+"${_label_args[@]}"})" || _rc=$?
 if [[ "${_rc}" -ne 0 ]]; then
   [[ "${is_disk}" -eq 1 ]] || exit "${_rc}"
   # #1009: disk.sh exits 1 or 2 only when it wrote no issue file (a folder
@@ -283,5 +330,12 @@ TOML
 
 # #113: filing committed — clear the in-flight marker.
 rm -f "${pending}"
+
+# #1101 D7: one outcome line per proposed class, thinking first, on stderr
+# (stdout stays the URL alone).
+for _cls in thinking checking; do
+  _tv="_tier_tok_${_cls}"; _ov="_tier_out_${_cls}"
+  [[ -z "${!_tv}" ]] || printf 'file.sh: tier %s=%s: %s\n' "${_cls}" "${!_tv}" "${!_ov}" >&2
+done
 
 printf '%s\n' "${url}"

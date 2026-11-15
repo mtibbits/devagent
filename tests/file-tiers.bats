@@ -136,3 +136,221 @@ _tier_lines() { grep '^file\.sh: tier ' <<<"$stderr" || true; }
   [[ "$stderr" == *"not a regular readable file"* ]]
   [ ! -e "$STUB_LOG" ]
 }
+
+# ---------------------------------------------------------------- Task 3
+
+GH_MISSING='not applied (label missing); add it to the issue before its first pull, after creating it:'
+
+@test "tiers: a departing checking proposal is passed as --label (github)" {
+  _tiers 'thinking = "opus"' 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  [ "$output" = "https://github.com/o/r/issues/7" ]
+  run cat "$STUB_LOG"
+  [ "${lines[0]}" = "[state-exists] [o/r] [tier:check-fable]" ]
+  [ "${lines[1]}" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
+  [ "${#lines[@]}" -eq 2 ]
+  [ "$(_tier_lines)" = "file.sh: tier thinking=opus: matches project tier
+file.sh: tier checking=fable: applied as tier:check-fable" ]
+}
+
+@test "tiers: proposals equal to the project tiers file with no lookup and no label" {
+  _tiers 'thinking = "opus"' 'checking = "opus"'
+  _file
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUB_LOG")" = "[create] [o/r] [A captured idea] [$DRAFT]" ]
+  [ "$(_tier_lines)" = "file.sh: tier thinking=opus: matches project tier
+file.sh: tier checking=opus: matches project tier" ]
+}
+
+@test "tiers: with no step_models table any concrete proposal is labelled" {
+  _config
+  _tiers 'thinking = "opus"' 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:impl-opus] [--label] [tier:check-fable]" ]
+}
+
+@test "tiers: with only step_models.default each class is compared with default" {
+  _config '[project.tp.step_models]' 'default = "opus"'
+  _tiers 'thinking = "opus"' 'checking = "sonnet"'
+  _file
+  [ "$status" -eq 0 ]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-sonnet]" ]
+}
+
+@test "tiers: a per-step override does not count" {
+  _config '[project.tp.step_models]' '"16" = "fable"' 'checking = "opus"'
+  _tiers 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
+}
+
+@test "tiers: a missing GitHub label is left off and its create command printed" {
+  export STUB_MISSING=tier:check-fable
+  _tiers 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT]" ]
+  [ "$(_tier_lines)" = "file.sh: tier checking=fable: $GH_MISSING gh label create tier:check-fable --repo o/r" ]
+  [ -f "$CAP/filed.toml" ]
+  [ ! -e "$CAP/.pending" ]
+  [ ! -e "$CLI_LOG" ]
+}
+
+@test "tiers: a missing GitLab label prints the glab command" {
+  _config '[project.tp.step_models]' 'checking = "opus"'
+  sed -i 's/^backend = "github"/backend = "gitlab"/; s#^repo = "o/r"#repo = "grp/proj"#' "$DA_HOME/config.toml"
+  export STUB_MISSING=tier:check-fable
+  _tiers 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  [ "$(_tier_lines)" = "file.sh: tier checking=fable: $GH_MISSING glab label create --name tier:check-fable --repo grp/proj" ]
+  [ ! -e "$CLI_LOG" ]
+}
+
+@test "tiers: a custom backend reports a missing label with no command" {
+  sed -i 's/^backend = "github"/backend = "acme"/' "$DA_HOME/config.toml"
+  export STUB_MISSING=tier:check-fable
+  _tiers 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  [ "$(_tier_lines)" = "file.sh: tier checking=fable: not applied (label missing); add it to the issue before its first pull, after creating it on the tracker" ]
+}
+
+@test "tiers: a custom backend without state-exists files without the label" {
+  sed -i 's/^backend = "github"/backend = "acme"/' "$DA_HOME/config.toml"
+  export STUB_LOOKUP_RC=78
+  _tiers 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  [ "$(_tier_lines)" = "file.sh: tier checking=fable: not applied (lookup failed); state-exists exit 78" ]
+  [[ "$stderr" == *"not implemented"* ]]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT]" ]
+}
+
+@test "tiers: any other lookup code files without the label, reports lookup failed and leaves no .pending" {
+  local code n=0
+  _tiers 'checking = "fable"'
+  for code in 1 2 3; do
+    rm -f "$STUB_LOG" "$CAP/filed.toml"
+    export STUB_LOOKUP_RC="$code"
+    _file
+    [ "$status" -eq 0 ]
+    [ "$(_tier_lines)" = "file.sh: tier checking=fable: not applied (lookup failed); state-exists exit $code" ]
+    [ ! -e "$CAP/.pending" ]
+    [ -f "$CAP/filed.toml" ]
+    run tail -n 1 "$STUB_LOG"
+    [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT]" ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 3 ]
+}
+
+@test "tiers: a mixed outcome resets the lookup code per class" {
+  _config
+  export STUB_MISSING=tier:impl-opus
+  _tiers 'thinking = "opus"' 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
+  [ "$(_tier_lines)" = "file.sh: tier thinking=opus: $GH_MISSING gh label create tier:impl-opus --repo o/r
+file.sh: tier checking=fable: applied as tier:check-fable" ]
+}
+
+@test "tiers: jira passes labels unchecked" {
+  sed -i 's/^backend = "github"/backend = "jira"/' "$DA_HOME/config.toml"
+  export STUB_NUM=ABC-12
+  _tiers 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUB_LOG")" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
+  [ "$(_tier_lines)" = "file.sh: tier checking=fable: applied as tier:check-fable" ]
+}
+
+@test "tiers: with the gate closed no lookup runs and the plan lists the labels" {
+  export DEVAGENT_PERMISSION_PUSH_MR=false
+  _tiers 'thinking = "opus"' 'checking = "fable"'
+  _file
+  [ "$status" -eq 4 ]
+  [ ! -e "$STUB_LOG" ]
+  [[ "$stderr" == *"  body:    $DRAFT
+  labels:  tier:check-fable
+"* ]]
+  _tiers 'thinking = "opus"'
+  _file
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *$'\n''  labels:  (none)'$'\n'* ]]
+  : > "$CAP/tiers.toml"
+  _file
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *$'\n''  labels:  (none)'$'\n'* ]]
+  [ ! -e "$STUB_LOG" ]
+}
+
+@test "tiers: the plan lists every departing label space-separated" {
+  export DEVAGENT_PERMISSION_PUSH_MR=false
+  _tiers 'thinking = "sonnet"' 'checking = "fable"'
+  _file
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *$'\n''  labels:  tier:impl-sonnet tier:check-fable'$'\n'* ]]
+}
+
+@test "tiers: a devdoc owned by no single project files with no tier labels" {
+  export DEVAGENT_ISSUE_BACKEND=github DEVAGENT_REPO_ORIGIN=o/r
+  _tiers 'thinking = "sonnet"' 'checking = "fable"'
+  local leg
+  for leg in none shared; do
+    rm -f "$STUB_LOG" "$CAP/filed.toml"
+    if [ "$leg" = none ]; then
+      sed -i "s#^devdoc_dir = .*#devdoc_dir = \"$BATS_TEST_TMPDIR/elsewhere\"#" "$DA_HOME/config.toml"
+    else
+      _config '[project.tp.step_models]' 'checking = "opus"'
+      printf '%s\n' '[project.tp2]' "devdoc_dir = \"$DEVDOC\"" >> "$DA_HOME/config.toml"
+    fi
+    _file
+    [ "$status" -eq 0 ]
+    [ "$(cat "$STUB_LOG")" = "[create] [o/r] [A captured idea] [$DRAFT]" ]
+    [ "$(_tier_lines)" = "file.sh: tier thinking=sonnet: not applied (no project)
+file.sh: tier checking=fable: not applied (no project)" ]
+  done
+  export DEVAGENT_PERMISSION_PUSH_MR=false
+  rm -f "$CAP/filed.toml"
+  _file
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *$'\n''  labels:  (none; not applied (no project))'$'\n'* ]]
+}
+
+@test "tiers: under crrf's env the project still comes from the devdoc" {
+  _config '[project.tp.step_models]' 'checking = "opus"' '' \
+    '[project.decoy]' "devdoc_dir = \"$BATS_TEST_TMPDIR/devDoc/decoy\"" '' \
+    '[project.decoy.step_models]' 'checking = "fable"'
+  mkdir -p "$BATS_TEST_TMPDIR/devDoc/decoy"
+  export DEVAGENT_ISSUE_BACKEND=github DEVAGENT_REPO_ORIGIN=o/r DEVAGENT_PROJECT=decoy
+  _tiers 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
+}
+
+@test "tiers: every outcome line matches the pinned grammar" {
+  local re='^file\.sh: tier (thinking|checking)=[A-Za-z0-9._-]+: (applied as tier:(impl|check)-[A-Za-z0-9._-]+|matches project tier|not applied \((label missing|lookup failed|no project)\)(; .+)?)$'
+  export STUB_MISSING=tier:check-fable
+  _tiers 'thinking = "opus"' 'checking = "fable"'
+  _file
+  [ "$status" -eq 0 ]
+  local l n=0
+  while IFS= read -r l; do
+    [[ "$l" =~ $re ]] || { echo "off-grammar: $l" >&2; false; }
+    n=$((n + 1))
+  done <<<"$(_tier_lines)"
+  [ "$n" -eq 2 ]
+}
