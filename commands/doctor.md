@@ -37,6 +37,8 @@ read only; neither writes the archive.
 
 Per project, the tracker-mapping check (#710, warn-only) flags `github_labels`/`gitlab_labels` keys no transition reads, the retired keys and a nested `issue_workflow.<backend>_labels` table. With `transition_issue = true` it also asks the tracker (`state-exists`, up to three calls per tracker, so a network call) whether each mapped label or status exists, and skips when the tracker is unreachable or unauthenticated. One global check warns while a process-global per-stage override (`DEVAGENT_GITHUB_LABEL_<STAGE>` and its GitLab/JIRA kin) or a retired env name is set.
 
+Per project, `default_issue_source` (#1099): OK when set to `"origin"` or `"fork"` naming a source whose `backend` is set; FAIL on any other value, a source with no `backend`, or an unreadable config (the same resolver a flagless `/devagent:pull` dies through); WARN when both `issue_source` and `issue_source_fork` are configured and the key is unset; silent otherwise.
+
 Per project, two #885 checks (warn-only): `permissions.merge_mr` set without `permissions.merge_to_all_prs` (merge_mr now approves merging the PR at step 20, mergemr, and no longer gates mergetoall), and a devdoc override of a `checklist-*.md` or `revision_block.md` template that has a `ship` row but no `mergemr` row (the merge step would not run or gate closeout).
 
 Per project, `potholes_workflow register: <path|not configured|absent>` names the shared workflow register the project resolves (FAIL on a relative path or unreadable config). One global #611 row, WARN only: `seed carries no private project name` runs the

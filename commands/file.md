@@ -6,7 +6,11 @@ argument-hint: "<capture-slug> [origin|fork]"
 
 # /devagent:file
 
-Args: `<capture-slug> [origin|fork]` (default: `origin`)
+Args: `<capture-slug> [origin|fork]` (default: the project's `default_issue_source`; unset, its only configured issue source, else `origin`: the rule `/devagent:pull` uses, #1099)
+
+If `default_issue_source` is set to anything but `"origin"` or `"fork"`, or
+names a source with no `backend`, STOP and report the key —
+`/devagent:doctor <project>` names it. Never fall back to `origin`.
 
 ## Behavior
 

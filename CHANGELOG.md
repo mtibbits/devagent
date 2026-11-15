@@ -16,6 +16,28 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: `/devagent:pull <project> <issue-num> [--origin|--fork]` takes
+  its source from config (#1099).** A flagless pull reads the new
+  `[project.<p>] default_issue_source` (`"origin"` or `"fork"`), else the
+  project's only configured issue source (its `backend` is set), else
+  `origin`. `--origin`/`--fork` pick a source for one pull and may come
+  anywhere after `<project>`. A bad key stops a flagless pull naming it, and
+  `/devagent:doctor` reports the key: OK when valid, FAIL when bad, WARN when
+  both sources are configured and it is unset. The positional
+  `<project> origin|fork <N>` form is still accepted and unadvertised, so
+  automation that sends it keeps working; only a source flag after its
+  number is new (a usage error). Every successful
+  pull now prints one stdout line, `pulled <id>` (a machine-read contract,
+  `commands/pull.md`); the pull trust golden was re-captured for it
+  (`tests/fixtures/trust-golden/pull.*`, only `pull.out` gained the line).
+  `/devagent:file`'s documented default target and `/devagent:crrf`'s filing
+  target follow the same rule. cost-report keys a new-form pull like the old
+  form, and a tokenless pull now attributes, reversing #730's no-op; a
+  positional pull with a trailing note now attributes too, as pull.sh always
+  accepted it. Upgrade: a fork-first project with both trackers sets
+  `default_issue_source = "fork"` once. `scripts/lib/issue-source.sh` holds
+  the flag parse and the default, for #1098 to reuse.
+
 - **Added: a Git Bash CI job for `gitbash`-tagged test files (#1096).**
   `.github/workflows/gitbash.yml` runs every bats file carrying the column-0
   line `# bats file_tags=gitbash` under real Git Bash on a pinned

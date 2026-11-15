@@ -22,6 +22,13 @@
 # crosses the line where quarantine_guard sits. Capture just those with
 # `TRUST_GOLDEN_CAPTURE_SHA=5c08ea5 bats -f '5c08ea5' tests/trust-golden.bats`.
 #
+# 2026-11-14 (#1099): pull.out gained `pulled <id>` — pull now prints the
+# resolved id on stdout on every success. The pull fixtures were re-captured
+# with the capture script at the branch commit; only pull.out's body and the
+# four captured-at lines moved (the other scenarios' fixtures were kept). The
+# pull @test name carries no SHA: under a squash merge the branch SHA is
+# unreachable from master.
+#
 # Retirement: the four #713 fixtures stay until #902 merges (#902's AC reuses them).
 # After that, only "no-policy runs make no whoami/events call" is the standing
 # guard and the fixture comparisons may be deleted.
@@ -37,7 +44,7 @@ teardown() {
   devagent_test_teardown
 }
 
-@test "trust-golden: pull no-policy output is byte-identical to the 891254c golden" {
+@test "trust-golden: pull no-policy output is byte-identical to its golden (#713, re-captured #1099)" {
   _scenario_pull
   _golden_check pull "$GOLDEN_ARGV"
 }

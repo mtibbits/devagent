@@ -18,6 +18,8 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" == *"OK"* ]]
+  # #1099: a single-source project says nothing about default_issue_source.
+  [[ "$output" != *default_issue_source* ]]
 }
 
 @test "doctor flags a missing source_dir" {
@@ -482,4 +484,59 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"WARN transcript archive — [archive].transcripts_dir is inside a git work tree ("* ]]
   [ ! -e "$t" ]
+}
+
+# _dis_key <value> — set default_issue_source inside [project.volk] through the
+# TOML helper (never an append, which lands in a sub-table; never sed -i, #335).
+_dis_key() {
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.volk.default_issue_source "$1"
+}
+
+_add_fork_source() {
+  cat >> "$DA_HOME/config.toml" <<'TOML'
+
+[project.volk.issue_source_fork]
+backend    = "github"
+repo       = "mtibbits/volk"
+dir_prefix = "Issue-Fork-"
+TOML
+}
+
+@test "doctor FAILs default_issue_source = \"upstream\" naming the key (#1099)" {
+  _dis_key upstream
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"  FAIL project.volk.default_issue_source — must be \"origin\" or \"fork\", got: 'upstream'"* ]]
+}
+
+@test "doctor FAILs default_issue_source = \"fork\" with no fork source (#1099)" {
+  _dis_key fork
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'  FAIL project.volk.default_issue_source — is "fork" but [project.volk.issue_source_fork] has no backend configured'* ]]
+}
+
+@test "doctor FAILs a table-valued default_issue_source (#1099)" {
+  _add_fork_source
+  printf '\n[project.volk.default_issue_source]\nv = "fork"\n' >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'  FAIL project.volk.default_issue_source — must be "origin" or "fork", got a table'* ]]
+  [[ "$output" != *"WARN project.volk.default_issue_source"* ]]
+}
+
+@test "doctor WARNs both sources with no default_issue_source (#1099)" {
+  _add_fork_source
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'  WARN project.volk.default_issue_source — unset while both [project.volk.issue_source] and [project.volk.issue_source_fork] are configured: a flagless /devagent:pull falls back to origin, and adding or removing a source changes that; set default_issue_source = "origin" or "fork"'* ]]
+}
+
+@test "doctor OKs a valid default_issue_source (#1099)" {
+  _dis_key fork
+  _add_fork_source
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"  OK   project.volk.default_issue_source (fork)"* ]]
+  [[ "$output" != *"WARN project.volk.default_issue_source"* ]]
 }

@@ -1,12 +1,12 @@
 ---
 description: Fetch an issue from origin or fork and scaffold its workflow directory
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
-argument-hint: "<project> origin|fork <issue-num>"
+argument-hint: "<project> <issue-num> [--origin|--fork]"
 ---
 
 # /devagent:pull
 
-**Usage:** `/devagent:pull <project> origin|fork <issue-num>`
+**Usage:** `/devagent:pull <project> <issue-num> [--origin|--fork]`
 
 Runs `scripts/pull.sh` to fetch issue `<num>` from the configured
 backend, write `<devdoc>/<dir_prefix><num>/issue.md`, initialise
@@ -16,8 +16,25 @@ Implements workflow step 0 per spec §6.3.
 
 ## Behavior
 
-- `origin` reads `[project.<name>.issue_source]` from config.toml
-- `fork`   reads `[project.<name>.issue_source_fork]`
+- No flag reads `[project.<name>] default_issue_source` (`"origin"` or
+  `"fork"`), else the project's only configured source (its `backend` is
+  set), else `origin` (#1099).
+- `--origin` / `--fork` read `[project.<name>.issue_source]` /
+  `[project.<name>.issue_source_fork]` for this pull only; the flag may come
+  anywhere after `<project>`. A flag naming an unconfigured source exits 1
+  naming the section.
+- A bad `default_issue_source` (any other value, or a source with no
+  `backend`) stops a flagless pull with exit 1, naming the key;
+  `/devagent:doctor <project>` reports it too.
+- Usage errors exit 1 and print the usage line: both flags, a repeated flag,
+  `--origin=<value>`, a flag before `<project>`, an unknown flag, or extra
+  arguments.
+- On success pull prints one line on **stdout**, `pulled <id>` (for example
+  `pulled Issue-Fork-42`), the scaffolded dir's own id. It is a machine-read
+  contract: match the whole line against `^pulled (Issue-[A-Za-z-]*[0-9]+)$`.
+  Every other line pull prints, including
+  `pull.sh: pulled <repo>#<n> into <dir>`, goes to stderr. A failed or
+  refused pull prints nothing on stdout.
 - Existing `checklist.md` is preserved; `issue.md` is overwritten on refetch
 
 ## Per-issue tier (#537)
@@ -105,5 +122,5 @@ Execute, substituting positional args. Pass through `$NOTE` only as
 documentation — `pull` does not consume notes.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/pull.sh" <project> <origin|fork> <num>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/pull.sh" <project> <num> [--origin|--fork]
 ```

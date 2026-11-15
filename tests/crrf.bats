@@ -133,3 +133,10 @@ setup() { DOC="$(<"$F")"; }
   [[ "$DOC" == *'commands/redissue.md'* ]]
   [[ "$DOC" == *'commands/file.md'* ]]
 }
+
+@test "crrf files to the target commands/file.md documents, not a hard-coded origin (#1099)" {
+  run grep -nE 'file\.sh.*--target origin' "$F"
+  [ "$status" -eq 1 ]
+  [[ "$DOC" == *'default_issue_source'* ]]
+  [[ "$DOC" == *'--target <target>'* ]]
+}

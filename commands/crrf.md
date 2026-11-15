@@ -105,8 +105,12 @@ Config outranks conversation. crrf MUST NOT pass `--yes` to `file.sh`; the
 `[project.<name>.permissions].push_mr` gate is the only gate, and this
 command supersedes only the conversational "may I file?" round-trip.
 
+`<target>` is the default target `commands/file.md` documents: the project's
+`default_issue_source`, else its only configured issue source, else `origin`
+(#1099). On a bad key, stop and report it, as `commands/file.md` says.
+
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/file.sh" --slug <slug> --target origin
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/file.sh" --slug <slug> --target <target>
 ```
 
 `file.sh` returns **exit code 4** when the gate is closed. On 4: stop, do
