@@ -146,7 +146,7 @@ HOSTILE1122='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_P
   [[ "$t" == *'neither `run-suite.sh` nor `evidence-stamp.sh`'* ]]
   # Nothing in the section invokes either. The shell-safety paragraph QUOTES the
   # stamper's remedy (`$CLAUDE_PLUGIN_ROOT`, unbraced); an invocation is the braced form.
-  ! grep -qE 'bash "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/(run-suite|evidence-stamp)\.sh"' <<<"$t"
+  run grep -qE 'bash "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/(run-suite|evidence-stamp)\.sh"' <<<"$t"; [ "$status" -eq 1 ]
   grep -qE 'bash "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/preship-evidence\.sh"' <<<"$t"   # the selector reads invocations
   _stubroot
   STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - x' run bash -c "$(_recipe stop)"
@@ -207,7 +207,7 @@ _log_recipe() {
   local t; t="$(_preflight)"
   local p
   for p in 'prompt to look' 'correct the line' 'keep the value' 'name the commit' 'leave the line as written' \
-           'Never edit the `## Evidence` block'; do
+           'Never edit the `## Evidence` block' '**name the commit** as `` at `<sha>` `` (the form the check reads)'; do
     [[ "$t" == *"$p"* ]] || { echo "missing: $p"; return 1; }
   done
 }
@@ -286,4 +286,17 @@ _log_recipe() {
   run bash -c "$(_log_recipe 'could not run' '')"
   [ "$(cat "$LOG_REC")" = 'claims: could not run (exit 1): claims-check: COULD NOT RUN — no mr.md at `$(touch '"$SENT"')`; verifier dispatched' ]
   [ ! -e "$SENT" ]
+}
+
+@test "#1122 docs: the spec's step-17 row and section, FR-142 (in UC-3) and the CHANGELOG name the preflight" {
+  local root="$BATS_TEST_DIRNAME/.." spec req
+  spec="$root/docs/specs/2026-05-19-devagent-plugin-design.md"; req="$root/docs/requirements.md"
+  grep -qE '^\| 17 \|.*main-session preflight \(#1122\): `preship-evidence.sh --attestable-exit` stops pre-dispatch; `claims-check.sh` reports stale `mr.md` claims for correction; never passes' "$spec"
+  grep -qF 'claims-check.sh (#1122)' "$spec"                          # the tree
+  grep -qF 'All three pytest-invoking scripts use it' "$spec"
+  grep -qF 'stay with verification 3' "$spec"                          # the stated blind spot
+  grep -qF -- '- FR-142: Before dispatching the preship verifier, devagent stops on evidence the verifier would fail and reports MR-body claims that differ from the branch' "$req"
+  grep -E '^  \{needs: \[FR-1, ' "$req" | head -1 | grep -qF 'FR-142'
+  local unrel; unrel="$(sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' "$root/CHANGELOG.md")"
+  [[ "$unrel" == *'scripts/claims-check.sh'* ]] && [[ "$unrel" == *'--attestable-exit'* ]] && [[ "$unrel" == *'(#1122)'* ]]
 }

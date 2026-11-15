@@ -108,6 +108,7 @@ devAgent/
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
 │   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885),
+│   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
@@ -868,7 +869,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 14 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
 | 15 | `/devagent:review` | skill | `superpowers:requesting-code-review` (superpowers absent ⇒ the wrapper's own dispatched-review fallback + nudge, #541) |
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
-| 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
+| 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149); main-session preflight (#1122): `preship-evidence.sh --attestable-exit` stops pre-dispatch; `claims-check.sh` reports stale `mr.md` claims for correction; never passes |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream. On the local code backend (#1016) it pushes nothing, asks no `push_mr`, prints its plan at every ship and writes a local MR record (§9.2) |
 | 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_to_all_prs` only (#885 retired the `merge_mr` fallback; `doctor` warns on `merge_mr` without it); squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
 | 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head`; otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
@@ -1728,9 +1729,30 @@ the read and rewrite use bash builtins only, written through a temp file and one
 A `git diff` that fails while counting `files:` is reported (checker) or refused
 (stamper), never counted as 0.
 
+Before the verifier is dispatched, `/devagent:preship` runs a main-session preflight
+(#1122) between its prerequisite check and the head pin. It is opt-in by construction:
+only that command runs it, and the verifier, its dispatch contract and its prompt are
+unchanged. First `preship-evidence.sh --attestable-exit`: exit 4 (every failure is an
+attestation that was not supplied, which the verifier attests) continues like 0, and any
+other failure stops the step `[!]` before any dispatch, with no `preship.md` (an older one
+is moved to `analysis/<date>-<HHMMSS>-preship-superseded.md`). Then the read-only
+`scripts/claims-check.sh <project> <Issue-N>`, whose header is the home of its grammar,
+kinds and exits (0 none, 3 mismatches, 2 usage, 1 could not run, 11 quarantine). It reads
+seven kinds of `mr.md` claim (per-file bats and pytest counts, suite totals, commit and
+file counts, cited commits, the sign-off box) and compares each with git, the tree's
+`@test` blocks, a bounded pytest collection or `mr.md`'s own Evidence `suite:` line. The
+session treats each report as a prompt to look: it corrects a line about the branch now,
+keeps an earlier run's figure and names its commit, or leaves the line as written, never
+edits the `## Evidence` block, re-runs at most three times, and logs every outcome in one
+spelling. The preflight never passes the step: a check it cannot run is logged and the
+verifier is dispatched anyway. Blind spot: claims the grammar does not recognise, tokens
+that resolve to no single local commit, and a pytest count measured with an interpreter
+other than the suite run's are NOT CHECKED, and stay with verification 3.
+
 Interpreter resolution is single-sourced in `scripts/lib/python-interp.sh`
-(`python_interp_resolve <primary_tree> [<fallback_tree>]`, a setter-global). Both
-pytest-invoking scripts use it: `run-suite.sh` and `born-red.sh`. born-red had the same
+(`python_interp_resolve <primary_tree> [<fallback_tree>]`, a setter-global). All three pytest-invoking scripts use it: `run-suite.sh`, `born-red.sh` and
+`claims-check.sh` (#1122, its per-file collection, which compares the interpreter it
+resolves with the suite run's `python:` line and skips the count when they differ). born-red had the same
 defect in a more dangerous form — `_run_pytest` reads a non-zero exit as "RED at
 baseline", so on a venv project every new test classified `baseline=RED` and the gate
 passed VACUOUSLY. It now also refuses outright when the resolved interpreter cannot run

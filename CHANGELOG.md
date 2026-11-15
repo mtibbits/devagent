@@ -16,6 +16,22 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: preship checks evidence and MR-body claims before the verifier
+  (#1122).** `/devagent:preship` now runs a main-session preflight before the
+  head pin. `scripts/preship-evidence.sh --attestable-exit` (a new opt-in
+  flag: exit 4 when every failure is an attestation not supplied) stops the
+  step `[!]` before any dispatch on any other failure, and moves an older
+  `preship.md` aside. The new read-only `scripts/claims-check.sh <project>
+  <Issue-N>` reports `mr.md` claims that differ from the branch (bats and
+  pytest per-file counts, suite totals, commit and file counts, cited
+  commits, the sign-off box), and the session may now edit `mr.md` before the
+  verifier reads it: it corrects, names the commit, or leaves a line as
+  written, and logs each. The verifier and its dispatch contract are
+  unchanged. `core-draft-mr` states the count forms and how to derive them;
+  `run-suite.sh`'s child env list moved to `SUITE_CHILD_UNSET` in
+  `scripts/lib/config.sh`; `scripts/lib/baseline.sh` gains the no-fetch
+  `baseline_ref_name`.
+
 - **Added: the local code backend (#1016).** `code_source.backend = "local"`
   ships without a forge: nothing is pushed and `push_mr` is not asked; ship
   prints its plan and records a local MR under the source repo's git dir,

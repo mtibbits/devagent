@@ -300,7 +300,7 @@ _hasnt() { ! grep -qF -- "$1" <<<"$output" || { echo "unexpected: $1"; echo "$ou
     _has "mr.md:4: NOT CHECKED bats-count: \`-rf.bats\` (4 tests) — path refused (leading -)"
     _has "mr.md:5: MISMATCH bats-count:"; _has "mr.md:6: MISMATCH bats-count:"     # the survivors
     [ "$(_summary)" = "$(_sum 2 0 0 0 0 0 0 2 4)" ]
-    ! grep -qE 'outside|u\.bats|-rf' "$GITLOG"
+    run grep -qE 'outside|u\.bats|-rf' "$GITLOG"; [ "$status" -eq 1 ]   # SC2314: never a bare !
     grep -qF ':tests/f.bats' "$GITLOG"                                       # the selector sees paths
 }
 
@@ -648,7 +648,7 @@ _real_pytest() {
     _has 'mr.md:2: NOT CHECKED pytest-count: `tests/test_u.py` (3 tests) — not tracked at HEAD'
     _has 'mr.md:3: NOT CHECKED pytest-count: `-test_x.py` (3 tests) — path refused (leading -)'
     _has 'mr.md:4: MISMATCH pytest-count:'
-    ! grep -qE 'test_o|test_u|test_x' "$PYLOG"
+    run grep -qE 'test_o|test_u|test_x' "$PYLOG"; [ "$status" -eq 1 ]
     [ "$(_collections)" -eq 1 ]
 }
 
@@ -948,7 +948,7 @@ _pair() {
     _ccr
     [ "$status" -eq 0 ]
     _has 'mr.md:1: NOT CHECKED bats-count: `tests/f.bats` (4 tests) — measured at --all'
-    ! grep -q -- '--all' "$GITLOG"
+    run grep -q -- '--all' "$GITLOG"; [ "$status" -eq 1 ]
     unset DEVAGENT_GIT
     _side dev/x
     echo dev/x > "$DEVDOC_DIR/Issue-1/.devagent-baseline"
