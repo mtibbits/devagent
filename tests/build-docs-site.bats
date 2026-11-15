@@ -1782,3 +1782,148 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   js_row 0 '' 'var r = ++i; var s = /ab+c/.test(t); var u = "assets/x";'
   js_row 0 '' 'while (i --> 0) { s = "assets/x"; }'
 }
+
+# ------------------------------------------------ FAMILY: the shared family files (#996)
+#
+# scripts/docs-site/static/ holds the family files other sites copy byte for
+# byte. tests/lib/family-check.py reads them (and page.html) and prints one
+# "family-check: <file>:<line>: <reason>" line per violation, then
+# "family-check: <sub>: <N> subjects, <V> violations"; every leg pins the
+# subject count too, so a check that silently reads nothing cannot pass.
+
+FAMILY_STATIC="$PLUGIN_ROOT/scripts/docs-site/static"
+FAMILY_CHECK="$PLUGIN_ROOT/tests/lib/family-check.py"
+PAGE_TMPL="$PLUGIN_ROOT/scripts/docs-site/page.html"
+
+fc() { python3 -I -X utf8 "$FAMILY_CHECK" "$@"; }
+
+# fc_count <sub> — set fc_n to the <N> of the "family-check: <sub>: <N>
+# subjects, 0 violations" line in $output; fails when there is no clean one.
+fc_count() {
+  [[ $output =~ family-check:\ $1:\ ([0-9]+)\ subjects,\ 0\ violations ]] || { echo "no clean $1 count line in: $output" >&2; return 1; }
+  fc_n="${BASH_REMATCH[1]}"
+}
+
+# fc_row <want> <token> <sub> <file>... — family-check <sub> on planted files.
+# want 1: status 1 and output holding <token>. want 0: status 0 and a clean
+# count line.
+fc_row() {
+  local want="$1" token="$2"; shift 2
+  run fc "$@"
+  [ "$status" -eq "$want" ] || { echo "family-check $* : status $status, want $want: $output" >&2; return 1; }
+  if [ "$want" -eq 1 ]; then
+    [[ $output == *"$token"* ]] || { echo "family-check $* : no '$token' in: $output" >&2; return 1; }
+  else
+    [[ $output == *", 0 violations"* ]] || { echo "family-check $* : not clean: $output" >&2; return 1; }
+  fi
+}
+
+# family_versioned — the files whose line 1 names the family version; each
+# task that adds a family file adds it here.
+family_versioned() {
+  printf '%s\n' "$FAMILY_STATIC/family.css"
+}
+
+@test "build-docs-site: family files — each header names the same family version" {
+  local f=()
+  mapfile -t f < <(family_versioned)
+  [ "${#f[@]}" -ge 1 ]
+  run fc header "${f[@]}"
+  [ "$status" -eq 0 ]
+  fc_count header
+  [ "$fc_n" -eq "${#f[@]}" ]
+}
+
+@test "build-docs-site: family files — the palette reads per theme (light and dark sets)" {
+  run fc tokens "$FAMILY_STATIC/family.css"
+  [ "$status" -eq 0 ]
+  fc_count tokens
+  [ "$fc_n" -eq 12 ]
+}
+
+@test "build-docs-site: family files — page.html holds no token, colour literal or setting" {
+  run fc literals "$FAMILY_STATIC/family.css" "$PAGE_TMPL"
+  [ "$status" -eq 0 ]
+  fc_count literals
+  [ "$fc_n" -ge 24 ]
+}
+
+@test "build-docs-site: family files — WCAG AA for the listed pairs, both themes" {
+  run fc contrast "$FAMILY_STATIC/family.css" "$PAGE_TMPL"
+  [ "$status" -eq 0 ]
+  fc_count contrast
+  # 2 themes x (ink, accent-ink, ink-soft) x (ground, worst grid pixel, nav-bg)
+  [ "$fc_n" -eq 18 ]
+  [ "$(printf '%s\n' "${lines[@]}" | grep -cE '^(light|dark) (ink|accent-ink|ink-soft)/(ground|grid|nav-bg) #[0-9A-F]{6} #[0-9A-F]{6} [0-9]+\.[0-9]{2}$')" -eq 18 ]
+}
+
+@test "build-docs-site: family-check — every subcommand reddens on a planted violation" {
+  local d="$BATS_TEST_TMPDIR" css="$FAMILY_STATIC/family.css"
+  # header: no version; two different versions; one version passes
+  printf '/* family v1.0: a */\n' > "$d/a.css"
+  printf '/* family v1.1: b */\n' > "$d/b.css"
+  printf '/* no version */\n' > "$d/c.css"
+  fc_row 1 'c.css:1: line 1 names no family version' header "$d/c.css"
+  fc_row 1 'family version v1.1 differs from v1.0' header "$d/a.css" "$d/b.css"
+  fc_row 0 '' header "$d/a.css" "$d/a.css"
+  # tokens: a dark twin missing; a theme literal inside @media; an active
+  # token that is not var()
+  grep -v -e '--family-dark-line:' "$css" > "$d/t1.css"
+  fc_row 1 'dark twin missing: --family-light-line' tokens "$d/t1.css"
+  { cat "$css"; printf '@media print { :root { --family-light-x: #000000; } }\n'; } > "$d/t2.css"
+  fc_row 1 '--family-light-x is defined inside @media print' tokens "$d/t2.css"
+  sed 's/--family-ink: var(--family-light-ink);/--family-ink: #000000;/' "$css" > "$d/t3.css"
+  ! cmp -s "$css" "$d/t3.css"
+  fc_row 1 '--family-ink is not var(--family-light-ink) at the top level' tokens "$d/t3.css"
+  # literals: an uppercase hex, a spaced rgba(), a custom property, a
+  # non-family var(), an undefined family var(); a family var() passes
+  local lc rg gr
+  lc="$(grep -m1 -oE -e '--family-light-ink: #[0-9A-Fa-f]{6}' "$css")"
+  lc="${lc##* }"
+  [ -n "$lc" ]
+  printf '<style>\nbody { color: %s; }\n</style>\n' "${lc^^}" > "$d/p1.html"
+  fc_row 1 "p1.html:2: holds family colour ${lc,,}" literals "$css" "$d/p1.html"
+  rg="$(grep -m1 -oE -e '--family-light-grid-minor: rgba\([^)]*\)' "$css")"
+  rg="${rg#*: }"
+  [ -n "$rg" ]
+  printf '<style>\nmain { color: %s; }\n</style>\n' "$(printf '%s' "$rg" | sed 's/(/( /; s/,/ , /g; s/)/ )/')" > "$d/p2.html"
+  fc_row 1 'holds family colour rgba(' literals "$css" "$d/p2.html"
+  printf '<style>\n:root { --ink: red; }\n</style>\n' > "$d/p3.html"
+  fc_row 1 'p3.html:2: defines custom property --ink' literals "$css" "$d/p3.html"
+  printf '<style>\nbody { color: var(--ink); }\n</style>\n' > "$d/p4.html"
+  fc_row 1 'p4.html:2: var(--ink) is not a family token' literals "$css" "$d/p4.html"
+  printf '<style>\nbody { color: var(--family-nope); }\n</style>\n' > "$d/p5.html"
+  fc_row 1 'var(--family-nope) is not defined in' literals "$css" "$d/p5.html"
+  printf '<style>\nbody { color: var(--family-ink); }\n</style>\n' > "$d/p6.html"
+  fc_row 0 '' literals "$css" "$d/p6.html"
+  # contrast: ink-soft equal to ground; text on --family-board; body may
+  # paint the board
+  gr="$(grep -m1 -oE -e '--family-light-ground: #[0-9A-Fa-f]{6}' "$css")"
+  gr="${gr##* }"
+  [ -n "$gr" ]
+  sed -E "s/(--family-light-ink-soft: )#[0-9A-Fa-f]{6}/\\1$gr/" "$css" > "$d/c1.css"
+  ! cmp -s "$css" "$d/c1.css"
+  fc_row 1 'light ink-soft on ground is 1.00:1, below 4.5:1' contrast "$d/c1.css"
+  printf '<style>\nnav { background: var(--family-board); }\n</style>\n' > "$d/b1.html"
+  fc_row 1 'b1.html:2: nav paints --family-board behind text' contrast "$css" "$d/b1.html"
+  printf '<style>\nbody { background: var(--family-board); }\n</style>\n' > "$d/b2.html"
+  fc_row 0 '' contrast "$css" "$d/b2.html"
+  # scope: a bare nav rule, a p under a family class, a family class;
+  # scoped selectors pass
+  printf '%s\n' '<header class="family-topbar"><nav><ul class="family-sites"><li>{{live:a|A}}</li></ul></nav></header>' > "$d/top.html"
+  printf '%s\n' '<div class="family-footer"><p><button type="button">x</button></p></div>' > "$d/foot.html"
+  printf '<style>\nnav { width: 1px; }\n</style>\n' > "$d/s1.html"
+  fc_row 1 "s1.html:2: 'nav' reaches family markup (<nav> in" scope "$d/s1.html" "$d/top.html" "$d/foot.html"
+  printf '<style>\n.family-footer p { margin: 0; }\n</style>\n' > "$d/s2.html"
+  fc_row 1 "'.family-footer p' reaches family markup" scope "$d/s2.html" "$d/top.html" "$d/foot.html"
+  printf '<style>\n.family-coming { color: red; }\n</style>\n' > "$d/s3.html"
+  fc_row 1 "'.family-coming' styles family markup" scope "$d/s3.html" "$d/top.html" "$d/foot.html"
+  printf '%s\n' '<style>' 'nav[aria-label="Pages"] a:hover { color: red; }' 'article p, main > footer > a { margin: 0; }' \
+    '@media (prefers-reduced-motion: no-preference) { .family-motion nav[aria-label="Pages"] a { color: red; } }' '</style>' > "$d/s4.html"
+  fc_row 0 '' scope "$d/s4.html" "$d/top.html" "$d/foot.html"
+  # usage
+  run fc nosuch "$css"
+  [ "$status" -eq 2 ]
+  run fc tokens
+  [ "$status" -eq 2 ]
+}

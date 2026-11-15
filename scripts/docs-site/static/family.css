@@ -1,0 +1,148 @@
+/* family v1.0: family.css — palette (light and dark sets), type scale, top bar and footer styles */
+/*
+ * One of the four family files (family.css, family.js, family-topbar.html,
+ * family-footer.html) that devagent, Gantry and the Journeyman course share.
+ * Copy them byte for byte; never edit a copy. They share one family version,
+ * named on line 1 of each (D2 in devagent#996): a minor bump (v1.1) is
+ * additive, a major bump (v2.0) breaks a name, the storage key, the stored
+ * value grammar, the placeholder syntax or the live-settings format.
+ *
+ * The palette, light and dark: graph paper on a drafting board in light mode,
+ * a blueprint in dark mode (the look approved on devagent#462).
+ *   - Each colour has a light literal (--family-light-<s>) and a dark literal
+ *     (--family-dark-<s>), so a consumer can read either theme on its own.
+ *   - The active set (--family-<s>) points at the light set, and at the dark
+ *     set under prefers-color-scheme: dark. Use the active set in rules.
+ *   Suffixes: board ground ink ink-soft accent accent-ink code-bg line nav-bg
+ *   grid-minor grid-major sheet-shadow.
+ *   No text sits on --family-board; only html and body paint it.
+ *
+ * Type: --family-sans, --family-mono (system fonts only: nothing is fetched),
+ * and --family-size-body, -small, -h1, -h2, -h3.
+ *
+ * Motion: every animation or transition applies only under the
+ * family-motion class, which family.js sets on <html>. With scripts off,
+ * nothing moves.
+ */
+:root {
+  --family-light-board: #C9C2B0;
+  --family-light-ground: #F8F7F0;
+  --family-light-ink: #23282E;
+  --family-light-ink-soft: #4C535E;
+  --family-light-accent: #2F5F8F;
+  --family-light-accent-ink: #27517B;
+  --family-light-code-bg: #EEF0F3;
+  --family-light-line: #C7D3DE;
+  --family-light-nav-bg: #EFEDE2;
+  --family-light-grid-minor: rgba(47, 95, 143, 0.10);
+  --family-light-grid-major: rgba(47, 95, 143, 0.22);
+  --family-light-sheet-shadow: 0 2px 14px rgba(35, 40, 46, 0.22);
+
+  --family-dark-board: #0B1420;
+  --family-dark-ground: #16283E;
+  --family-dark-ink: #D9E4F0;
+  --family-dark-ink-soft: #AABBCE;
+  --family-dark-accent: #82B6E4;
+  --family-dark-accent-ink: #9CC6EC;
+  --family-dark-code-bg: #1D3450;
+  --family-dark-line: #2E4A6B;
+  --family-dark-nav-bg: #101E30;
+  --family-dark-grid-minor: rgba(217, 228, 240, 0.06);
+  --family-dark-grid-major: rgba(217, 228, 240, 0.13);
+  --family-dark-sheet-shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
+
+  --family-board: var(--family-light-board);
+  --family-ground: var(--family-light-ground);
+  --family-ink: var(--family-light-ink);
+  --family-ink-soft: var(--family-light-ink-soft);
+  --family-accent: var(--family-light-accent);
+  --family-accent-ink: var(--family-light-accent-ink);
+  --family-code-bg: var(--family-light-code-bg);
+  --family-line: var(--family-light-line);
+  --family-nav-bg: var(--family-light-nav-bg);
+  --family-grid-minor: var(--family-light-grid-minor);
+  --family-grid-major: var(--family-light-grid-major);
+  --family-sheet-shadow: var(--family-light-sheet-shadow);
+
+  --family-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --family-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --family-size-body: 1rem;
+  --family-size-small: 0.85rem;
+  --family-size-h1: 1.9rem;
+  --family-size-h2: 1.25rem;
+  --family-size-h3: 1.05rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --family-board: var(--family-dark-board);
+    --family-ground: var(--family-dark-ground);
+    --family-ink: var(--family-dark-ink);
+    --family-ink-soft: var(--family-dark-ink-soft);
+    --family-accent: var(--family-dark-accent);
+    --family-accent-ink: var(--family-dark-accent-ink);
+    --family-code-bg: var(--family-dark-code-bg);
+    --family-line: var(--family-dark-line);
+    --family-nav-bg: var(--family-dark-nav-bg);
+    --family-grid-minor: var(--family-dark-grid-minor);
+    --family-grid-major: var(--family-dark-grid-major);
+    --family-sheet-shadow: var(--family-dark-sheet-shadow);
+  }
+}
+
+/* The sheet: graph paper (light) or a blueprint grid (dark), as a texture. */
+.family-sheet {
+  background-color: var(--family-ground);
+  background-image:
+    linear-gradient(var(--family-grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--family-grid-major) 1px, transparent 1px),
+    linear-gradient(var(--family-grid-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--family-grid-minor) 1px, transparent 1px);
+  background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+}
+
+/* The top bar and the shared footer sit on --family-nav-bg. */
+.family-topbar,
+.family-footer {
+  background: var(--family-nav-bg);
+  color: var(--family-ink);
+  font-family: var(--family-mono);
+  font-size: var(--family-size-small);
+  line-height: 1.5;
+}
+.family-topbar { border-bottom: 1px solid var(--family-line); }
+.family-topbar nav { margin: 0; padding: 0.5rem 1.25rem; }
+.family-footer {
+  border: 1px solid var(--family-line);
+  border-radius: 2px;
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.9rem;
+}
+.family-sites {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.family-sites li { margin: 0; }
+.family-sites li + li::before { content: " \00B7 "; white-space: pre; color: var(--family-ink); }
+.family-sites a {
+  color: var(--family-accent-ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.family-sites a:focus-visible { outline: 2px solid var(--family-accent); outline-offset: 2px; }
+.family-coming { color: var(--family-ink-soft); }
+.family-coming small { font-size: inherit; font-style: italic; }
+.family-footer p { margin: 0.5rem 0 0; }
+.family-motion-toggle {
+  font: inherit;
+  color: var(--family-ink);
+  background: var(--family-ground);
+  border: 1px solid var(--family-line);
+  border-radius: 3px;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+.family-motion-toggle:disabled { color: var(--family-ink-soft); cursor: default; }
+.family-motion-toggle:focus-visible { outline: 2px solid var(--family-accent); outline-offset: 2px; }
