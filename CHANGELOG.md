@@ -23,7 +23,7 @@ the README's "Versioning & releases" section has the release procedure.
   stubs linking there, and a short Reference page in the site's nav links them,
   the design spec and `docs/requirements.md`. `tests/docs-site.bats` now pins
   facts rather than page wording: its checks live in
-  `tests/lib/docs-site-checks.bash`, every fact has a mutation leg, and the page
+  `tests/lib/docs-site-checks.bash`, every check has a mutation leg, and the page
   set is the index's own list.
 - **Added: capture-time model-tier proposals (#1101).** `/devagent:capture`
   now writes `Captures/<slug>/tiers.toml` for an issue draft whose body argues

@@ -9,7 +9,7 @@
 # live in tests/lib/docs-site-checks.bash as functions that take their subject
 # files as arguments (0 holds, 1 broken, 2 cannot run).
 #
-# Every fact has a MUTATION leg below: it copies the subject to a temp dir,
+# Every check has a MUTATION leg below: it copies the subject to a temp dir,
 # shows the unbroken copy passes (the control), breaks the fact, proves the edit
 # took, and expects the SAME function to return exactly 1 with a reason.
 #
@@ -265,6 +265,11 @@ temp_root() {
   t="$(temp_root "${REFERENCE_DOCS[@]}")"
   mkdir -p "$t/docs"; : >"$t/docs/nope.md"
   holds check_reference_stubs "$d" "$t" "${REFERENCE_DOCS[@]}"
+  # A blob_base line the scrape cannot read is "cannot run", named as such.
+  BLOB_BASE='${DOCS_BLOB_BASE:-x}'
+  run check_reference_stubs "$d" "$t" "${REFERENCE_DOCS[@]}"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"cannot read blob_base"* ]]
 }
 
 @test "mutation: reference links" {
@@ -391,6 +396,11 @@ temp_root() {
   local page readme
   page="$(fresh "$WEB/install.md")"; readme="$(fresh "$README")"
   holds check_prereqs_trace "$page" "$readme"
+  # A reflow that moves a tool onto the contributors bullet's second line holds.
+  edit "$page" 'need **`bats`** and' $'need\n  **`bats`** and'
+  grep -qx -- '  \*\*`bats`\*\* and.*' "$page"
+  holds check_prereqs_trace "$page" "$readme"
+  page="$(fresh "$WEB/install.md")"
   edit "$readme" '`jq`' 'jq'
   breaks '`jq`' check_prereqs_trace "$page" "$readme"
   readme="$(fresh "$README")"
@@ -484,4 +494,8 @@ temp_root() {
   c="$(fresh "$CONFIG_DOC")"
   edit "$w" 'WAITING' 'PENDING'
   breaks 'WAITING' check_merge_keys "$skel" "$c" "$cl" "$w"
+  # The skeleton half: its documented default gone.
+  w="$(fresh "$WEB/workflow.md")"; skel="$(fresh "$skel")"
+  drop "$skel" '# merge_checks = "required"'
+  breaks 'merge_checks default' check_merge_keys "$skel" "$c" "$cl" "$w"
 }

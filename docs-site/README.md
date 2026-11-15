@@ -59,7 +59,7 @@ things that must stay true wherever they are written (the install commands
 match README, the workflow table derives from the checklist template, every
 backend verb is documented, the version homes agree), never a page's
 sentence. The checks are functions in `tests/lib/docs-site-checks.bash`, each
-taking its subject files, and every fact has a mutation leg that breaks a copy
+taking its subject files, and every check has a mutation leg that breaks a copy
 and watches the same check fail. The test file's `@test` names list the facts; the
 library's PAGE PINS block lists the few that can only be checked through a
 sentence today, each with the issue that owns its page. Anything the suite

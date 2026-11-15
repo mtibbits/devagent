@@ -61,8 +61,13 @@ REFERENCE_LINKS=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-de
 # The forge home of a repo file: the build's own default --blob-base, read from
 # scripts/build-docs-site.sh so the two cannot drift.
 BLOB_BASE="$(sed -n 's/^blob_base="\(.*\)"$/\1/p' "$(dirname "${BASH_SOURCE[0]}")/../../scripts/build-docs-site.sh")"
-[[ "$BLOB_BASE" == https://*/ ]] \
-  || echo "docs-site-checks: cannot read blob_base=\"https://.../\" from scripts/build-docs-site.sh (got '$BLOB_BASE')" >&2
+
+# _blob_base_ok — return 2 (naming the scrape) unless BLOB_BASE read as a URL.
+_blob_base_ok() {
+  [[ "$BLOB_BASE" == https://*/ ]] && return 0
+  echo "cannot read blob_base=\"https://.../\" from scripts/build-docs-site.sh (got '$BLOB_BASE')" >&2
+  return 2
+}
 
 # _need <file>... — return 2 (with a reason) unless every file is readable.
 _need() {
@@ -148,6 +153,7 @@ check_page_set() {
 check_reference_stubs() {
   local dir="$1" root="$2" d want n old home rel; shift 2
   [ "$#" -gt 0 ] || { echo "check_reference_stubs: no documents" >&2; return 2; }
+  _blob_base_ok || return 2
   _need "$dir/moved.txt" || return 2
   for d in "$@"; do
     want="$(basename "$d" .md) $BLOB_BASE$d"
