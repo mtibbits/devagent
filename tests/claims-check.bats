@@ -232,7 +232,7 @@ _hasnt() { ! grep -qF -- "$1" <<<"$output" || { echo "unexpected: $1"; echo "$ou
     _tests tests/f.bats 27; _commit f27
     _body "- \`tests/f.bats\` (26 tests) at ${old:0:7}"
     _ccr
-    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 1 0 0 0 0 0 0 0 0)" ]
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 1 0 0 0 0 1 0 0 0)" ]       # the sha is also cited (Task 9)
     _body "- \`tests/f.bats\` (25 tests) at ${old:0:7}"
     _ccr
     [ "$status" -eq 3 ]
@@ -265,7 +265,8 @@ _hasnt() { ! grep -qF -- "$1" <<<"$output" || { echo "unexpected: $1"; echo "$ou
     [ "$status" -eq 0 ] || { echo "rc=$status"; echo "$output"; return 1; }
     _has 'mr.md:1: NOT CHECKED bats-count: `tests/f.bats` (4 tests) — deadbee resolves to no single local commit'
     _has 'mr.md:2: NOT CHECKED bats-count: `tests/f.bats` (4 tests) — measured at the'
-    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 2)" ]
+    _has 'mr.md:1: NOT CHECKED cited-commit: deadbee — deadbee resolves to no single local commit'   # Task 9
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 3)" ]
 }
 
 @test "a file absent at the at-commit → NOT CHECKED \"absent at <sha12>\"" {
@@ -274,7 +275,7 @@ _hasnt() { ! grep -qF -- "$1" <<<"$output" || { echo "unexpected: $1"; echo "$ou
     _ccr
     [ "$status" -eq 0 ] || { echo "rc=$status"; echo "$output"; return 1; }
     _has "mr.md:1: NOT CHECKED bats-count: \`tests/f.bats\` (4 tests) — absent at ${BASELINE:0:12}"
-    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 1)" ]
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 1 0 0 1)" ]                         # the sha is also cited (Task 9)
 }
 
 @test "a failed rev-parse other than rc 1 (shim rc 3) → 1" {
@@ -368,9 +369,15 @@ _hasnt() { ! grep -qF -- "$1" <<<"$output" || { echo "unexpected: $1"; echo "$ou
           '0123456789abcdef0123456789abcdef01234567' '## Notes' '- `tests/f.bats` (4 tests)'
     _ccr
     [ "$status" -eq 3 ]
-    _hasnt 'mr.md:4:'
+    _hasnt 'mr.md:4:'; _hasnt 'mr.md:7:'
     _has 'mr.md:9: MISMATCH bats-count:'                       # the same line after the block
     [ "$(_summary)" = "$(_sum 1 0 0 0 0 0 0 1 0)" ]
+    # Controls (Tasks 8 and 9): the bogus 40-hex and the files: line, outside the block, are read.
+    _body '- 0123456789abcdef0123456789abcdef01234567' "suite: 9/9 bats @ $HEAD_SHA" '- 99 files changed'
+    _ccr
+    _has 'mr.md:1: NOT CHECKED cited-commit: 0123456789abcdef0123456789abcdef01234567'
+    _has "mr.md:2: NOT CHECKED suite-total: 9/9 bats — measured at $HEAD_SHA"
+    _has 'mr.md:3: MISMATCH files-count: 99 files changed'
 }
 
 @test "fenced and commented lines are not scanned" {
@@ -612,12 +619,15 @@ _real_pytest() {
 @test "DEVAGENT_PYTEST_PYTHON set to a non-executable → NOT CHECKED \"override not executable\"; other reports still print, rc 3 not 1" {
     _py_fixture; _tests tests/f.bats 5; _commit f
     export DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/no-such-python"
-    _body '- `tests/test_p.py` (3 tests)' '- `tests/f.bats` (4 tests)'
+    _side
+    _body '- `tests/test_p.py` (3 tests)' '- `tests/f.bats` (4 tests)' '- On this branch: 9 commits.' "- From \`${SIDE:0:9}\`."
+    git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$HEAD_SHA"
     _ccr
     [ "$status" -eq 3 ]
     _has "mr.md:1: NOT CHECKED pytest-count: \`tests/test_p.py\` (3 tests) — override not executable: $DEVAGENT_TMP/no-such-python"
     _has 'mr.md:2: MISMATCH bats-count: `tests/f.bats` (4 tests) — claimed 4, found 5 (at HEAD)'
-    [ "$(_summary)" = "$(_sum 1 0 0 0 0 0 0 1 1)" ]
+    _has 'mr.md:3: MISMATCH commit-count: 9 commits'; _has 'mr.md:4: MISMATCH cited-commit:'
+    [ "$(_summary)" = "$(_sum 1 0 0 1 0 1 0 3 1)" ]
 }
 
 @test "stub argv holds ./<tracked path> and no other mr.md token" {
@@ -711,7 +721,9 @@ _bodyev() { _body "$@" '## Evidence' "suite: $SUITE" 'files: 1 changed'; }
     _has "mr.md:4: NOT CHECKED suite-total: 99/100 bats — measured at $(_head)"
     _has 'mr.md:5: NOT CHECKED suite-total: 720 passed — measured at HEAD'
     _has 'mr.md:6: NOT CHECKED suite-total: 21 pytest — measured at HEAD'
-    [ "$(grep -c 'NOT CHECKED' <<<"$output")" -eq 6 ]
+    [ "$(grep -c 'NOT CHECKED suite-total' <<<"$output")" -eq 6 ]
+    [ "$(grep -c 'NOT CHECKED cited-commit: abc1234' <<<"$output")" -eq 3 ]   # Task 9: the tokens are cited
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 1 0 0 9)" ]
 }
 
 @test "T1: '#466 pytest' and 'bats 1321/1321, pytest 298' read no total" {
@@ -760,7 +772,7 @@ _bodyev() { _body "$@" '## Evidence' "suite: $SUITE" 'files: 1 changed'; }
     _ccr
     [ "$status" -eq 3 ]
     _has 'mr.md:1: MISMATCH suite-total: 99/100 bats'; _has 'mr.md:2: MISMATCH suite-total: 99/100 bats'
-    [ "$(_summary)" = "$(_sum 0 0 2 0 0 0 0 2 0)" ]
+    [ "$(_summary)" = "$(_sum 0 0 2 0 0 0 0 2 1)" ]                         # (abc1234) is cited (Task 9)
 }
 
 @test "delta D1: S3 against 'suite: none @ <head>' → NOT CHECKED; S1 against a pytest-only line and S2 against a bats-only line → NOT CHECKED" {
@@ -857,5 +869,121 @@ _bodyev() { _body "$@" '## Evidence' "suite: $SUITE" 'files: 1 changed'; }
     _has 'mr.md:3: NOT CHECKED files-count: 3 files changed — measured at HEAD'
     _has "mr.md:4: NOT CHECKED files-count: 3 files changed — an earlier run ('previously')"
     _has "mr.md:5: NOT CHECKED files-count: 3 files changed — a partial run ('partial')"
-    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 5)" ]
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 6)" ]                         # abc1234 is cited (Task 9)
+}
+
+# ---- Task 9: cited commits, amended (U4) ---------------------------------------------
+# default_baseline is origin/main (helpers/common); the ref is a LOCAL refs/remotes/origin/main
+# set by update-ref, so nothing touches a network.
+# _side - a commit on a side branch that HEAD does not contain; SIDE is its sha.
+_side() {
+    git -C "$SOURCE_DIR" checkout -q -b "${1:-side}"
+    echo side > "$SOURCE_DIR/side.txt"; _commit side
+    SIDE="$(_head)"
+    git -C "$SOURCE_DIR" checkout -q main
+}
+# _pair - two commit objects whose ids share the prefix 25e9e3a (imPlan Pre-plan inputs).
+_pair() {
+    local n
+    for n in 20700 42160; do
+        printf 'tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nauthor A <a@b> 0 +0000\ncommitter A <a@b> 0 +0000\n\nm%s\n' "$n" \
+            | git -C "$SOURCE_DIR" hash-object -t commit -w --stdin >/dev/null
+    done
+}
+
+@test "an unknown token is NOT CHECKED \"resolves to no single local commit\"" {
+    _body '- Fixed in `abcdef1`.'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED cited-commit: abcdef1 — abcdef1 resolves to no single local commit'
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 1)" ]
+    _body "- Fixed in \`${BASELINE:0:7}\`."                                    # the survivor: a commit on HEAD
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 1 0 0 0)" ]
+}
+
+@test "an ambiguous prefix (25e9e3a) is NOT CHECKED; a blob id and a tree id are NOT CHECKED" {
+    _pair
+    local blob tree; blob="$(echo x | git -C "$SOURCE_DIR" hash-object -w --stdin)"; tree="$(git -C "$SOURCE_DIR" rev-parse 'HEAD^{tree}')"
+    _body '- See `25e9e3a`.' "- Blob \`$blob\`." "- Tree \`$tree\`."
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED cited-commit: 25e9e3a — 25e9e3a resolves to no single local commit'
+    _has "mr.md:2: NOT CHECKED cited-commit: $blob — $blob resolves to no single local commit"
+    _has "mr.md:3: NOT CHECKED cited-commit: $tree — $tree resolves to no single local commit"
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 3)" ]
+}
+
+@test "a local side-branch commit reachable from neither → MISMATCH naming the ref; from the ref or HEAD → not reported" {
+    _side
+    git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$HEAD_SHA"
+    _body "- Cherry-picked from ${SIDE:0:9}."
+    _ccr
+    [ "$status" -eq 3 ]
+    _has "mr.md:1: MISMATCH cited-commit: ${SIDE:0:9} — claimed a commit on the branch or origin/main, found local commit reachable from neither HEAD nor origin/main (origin/main)"
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 1 0 1 0)" ]
+    git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$SIDE"         # now reachable from the ref only
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 1 0 0 0)" ]
+    _body "- Built on ${HEAD_SHA:0:9}."                                        # reachable from HEAD
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 1 0 0 0)" ]
+}
+
+@test "a SHA inside a URL is not recognised; ref unresolvable and commit not in HEAD → NOT CHECKED" {
+    _side
+    _body "- See https://github.com/o/r/commit/$SIDE for it."
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$ZERO_SUM" ]
+    _body "- Cherry-picked from \`${SIDE:0:9}\`."                               # no refs/remotes/origin/main here
+    _ccr
+    [ "$status" -eq 0 ]
+    _has "mr.md:1: NOT CHECKED cited-commit: ${SIDE:0:9} — not reachable from HEAD, and origin/main does not resolve here"
+}
+
+@test "at \`--all\` → NOT CHECKED, absent from the git argv log; .devagent-baseline names the ref" {
+    _tests tests/f.bats 5; _commit f
+    _gitshim no-such-subcommand 3
+    _body '- `tests/f.bats` (4 tests) at `--all`'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED bats-count: `tests/f.bats` (4 tests) — measured at --all'
+    ! grep -q -- '--all' "$GITLOG"
+    unset DEVAGENT_GIT
+    _side dev/x
+    echo dev/x > "$DEVDOC_DIR/Issue-1/.devagent-baseline"
+    _body "- From ${SIDE:0:9}."
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 1 0 0 0)" ]           # reachable from dev/x
+    git -C "$SOURCE_DIR" branch -q -f dev/x main
+    _ccr
+    [ "$status" -eq 3 ]; _has "found local commit reachable from neither HEAD nor dev/x (dev/x)"
+}
+
+@test "H2 under bash =~ (A1)" {
+    _body '- see 1a2b3c4 here' '- see 1a2b3c4, x' '- (1a2b3c4)' '- [1a2b3c4]'
+    _ccr
+    [ "$status" -eq 0 ]
+    local i; for i in 1 2 3 4; do _has "mr.md:$i: NOT CHECKED cited-commit: 1a2b3c4"; done
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 4)" ]
+    _body '- see 1a2b3c4x here' '- see abcdefa here' '- see 1234567 here' '- see x1a2b3c4 here'   # not H2
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$ZERO_SUM" ]
+}
+
+@test "every git call carrying an mr.md token runs with GIT_NO_LAZY_FETCH=1" {
+    _tests tests/f.bats 5; _commit f; _side
+    git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$HEAD_SHA"
+    _gitshim no-such-subcommand 3
+    _body "- From \`${SIDE:0:9}\` and ${BASELINE:0:9}." "- \`tests/f.bats\` (4 tests) at ${BASELINE:0:9}"
+    _ccr
+    [ "$status" -eq 3 ]
+    local tok n=0 l
+    for tok in "${SIDE:0:9}" "${BASELINE:0:9}" 'tests/f.bats'; do
+        while IFS= read -r l; do
+            n=$((n + 1))
+            [[ "$l" == NLF=1\ * ]] || { echo "lazy fetch possible: $l"; return 1; }
+        done < <(grep -F -- "$tok" "$GITLOG")
+    done
+    [ "$n" -ge 5 ]                                                         # rev-parse x2, merge-base, cat-file -e/-p
 }

@@ -67,6 +67,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/python-interp.sh"
 # shellcheck source=lib/upstream.sh
 . "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
+# shellcheck source=lib/baseline.sh
+. "$DEVAGENT_ROOT/scripts/lib/baseline.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -208,6 +210,11 @@ RE_C1CTX='[Ss]igned[- ]off|Signed-off-by|DCO|git commit -s|ahead of|(this|the) (
 RE_C2="${RE_NUM} of ([0-9]{1,5}) commits"
 RE_D1="${RE_NUM} (files? changed|changed files?)"
 RE_D2='\(([0-9]{1,5}) files?, [+]'
+# Cited commits: URLs are blanked first; H1 backticked, H2 bare with >= 1 digit and >= 1
+# of a-f (A1: `]` first in the trailing class, no backslash in the leading one).
+RE_URL='https?://[^[:space:])>]+'
+RE_H1='`([0-9a-f]{7,40})`'
+RE_H2='(^|[[:space:]([])([0-9a-f]{7,40})([][:space:]).,;:]|$)'
 RE_EVAT='^(.+) @ ([0-9a-f]{40})$'
 RE_EVBATS='^([0-9]{1,9})/([0-9]{1,9}) bats(, ([0-9]{1,9}) pytest)?$'
 RE_EVPY='^([0-9]{1,9}) pytest$'
@@ -731,6 +738,82 @@ _scan_commits() {
   done
 }
 
+# ---- cited commits (the AC as amended 2026-11-15) ----------------------------------------
+# A cited token (H1, H2, or an at-commit 7-40 hex token) must resolve to one local commit
+# (rev-parse rc 1: NOT CHECKED), then be reachable from HEAD, or else from the baseline
+# ref (baseline_ref_name: default_baseline or the #162 marker; no fetch). Neither is a
+# MISMATCH; an unresolvable ref is NOT CHECKED. Decided once per token.
+BREF=""; BREF_SHA=""; BREF_DONE=false
+_base_ref() {
+  local rc=0
+  if $BREF_DONE; then return 0; fi
+  BREF_DONE=true
+  baseline_ref_name "$project" "$issue_dir"     # setter-globals; never $( … )
+  BREF="$BASELINE_REF"
+  BREF_SHA="$(_git rev-parse --verify --quiet "$BREF^{commit}" 2>/dev/null)" || rc=$?
+  case "$rc" in 0) ;; 1) BREF_SHA="" ;; *) _cnr "git rev-parse $BREF^{commit} failed (exit $rc) in $work_dir" ;; esac
+}
+declare -A CITED=()
+# _cited <L> <token> - one cited token: CITED caches ok | nc:<reason> | mm.
+_cited() {
+  local L="$1" tok="$2" c rc v
+  if [ -z "${CITED[$tok]+x}" ]; then
+    _resolve "$tok"
+    if [ -z "$RES" ]; then
+      v="nc:$tok resolves to no single local commit"
+    else
+      c="$RES"; rc=0; _gitt merge-base --is-ancestor "$c" HEAD || rc=$?
+      case "$rc" in
+        0) v=ok ;;
+        1) _base_ref
+           if [ -z "$BREF_SHA" ]; then
+             v="nc:not reachable from HEAD, and $BREF does not resolve here"
+           else
+             rc=0; _gitt merge-base --is-ancestor "$c" "$BREF_SHA" || rc=$?
+             case "$rc" in
+               0) v=ok ;; 1) v=mm ;;
+               *) _cnr "git merge-base --is-ancestor ${c:0:12} $BREF failed (exit $rc) in $work_dir" ;;
+             esac
+           fi ;;
+        *) _cnr "git merge-base --is-ancestor ${c:0:12} HEAD failed (exit $rc) in $work_dir" ;;
+      esac
+    fi
+    CITED["$tok"]="$v"
+  fi
+  v="${CITED[$tok]}"
+  case "$v" in
+    nc:*) _nc "$L" cited-commit "$tok" "${v#nc:}" ;;
+    ok) _counted cited-commit ;;
+    mm) _counted cited-commit
+        _mm "$L" cited-commit "$tok" "a commit on the branch or $BREF" "local commit reachable from neither HEAD nor $BREF" "$BREF" ;;
+  esac
+}
+# _scan_cited <L> <sentence> - each distinct cited token of the sentence, once.
+_scan_cited() {
+  local L="$1" s="$2" w m g1 pre tok
+  local -a toks=()
+  local -A seen=()
+  w="$s"
+  while [[ "$w" =~ $RE_URL ]]; do
+    m="${BASH_REMATCH[0]}"; pre="${w%%"$m"*}"; _mask w "${#pre}" "$(( ${#pre} + ${#m} ))"
+  done
+  while [[ "$w" =~ $RE_H1 ]]; do
+    m="${BASH_REMATCH[0]}"; toks+=("${BASH_REMATCH[1]}"); pre="${w%%"$m"*}"
+    _mask w "${#pre}" "$(( ${#pre} + ${#m} ))"
+  done
+  while [[ "$w" =~ $RE_H2 ]]; do
+    m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"; tok="${BASH_REMATCH[2]}"; pre="${w%%"$m"*}"
+    _mask w "$(( ${#pre} + ${#g1} ))" "$(( ${#pre} + ${#g1} + ${#tok} ))"
+    if [[ "$tok" == *[0-9]* && "$tok" == *[a-f]* ]]; then toks+=("$tok"); fi
+  done
+  if [[ "$AT_TOK" =~ $RE_HEX ]]; then toks+=("$AT_TOK"); fi
+  for tok in "${toks[@]+"${toks[@]}"}"; do
+    [ -z "${seen[$tok]+x}" ] || continue
+    seen["$tok"]=1
+    _cited "$L" "$tok"
+  done
+}
+
 # _scan_sentence <L> <sentence>
 _scan_sentence() {
   PF_SEEN=0
@@ -738,6 +821,7 @@ _scan_sentence() {
   _scan_counts "$1" "$2"
   _scan_totals "$1" "$2"
   _scan_commits "$1" "$2"
+  _scan_cited "$1" "$2"
 }
 
 # ---- the scan ---------------------------------------------------------------------------
