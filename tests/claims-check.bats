@@ -91,7 +91,7 @@ EOF
 
 @test "no baseline_sha → 1" {
     _body 'nothing here'
-    sed -i '/^baseline_sha/d' "$ST"
+    devagent_config_unset "$ST" baseline_sha                    # #335: the _toml.py helper, never sed -i on TOML
     _ccr
     [ "$status" -eq 1 ]; [ -z "$output" ]
     [[ "$stderr" == *"claims-check: COULD NOT RUN — no baseline_sha recorded for Issue-1"* ]]

@@ -1006,7 +1006,7 @@ _case1122() {
         [ "$stderr" = "$err0" ] || { echo "$name: stderr differs"; diff <(echo "$err0") <(echo "$stderr"); return 1; }
         [ "$output" = "$out0" ] || { echo "$name: stdout differs"; return 1; }
         # Each row starts from a pristine config (the platform rows declare).
-        sed -i '/^evidence_platforms = /d' "$HOME/.claude/devagent/config.toml"
+        devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.evidence_platforms"   # #335: never sed -i on TOML
     done
 }
 
