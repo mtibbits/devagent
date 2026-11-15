@@ -115,14 +115,15 @@ _is_abs() {
 
 # _common_dir <repo>: set CDIR to git's own common-dir line for <repo>, its drive
 # letter (Git Bash) upper-cased, so one repo has one reference however it is spelled.
+# A failure exits ${2:-1}.
 CDIR=""
 _common_dir() {
-  local out rc=0
+  local out rc=0 fail="${2:-1}"
   out="$("$DEVAGENT_GIT" -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || rc=$?
-  if [ "$rc" -ne 0 ]; then echo "not a git repository: $1" >&2; exit 1; fi
+  if [ "$rc" -ne 0 ]; then echo "not a git repository: $1" >&2; exit "$fail"; fi
   out="${out%$'\r'}"
   # An older git echoes the unknown option back on a line of its own.
-  _is_abs "$out" || { echo "git 2.31 or newer is needed (rev-parse --path-format)" >&2; exit 1; }
+  _is_abs "$out" || { echo "git 2.31 or newer is needed (rev-parse --path-format)" >&2; exit "$fail"; }
   [[ "$out" =~ ^[a-z]:/ ]] && out="$(printf '%s' "${out:0:1}" | tr '[:lower:]' '[:upper:]')${out:1}"
   CDIR="$out"
 }
@@ -158,19 +159,6 @@ _write_record() {
   exit 1
 }
 
-cmd_create_mr() {
-  local repo="$1" title="$2" head="$3" base="$4" enc sha
-  _common_dir "$repo"
-  _need_branch "$repo" "$head"
-  _need_branch "$repo" "$base"
-  sha="$("$DEVAGENT_GIT" -C "$repo" rev-parse --verify --quiet "refs/heads/$head^{commit}" 2>/dev/null)" \
-    || { echo "git could not answer for $repo (exit $?)" >&2; exit 1; }
-  title="${title//[$'\r\n\t']/ }"
-  enc="$(bc_urlenc "$head")"
-  _write_record "$CDIR/devagent/local-mr/$enc" "$head" "$base" "$sha" "$title"
-  [ "$DRAFT" -eq 1 ] && echo "draft: not applicable (local code backend)" >&2
-  printf 'local:%s#%s\n' "$(bc_urlenc "$CDIR")" "$enc"
-}
 
 # --- the reference, the record and the state -----------------------------------
 
@@ -276,6 +264,42 @@ cmd_mr_comments() {
   bc_emit_comments_header 0
 }
 
+# create-mr applies D-state to an existing record first: an open one is
+# rewritten from this call's arguments (head_sha, title and base), a merged or
+# closed one refuses. Only an open record, or none, reaches the branch checks.
+cmd_create_mr() {
+  local repo="$1" title="$2" head="$3" base="$4" sha
+  _common_dir "$repo"
+  RDIR="$CDIR"; RENC="$(bc_urlenc "$head")"
+  local path="$CDIR/devagent/local-mr/$RENC"
+  if [ -e "$path" ]; then
+    _read_record "$path" "$head" 5
+    _state 1
+    if [ "$STATE" != open ]; then
+      echo "a merged or closed local MR exists for this branch; ship from a new branch" >&2
+      exit 1
+    fi
+  fi
+  _need_branch "$repo" "$head"
+  _need_branch "$repo" "$base"
+  sha="$("$DEVAGENT_GIT" -C "$repo" rev-parse --verify --quiet "refs/heads/$head^{commit}" 2>/dev/null)" \
+    || { echo "git could not answer for $repo (exit $?)" >&2; exit 1; }
+  title="${title//[$'\r\n\t']/ }"
+  _write_record "$path" "$head" "$base" "$sha" "$title"
+  [ "$DRAFT" -eq 1 ] && echo "draft: not applicable (local code backend)" >&2
+  printf 'local:%s#%s\n' "$(bc_urlenc "$CDIR")" "$RENC"
+}
+
+# merged-pr-head: 0 when D-state reads merged, 1 not merged or no record, 2 cannot tell.
+cmd_merged_pr_head() {
+  local repo="$1" head="$2"
+  _common_dir "$repo" 2
+  RDIR="$CDIR"; RENC="$(bc_urlenc "$head")"
+  _read_record "$RDIR/devagent/local-mr/$RENC" "$head" 2
+  _state 2
+  [ "$STATE" = merged ]
+}
+
 [ $# -ge 1 ] || usage
 verb="$1"; shift
 case "$verb" in
@@ -298,10 +322,10 @@ case "$verb" in
     _opts 0 "${@:2}"
     "cmd_${verb//-/_}" "$1"
     ;;
-  branch-exists)
+  branch-exists|merged-pr-head)
     [ $# -ge 2 ] || usage
     _opts 0 "${@:3}"
-    cmd_branch_exists "$1" "$2"
+    "cmd_${verb//-/_}" "$1" "$2"
     ;;
   *) usage ;;
 esac

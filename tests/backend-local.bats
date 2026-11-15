@@ -82,7 +82,7 @@ _git_shim() {
 _verb_args() {
   case "$1" in
     push-branch) echo origin; echo feat ;;
-    branch-exists) echo "$R"; echo feat ;;
+    branch-exists|merged-pr-head) echo "$R"; echo feat ;;
     create-mr) echo "$R"; echo t; echo /dev/null; echo feat; echo main ;;
     mr-state|mr-comments) "$LOCAL" create-mr "$R" t /dev/null feat main ;;
     *) ;;
@@ -93,13 +93,14 @@ _verb_args() {
 _verb_want() {
   case "$1" in
     merge-mr|issue-mrs|mr-checks|mr-view) echo 78 ;;
+    merged-pr-head) echo 1 ;;
     *) echo 0 ;;
   esac
 }
 
 @test "local: every verb accepts and ignores --key <value>" {
   local v n=0 a1 a2 s1 o1
-  for v in push-branch merge-mr issue-mrs mr-checks mr-view branch-exists create-mr mr-state mr-comments; do
+  for v in push-branch merge-mr issue-mrs mr-checks mr-view branch-exists create-mr mr-state mr-comments merged-pr-head; do
     mapfile -t args < <(_verb_args "$v")
     run "$LOCAL" "$v" "${args[@]}"
     s1="$status"; o1="$output"
@@ -109,7 +110,7 @@ _verb_want() {
     [ "$output" = "$o1" ]
     n=$((n + 1))
   done
-  [ "$n" -eq 9 ]
+  [ "$n" -eq 10 ]
 }
 
 @test "local: a bad --key, an unknown option, a wrong argument count and an unknown verb exit 2" {
@@ -447,4 +448,87 @@ _sums() { (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha25
   run --separate-stderr "$LOCAL" mr-comments "$REF"
   [ "$status" -eq 1 ]
   [ -z "$output" ]
+}
+
+# --- a second create-mr, merged-pr-head (Task 5) -----------------------------
+
+@test "local: a second create-mr on an open record updates it (AC 5)" {
+  _mk "$R"
+  local first="$REF" f; f="$(_rec "$R" feat)"
+  git -C "$R" branch dev main
+  git -C "$R" checkout -q feat; git -C "$R" commit -q --allow-empty -m more; git -C "$R" checkout -q main
+  run --separate-stderr "$LOCAL" create-mr "$R" "Second title" /dev/null feat dev
+  [ "$status" -eq 0 ]
+  [ "$output" = "$first" ]
+  local want
+  want="$(printf '%s\n' 'version: 1' 'state: open' 'head: feat' 'base: dev' \
+    "head_sha: $(git -C "$R" rev-parse feat)" 'merge_commit: -' 'title: Second title')"
+  [ "$(cat "$f")" = "$want" ]
+}
+
+@test "local: a second create-mr on a merged or closed record exits 1 and leaves it byte-identical (AC 5)" {
+  local f n=0 sha
+  _mk "$R"; f="$(_rec "$R" feat)"; sha="$(git -C "$R" rev-parse feat)"
+  _refused() {
+    cp "$f" "$BATS_TEST_TMPDIR/copy"
+    run --separate-stderr "$LOCAL" create-mr "$R" t /dev/null feat main
+    [ "$status" -eq 1 ] || { echo "status $status" >&2; return 1; }
+    [ -z "$output" ]
+    [ "${stderr##*$'\n'}" = "a merged or closed local MR exists for this branch; ship from a new branch" ]
+    cmp "$f" "$BATS_TEST_TMPDIR/copy"
+    n=$((n + 1))
+  }
+  _hand_rec "$R" feat merged "$sha"; _refused
+  _hand_rec "$R" feat closed "$sha"; _refused
+  _hand_rec "$R" feat open "$sha"
+  git -C "$R" merge -q --no-ff -m m feat; _refused
+  [ "$n" -eq 3 ]
+}
+
+@test "local: a second create-mr on a closed record whose head is gone gives the new-branch line" {
+  _mk "$R"
+  git -C "$R" branch -q -D feat
+  run --separate-stderr "$LOCAL" create-mr "$R" t /dev/null feat main
+  [ "$status" -eq 1 ]
+  [ "${stderr##*$'\n'}" = "a merged or closed local MR exists for this branch; ship from a new branch" ]
+}
+
+@test "local: a second create-mr on an unreadable record exits 5 and leaves it byte-identical" {
+  local f; _mk "$R"; f="$(_rec "$R" feat)"
+  printf 'version: 2\n' > "$f"; cp "$f" "$BATS_TEST_TMPDIR/copy"
+  run --separate-stderr "$LOCAL" create-mr "$R" t /dev/null feat main
+  [ "$status" -eq 5 ]
+  [ -z "$output" ]
+  [[ "${stderr##*$'\n'}" == "malformed local MR record at $f: "* ]]
+  cmp "$f" "$BATS_TEST_TMPDIR/copy"
+}
+
+@test "local: a failed record replace leaves the old record byte-identical" {
+  local f bin="$BATS_TEST_TMPDIR/bin"; _mk "$R"; f="$(_rec "$R" feat)"
+  cp "$f" "$BATS_TEST_TMPDIR/copy"
+  mkdir -p "$bin"; printf '#!/usr/bin/env bash\nexit 1\n' > "$bin/mv"; chmod +x "$bin/mv"
+  PATH="$bin:$PATH" run --separate-stderr "$LOCAL" create-mr "$R" other /dev/null feat main
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [ "${stderr##*$'\n'}" = "cannot write the local MR record at $f" ]
+  cmp "$f" "$BATS_TEST_TMPDIR/copy"
+  [ "$(ls -A "${f%/*}")" = "${f##*/}" ]
+}
+
+@test "local: merged-pr-head answers 0, 1 and 2" {
+  local sha n=0 plain="$BATS_TEST_TMPDIR/plain"
+  _mhead() { run --separate-stderr "$LOCAL" merged-pr-head "$@"; [ -z "$output" ]; n=$((n + 1)); }
+  _mhead "$R" feat; [ "$status" -eq 1 ]                       # no record
+  _mk "$R"; sha="$(git -C "$R" rev-parse feat)"
+  _mhead "$R" feat; [ "$status" -eq 1 ]                       # open
+  _hand_rec "$R" feat merged "$sha"
+  _mhead "$R" feat; [ "$status" -eq 0 ]                       # stored merged
+  _hand_rec "$R" feat open "$sha"
+  git -C "$R" merge -q --no-ff -m m feat
+  _mhead "$R" feat; [ "$status" -eq 0 ]                       # merged by hand
+  mkdir -p "$plain"
+  _mhead "$plain" feat; [ "$status" -eq 2 ]                   # not a repository
+  printf 'version: 2\n' > "$(_rec "$R" feat)"
+  _mhead "$R" feat; [ "$status" -eq 2 ]                       # unreadable record: cannot tell
+  [ "$n" -eq 6 ]
 }
