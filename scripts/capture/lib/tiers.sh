@@ -2,7 +2,7 @@
 # scripts/capture/lib/tiers.sh — #1101 capture-time tier proposal. Sourced; functions only.
 # shellcheck shell=bash
 # shellcheck disable=SC2034 # TIERS_* are setter-globals, read by the sourcing caller
-# Requires config.sh and flags.sh sourced first. Never dies; call bare, never in $(...).
+# Requires config.sh (_config_toml, config_get_project_field) and flags.sh sourced first. Never dies; call bare, never in $(...).
 # tiers_read <file>        SETTER-GLOBALS TIERS_THINKING TIERS_CHECKING ("" = class not proposed), TIERS_ERR
 #                          rc 0 valid · rc 1 invalid. Clears all three at entry.
 # tiers_class_tier <project> <thinking|checking>
@@ -23,8 +23,6 @@
 
 TIERS_KEYS="thinking, checking, reason_thinking, reason_checking"
 
-_tiers_toml() { python3 "$(plugin_root)/scripts/lib/_toml.py" "$@"; }
-
 tiers_read() {
   local f="${1:-}" out rc k t v cls legal
   TIERS_THINKING=""; TIERS_CHECKING=""; TIERS_ERR=""
@@ -32,12 +30,12 @@ tiers_read() {
     TIERS_ERR="$f: not a regular readable file"; return 1
   fi
   # validate FIRST: list-keys / list-tables on invalid TOML raise a traceback.
-  rc=0; out="$(_tiers_toml validate "$f" 2>&1)" || rc=$?
+  rc=0; out="$(_config_toml validate "$f" 2>&1)" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     out="${out%%$'\n'*}"; out="${out//$'\r'/}"
     TIERS_ERR="$f: not valid TOML (${out})"; return 1
   fi
-  rc=0; out="$(_tiers_toml list-tables "$f" 2>&1)" || rc=$?
+  rc=0; out="$(_config_toml list-tables "$f" 2>&1)" || rc=$?
   out="${out//$'\r'/}"
   if [[ "$rc" -ne 0 ]]; then
     TIERS_ERR="$f: not valid TOML (list-tables rc $rc)"; return 1
@@ -46,7 +44,7 @@ tiers_read() {
     t="${out%%$'\n'*}"
     TIERS_ERR="$f: [$t] is not allowed (keys: $TIERS_KEYS)"; return 1
   fi
-  rc=0; out="$(_tiers_toml list-keys "$f" 2>&1)" || rc=$?
+  rc=0; out="$(_config_toml list-keys "$f" 2>&1)" || rc=$?
   out="${out//$'\r'/}"
   if [[ "$rc" -ne 0 ]]; then
     TIERS_ERR="$f: not valid TOML (list-keys rc $rc)"; return 1
@@ -64,20 +62,17 @@ tiers_read() {
   local tv="" cv=""
   for cls in thinking checking; do
     case " ${keys[*]+"${keys[*]}"} " in *" $cls "*) ;; *) continue ;; esac
-    rc=0; v="$(_tiers_toml get "$f" "$cls" 2>/dev/null)" || rc=$?
+    rc=0; v="$(_config_toml get "$f" "$cls" 2>/dev/null)" || rc=$?
     v="${v//$'\r'/}"
     if [[ "$rc" -ne 0 ]]; then
       TIERS_ERR="$f: $cls could not be read (_toml get rc $rc)"; return 1
     fi
-    # Charset FIRST: model_token_is_legal is a space-padded substring test, so
-    # it accepts "fable inherit" (#1117 fixes it at source).
-    if [[ ! "$v" =~ ^[A-Za-z0-9._-]+$ ]]; then
-      TIERS_ERR="$f: $cls must be one model token ($legal), got: '$v'"; return 1
-    fi
     if [[ "$v" == "inherit" ]]; then
       TIERS_ERR="$f: $cls = \"inherit\" is not a proposal; omit the key to keep the project tier"; return 1
     fi
-    if ! model_token_is_legal "$v"; then
+    # The charset test guards model_token_is_legal, a space-padded substring
+    # test that accepts "fable inherit" (#1117 fixes it at source).
+    if [[ ! "$v" =~ ^[A-Za-z0-9._-]+$ ]] || ! model_token_is_legal "$v"; then
       TIERS_ERR="$f: $cls must be one model token ($legal), got: '$v'"; return 1
     fi
     if [[ "$cls" == thinking ]]; then tv="$v"; else cv="$v"; fi

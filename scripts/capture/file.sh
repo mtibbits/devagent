@@ -104,16 +104,17 @@ fi
 # that owns DEVAGENT_DEVDOC_DIR names the backend, and fills in each repo and
 # the backend dir (this plugin's) that the env leaves unset: an exported value
 # still wins. Its push_mr gate is still the env's.
-# #1101: the owning project is resolved unconditionally, never from
-# DEVAGENT_PROJECT (ambient scope, Issue-566): the tier proposal below compares
-# against ITS step_models. Under a policy that is the policy's project.
+# #1101: the owning project is also what the tier proposal below compares
+# against (ITS step_models), never DEVAGENT_PROJECT (ambient scope, Issue-566).
+# Under a policy that is the policy's project; otherwise it is looked up only
+# when the backend or a tiers.toml needs it (one config read per project).
+tiers_file="${cap_dir}/tiers.toml"
+_proj=""
 if [[ "${TRUST_HOST:-0}" == 1 ]]; then
   _proj="${TRUST_PROJECT:-}"
-else
+elif [[ -z "${DEVAGENT_ISSUE_BACKEND:-}" || -e "${tiers_file}" || -L "${tiers_file}" ]]; then
   _proj="$(trust_project_for_devdoc "${DEVAGENT_DEVDOC_DIR:-}")"
-fi
-if [[ "${TRUST_HOST:-0}" != 1 && -z "${DEVAGENT_ISSUE_BACKEND:-}" ]]; then
-  if [[ -n "${_proj}" ]]; then
+  if [[ -z "${DEVAGENT_ISSUE_BACKEND:-}" && -n "${_proj}" ]]; then
     _section=issue_source
     [[ "${TARGET}" == fork ]] && _section=issue_source_fork
     DEVAGENT_ISSUE_BACKEND="$(config_get_project_field "${_proj}" "${_section}.backend" 2>/dev/null || true)"
@@ -149,7 +150,6 @@ fi
 # and no .pending) and compared with the owning project's class tier: a proposal
 # that departs becomes a tier:impl-/tier:check- label, looked up after the gate.
 # Per-class scalars (_tier_tok_<c>, _tier_label_<c>, _tier_out_<c>), no arrays.
-tiers_file="${cap_dir}/tiers.toml"
 has_tiers=0
 _tier_tok_thinking=""; _tier_tok_checking=""
 _tier_label_thinking=""; _tier_label_checking=""
@@ -197,7 +197,7 @@ if [[ "${gate_exempt}" -ne 1 && "${gate}" != "true" && "${YES}" -ne 1 ]]; then
     _l="${_tier_label_thinking}${_tier_label_thinking:+${_tier_label_checking:+ }}${_tier_label_checking}"
     if [[ -z "${_l}" ]]; then
       _l="(none)"
-      [[ "${_tier_out_thinking}${_tier_out_checking}" != *"not applied (no project)"* ]] \
+      [[ -n "${_proj}" || -z "${_tier_tok_thinking}${_tier_tok_checking}" ]] \
         || _l="(none; not applied (no project))"
     fi
     _labels_line="  labels:  ${_l}
@@ -238,29 +238,26 @@ _label_args=()
 for _cls in thinking checking; do
   _lv="_tier_label_${_cls}"; _lbl="${!_lv}"
   [[ -n "${_lbl}" ]] || continue
+  _lrc=0
   case "${_shape}" in
-    jira|disk)
-      _label_args+=(--label "${_lbl}")
-      printf -v "_tier_out_${_cls}" '%s' "applied as ${_lbl}" ;;
-    *)
-      _lrc=0
-      "${backend_script}" state-exists "${repo}" "${_lbl}" >/dev/null || _lrc=$?
-      case "${_lrc}" in
-        0)
-          _label_args+=(--label "${_lbl}")
-          _out="applied as ${_lbl}" ;;
-        4)
-          _out="not applied (label missing); add it to the issue before its first pull, after creating it"
-          case "${_shape}" in
-            github) _out+=": gh label create ${_lbl} --repo ${repo}" ;;
-            gitlab) _out+=": glab label create --name ${_lbl} --repo ${repo}" ;;
-            *)      _out+=" on the tracker" ;;
-          esac ;;
-        *)
-          _out="not applied (lookup failed); state-exists exit ${_lrc}" ;;
-      esac
-      printf -v "_tier_out_${_cls}" '%s' "${_out}" ;;
+    jira|disk) ;;
+    *) "${backend_script}" state-exists "${repo}" "${_lbl}" >/dev/null || _lrc=$? ;;
   esac
+  case "${_lrc}" in
+    0)
+      _label_args+=(--label "${_lbl}")
+      _out="applied as ${_lbl}" ;;
+    4)
+      _out="not applied (label missing); add it to the issue before its first pull, after creating it"
+      case "${_shape}" in
+        github) _out+=": gh label create ${_lbl} --repo ${repo}" ;;
+        gitlab) _out+=": glab label create --name ${_lbl} --repo ${repo}" ;;
+        *)      _out+=" on the tracker" ;;
+      esac ;;
+    *)
+      _out="not applied (lookup failed); state-exists exit ${_lrc}" ;;
+  esac
+  printf -v "_tier_out_${_cls}" '%s' "${_out}"
 done
 
 # #113: mark the create→filed.toml window. If the script dies after the remote
