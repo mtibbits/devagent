@@ -917,7 +917,7 @@ _pair() {
 @test "a local side-branch commit reachable from neither → MISMATCH naming the ref; from the ref or HEAD → not reported" {
     _side
     git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$HEAD_SHA"
-    _body "- Cherry-picked from ${SIDE:0:9}."
+    _body "- Cherry-picked from \`${SIDE:0:9}\`."                       # H1: a random prefix may hold no letter (H2 needs one)
     _ccr
     [ "$status" -eq 3 ]
     _has "mr.md:1: MISMATCH cited-commit: ${SIDE:0:9} — claimed a commit on the branch or origin/main, found local commit reachable from neither HEAD nor origin/main (origin/main)"
@@ -925,7 +925,7 @@ _pair() {
     git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$SIDE"         # now reachable from the ref only
     _ccr
     [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 1 0 0 0)" ]
-    _body "- Built on ${HEAD_SHA:0:9}."                                        # reachable from HEAD
+    _body "- Built on \`${HEAD_SHA:0:9}\`."                                        # reachable from HEAD
     _ccr
     [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 1 0 0 0)" ]
 }
@@ -952,7 +952,7 @@ _pair() {
     unset DEVAGENT_GIT
     _side dev/x
     echo dev/x > "$DEVDOC_DIR/Issue-1/.devagent-baseline"
-    _body "- From ${SIDE:0:9}."
+    _body "- From \`${SIDE:0:9}\`."
     _ccr
     [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 1 0 0 0)" ]           # reachable from dev/x
     git -C "$SOURCE_DIR" branch -q -f dev/x main
@@ -975,7 +975,7 @@ _pair() {
     _tests tests/f.bats 5; _commit f; _side
     git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$HEAD_SHA"
     _gitshim no-such-subcommand 3
-    _body "- From \`${SIDE:0:9}\` and ${BASELINE:0:9}." "- \`tests/f.bats\` (4 tests) at ${BASELINE:0:9}"
+    _body "- From \`${SIDE:0:9}\` and \`${BASELINE:0:9}\`." "- \`tests/f.bats\` (4 tests) at ${BASELINE:0:9}"
     _ccr
     [ "$status" -eq 3 ]
     local tok n=0 l
