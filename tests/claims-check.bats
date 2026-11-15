@@ -1052,3 +1052,18 @@ _state() {
     [ "$(_state)" = "$before" ]
     [ -z "$(find "$SOURCE_DIR" -name __pycache__ -o -name .pytest_cache)" ]
 }
+
+# ---- Task 11: the preship.md claims line, run as written (Issue-461) -----------------------
+@test "the preship.md claims line runs as written (#1122)" {
+    local body
+    body="$(awk 'index($0, "# recipe: claims") == 1 {f=1} f && /^```$/ {exit} f' "$DEVAGENT_ROOT/commands/preship.md")"
+    [ -n "$body" ]
+    body="${body//<project>/$TEST_PROJECT}"; body="${body//<Issue-N>/Issue-1}"
+    _tests tests/x.bats 27; _commit x
+    _body '- `tests/x.bats` (26 tests)'
+    TMPDIR="$BATS_TEST_TMPDIR" CLAUDE_PLUGIN_ROOT="$DEVAGENT_ROOT" run bash -c "$body"
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: MISMATCH bats-count: `tests/x.bats` (26 tests) — claimed 26, found 27 (at HEAD)'
+    _has 'claims rc=3'
+    [ -s "$BATS_TEST_TMPDIR/devagent-claims-Issue-1.out" ]
+}

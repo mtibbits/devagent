@@ -182,3 +182,108 @@ HOSTILE1122='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_P
   run bash -c "$naive"
   [ -e "$SENT" ]
 }
+
+# ---- #1122 Task 11: the claims half of the preflight ----------------------------------
+# _log_recipe <K> <L> [<reason>] - recipe `log` with its inputs set at the top, as the
+# session runs it (the reason replaces the heredoc placeholder, verbatim).
+_log_recipe() {
+  local body; body="$(_recipe log)"
+  [ -z "${3+x}" ] || body="${body/<the reason, verbatim>/$3}"
+  printf 'ISSUE_DIR=%q; K=%q; L=%q; OLDF=%q; n=%q; RC=%q; EVRC=%q\n%s\n' \
+    "$ISSUE_DIR" "$1" "$2" "${OLDF-}" "${RUN_N-}" "${RC-}" "${EVRC-}" "$body"
+}
+
+@test "preflight: order evidence, claims, head pin, dispatch (#1122)" {
+  local ev cl pin dc
+  ev="$(_line_of 'scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit')"
+  cl="$(_line_of 'scripts/claims-check.sh" <project> <Issue-N>')"
+  pin="$(_line_of 'preship-verified-head.sh" pin')"
+  dc="$(_line_of '## Dispatch contract')"
+  [ "$ev" -lt "$cl" ] && [ "$cl" -lt "$pin" ] && [ "$pin" -lt "$dc" ]
+  _preflight | grep -qF '**evidence check, claims check, head pin, dispatch**'
+}
+
+@test "preflight: three correction rules, no Evidence-block edit (#1122)" {
+  local t; t="$(_preflight)"
+  local p
+  for p in 'prompt to look' 'correct the line' 'keep the value' 'name the commit' 'leave the line as written' \
+           'Never edit the `## Evidence` block'; do
+    [[ "$t" == *"$p"* ]] || { echo "missing: $p"; return 1; }
+  done
+}
+
+@test "preflight: at most three runs; unresolved and could-not-run logged, verifier still dispatched (#1122)" {
+  local t; t="$(_preflight)"
+  [[ "$t" == *"at most three runs"* ]]
+  [[ "$t" == *"unresolved"* ]]
+  [[ "$t" == *"could not run"* ]]
+  [[ "$t" == *"the verifier is still dispatched"* ]]
+  [[ "$t" == *"dispatch anyway"* ]]
+}
+
+@test "preflight: each of the 7 log spellings present once (#1122)" {
+  local s
+  for s in "claims: mr.md:<L> corrected: '<old>' -> '<new>'" \
+           "claims: mr.md:<L> named commit: '<old>' -> '<new>'" \
+           "claims: mr.md:<L> left as written: '<text>' — <reason>" \
+           "claims: mr.md:<L> unresolved after run <n>: '<text>'" \
+           "claims: could not run (exit <rc>): <first stderr line>; verifier dispatched" \
+           "preflight: moved preship.md to analysis/<date>-<HHMMSS>-preship-superseded.md" \
+           "preflight: evidence exit <rc>; claims runs <n>, last exit <rc>; <the last claims summary line, or (none)>"; do
+    [ "$(grep -cF -- "$s" "$CMD")" -eq 1 ] || { echo "not exactly once: $s"; return 1; }
+  done
+}
+
+@test "preflight: the preflight line carries the claims summary (#1122)" {
+  _stubroot
+  export TMPDIR="$BATS_TEST_TMPDIR"
+  local d="$TMPDIR/devagent-claims-Issue-1" sum='claims-check: checked 3 (bats-count 1, pytest-count 0, suite-total 1, commit-count 0, files-count 0, cited-commit 1, signoff 0); 1 mismatched; 0 not checked'
+  printf 'mr.md:4: MISMATCH bats-count: x — claimed 1, found 2 (at HEAD)\n%s\n' "$sum" > "$d.out"; : > "$d.err"
+  local EVRC=4 RC=3 RUN_N=2
+  run bash -c "$(_log_recipe preflight '')"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$LOG_REC")" = "preflight: evidence exit 4; claims runs 2, last exit 3; $sum" ]
+  rm "$d.out"; : > "$LOG_REC"
+  EVRC=0 RC=1 RUN_N=1
+  run bash -c "$(_log_recipe preflight '')"
+  [ "$(cat "$LOG_REC")" = "preflight: evidence exit 0; claims runs 1, last exit 1; (none)" ]
+}
+
+@test "preflight: a re-run greps the log for 'left as written' first (#1122)" {
+  local t gl act
+  t="$(_preflight)"
+  gl="$(grep -nF 'grep the checklist log for `claims: mr.md:<L> left as written`' <<<"$t" | cut -d: -f1)"
+  act="$(grep -nF '**correct the line**' <<<"$t" | cut -d: -f1)"
+  [ -n "$gl" ] && [ -n "$act" ]
+  [[ "$t" == *"Before acting on a report, grep the checklist log"* ]]
+  [[ "$t" == *"Do not revisit a line left as written"* ]]
+}
+
+@test "preflight: the log recipe is shell-safe (#1122)" {
+  _stubroot
+  export TMPDIR="$BATS_TEST_TMPDIR"
+  local line why long
+  line='- `tests/x.bats` (26 tests) $(touch '"$SENT"') "dq" '"'"'sq'"'"' `whoami`'
+  why='an earlier run; see $(touch '"$SENT"') and `id` "x" '"'"'y'"'"
+  printf '# Title\n%s\n' "$line" > "$ISSUE_DIR/mr.md"
+  run bash -c "$(_log_recipe 'left as written' 2 "$why")"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$LOG_REC")" = "claims: mr.md:2 left as written: '$line' — $why" ]
+  [ ! -e "$SENT" ]
+  # corrected: the old line from OLDF, the new one from mr.md
+  : > "$LOG_REC"; OLDF="$BATS_TEST_TMPDIR/old"; printf '%s\n' "$line" > "$OLDF"
+  printf '# Title\n%s\n' '- `tests/x.bats` (27 tests)' > "$ISSUE_DIR/mr.md"
+  run bash -c "$(_log_recipe corrected 2)"
+  [ "$(cat "$LOG_REC")" = "claims: mr.md:2 corrected: '$line' -> '- \`tests/x.bats\` (27 tests)'" ]
+  # a 300-character line is truncated to 200 plus …
+  : > "$LOG_REC"; printf -v long '%0300d' 0; printf '# Title\n%s\n' "$long" > "$ISSUE_DIR/mr.md"
+  local RUN_N=3
+  run bash -c "$(_log_recipe unresolved 2)"
+  [ "$(cat "$LOG_REC")" = "claims: mr.md:2 unresolved after run 3: '${long:0:200}…'" ]
+  # could not run: the first stderr line, hostile, from the recipe's file
+  : > "$LOG_REC"; printf '%s\n' 'claims-check: COULD NOT RUN — no mr.md at `$(touch '"$SENT"')`' > "$TMPDIR/devagent-claims-Issue-1.err"
+  local RC=1
+  run bash -c "$(_log_recipe 'could not run' '')"
+  [ "$(cat "$LOG_REC")" = 'claims: could not run (exit 1): claims-check: COULD NOT RUN — no mr.md at `$(touch '"$SENT"')`; verifier dispatched' ]
+  [ ! -e "$SENT" ]
+}

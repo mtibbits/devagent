@@ -30,10 +30,10 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
 
 **Preflight (between 2 and 2a) (#1122).** The Zero-diff section below is applied
 first; an empty diff never reaches this preflight. In order, each its own Bash call
-with `<project> <Issue-N>`: **evidence check, head pin, dispatch**. Nothing from the
-preflight enters the dispatch prompt, and
+with `<project> <Issue-N>`: **evidence check, claims check, head pin, dispatch**.
+Nothing from the preflight enters the dispatch prompt, and
 **neither `run-suite.sh` nor `evidence-stamp.sh`** runs here. It also runs on a
-re-run after ship.
+re-run after ship, where a correction changes `mr.md` only.
 
 - **Evidence check**, by recipe `stop` below:
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit`.
@@ -44,13 +44,30 @@ re-run after ship.
   `analysis/<date>-<HHMMSS>-preship-superseded.md` and logged, so no older verdict sits
   beside the `[!]`. The first failure line is stderr's first `  - ` entry (plus
   `(+N more)`), else its first non-empty line, else `(no stderr)`.
+- **Claims check**, by recipe `claims` below; it reads and reports, never writes.
+  Exit 0: continue. Exit 9, 10 or 11: the quarantine rule. Any other exit but 3:
+  the check **could not run**; log it, then dispatch anyway.
+- Exit 3: each report is **a prompt to look, not an instruction**.
+  Before acting on a report, grep the checklist log for `claims: mr.md:<L> left as written`;
+  if the logged text equals the current line (truncated as logged), keep that
+  decision and log nothing new. Do not revisit a line left as written. Otherwise: (a) the claim
+  is about the branch now and the found value is right: **correct the line**;
+  (b) it is right for an earlier or partial run: **keep the value**, and
+  **name the commit** if the log or git establishes it; (c) otherwise wrong:
+  **leave the line as written**. **Never edit the `## Evidence` block.** Log each
+  decision by recipe `log`.
+- Re-run the check only after a run that edited `mr.md`, **at most three runs**. A
+  line still reported on the last run, and not left as written, is logged
+  **unresolved**, and **the verifier is still dispatched**. Last, log the
+  `preflight:` line (recipe `log`, K=preflight).
 - **Shell safety.** Script stderr and `mr.md` text hold backticks, `$` and quotes, and
   a double-quoted argument runs them as command substitution (the stamper's remedy
   text is written ``with `bash "$CLAUDE_PLUGIN_ROOT/scripts/evidence-stamp.sh" …` ``).
   Never interpolate such text into a command line: capture stderr to a file, read
   `mr.md` lines with `sed` inside the command, take model-authored text through a
   quoted heredoc, build each message with `printf -v msg`, and pass `"$msg"`. Run each
-  recipe as written, substituting only `<project>` and `<Issue-N>`.
+  recipe as written: set `ISSUE_DIR` and the inputs its comment names at the top of
+  the same Bash call, and substitute only `<project>` and `<Issue-N>`.
 
 ```bash
 # recipe: stop     (evidence check, stop case; <project> <Issue-N> are substituted)
@@ -71,6 +88,35 @@ case "$rc" in 0|4|9|10|11) ;; *)
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-stuck.sh" "$ISSUE_DIR" "$msg" ;;
 esac
 rm -f "$err"; echo "evidence rc=$rc"
+```
+```bash
+# recipe: claims   (one run, of at most three; <project> <Issue-N> are substituted)
+d="${TMPDIR:-/tmp}/devagent-claims-<Issue-N>"; rc=0
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/claims-check.sh" <project> <Issue-N> >"$d.out" 2>"$d.err" || rc=$?
+cat "$d.out"; cat "$d.err" >&2; echo "claims rc=$rc"
+```
+```bash
+# recipe: log      (K = corrected | 'named commit' | 'left as written' | unresolved | 'could not run' |
+#                   preflight; L = the mr.md line ('' for the last two); OLDF = line L saved before the
+#                   edit by: sed -n "${L}p" "$ISSUE_DIR/mr.md" > "$OLDF"; n = the claims run number;
+#                   RC = the last claims exit; EVRC = the evidence exit)
+d="${TMPDIR:-/tmp}/devagent-claims-<Issue-N>"
+_t() { if [ "${#1}" -gt 200 ]; then printf '%s…' "${1:0:200}"; else printf '%s' "$1"; fi; }
+cur=""; [ -z "$L" ] || IFS= read -r cur < <(sed -n "${L}p" "$ISSUE_DIR/mr.md"); cur="${cur%$'\r'}"
+case "$K" in
+  corrected|'named commit') IFS= read -r old < "$OLDF"; old="${old%$'\r'}"
+    printf -v msg "claims: mr.md:%s %s: '%s' -> '%s'" "$L" "$K" "$(_t "$old")" "$(_t "$cur")" ;;
+  'left as written') IFS= read -r why <<'EOF'
+<the reason, verbatim>
+EOF
+    printf -v msg "claims: mr.md:%s left as written: '%s' — %s" "$L" "$(_t "$cur")" "$why" ;;
+  unresolved) printf -v msg "claims: mr.md:%s unresolved after run %s: '%s'" "$L" "$n" "$(_t "$cur")" ;;
+  'could not run') first="$(grep -m1 . "$d.err" 2>/dev/null)"; [ -n "$first" ] || first='(no stderr)'
+    printf -v msg 'claims: could not run (exit %s): %s; verifier dispatched' "$RC" "$first" ;;
+  preflight) sum="$(grep -m1 '^claims-check: checked ' "$d.out" 2>/dev/null)"; [ -n "$sum" ] || sum='(none)'
+    printf -v msg 'preflight: evidence exit %s; claims runs %s, last exit %s; %s' "$EVRC" "$n" "$RC" "$sum" ;;
+esac
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" preship "$msg"
 ```
 
 2a. **Pin the head (#885)**, as its own Bash call; halt on non-zero:
@@ -136,7 +182,8 @@ stops it `[!]` until a fresh preship passes. After a **fix push** (rule 15):
 re-run `scripts/run-suite.sh` and `scripts/evidence-stamp.sh` (`commands/review.md`
 6a), push, then preship. After a **merge-forward** (rule 14): run
 `scripts/rebaseline.sh` first, then the same pair, push, then preship. The
-preflight runs on this re-run too; its evidence stop is a failed post-ship preship.
+preflight runs on this re-run too; its evidence stop is a failed post-ship preship,
+and a claims correction changes `mr.md` only, never the posted MR body.
 
 A passing `record` clears a mergemr stop of rule 10, 11, 14 or 15, or a
 `preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, logged
@@ -171,8 +218,20 @@ machine.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" preship "Preship: A/B ACs pass, F findings located, push-preview MATCH|MISMATCH; note: $NOTE"
 ```
 
-An evidence stop's reason is its `preship: evidence preflight: …` STUCK line, and a
-moved verdict logs `preflight: moved preship.md to analysis/<date>-<HHMMSS>-preship-superseded.md`.
+The preflight logs each outcome in exactly one spelling (Issue-586), through recipes
+`stop` and `log`; `<old>`, `<new>` and `<text>` are the whole `mr.md` line, truncated
+to 200 characters plus `…`. An evidence stop's reason is its STUCK line,
+`preship: evidence preflight: <first failure line>`.
+
+```
+claims: mr.md:<L> corrected: '<old>' -> '<new>'
+claims: mr.md:<L> named commit: '<old>' -> '<new>'
+claims: mr.md:<L> left as written: '<text>' — <reason>
+claims: mr.md:<L> unresolved after run <n>: '<text>'
+claims: could not run (exit <rc>): <first stderr line>; verifier dispatched
+preflight: moved preship.md to analysis/<date>-<HHMMSS>-preship-superseded.md
+preflight: evidence exit <rc>; claims runs <n>, last exit <rc>; <the last claims summary line, or (none)>
+```
 
 ## Completion handoff
 
