@@ -1253,7 +1253,8 @@ _wbs865_order() {
   [[ "$spec131" == *"holds ':' but is not <project>:<issue>; read as a local id"* ]]
   [[ "$spec131" == *'`depends_on` (#887)'* ]]
   grep -qF "is not \`<project>:<issue>\`" "$REPO/commands/wbs.md"
-  awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' "$REPO/CHANGELOG.md" | grep -qF '<project>:<issue>'
+  # [Unreleased] to the end, so a release cut keeps this green.
+  awk '/^## \[Unreleased\]/{f=1;next} f' "$REPO/CHANGELOG.md" | grep -qF '<project>:<issue>'
 }
 
 @test "WBS docs state the P0 to P4 priority scale (#889)" {
