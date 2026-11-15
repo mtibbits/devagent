@@ -325,3 +325,49 @@ _stack_child() {
     [[ "$output" == *"  push to:    origin"* ]]
     [ "$(grep -c 'Local.sh create-mr' "$DEVAGENT_STUB_LOG" || true)" -eq 0 ]
 }
+
+# --- trust (Task 10) -------------------------------------------------------------
+
+# _policy <scope>: a host trust policy at the user level whose one scope is <scope>.
+_policy() {
+    mkdir -p "$HOME/.config/devagent/trust"
+    printf '%s\n' "scopes = [\"$1\"]" 'worker_identities = ["github:1001"]' \
+        'quarantine = "devagent:quarantine"' > "$HOME/.config/devagent/trust/policy.toml"
+}
+
+# _entry_check <project>: trust_entry_check as an entry point calls it.
+_entry_check() {
+    bash -c 'set -euo pipefail
+        for l in paths io config state transition trust; do . "$1/scripts/lib/$l.sh"; done
+        trust_entry_check ship "$2"' _ "$DEVAGENT_ROOT" "$1"
+}
+
+@test "trust (local, in scope): next, ship and mergemr exit 9 with the local message and write no record (AC 9)" {
+    _ship_ready
+    _policy "github:github.com/acme/testproj"
+    local ep n=0
+    for ep in next.sh ship.sh mergemr.sh; do
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/$ep" "$TEST_PROJECT" </dev/null
+        [ "$status" -eq 9 ] || { echo "$ep: $status $stderr" >&2; false; }
+        [[ "$stderr" == *"local code backend is not supported under a trust policy"* ]]
+        n=$((n + 1))
+    done
+    [ "$n" -eq 3 ]
+    [ ! -e "$(_cdir)/devagent" ]
+    _no_remote_calls
+}
+
+@test "trust (local, out of scope): the same policy does not refuse" {
+    _policy "github:github.com/acme/testproj"
+    devagent_config_set "$CFG" "project.$TEST_PROJECT.issue_source.repo" other/repo
+    run --separate-stderr _entry_check "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ -z "$stderr" ]
+}
+
+@test "trust (no code_source.backend, in scope): no local-backend refusal" {
+    _policy "github:github.com/acme/testproj"
+    devagent_config_unset "$CFG" "project.$TEST_PROJECT.code_source.backend"
+    run --separate-stderr _entry_check "$TEST_PROJECT"
+    [[ "$stderr" != *"local code backend"* ]]
+}

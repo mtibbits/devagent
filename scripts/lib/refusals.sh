@@ -41,6 +41,7 @@ declare -gA TRUST_REFUSAL_DETAIL=(
   [events-unsupported]='the %s backend has no events verb (exit %s)'
   [events-unavailable]='events for %s could not run (exit %s)'
   [disk-backend]='disk issue backend is not supported under a trust policy'
+  [local-backend]='local code backend is not supported under a trust policy'
 )
 declare -gA TRUST_REFUSAL_CODE=(
   [whoami-unavailable]=10
