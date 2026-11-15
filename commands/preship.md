@@ -27,6 +27,52 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    prerequisite whose producing step is absent is **N/A**, and the review
    report alone is the findings input. Do not halt on the absent step;
    DO halt when the step is present but its artifact is missing.
+
+**Preflight (between 2 and 2a) (#1122).** The Zero-diff section below is applied
+first; an empty diff never reaches this preflight. In order, each its own Bash call
+with `<project> <Issue-N>`: **evidence check, head pin, dispatch**. Nothing from the
+preflight enters the dispatch prompt, and
+**neither `run-suite.sh` nor `evidence-stamp.sh`** runs here. It also runs on a
+re-run after ship.
+
+- **Evidence check**, by recipe `stop` below:
+  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit`.
+  Exit 0 or 4: continue (on 4 only attestations are absent, and the verifier
+  attests). Exit 9, 10 or 11: the quarantine rule above. Anything else:
+  **STOP before any dispatch**. The step is marked `[!]` with `preship: evidence preflight: <first
+  failure line>`, **no preship.md** is written, and an existing one is first moved to
+  `analysis/<date>-<HHMMSS>-preship-superseded.md` and logged, so no older verdict sits
+  beside the `[!]`. The first failure line is stderr's first `  - ` entry (plus
+  `(+N more)`), else its first non-empty line, else `(no stderr)`.
+- **Shell safety.** Script stderr and `mr.md` text hold backticks, `$` and quotes, and
+  a double-quoted argument runs them as command substitution (the stamper's remedy
+  text is written ``with `bash "$CLAUDE_PLUGIN_ROOT/scripts/evidence-stamp.sh" …` ``).
+  Never interpolate such text into a command line: capture stderr to a file, read
+  `mr.md` lines with `sed` inside the command, take model-authored text through a
+  quoted heredoc, build each message with `printf -v msg`, and pass `"$msg"`. Run each
+  recipe as written, substituting only `<project>` and `<Issue-N>`.
+
+```bash
+# recipe: stop     (evidence check, stop case; <project> <Issue-N> are substituted)
+err="$(mktemp)"; rc=0
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit 2>"$err" || rc=$?
+cat "$err" >&2
+case "$rc" in 0|4|9|10|11) ;; *)
+  first="$(grep -m1 '^  - ' "$err")"; first="${first#  - }"
+  [ -n "$first" ] || first="$(grep -m1 . "$err")"; [ -n "$first" ] || first='(no stderr)'
+  more=$(( $(grep -c '^  - ' "$err") - 1 )); [ "$more" -gt 0 ] && first="$first (+$more more)"
+  if [ -f "$ISSUE_DIR/preship.md" ]; then
+    sup="analysis/$(date +%F-%H%M%S)-preship-superseded.md"; mkdir -p "$ISSUE_DIR/analysis"
+    mv "$ISSUE_DIR/preship.md" "$ISSUE_DIR/$sup"
+    printf -v msg 'preflight: moved preship.md to %s' "$sup"
+    bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" preship "$msg"
+  fi
+  printf -v msg 'preship: evidence preflight: %s' "$first"
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-stuck.sh" "$ISSUE_DIR" "$msg" ;;
+esac
+rm -f "$err"; echo "evidence rc=$rc"
+```
+
 2a. **Pin the head (#885)**, as its own Bash call; halt on non-zero:
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-verified-head.sh" pin <project>`.
    It persists HEAD as `preship_pin_head` and prints its SHA; paste that SHA
@@ -89,7 +135,8 @@ mergemr (step 20) merges only at `verified_head`; a head that moved after ship
 stops it `[!]` until a fresh preship passes. After a **fix push** (rule 15):
 re-run `scripts/run-suite.sh` and `scripts/evidence-stamp.sh` (`commands/review.md`
 6a), push, then preship. After a **merge-forward** (rule 14): run
-`scripts/rebaseline.sh` first, then the same pair, push, then preship.
+`scripts/rebaseline.sh` first, then the same pair, push, then preship. The
+preflight runs on this re-run too; its evidence stop is a failed post-ship preship.
 
 A passing `record` clears a mergemr stop of rule 10, 11, 14 or 15, or a
 `preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, logged
@@ -123,6 +170,9 @@ machine.
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" preship "Preship: A/B ACs pass, F findings located, push-preview MATCH|MISMATCH; note: $NOTE"
 ```
+
+An evidence stop's reason is its `preship: evidence preflight: …` STUCK line, and a
+moved verdict logs `preflight: moved preship.md to analysis/<date>-<HHMMSS>-preship-superseded.md`.
 
 ## Completion handoff
 

@@ -1009,3 +1009,15 @@ _case1122() {
         sed -i '/^evidence_platforms = /d' "$HOME/.claude/devagent/config.toml"
     done
 }
+
+@test "#1122: the preship.md evidence line runs as written (Issue-461)" {
+    local cmd
+    cmd="$(grep -o '`bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit`' \
+        "$DEVAGENT_ROOT/commands/preship.md" | head -1)"
+    [ -n "$cmd" ]
+    cmd="${cmd//\`/}"; cmd="${cmd//<project>/$TEST_PROJECT}"; cmd="${cmd//<Issue-N>/Issue-1}"
+    _case1122 tree-absent
+    CLAUDE_PLUGIN_ROOT="$DEVAGENT_ROOT" run --separate-stderr bash -c "$cmd"
+    [ "$status" -eq 4 ]
+    [[ "$stderr" == *"TREE UNATTESTED"* ]]
+}
