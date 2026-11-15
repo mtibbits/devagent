@@ -53,8 +53,8 @@ re-run after ship, where a correction changes `mr.md` only.
   decision and log nothing new. Do not revisit a line left as written. Otherwise: (a) the claim
   is about the branch now and the found value is right: **correct the line**;
   (b) it is right for an earlier or partial run: **keep the value**, and
-  **name the commit** if the log or git establishes it; (c) otherwise wrong:
-  **leave the line as written**. **Never edit the `## Evidence` block.** Log each
+  **name the commit** as `` at `<sha>` `` (the form the check reads) if the log or
+  git establishes it; (c) otherwise wrong: **leave the line as written**. **Never edit the `## Evidence` block.** Log each
   decision by recipe `log`.
 - Re-run the check only after a run that edited `mr.md`, **at most three runs**. A
   line still reported on the last run, and not left as written, is logged

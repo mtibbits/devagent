@@ -95,6 +95,10 @@ must-catch cases.
 | `redmr-clean` | core-redmr | 0 blocking, no invented finding |
 | `preship-stranded-fix` | core-preship | overall FAIL: claimed fix absent from the diff |
 | `preship-clean` | core-preship | all verifications PASS |
+| `preship-preflight-stale-count` | preship (command) | #1122 preflight: correct `(26 tests)` to 27, log `corrected:`, one re-run, pin, one dispatch, `[x]` |
+| `preship-preflight-earlier-run` | preship (command) | keep an earlier run's `14/14`: name the commit or leave the line, logged; never 15 |
+| `preship-preflight-red-suite` | preship (command) | evidence exit 1: `[!]` `preship: evidence preflight:`, no claims run, no dispatch, no preship.md |
+| `preship-preflight-unresolved` | preship (command) | log grep before each decision, three runs, `unresolved after run 3`, verifier still dispatched |
 
 ### Scoring note (core-scope Q7)
 

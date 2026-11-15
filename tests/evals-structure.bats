@@ -145,3 +145,28 @@ PY
   [ -d "$dir" ] || { echo "missing $dir" >&2; return 1; }
   [ -f "$dir/preship-verifier.md" ] || { echo "missing broken agent fixture" >&2; return 1; }
 }
+
+@test "#1122: the four preship-preflight cases exist, each with scenario, mr and checklist, bound to commands/preship.md" {
+  run python3 - "$EVALS" "$REPO" <<'PY'
+import json, os, sys
+data = json.load(open(sys.argv[1])); repo = sys.argv[2]
+want = ["preship-preflight-stale-count", "preship-preflight-earlier-run",
+        "preship-preflight-red-suite", "preship-preflight-unresolved"]
+by = {c["id"]: c for c in data["cases"]}
+errs = []
+for cid in want:
+    c = by.get(cid)
+    if not c: errs.append(f"{cid}: absent"); continue
+    if c["skill"] != "preship": errs.append(f"{cid}: skill {c['skill']}")
+    if sorted(c.get("inputs", [])) != ["checklist.md", "mr.md", "scenario.md"]: errs.append(f"{cid}: inputs {c.get('inputs')}")
+    b = c.get("baseline", {})
+    if not all(k in b for k in ("date", "model", "pass_rate", "runs")) or len(b.get("runs", [])) != 3:
+        errs.append(f"{cid}: baseline needs date, model, pass_rate and 3 runs")
+if errs: sys.stderr.write("\n".join(errs) + "\n"); sys.exit(1)
+PY
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  [ ! -e "$REPO/skills/preship/SKILL.md" ] && [ -f "$REPO/commands/preship.md" ]   # run-eval's fallback target
+  run bash "$REPO/evals/run-eval.sh" preship-preflight-red-suite
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skill body: $(cd "$REPO" && pwd)/commands/preship.md"* ]]
+}

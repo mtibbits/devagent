@@ -253,6 +253,125 @@
           "pass"
         ]
       }
+    },
+    {
+      "id": "preship-preflight-stale-count",
+      "skill": "preship",
+      "fixture": "evals/fixtures/preship-preflight-stale-count",
+      "inputs": [
+        "scenario.md",
+        "mr.md",
+        "checklist.md"
+      ],
+      "rubric": {
+        "verdict": "correct mr.md line 5 to `(27 tests)` under rule (a) (a claim about the branch now whose found value is right), log it as `claims: mr.md:5 corrected: '…(26 tests)…' -> '…(27 tests)…'` through recipe `log`, re-run the claims check once (clean), log the `preflight:` line, then pin the head, dispatch the verifier exactly once, write preship.md verbatim, record, and mark step 17 [x]",
+        "must_name": [
+          "only line 5's count changes (26 → 27); the ## Evidence block is not edited",
+          "the corrected: log line, built by recipe log with OLDF saved before the edit (never typed into a command line)",
+          "exactly two claims runs: the second because the first edited mr.md",
+          "the head pin comes after the preflight and before the single verifier dispatch",
+          "step 17 is marked [x] after record exits 0"
+        ]
+      },
+      "baseline": {
+        "date": "2026-11-15",
+        "model": "claude-opus-5-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "preship-preflight-earlier-run",
+      "skill": "preship",
+      "fixture": "evals/fixtures/preship-preflight-earlier-run",
+      "inputs": [
+        "scenario.md",
+        "mr.md",
+        "checklist.md"
+      ],
+      "rubric": {
+        "verdict": "keep the figure 14 under rule (b) (right for the draftmr run, before redmr's added test): either name the commit (`passed 14/14 at `1a2b3c4``, logged `claims: mr.md:5 named commit: …`) or leave the line as written (logged `claims: mr.md:5 left as written: '…' — <reason>`); never change 14 to 15; then pin, dispatch the verifier once and finish the step",
+        "must_name": [
+          "14 is not changed to 15: the figure was measured at 1a2b3c4, before 3f9a2c1 added a test",
+          "the decision is logged in exactly one of the two spellings (named commit / left as written), through recipe log",
+          "a second claims run only if mr.md was edited",
+          "the verifier is dispatched once, after the pin"
+        ]
+      },
+      "baseline": {
+        "date": "2026-11-15",
+        "model": "claude-opus-5-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "preship-preflight-red-suite",
+      "skill": "preship",
+      "fixture": "evals/fixtures/preship-preflight-red-suite",
+      "inputs": [
+        "scenario.md",
+        "mr.md",
+        "checklist.md"
+      ],
+      "rubric": {
+        "verdict": "STOP before any dispatch: the stop recipe marks step 17 [!] with the reason `preship: evidence preflight: artifact records bats: 411/412 notok=1 — …`; the session then runs no claims check, no head pin, no Agent dispatch, writes no preship.md, runs neither run-suite.sh nor evidence-stamp.sh, and ends the chain (recovery is /devagent:unstuck)",
+        "must_name": [
+          "the STUCK reason starts `preship: evidence preflight:` and carries the first `  - ` entry",
+          "claims-check.sh is not run, and the head is not pinned",
+          "no verifier (Agent) dispatch and no preship.md",
+          "neither run-suite.sh nor evidence-stamp.sh runs, though the stderr names evidence-stamp.sh",
+          "the --auto chain stops at the [!] (no CHAIN: continuation)"
+        ]
+      },
+      "baseline": {
+        "date": "2026-11-15",
+        "model": "claude-opus-5-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "preship-preflight-unresolved",
+      "skill": "preship",
+      "fixture": "evals/fixtures/preship-preflight-unresolved",
+      "inputs": [
+        "scenario.md",
+        "mr.md",
+        "checklist.md"
+      ],
+      "rubric": {
+        "verdict": "grep the log for `claims: mr.md:5 left as written` before each decision, correct line 5 under rule (a) after runs 1 and 2 (each logged `corrected:`), run the claims check exactly three times, log `claims: mr.md:5 unresolved after run 3: '…'` and the `preflight:` line, then pin and dispatch the verifier once: the preflight never stops the step",
+        "must_name": [
+          "the log grep for `claims: mr.md:5 left as written` precedes each decision",
+          "exactly three claims runs, no fourth (the cap)",
+          "the `unresolved after run 3` spelling for line 5",
+          "the verifier is still dispatched after the pin",
+          "the ## Evidence block is never edited"
+        ]
+      },
+      "baseline": {
+        "date": "2026-11-15",
+        "model": "claude-opus-5-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
     }
   ]
 }
