@@ -33,6 +33,9 @@
 #        /devagent:mergemr and WAITING (#885).
 #   #1002: none beyond its bullet in the one list.
 
+# #338: every loaded setup layer sources the shared hermetic-env guard (#322).
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
+
 # The step count the workflow table and the headline derive from
 # templates/checklist-standard.md. The literal keeps the derived count honest:
 # a template that silently reads fewer steps cannot pass.
