@@ -100,7 +100,7 @@ _verb_want() {
 }
 
 @test "local: every verb accepts and ignores --key <value>" {
-  local v n=0 a1 a2 s1 o1
+  local v n=0 s1 o1
   for v in push-branch merge-mr issue-mrs mr-checks mr-view branch-exists create-mr mr-state mr-comments merged-pr-head; do
     mapfile -t args < <(_verb_args "$v")
     run "$LOCAL" "$v" "${args[@]}"

@@ -172,7 +172,7 @@ _parse_ref() {
 # exits 1, a malformed one exits <exit> (5 for the reference verbs).
 _read_record() {
   local path="$1" head="$2" bad="$3" line key val seen=" " k
-  REC_version="" REC_state="" REC_head="" REC_base="" REC_head_sha="" REC_merge_commit="" REC_title=""
+  REC_version="" REC_state="" REC_head="" REC_base="" REC_head_sha="" REC_merge_commit=""
   [ -e "$path" ] || { echo "no local MR record at $path" >&2; exit 1; }
   _bad_record() { echo "malformed local MR record at $path: $1" >&2; exit "$bad"; }
   [ -f "$path" ] && [ -r "$path" ] || _bad_record "not a readable file"
