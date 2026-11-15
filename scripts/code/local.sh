@@ -172,6 +172,110 @@ cmd_create_mr() {
   printf 'local:%s#%s\n' "$(bc_urlenc "$CDIR")" "$enc"
 }
 
+# --- the reference, the record and the state -----------------------------------
+
+# _decode <enc>: set DEC to <enc> percent-decoded (the caller has checked its shape).
+DEC=""
+_decode() { printf -v DEC '%b' "${1//%/\\x}"; }
+
+# _parse_ref <ref>: set RDIR (the common dir), RENC (the encoded branch) and RHEAD
+# (the branch), or exit 1. Valid only in D-ref's shape, with each part canonical
+# (re-encoding it gives it back byte for byte), an absolute directory, and a
+# branch that is neither . nor ..
+RDIR="" RENC="" RHEAD=""
+_parse_ref() {
+  local ref="$1" body enc_dir unit='([A-Za-z0-9._~-]|%[0-9A-F]{2})+'
+  body="${ref#local:}"
+  if [ "$body" != "$ref" ] && [[ "$body" =~ ^($unit)#($unit)$ ]] && [[ "$body" != *%00* ]]; then
+    enc_dir="${body%%#*}"; RENC="${body#*#}"
+    _decode "$enc_dir"; RDIR="$DEC"
+    _decode "$RENC"; RHEAD="$DEC"
+    if [ "$(bc_urlenc "$RDIR")" = "$enc_dir" ] && [ "$(bc_urlenc "$RHEAD")" = "$RENC" ] \
+       && _is_abs "$RDIR" && [ "$RHEAD" != . ] && [ "$RHEAD" != .. ]; then
+      return 0
+    fi
+  fi
+  echo "not a local MR reference: $ref" >&2
+  exit 1
+}
+
+# _read_record <path> <head> <exit>: read D-rec into REC_<key>; a missing record
+# exits 1, a malformed one exits <exit> (5 for the reference verbs).
+_read_record() {
+  local path="$1" head="$2" bad="$3" line key val seen=" " k
+  REC_version="" REC_state="" REC_head="" REC_base="" REC_head_sha="" REC_merge_commit="" REC_title=""
+  [ -e "$path" ] || { echo "no local MR record at $path" >&2; exit 1; }
+  _bad_record() { echo "malformed local MR record at $path: $1" >&2; exit "$bad"; }
+  [ -f "$path" ] && [ -r "$path" ] || _bad_record "not a readable file"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    [[ "$line" == *": "* ]] || _bad_record "a line is not 'key: value'"
+    key="${line%%: *}"; val="${line#*: }"
+    case "$key" in
+      version|state|head|base|head_sha|merge_commit|title) ;;
+      *) _bad_record "unknown key '$key'" ;;
+    esac
+    [[ "$seen" != *" $key "* ]] || _bad_record "repeated key '$key'"
+    seen+="$key "
+    printf -v "REC_$key" '%s' "$val"
+  done < "$path"
+  for k in version state head base head_sha merge_commit title; do
+    [[ "$seen" == *" $k "* ]] || _bad_record "missing key '$k'"
+  done
+  [ "$REC_version" = 1 ] || _bad_record "version is not 1"
+  case "$REC_state" in open|merged|closed) ;; *) _bad_record "bad state '$REC_state'" ;; esac
+  [[ "$REC_head_sha" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || _bad_record "bad head_sha"
+  [[ "$REC_merge_commit" =~ ^(-|[0-9a-f]{40}|[0-9a-f]{64})$ ]] || _bad_record "bad merge_commit"
+  [ "$REC_head" = "$head" ] || _bad_record "head is not the record's branch"
+}
+
+# _rc <git args...>: run git quietly against the common dir $RDIR; return its code.
+_rc() { _git_rc --git-dir="$RDIR" "$@"; }
+
+# _state <cannot-tell exit>: set STATE from REC_* by D-state. A git answer other
+# than yes or no exits <cannot-tell exit>.
+STATE=""
+_state() {
+  local fail="$1" rc
+  _cannot() { echo "git could not answer for $RDIR (exit $1)" >&2; exit "$fail"; }
+  if [ "$REC_state" = merged ]; then STATE=merged; return 0; fi
+  # Ancestor: the head_sha commit exists, the base resolves, and is-ancestor says yes.
+  rc=0; _rc rev-parse --verify --quiet "$REC_head_sha^{commit}" || rc=$?
+  case "$rc" in 0|1) ;; *) _cannot "$rc" ;; esac
+  if [ "$rc" -eq 0 ]; then
+    rc=0; _rc rev-parse --verify --quiet "refs/heads/$REC_base^{commit}" || rc=$?
+    case "$rc" in 0|1) ;; *) _cannot "$rc" ;; esac
+    if [ "$rc" -eq 0 ]; then
+      rc=0; _rc merge-base --is-ancestor "$REC_head_sha" "refs/heads/$REC_base" || rc=$?
+      case "$rc" in
+        0) STATE=merged; return 0 ;;
+        1) ;;
+        *) _cannot "$rc" ;;
+      esac
+    fi
+  fi
+  if [ "$REC_state" = closed ]; then STATE=closed; return 0; fi
+  rc=0; _rc rev-parse --verify --quiet "refs/heads/$REC_head^{commit}" || rc=$?
+  case "$rc" in
+    0) STATE=open ;;
+    1) STATE=closed ;;
+    *) _cannot "$rc" ;;
+  esac
+}
+
+cmd_mr_state() {
+  _parse_ref "$1"
+  _read_record "$RDIR/devagent/local-mr/$RENC" "$RHEAD" 5
+  _state 1
+  printf '%s\n' "$STATE"
+}
+
+cmd_mr_comments() {
+  _parse_ref "$1"
+  _read_record "$RDIR/devagent/local-mr/$RENC" "$RHEAD" 5
+  bc_emit_comments_header 0
+}
+
 [ $# -ge 1 ] || usage
 verb="$1"; shift
 case "$verb" in
@@ -188,6 +292,11 @@ case "$verb" in
     [ $# -ge 5 ] || usage
     _opts 1 "${@:6}"
     cmd_create_mr "$1" "$2" "$4" "$5"
+    ;;
+  mr-state|mr-comments)
+    [ $# -ge 1 ] || usage
+    _opts 0 "${@:2}"
+    "cmd_${verb//-/_}" "$1"
     ;;
   branch-exists)
     [ $# -ge 2 ] || usage
