@@ -42,7 +42,7 @@ STEP_COUNT=25
 # trigger for re-running the plugin-root-grant-automatch smoke rung (#548).
 VERIFIED_CC=2.1.223
 # The reference documents that left the site for docs/ (#997), repo-relative.
-REFERENCE_DOCS=()
+REFERENCE_DOCS=(docs/configuration.md docs/concurrency.md)
 # The forge home of a repo file, as the build's links.lua renders it.
 BLOB_BASE='https://github.com/mtibbits/devagent/blob/master/'
 
@@ -108,6 +108,39 @@ check_page_set() {
   done
   [ -f "$dir/README.md" ] || { echo "$dir: no README.md (the drift policy)" >&2; bad=1; }
   return "$bad"
+}
+
+# check_reference_stubs <site-dir> <root> <doc>... — each reference document
+# (root-relative) keeps its 1.0 site URL: moved.txt holds exactly one line
+# "<doc's base name> <its forge URL>", and every forge home moved.txt names
+# exists under <root> (a stub must not point at a file that is gone).
+check_reference_stubs() {
+  local dir="$1" root="$2" d want n old home rel; shift 2
+  [ "$#" -gt 0 ] || { echo "check_reference_stubs: no documents" >&2; return 2; }
+  _need "$dir/moved.txt" || return 2
+  for d in "$@"; do
+    want="$(basename "$d" .md) $BLOB_BASE$d"
+    n="$(grep -cxF -- "$want" "$dir/moved.txt" || true)"
+    [ "$n" -eq 1 ] || { echo "$dir/moved.txt: $n lines '$want', want 1" >&2; return 1; }
+  done
+  while read -r old home; do
+    case "$home" in
+      "$BLOB_BASE"*)
+        rel="${home#"$BLOB_BASE"}"; rel="${rel%%#*}"
+        [ -e "$root/$rel" ] || { echo "$dir/moved.txt: $old's home $rel does not exist" >&2; return 1; } ;;
+    esac
+  done < <(awk '!/^[ \t]*(#|$)/' "$dir/moved.txt")
+}
+
+# check_reference_links <page> <doc>... — the page links each root-relative
+# document as '](../<doc>)', the form links.lua renders to its forge URL.
+check_reference_links() {
+  local page="$1" d; shift
+  [ "$#" -gt 0 ] || { echo "check_reference_links: no documents" >&2; return 2; }
+  _need "$page" || return 2
+  for d in "$@"; do
+    _has "$page" "](../$d)" "does not link $d" || return 1
+  done
 }
 
 # check_derived_from <root> <page>... — each page's line 1 is

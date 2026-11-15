@@ -990,7 +990,7 @@ _append_issue() {
   printf '# wbs init --from-tracker (and --merge) imports\n' > "$TMPROOT/planted"
   rc=0; grep -qF '(and --merge)' "$TMPROOT/planted" || rc=$?
   [ "$rc" -eq 0 ]
-  rc=0; grep -qF '(and --merge)' "$REPO/docs-site/configuration.md" || rc=$?
+  rc=0; grep -qF '(and --merge)' "$REPO/docs/configuration.md" || rc=$?
   [ "$rc" -eq 1 ]
   rc=0; grep -qF 'range flags and threshold' "$spec132" || rc=$?
   [ "$rc" -eq 1 ]

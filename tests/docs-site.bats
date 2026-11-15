@@ -28,7 +28,7 @@ load 'lib/docs-site-checks'
 WEB="$PLUGIN_ROOT/docs-site"
 # The reference documents' paths, one per line (no tests/ line names the site
 # variable and a reference document together).
-CONFIG_REL=docs-site/configuration.md
+CONFIG_REL=docs/configuration.md
 CONFIG_DOC="$PLUGIN_ROOT/$CONFIG_REL"
 TEMPLATE="$PLUGIN_ROOT/templates/checklist-standard.md"
 README="$PLUGIN_ROOT/README.md"
@@ -111,6 +111,15 @@ temp_root() {
 
 @test "docs-site: the content pages are exactly index plus index.md's list, and README is present" {
   holds check_page_set "$WEB"
+}
+
+@test "docs-site: the reference documents keep their 1.0 site URLs as stubs to the forge" {
+  holds check_reference_stubs "$WEB" "$PLUGIN_ROOT" "${REFERENCE_DOCS[@]}"
+}
+
+@test "docs-site: the reference page links the four reference documents" {
+  holds check_reference_links "$WEB/reference.md" "${REFERENCE_DOCS[@]}" \
+    docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md
 }
 
 @test "docs-site: every content page's line-1 derive header names existing sources" {
@@ -242,8 +251,38 @@ temp_root() {
   sed -i '1d' "$p"
   [[ "$(head -1 "$p")" != *derived-from* ]]
   breaks 'line 1' check_derived_from "$PLUGIN_ROOT" "$p"
+  # A reference document in docs/ carries the same header.
+  p="$(fresh "$PLUGIN_ROOT/${REFERENCE_DOCS[1]}")"
+  holds check_derived_from "$PLUGIN_ROOT" "$p"
+  sed -i '1d' "$p"
+  [[ "$(head -1 "$p")" != *derived-from* ]]
+  breaks 'line 1' check_derived_from "$PLUGIN_ROOT" "$p"
   run check_derived_from "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/absent.md"
   [ "$status" -eq 2 ]
+}
+
+@test "mutation: reference stubs" {
+  local d="$BATS_TEST_TMPDIR/web" t
+  mkdir -p "$d"; cp "$WEB/moved.txt" "$d/"
+  holds check_reference_stubs "$d" "$PLUGIN_ROOT" "${REFERENCE_DOCS[@]}"
+  drop "$d/moved.txt" "concurrency $BLOB_BASE${REFERENCE_DOCS[1]}"
+  breaks "concurrency $BLOB_BASE" check_reference_stubs "$d" "$PLUGIN_ROOT" "${REFERENCE_DOCS[@]}"
+  # A stub whose forge home is gone.
+  cp "$WEB/moved.txt" "$d/"
+  plant "$d/moved.txt" "gone ${BLOB_BASE}docs/nope.md"
+  breaks 'docs/nope.md does not exist' check_reference_stubs "$d" "$PLUGIN_ROOT" "${REFERENCE_DOCS[@]}"
+  # The same line, with the file present in a temp root, holds.
+  t="$(temp_root "${REFERENCE_DOCS[@]}")"
+  mkdir -p "$t/docs"; : >"$t/docs/nope.md"
+  holds check_reference_stubs "$d" "$t" "${REFERENCE_DOCS[@]}"
+}
+
+@test "mutation: reference links" {
+  local f docs=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md)
+  f="$(fresh "$WEB/reference.md")"
+  holds check_reference_links "$f" "${docs[@]}"
+  edit "$f" '](../docs/requirements.md)' '](https://example.com/requirements)'
+  breaks 'docs/requirements.md' check_reference_links "$f" "${docs[@]}"
 }
 
 @test "mutation: install block" {

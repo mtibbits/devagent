@@ -43,13 +43,16 @@
 # file with skips forbidden. Locally, install pandoc 3.x.
 #
 # COUPLING: the REAL tests derive their expectations from docs-site/ (fence
-# and table-row counts, the install command lines, two H1s, the page set and
-# moved.txt, and nav order from index.md's "Where to go next" list).
+# and table-row counts, the install command lines, install.md's H1, the page
+# set and moved.txt, and nav order from the one page list: index.md's own
+# top-level list, read by tests/lib/docs-site-checks.bash site_pages; see
+# docs-site/README.md).
 # docs-site/README.md announces this to page editors; a failure here after a
 # page edit usually means the expectation moves with the page, not that the
 # page is wrong.
 
 load 'lib/bats-helpers'
+load 'lib/docs-site-checks'
 
 BUILD="$PLUGIN_ROOT/scripts/build-docs-site.sh"
 SITE="$PLUGIN_ROOT/docs-site"
@@ -190,6 +193,10 @@ fx_page() {
 # nav_of <html> — the <nav> block only. The theme CSS names aria-current and
 # page bodies link sibling pages, so nav assertions must not see the whole file.
 nav_of() { sed -n '/<nav aria-label="Pages">/,/<\/nav>/p' "$1"; }
+
+# nav_hrefs <html> — the nav's page links in order, space-joined, each as
+# href="<name>.html" (the build's page-name class, so a hyphenated name counts).
+nav_hrefs() { nav_of "$1" | grep -oE 'href="[A-Za-z0-9_-]+\.html"' | tr '\n' ' '; }
 
 # fx_build [args...] — build the fixture source dir into $FX/out. FX_PATH, when
 # set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. It
@@ -359,10 +366,6 @@ real_stubs() {
 @test "build-docs-site: real site — title from the H1, nav marks exactly the current page" {
   need_pandoc
   grep -qF '<title>Install | devAgent</title>' "$REAL_OUT/install.html"
-  grep -qF '<title>Multi-project &amp; concurrency | devAgent</title>' "$REAL_OUT/concurrency.html"
-  # the nav label is escaped by THIS script (sed), the <title> by pandoc — pin both
-  # (index.md's body links the same page, and pandoc escapes that one)
-  nav_of "$REAL_OUT/index.html" | grep -qF '>Multi-project &amp; concurrency</a>'
   local content=() p html
   mapfile -t content < <(real_content)
   # content pages only (a moved-page stub has no nav); each nav links them all
@@ -372,12 +375,44 @@ real_stubs() {
     grep -qF "<a href=\"$p.html\" aria-current=\"page\">" "$html"
     [ "$(nav_of "$html" | grep -c '<a href=')" -eq "${#content[@]}" ]
   done
-  # nav order is index.md's bullet list, not the alphabetical glob
-  local navorder
-  navorder="$(nav_of "$REAL_OUT/index.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
+  # nav order is the one page list (index.md's list, read by site_pages), not
+  # the alphabetical glob. tests/docs-site.bats holds every page to that list,
+  # so no unlisted page is appended after it.
+  local navorder expected
+  navorder="$(nav_hrefs "$REAL_OUT/index.html")"
+  expected="href=\"index.html\" $(site_pages "$SITE" | sed 's/.*/href="&.html"/' | tr '\n' ' ')"
   echo "nav order rendered: $navorder" >&2
-  echo "(derived from docs-site/index.md's 'Where to go next' bullets — see docs-site/README.md; if that list changed on purpose, this expectation moves with it)" >&2
-  [ "$navorder" = 'href="index.html" href="install.html" href="quickstart.html" href="workflow.html" href="configuration.html" href="concurrency.html" ' ]
+  echo "nav order expected: $expected(index, then index.md's list — see docs-site/README.md)" >&2
+  [ "$navorder" = "$expected" ]
+}
+
+@test "build-docs-site: real site — every moved.txt line has its stub, linking its home, in no nav" {
+  need_pandoc
+  local pairs=() content=() line old home p
+  # the <old> <home> pairs, read from moved.txt itself (comments and blanks skipped)
+  mapfile -t pairs < <(awk '!/^[ \t]*(#|$)/ { print $1, $2 }' "$SITE/moved.txt")
+  [ "${#pairs[@]}" -ge 2 ]
+  mapfile -t content < <(real_content)
+  for line in "${pairs[@]}"; do
+    old="${line%% *}" home="${line#* }"
+    [ -s "$REAL_OUT/$old.html" ] || { echo "no stub $old.html" >&2; return 1; }
+    grep -qF "href=\"$home\"" "$REAL_OUT/$old.html" || { echo "$old.html does not link $home" >&2; return 1; }
+    for p in "${content[@]}"; do
+      [ "$(nav_of "$REAL_OUT/$p.html" | grep -c "href=\"$old.html\"")" -eq 0 ] \
+        || { echo "$p.html's nav links the stub $old.html" >&2; return 1; }
+    done
+  done
+}
+
+@test "build-docs-site: real site — the reference page links the four reference documents on the forge" {
+  need_pandoc
+  local d docs=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md)
+  [ "${#docs[@]}" -eq 4 ]
+  [ -s "$REAL_OUT/reference.html" ] || { echo "no reference.html" >&2; return 1; }
+  for d in "${docs[@]}"; do
+    grep -qF "href=\"$BLOB_BASE$d\"" "$REAL_OUT/reference.html" \
+      || { echo "reference.html: no forge link to $d" >&2; return 1; }
+  done
 }
 
 @test "build-docs-site: real site — the allowlist scan accounts for every built file; no preview wording" {
@@ -684,6 +719,21 @@ real_stubs() {
   # entities decode once: &amp;lt; shows as the literal text "&lt;"
   grep -qF '<title>a &amp;lt; b | devAgent</title>' "$FX/out/ent.html"
   nav_of "$FX/out/ent.html" | grep -qF '>a &amp;lt; b</a>'
+}
+
+@test "build-docs-site: a Markdown H1 with & is escaped once in <title> and the nav; hyphenated names keep list order" {
+  need_pandoc
+  fx_page index '- [Multi](./multi-project.md)' '- [First](./first-issue.md)'
+  printf '%s\n' '# Multi-project & concurrency' '' 'm' > "$FX/src/multi-project.md"
+  fx_page first-issue "f"
+  run fx_build
+  [ "$status" -eq 0 ]
+  # the <title> is escaped by pandoc, the nav label by the build's sed: pin both
+  grep -qF '<title>Multi-project &amp; concurrency | devAgent</title>' "$FX/out/multi-project.html"
+  nav_of "$FX/out/index.html" | grep -qF '>Multi-project &amp; concurrency</a>'
+  [ "$(grep -c '&amp;amp;' "$FX/out/multi-project.html")" -eq 0 ]
+  # list order (multi-project before first-issue), not alphabetical, hyphens kept
+  [ "$(nav_hrefs "$FX/out/index.html")" = 'href="index.html" href="multi-project.html" href="first-issue.html" ' ]
 }
 
 @test "build-docs-site: nav-label header sets the nav label; the H1 still sets the title" {

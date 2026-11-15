@@ -263,7 +263,7 @@ _check_user_invocable() {
   # public doc roots must carry the derived total. docs/plans is build history
   # and is deliberately outside the roots.
   roots=(README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md .claude-plugin
-         docs-site docs/specs commands skills templates)
+         docs-site docs/configuration.md docs/concurrency.md docs/specs commands skills templates)
   homes=0; stale=""
   while IFS= read -r hit; do
     homes=$((homes + 1))
@@ -366,11 +366,13 @@ S
 
 @test "docs homes: no silent-degradation claim; recommended statement present (#541)" {
   local REPO_ROOT="$CMD_DIR/.."
-  # POSTURE homes only (README, commands/, spec, docs-site/ — #461) —
+  # POSTURE homes only (README, commands/, spec, docs-site/ — #461 — and the
+  # reference documents that left it, docs/configuration.md and docs/concurrency.md, #997) —
   # deliberately NOT repo-wide:
   # evals/smoke/README.md:11 says "silently degrades" about subagent isolation,
   # unrelated and staying (improve finding: a repo-wide sweep can never go green).
-  run grep -ril 'silently degrade' "$REPO_ROOT/README.md" "$CMD_DIR" "$REPO_ROOT/docs/specs" "$REPO_ROOT/docs-site"
+  run grep -ril 'silently degrade' "$REPO_ROOT/README.md" "$CMD_DIR" "$REPO_ROOT/docs/specs" "$REPO_ROOT/docs-site" \
+    "$REPO_ROOT/docs/configuration.md" "$REPO_ROOT/docs/concurrency.md"
   [ "$status" -eq 1 ]
   # delta-pinning tokens (Issue-318: born-green presence greps prove nothing):
   grep -qF 'Recommended — superpowers' "$REPO_ROOT/README.md"       # NEW heading token

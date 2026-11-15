@@ -286,5 +286,3 @@ private layers you accumulate hold the rest, and step 23 writes only to those.
 Inspect
 what resolves where with `/devagent:template list` and
 `/devagent:template show <key>`.
-
-[← devAgent onboarding](./index.md)

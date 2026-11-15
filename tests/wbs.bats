@@ -1271,8 +1271,8 @@ _wbs865_order() {
   [ "$(grep -cF '`priority: P1`-`P4`' "$REPO/commands/wbs.md")" -eq 0 ]
   grep -qF '`priority: P0`-`P4`' "$REPO/scripts/wbs-order.sh"
   [ "$(grep -cF '`priority: P1`-`P4`' "$REPO/scripts/wbs-order.sh")" -eq 0 ]
-  grep -qF 'priority (P0-P4)' "$REPO/docs-site/configuration.md"
-  [ "$(grep -cF 'P1-P4' "$REPO/docs-site/configuration.md")" -eq 0 ]
+  grep -qF 'priority (P0-P4)' "$REPO/docs/configuration.md"
+  [ "$(grep -cF 'P1-P4' "$REPO/docs/configuration.md")" -eq 0 ]
   # [Unreleased] to the end, so a release cut keeps this green.
   awk '/^## \[Unreleased\]/{f=1;next} f' "$REPO/CHANGELOG.md" | grep -qF 'priority: P0'
 }

@@ -78,5 +78,3 @@ Issues pause and resume without losing place:
 Parked issues are listed on a `Parked:` line in `/devagent:status` (the `[P]`
 glyph lives in the issue's checklist), the multi-project dashboard
 of active issues, stuck steps, and parked work.
-
-[← devAgent onboarding](./index.md)
