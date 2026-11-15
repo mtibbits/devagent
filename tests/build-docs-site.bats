@@ -254,13 +254,14 @@ real_stubs() {
   [ "${#content[@]}" -ge 2 ]
   local html=("$REAL_OUT"/*.html) all=("$REAL_OUT"/*) extra=0
   [ "${#html[@]}" -eq "$(( ${#content[@]} + ${#stubs[@]} ))" ]
-  # the asset folders appear exactly when their sources exist
+  # the content-side asset folder appears exactly when its source exists; the
+  # template side (static/) always does, holding the four family files
   if [ -d "$SITE/assets" ]; then extra=$((extra + 1)); [ -d "$REAL_OUT/assets" ]; else [ ! -e "$REAL_OUT/assets" ]; fi
-  if [ -d "$PLUGIN_ROOT/scripts/docs-site/static" ]; then
-    extra=$((extra + 1)); [ -d "$REAL_OUT/static" ]
-  else
-    [ ! -e "$REAL_OUT/static" ]
-  fi
+  extra=$((extra + 1))
+  local f
+  for f in family.css family.js family-topbar.html family-footer.html; do
+    [ -f "$REAL_OUT/static/$f" ]
+  done
   [ "${#all[@]}" -eq "$(( ${#html[@]} + extra ))" ]
   [ ! -e "$REAL_OUT/README.html" ]
   for p in "${content[@]}" "${stubs[@]}"; do
@@ -2360,4 +2361,188 @@ fx_fill_site() {
   [ "$status" -eq 8 ]
   [[ "$output" == *"the placeholder fill did not complete (fill-placeholders exited 9)"* ]]
   [[ "$output" != *"built 1 pages"* ]]
+}
+
+# ------------------------------------------ FAMILY: the real site (#996)
+#
+# The expectations below come from the partials and docs-site/live.txt
+# directly (a sed over each live line, in the rendered formats), never from
+# the filler, so a filler bug cannot agree with itself.
+
+# region_of <html> <partial> — the lines of <html> that the partial's lines 2
+# to its end landed on (line 1, the version comment, is left out).
+region_of() {
+  local first n
+  first="$(sed -n 2p "$2")"
+  n=$(( $(wc -l < "$2") - 1 ))
+  awk -v f="$first" -v n="$n" 'c == 0 && !done && $0 == f { c = n } c > 0 { print; c--; if (c == 0) done = 1 }' "$1"
+}
+
+# expect_region <partial> — the partial's lines 2 to its end, each live
+# placeholder rendered from docs-site/live.txt.
+expect_region() {
+  local sedargs=() kind k state url
+  while read -r kind k state url; do
+    if [ "$state" = yes ]; then
+      sedargs+=(-e "s#{{live:$k|\\([^}]*\\)}}#<a href=\"$url\">\\1</a>#g")
+    else
+      sedargs+=(-e "s#{{live:$k|\\([^}]*\\)}}#<span class=\"family-coming\">\\1 <small>coming</small></span>#g")
+    fi
+  done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+  [ "${#sedargs[@]}" -gt 0 ] || return 1
+  sed -n '2,$p' "$1" | sed "${sedargs[@]}"
+}
+
+@test "build-docs-site: real site — every page carries the same top bar and shared footer, filled from live.txt" {
+  need_pandoc
+  local content=() p part want got n=0
+  mapfile -t content < <(real_content)
+  [ "${#content[@]}" -ge 2 ]
+  for part in family-topbar.html family-footer.html; do
+    want="$(expect_region "$FAMILY_STATIC/$part")"
+    [ -n "$want" ]
+    [[ $want != *'{{'* ]]
+    for p in "${content[@]}"; do
+      got="$(region_of "$REAL_OUT/$p.html" "$FAMILY_STATIC/$part")"
+      [ "$got" = "$want" ] || { echo "$p.html: the $part region is not the expected markup:" >&2; diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") >&2; return 1; }
+      n=$((n + 1))
+    done
+  done
+  [ "$n" -eq $(( 2 * ${#content[@]} )) ]
+  # plain HTML: each region is markup, outside <noscript>, <script>,
+  # <template> and comments
+  for p in "${content[@]}"; do
+    run fc placement "$REAL_OUT/$p.html" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+    [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+    fc_count placement
+    [ "$fc_n" -eq 2 ]
+  done
+}
+
+@test "build-docs-site: real site — live.txt renders both ways: not live without a link, live with one" {
+  need_pandoc
+  # today's settings (child 11 flips these when the sites go live)
+  grep -qE '^live gantry no ' "$LIVE_TXT"
+  grep -qE '^live learn no ' "$LIVE_TXT"
+  local content=() p kind k state url label li yes=0 no=0 region
+  mapfile -t content < <(real_content)
+  for p in "${content[@]}"; do
+    region="$(region_of "$REAL_OUT/$p.html" "$FAMILY_STATIC/family-topbar.html")"
+    while read -r kind k state url; do
+      label="$(sed -n "s/.*{{live:$k|\\([^}]*\\)}}.*/\\1/p" "$FAMILY_STATIC/family-topbar.html")"
+      [ -n "$label" ]
+      li="$(printf '%s\n' "$region" | grep -F '<li>' | grep -F -e ">$label<" -e ">$label <small>")"
+      [ "$(printf '%s\n' "$li" | wc -l)" -eq 1 ] || { echo "$p.html: no single <li> for $label: $li" >&2; return 1; }
+      if [ "$state" = no ]; then
+        [[ $li != *'href='* ]] || { echo "$p.html: $k is not live but links: $li" >&2; return 1; }
+        [[ $li == *'class="family-coming"'* ]]
+        no=$((no + 1))
+      else
+        [ "$(grep -o 'href=' <<< "$li" | wc -l)" -eq 1 ]
+        [[ $li == *"href=\"$url\""* ]] || { echo "$p.html: $k is live but its <li> lacks href=\"$url\": $li" >&2; return 1; }
+        yes=$((yes + 1))
+      fi
+    done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+  done
+  [ "$yes" -ge "${#content[@]}" ]
+  [ "$no" -ge "${#content[@]}" ]
+}
+
+@test "build-docs-site: real site — no animation or transition applies outside .family-motion" {
+  need_pandoc
+  local content=() css=() html=()
+  mapfile -t content < <(real_content)
+  mapfile -t css < <(find "$REAL_OUT" -name '*.css' | LC_ALL=C sort)
+  html=("$REAL_OUT"/*.html)
+  [ "${#css[@]}" -ge 1 ]
+  [ -f "$REAL_OUT/static/family.css" ]
+  run fc motion "${css[@]}" "${html[@]}"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count motion
+  [ "$fc_n" -ge $(( 1 + ${#content[@]} )) ]
+  # 1.0's nav transition is still there, gated
+  grep -qF '.family-motion nav[aria-label="Pages"] a { transition: color 120ms ease; }' "$PAGE_TMPL"
+}
+
+@test "build-docs-site: real site — nothing is hidden by default; text, top bar and footer are in the HTML" {
+  need_pandoc
+  local content=() p
+  mapfile -t content < <(real_content)
+  run fc hidden "$REAL_OUT"/*.html
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count hidden
+  [ "$fc_n" -ge "${#content[@]}" ]
+  for p in "${content[@]}"; do
+    [ -n "$(article_of "$REAL_OUT/$p.html" | tr -d '[:space:]')" ]
+    grep -qF '<header class="family-topbar">' "$REAL_OUT/$p.html"
+    grep -qF '<div class="family-footer">' "$REAL_OUT/$p.html"
+  done
+}
+
+@test "build-docs-site: real site — every count in live.txt resolves to a positive number" {
+  local d="$BATS_TEST_TMPDIR" keys=() k
+  mapfile -t keys < <(awk '$1 == "count" { print $2 }' "$LIVE_TXT")
+  [ "${#keys[@]}" -ge 1 ]
+  : > "$d/probe.html"
+  for k in "${keys[@]}"; do printf '%s={{count:%s}}\n' "$k" "$k" >> "$d/probe.html"; done
+  run fp --settings "$LIVE_TXT" "$d/probe.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  for k in "${keys[@]}"; do
+    grep -qE "^$k=[1-9][0-9]*\$" "$d/probe.html" || { echo "count $k: $(grep "^$k=" "$d/probe.html")" >&2; return 1; }
+  done
+}
+
+@test "build-docs-site: real site — the family files publish byte-identical under static/" {
+  need_pandoc
+  local f
+  for f in family.css family.js family-topbar.html family-footer.html; do
+    cmp "$FAMILY_STATIC/$f" "$REAL_OUT/static/$f"
+  done
+}
+
+@test "build-docs-site: family-check — placement, motion and hidden redden on a planted violation" {
+  local d="$BATS_TEST_TMPDIR" top="$FAMILY_STATIC/family-topbar.html" foot="$FAMILY_STATIC/family-footer.html"
+  # placement: inside <noscript>; inside a comment; twice; a plain page passes
+  local tb fb
+  tb="$(sed -n '2,$p' "$top")"
+  fb="$(sed -n '2,$p' "$foot")"
+  printf '<body>\n<noscript>\n%s\n</noscript>\n%s\n</body>\n' "$tb" "$fb" > "$d/pl1.html"
+  fc_row 1 '<header class="family-topbar"> sits inside <noscript>' placement "$d/pl1.html" "$top" "$foot"
+  printf '<body>\n<!--\n%s\n-->\n%s\n</body>\n' "$tb" "$fb" > "$d/pl2.html"
+  fc_row 1 '<header class="family-topbar"> occurs 0 times' placement "$d/pl2.html" "$top" "$foot"
+  printf '<body>\n<template>\n%s\n</template>\n%s\n</body>\n' "$fb" "$tb" > "$d/pl3.html"
+  fc_row 1 '<div class="family-footer"> sits inside <template>' placement "$d/pl3.html" "$top" "$foot"
+  printf '<body>\n%s\n%s\n%s\n</body>\n' "$tb" "$tb" "$fb" > "$d/pl4.html"
+  fc_row 1 '<header class="family-topbar"> occurs 2 times' placement "$d/pl4.html" "$top" "$foot"
+  printf '<body>\n%s\n<main>x</main>\n%s\n</body>\n' "$tb" "$fb" > "$d/pl5.html"
+  fc_row 0 '' placement "$d/pl5.html" "$top" "$foot"
+  # motion: an ungated transition; an ungated animation in style=; a mixed
+  # selector list; gated rules and @keyframes bodies pass
+  printf 'a { transition: color 1s; }\n' > "$d/m1.css"
+  fc_row 1 "transition: color 1s in 'a' applies outside .family-motion" motion "$d/m1.css"
+  printf '<p style="color: red; animation: spin 1s">x</p>\n' > "$d/m2.html"
+  fc_row 1 'animation: spin 1s in style= on <p> applies outside .family-motion' motion "$d/m2.html"
+  printf '.family-motion a, b { transition-duration: 1s; }\n' > "$d/m3.css"
+  fc_row 1 'transition-duration: 1s in' motion "$d/m3.css"
+  printf '<style>\nnav a { transition: color 1s; }\n</style>\n' > "$d/m4.html"
+  fc_row 1 'm4.html:2: transition: color 1s' motion "$d/m4.html"
+  printf '%s\n' '.family-motion a { transition: color 1s; }' 'html.family-motion .x { animation: spin 1s; }' \
+    '@keyframes spin { from { transform: rotate(0); } to { transform: rotate(1turn); } }' \
+    '@media (prefers-reduced-motion: no-preference) { .family-motion nav a { transition: color 1s; } }' > "$d/m5.css"
+  fc_row 0 '' motion "$d/m5.css"
+  # hidden: a hidden attribute; style= display:none; a top-level rule in a
+  # linked copy of family.css; a rule under @media passes
+  printf '<p hidden>x</p>\n' > "$d/h1.html"
+  fc_row 1 'h1.html:1: <p> carries the hidden attribute' hidden "$d/h1.html"
+  printf '<div style="display: none">x</div>\n' > "$d/h2.html"
+  fc_row 1 'style= on <div> hides it' hidden "$d/h2.html"
+  mkdir -p "$d/static"
+  { cat "$FAMILY_STATIC/family.css"; printf '.family-footer { display: none; }\n'; } > "$d/static/family.css"
+  printf '<link rel="stylesheet" href="static/family.css">\n<p>x</p>\n' > "$d/h3.html"
+  fc_row 1 "'.family-footer' hides by default (display: none), outside any @media" hidden "$d/h3.html"
+  printf '<style>\n@media (max-width: 1px) { .x { display: none; } }\n.y { visibility: hidden }\n</style>\n' > "$d/h4.html"
+  fc_row 1 "'.y' hides by default (visibility: hidden)" hidden "$d/h4.html"
+  cp "$FAMILY_STATIC/family.css" "$d/static/family.css"
+  printf '<link rel="stylesheet" href="static/family.css">\n<style>\n@media (max-width: 1px) { .x { display: none; } }\n</style>\n<p>x</p>\n' > "$d/h5.html"
+  fc_row 0 '' hidden "$d/h5.html"
 }

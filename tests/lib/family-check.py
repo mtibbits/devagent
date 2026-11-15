@@ -33,10 +33,21 @@ Subcommands:
                                    no placeholder left, balanced, one root, no
                                    document/script/style tags or on*= handlers,
                                    every class defined in family.css
-  scope   <page> <partial>...     no page rule reaches family markup: a selector
+  scope    <page> <partial>...     no page rule reaches family markup: a selector
                                    whose last compound is a bare element the
                                    partials use, with nothing scoping it, or a
                                    class the partials use
+  placement <page> <partial>...    each partial's root element is in the page's
+                                   markup once, outside <noscript>, <script>,
+                                   <template> and comments
+  motion   <css-or-html>...        every animation*/transition* declaration sits
+                                   in a rule whose selectors all begin
+                                   .family-motion (never in style=); @keyframes
+                                   bodies are exempt
+  hidden   <page>...               nothing is hidden by default: no hidden
+                                   attribute, no hiding style=, no hiding rule
+                                   outside @media in the page's <style> or its
+                                   same-site linked stylesheets
 """
 import html.parser
 import re
@@ -66,7 +77,7 @@ class Report:
 
 def usage(msg):
     print(f"{PROG}: {msg}", file=sys.stderr)
-    print(f"{PROG}: usage: family-check.py <header|tokens|literals|contrast|scope|contract> <file>...", file=sys.stderr)
+    print(f"{PROG}: usage: family-check.py <subcommand> <file>...", file=sys.stderr)
     sys.exit(2)
 
 
@@ -723,9 +734,150 @@ def cmd_fragment(files):
     return rep.done()
 
 
+class Attrs(html.parser.HTMLParser):
+    """Every start tag as (tag, attrs dict, line, enclosing open tags)."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.tags = []
+        self.stack = []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.append((tag, dict(attrs), self.getpos()[0], tuple(self.stack)))
+        if tag not in VOID:
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        self.tags.append((tag, dict(attrs), self.getpos()[0], tuple(self.stack)))
+
+    def handle_endtag(self, tag):
+        if tag in self.stack:
+            while self.stack and self.stack.pop() != tag:
+                pass
+
+
+def tags_of(text):
+    p = Attrs()
+    p.feed(text)
+    p.close()
+    return p.tags
+
+
+GATE_RE = re.compile(r"(html)?\.family-motion(\s|$)")
+
+
+def motion_decls(path, text):
+    """[(line, where, decl)] for each animation/transition declaration that is
+    not under the family-motion class: in a stylesheet rule whose selectors do
+    not all begin with it, or in a style= attribute (never gated)."""
+    out = []
+    rules = css_of(path, text)
+    for rule in rules:
+        gated = all(GATE_RE.match(s) for s in split_top(rule.sel, ","))
+        for prop, val, line in rule.decls:
+            if prop.startswith(("animation", "transition")) and not gated:
+                out.append((line, f"'{rule.sel}'", f"{prop}: {val}"))
+    if not path.lower().endswith(".css"):
+        for tag, attrs, line, _ in tags_of(text):
+            style = attrs.get("style") or ""
+            for prop, val, _l in parse_decls(style, 0, len(style), lambda pos: 0):
+                if prop.startswith(("animation", "transition")):
+                    out.append((line, f"style= on <{tag}>", f"{prop}: {val}"))
+    return out
+
+
+def cmd_motion(files):
+    rep = Report("motion")
+    for path in files:
+        rep.subjects += 1
+        for line, where, decl in motion_decls(path, read(path)):
+            rep.bad(path, line, f"{decl} in {where} applies outside .family-motion")
+    return rep.done()
+
+
+
+
+def hides(prop, val):
+    return (prop == "display" and val.lower().split("!")[0].strip() == "none") or \
+           (prop == "visibility" and val.lower().split("!")[0].strip() == "hidden")
+
+
+def cmd_hidden(files):
+    """Nothing in a built page is hidden by default (with scripts off, the
+    page shows everything): no hidden attribute, no style= that hides, and no
+    rule outside @media in any stylesheet the page uses (its <style>, and each
+    same-site <link rel=stylesheet>) that hides."""
+    import os
+    rep = Report("hidden")
+    for path in files:
+        rep.subjects += 1
+        text = read(path)
+        tags = tags_of(text)
+        sheets = [(path, text)]
+        for tag, attrs, line, _ in tags:
+            if "hidden" in attrs:
+                rep.bad(path, line, f"<{tag}> carries the hidden attribute")
+            style = attrs.get("style") or ""
+            for prop, val, _l in parse_decls(style, 0, len(style), lambda pos: 0):
+                if hides(prop, val):
+                    rep.bad(path, line, f"style= on <{tag}> hides it ({prop}: {val})")
+            if tag == "link" and "stylesheet" in (attrs.get("rel") or "").lower().split():
+                href = (attrs.get("href") or "").split("#")[0].split("?")[0]
+                if href and not re.match(r"[A-Za-z][A-Za-z0-9+.-]*:|//", href):
+                    sp = os.path.join(os.path.dirname(path), href)
+                    sheets.append((sp, read(sp)))
+        for sp, stext in sheets:
+            for rule in css_of(sp, stext):
+                if rule.ctx:
+                    continue
+                for prop, val, line in rule.decls:
+                    if hides(prop, val):
+                        rep.bad(sp, line, f"'{rule.sel}' hides by default ({prop}: {val}), outside any @media")
+    return rep.done()
+
+
+def partial_root(partial_text):
+    """(tag, first class) of a partial's root element."""
+    for tag, attrs, _l, stack in tags_of(partial_text):
+        if not stack:
+            return tag, (attrs.get("class") or "").split()[0] if attrs.get("class") else ""
+    return "", ""
+
+
+SHADOW = ("noscript", "script", "template")
+
+
+def cmd_placement(files):
+    """placement <page> <partial>... — each partial's root element occurs in
+    the page's markup exactly once, outside <noscript>, <script>, <template>
+    and comments (a root inside a comment or raw text is not markup at all)."""
+    if len(files) < 2:
+        usage("placement takes one page, then one or more partials")
+    page_path, partials = files[0], files[1:]
+    rep = Report("placement")
+    tags = tags_of(read(page_path))
+    for part in partials:
+        rep.subjects += 1
+        tag, cls = partial_root(read(part))
+        hits = [(line, stack) for t, attrs, line, stack in tags
+                if t == tag and cls in (attrs.get("class") or "").split()]
+        if len(hits) != 1:
+            rep.bad(page_path, hits[0][0] if hits else 0,
+                    f"<{tag} class=\"{cls}\"> occurs {len(hits)} times in the markup (want 1; a comment or raw text is not markup)")
+            continue
+        line, stack = hits[0]
+        inside = [s for s in stack if s in SHADOW]
+        if inside:
+            rep.bad(page_path, line, f"<{tag} class=\"{cls}\"> sits inside <{inside[0]}>")
+    return rep.done()
+
+
 COMMANDS = {
     "contract": cmd_contract,
     "fragment": cmd_fragment,
+    "hidden": cmd_hidden,
+    "motion": cmd_motion,
+    "placement": cmd_placement,
     "header": cmd_header,
     "tokens": cmd_tokens,
     "literals": cmd_literals,
