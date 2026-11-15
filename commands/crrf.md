@@ -155,7 +155,8 @@ and `file.sh`'s outcome, copied from its `file.sh: tier …` line:
 `not applied (no project)`. An unfiled draft reads the gate plan's `labels:`
 line instead: `would apply as <label>`, `matches project tier` or
 `not applied (no project)`. A draft with no or an empty `tiers.toml` reads
-`none (no proposal)`.
+`none (no proposal)`. A `matches project tier` outcome means the proposal
+was redundant: the skill proposes a class only to depart from the project.
 
 Group promoted children under the epic they came from, and state once that
 the epic's `children/NN-*.md` files are staging copies superseded by the

@@ -38,7 +38,9 @@ Args: `[issue|epic] <free-form text>`
 
 4. For each **issue** draft, after the draft body is written, run
    **Propose model tiers** (below); rerun it when a revise changes the
-   scope. An epic draft gets no tier proposal.
+   scope. In a standalone capture, where the operator fills the body in
+   later, run it once the body is written, before `/devagent:redissue`.
+   An epic draft gets no tier proposal.
 
 5. Report each created `Captures/<slug>/draft.md` path to the operator
    and suggest the next step (`/devagent:redissue <slug>` or, for
