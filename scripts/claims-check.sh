@@ -202,6 +202,12 @@ RE_NOUN='^[[:space:]]+([A-Za-z]+)'
 S2_WORDS=' passed pass passes passing green ok at in on and plus with '
 RE_AFTER='(^|[^[:alnum:]])[Aa]fter([[:space:]]+[A-Za-z0-9_'"'"'-]+){1,4}[[:space:]]*\([[:space:]]*`?([0-9a-f]{7,40})`?[[:space:]]*\)'
 RE_EVLINE='^suite:[[:space:]]*(.*)$'
+# Commit and file counts. C1 only in a sentence that names the branch or its sign-off.
+RE_C1="${RE_NUM} (signed-off )?commits?([^[:alnum:]]|\$)"
+RE_C1CTX='[Ss]igned[- ]off|Signed-off-by|DCO|git commit -s|ahead of|(this|the) (branch|PR|MR)'
+RE_C2="${RE_NUM} of ([0-9]{1,5}) commits"
+RE_D1="${RE_NUM} (files? changed|changed files?)"
+RE_D2='\(([0-9]{1,5}) files?, [+]'
 RE_EVAT='^(.+) @ ([0-9a-f]{40})$'
 RE_EVBATS='^([0-9]{1,9})/([0-9]{1,9}) bats(, ([0-9]{1,9}) pytest)?$'
 RE_EVPY='^([0-9]{1,9}) pytest$'
@@ -665,12 +671,73 @@ _scan_totals() {
   esac
 }
 
+# ---- commit and file counts --------------------------------------------------------------
+# Compared with `git rev-list --count <baseline_sha>..HEAD` and evidence_files_count (the
+# preship checker's files: count), each computed once. Qualifiers as for totals: earlier,
+# partial, then any at-commit (decision 4: a miss, never a false report).
+N_COMMITS=""; N_FILES=""
+_n_commits() {
+  [ -z "$N_COMMITS" ] || return 0
+  N_COMMITS="$(_git rev-list --count "$baseline_sha..HEAD")" \
+    || _cnr "git rev-list --count ${baseline_sha:0:12}..HEAD failed in $work_dir"
+}
+_n_files() {
+  [ -z "$N_FILES" ] || return 0
+  evidence_files_count "$work_dir" "$baseline_sha" \
+    || _cnr "git diff --name-only ${baseline_sha:0:12}..HEAD failed in $work_dir"
+  N_FILES="$EVIDENCE_FILES_COUNT"
+}
+# _count_claim <L> <kind> <sentence> <offset of the count> <claim> <N>
+_count_claim() {
+  local L="$1" kind="$2" found
+  _total_qual "$3" "$4"
+  if [ -n "$TQ" ]; then _nc "$L" "$kind" "$5" "$TQ"; return 0; fi
+  if [ "$kind" = commit-count ]; then _n_commits; found="$N_COMMITS"; else _n_files; found="$N_FILES"; fi
+  _num "$6"
+  _counted "$kind"
+  [ "$NUM" = "$found" ] || _mm "$L" "$kind" "$5" "$NUM" "$found" "${baseline_sha:0:12}..HEAD"
+}
+# _scan_commits <L> <sentence> - C2 first; its span is masked, so a C1 number inside a
+# C2 match is skipped (A12). Then D1 and D2.
+_scan_commits() {
+  local L="$1" s="$2" w m g1 pre ns ke
+  w="$s"
+  while [[ "$w" =~ $RE_C2 ]]; do
+    m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"
+    pre="${w%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ${#pre} + ${#m} ))
+    _mask w "$ns" "$ke"
+    _count_claim "$L" commit-count "$s" "$ns" "${s:ns:ke-ns}" "${BASH_REMATCH[3]}"
+  done
+  if [[ "$s" =~ $RE_C1CTX ]]; then
+    while [[ "$w" =~ $RE_C1 ]]; do
+      m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"
+      pre="${w%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ${#pre} + ${#m} - ${#BASH_REMATCH[4]} ))
+      _mask w "$ns" "$ke"
+      _count_claim "$L" commit-count "$s" "$ns" "${s:ns:ke-ns}" "${BASH_REMATCH[2]}"
+    done
+  fi
+  w="$s"
+  while [[ "$w" =~ $RE_D1 ]]; do
+    m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"
+    pre="${w%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ${#pre} + ${#m} ))
+    _mask w "$ns" "$ke"
+    _count_claim "$L" files-count "$s" "$ns" "${s:ns:ke-ns}" "${BASH_REMATCH[2]}"
+  done
+  while [[ "$w" =~ $RE_D2 ]]; do
+    m="${BASH_REMATCH[0]}"
+    pre="${w%%"$m"*}"; ns=$(( ${#pre} + 1 )); ke=$(( ${#pre} + ${#m} - 3 ))
+    _mask w "$((ns - 1))" "$ke"
+    _count_claim "$L" files-count "$s" "$ns" "${s:ns-1:ke-ns+1}" "${BASH_REMATCH[1]}"
+  done
+}
+
 # _scan_sentence <L> <sentence>
 _scan_sentence() {
   PF_SEEN=0
   _at_commit "$2"
   _scan_counts "$1" "$2"
   _scan_totals "$1" "$2"
+  _scan_commits "$1" "$2"
 }
 
 # ---- the scan ---------------------------------------------------------------------------

@@ -792,3 +792,70 @@ _bodyev() { _body "$@" '## Evidence' "suite: $SUITE" 'files: 1 changed'; }
     _ccr
     [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 2 0 0 0 0 0 0)" ]
 }
+
+# ---- Task 8: commit and file counts -------------------------------------------------
+# setup: baseline..HEAD is one signed commit changing one file (f2.txt).
+
+@test "9 signed-off commits vs 2 → MISMATCH (… <base12>..HEAD), and the equal case" {
+    echo three > "$SOURCE_DIR/f3.txt"; _commit three
+    _body '- This branch has 9 signed-off commits.'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has "mr.md:1: MISMATCH commit-count: 9 signed-off commits — claimed 9, found 2 (${BASELINE:0:12}..HEAD)"
+    [ "$(_summary)" = "$(_sum 0 0 0 1 0 0 0 1 0)" ]
+    _body '- This branch has 2 signed-off commits.' '- Signed-off-by on all 2 commits'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 2 0 0 0 0 0)" ]
+}
+
+@test "(3 files, +10/-2) and 3 files changed vs 1 → MISMATCH, and the equal case" {
+    _body '- Diff (3 files, +10/-2).' '- 3 files changed' '- 3 changed files'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has "mr.md:1: MISMATCH files-count: (3 files — claimed 3, found 1 (${BASELINE:0:12}..HEAD)"
+    _has "mr.md:2: MISMATCH files-count: 3 files changed — claimed 3, found 1 (${BASELINE:0:12}..HEAD)"
+    _has "mr.md:3: MISMATCH files-count: 3 changed files — claimed 3, found 1 (${BASELINE:0:12}..HEAD)"
+    [ "$(_summary)" = "$(_sum 0 0 0 0 3 0 0 3 0)" ]
+    _body '- Diff (1 file, +1/-0).' '- 1 file changed'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 2 0 0 0 0)" ]
+}
+
+@test "checkout 35 commits in an unrelated sentence → commit-count 0" {
+    _body '- Upstream gained 35 commits since the checkout.'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$ZERO_SUM" ]
+    _body '- The branch is 35 commits ahead of master.'                    # the survivor: a branch sentence
+    _ccr
+    [ "$status" -eq 3 ]; _has "mr.md:1: MISMATCH commit-count: 35 commits — claimed 35, found 1 (${BASELINE:0:12}..HEAD)"
+}
+
+@test "T1: 'step-12 commit' and '#7 commits' in a signed-off sentence → commit-count 0" {
+    _body '- Signed-off: the step-12 commit and #7 commits.'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$ZERO_SUM" ]
+    _body '- Signed-off: the 7 commits.'                                      # the survivor
+    _ccr
+    [ "$status" -eq 3 ]; _has "mr.md:1: MISMATCH commit-count: 7 commits — claimed 7, found 1 (${BASELINE:0:12}..HEAD)"
+}
+
+@test "a C1 number inside a C2 match is skipped (A12)" {
+    _body '- Signed-off: 1 of 2 commits.'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has "mr.md:1: MISMATCH commit-count: 1 of 2 commits — claimed 2, found 1 (${BASELINE:0:12}..HEAD)"
+    [ "$(_summary)" = "$(_sum 0 0 0 1 0 0 0 1 0)" ]
+}
+
+@test "a commit or file count with an at-commit or earlier qualifier → NOT CHECKED" {
+    _body '- On this branch: 9 commits at abc1234.' '- On this branch there were 9 commits.' \
+          '- 3 files changed at HEAD' '- previously 3 files changed' '- partial diff: 3 files changed'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED commit-count: 9 commits — measured at abc1234'
+    _has "mr.md:2: NOT CHECKED commit-count: 9 commits — an earlier run ('were')"
+    _has 'mr.md:3: NOT CHECKED files-count: 3 files changed — measured at HEAD'
+    _has "mr.md:4: NOT CHECKED files-count: 3 files changed — an earlier run ('previously')"
+    _has "mr.md:5: NOT CHECKED files-count: 3 files changed — a partial run ('partial')"
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 5)" ]
+}
