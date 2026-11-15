@@ -10,6 +10,7 @@ bats_require_minimum_version 1.5.0
 # Baseline = the seed commit plus one; HEAD is one commit (one file) past it.
 setup() {
     devagent_test_setup
+    unset DEVAGENT_PYTEST_PYTHON PYTHONDONTWRITEBYTECODE DEVAGENT_COLLECT_TIMEOUT   # Issue-565/578
     cd "$SOURCE_DIR" || return
     echo one > f1.txt && git add -A && git commit -q -s -m one
     BASELINE="$(git rev-parse HEAD)"
@@ -393,4 +394,264 @@ _hasnt() { ! grep -qF -- "$1" <<<"$output" || { echo "unexpected: $1"; echo "$ou
     _ccr
     [ "$status" -eq "$lfrc" ]; [ "$output" = "$lf" ]
     [ "$(_summary)" = "$(_sum 2 0 0 0 0 0 0 1 0)" ]
+}
+
+# ---- Task 6: pytest counts (U6) -------------------------------------------------------
+# _pystub <path> - a pytest stand-in. It logs argv, PYTHONDONTWRITEBYTECODE and the session
+# pin to $PYLOG; --version exits 0; --collect-only prints $PYOUT and exits $PYRC (or
+# sleeps $PYSLEEP first).
+_pystub() {
+    PYLOG="$DEVAGENT_TMP/py.log"; PYOUT="$DEVAGENT_TMP/py.out"; : > "$PYLOG"
+    mkdir -p "$(dirname "$1")"
+    cat > "$1" <<EOF
+#!/usr/bin/env bash
+printf '%s|PDWB=%s|PIN=%s\n' "\$*" "\${PYTHONDONTWRITEBYTECODE-unset}" "\${DEVAGENT_ACTIVE_ISSUE-unset}" >> '$PYLOG'
+case "\$*" in
+  *--collect-only*) [ -z "\${PYSLEEP:-}" ] || exec sleep "\$PYSLEEP"; cat '$PYOUT'; exit "\${PYRC:-0}" ;;
+  *--version*) echo 'pytest 9.0.0'; exit 0 ;;
+esac
+exit 0
+EOF
+    chmod +x "$1"
+    printf '%s\n' 'tests/test_p.py::test_a[1]' 'tests/test_p.py::test_a[2]' 'tests/test_p.py::test_a[3]' \
+        'tests/test_p.py::test_b' '' '4 tests collected in 0.01s' > "$PYOUT"
+}
+# _pyart [<python: value>] - the newest suite-count artifact, its python: line written as
+# run-suite writes it (`python: <interp>`); no argument writes no python: line.
+_pyart() {
+    { printf 'head: %s  dirty: no\nbats: 0/0 notok=0\npytest: 4 passed, 0 failed\n' "$(_head)"
+      [ "$#" -eq 0 ] || printf 'python: %s\n' "$1"; } > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+}
+# _py_fixture - tests/test_p.py and tests/test_a__b.py tracked; the stub as the tree's
+# .venv/bin/python (excluded, so the tree stays clean); the artifact records it.
+_py_fixture() {
+    mkdir -p "$SOURCE_DIR/tests"
+    printf 'def test_b():\n    pass\n' > "$SOURCE_DIR/tests/test_p.py"
+    cp "$SOURCE_DIR/tests/test_p.py" "$SOURCE_DIR/tests/test_a__b.py"
+    _commit p
+    echo '.venv/' >> "$SOURCE_DIR/.git/info/exclude"
+    VENV_PY="$SOURCE_DIR/.venv/bin/python"; _pystub "$VENV_PY"; _pyart "$VENV_PY"
+}
+_collections() { grep -c -- '--collect-only' "$PYLOG" || true; }
+
+@test "a parametrized file counts once per case" {
+    _py_fixture
+    _body '- `tests/test_p.py` (3 tests)' '- `tests/test_a__b.py` (3 tests)'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:1: MISMATCH pytest-count: `tests/test_p.py` (3 tests) — claimed 3, found 4 (at HEAD)'
+    _has 'mr.md:2: MISMATCH pytest-count: `tests/test_a__b.py` (3 tests) — claimed 3, found 4 (at HEAD)'
+    [ "$(_summary)" = "$(_sum 0 2 0 0 0 0 0 2 0)" ]
+    grep -qF -- '--collect-only -q ./tests/test_a__b.py|' "$PYLOG"           # the name survived the scan
+}
+
+@test "each of the 7 recorded pytest forms reports a stale count" {
+    _py_fixture
+    local forms=('`tests/test_p.py`: 3 passed' '`tests/test_p.py` 3/3' '`tests/test_p.py` (3 tests)' '`tests/test_p.py` 3 passed'
+                 '`tests/test_p.py`: 3/3' '`tests/test_p.py`: 3 tests' '`tests/test_p.py` passes 3/3') i
+    _body "${forms[@]/#/- }"
+    _ccr
+    [ "$status" -eq 3 ]
+    for i in "${!forms[@]}"; do
+        grep -qE "^mr\.md:$((i + 1)): MISMATCH pytest-count: .* — claimed 3, found 4 \(at HEAD\)$" <<<"$output" \
+            || { echo "form $((i + 1)) not reported: ${forms[$i]}"; echo "$output"; return 1; }
+    done
+    [ "$(_summary)" = "$(_sum 0 7 0 0 0 0 0 7 0)" ]
+    [ "$(_collections)" -eq 1 ]                                          # one collection per path
+}
+
+# _real_pytest - DEVAGENT_PYTEST_PYTHON = an interpreter that can run pytest, or skip.
+_real_pytest() {
+    local py; py="$(command -v python3 || true)"
+    [ -n "$py" ] && "$py" -m pytest --version >/dev/null 2>&1 || skip "pytest not available"
+    export DEVAGENT_PYTEST_PYTHON="$py"
+    mkdir -p "$SOURCE_DIR/tests"
+    printf '%s\n' 'import pytest' '' '@pytest.mark.parametrize("x", [1, 2, 3])' 'def test_a(x):' '    assert x' '' \
+        'def test_b():' '    pass' > "$SOURCE_DIR/tests/test_real.py"
+    _commit real
+    _pyart "$py"
+}
+
+@test "real pytest, parametrized (skip if pytest absent)" {
+    _real_pytest
+    _body '- `tests/test_real.py` (4 tests)'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 1 0 0 0 0 0 0 0)" ]
+    _body '- `tests/test_real.py` (2 tests)'
+    _ccr
+    [ "$status" -eq 3 ]; _has 'mr.md:1: MISMATCH pytest-count: `tests/test_real.py` (2 tests) — claimed 2, found 4 (at HEAD)'
+}
+
+@test "real pytest with addopts = -q → NOT CHECKED \"collection output not parseable\" (skip if pytest absent)" {
+    _real_pytest
+    printf '[pytest]\naddopts = -q\n' > "$SOURCE_DIR/pytest.ini"; _commit ini; _pyart "$DEVAGENT_PYTEST_PYTHON"
+    _body '- `tests/test_real.py` (2 tests)'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_real.py` (2 tests) — collection output not parseable'
+}
+
+@test "a pytest count naming a commit is NOT CHECKED, including at HEAD" {
+    _py_fixture
+    _body '- `tests/test_p.py` (3 tests) at HEAD' "- \`tests/test_p.py\` (4 tests) at ${BASELINE:0:7}" \
+          "- \`tests/test_p.py\` (3 tests) at the tip"
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — measured at HEAD'
+    _has "mr.md:2: NOT CHECKED pytest-count: \`tests/test_p.py\` (4 tests) — measured at ${BASELINE:0:7}"
+    _has 'mr.md:3: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — measured at HEAD'
+    [ "$(_collections)" -eq 0 ]
+}
+
+@test "the resolver probe runs with PYTHONDONTWRITEBYTECODE=1" {
+    _py_fixture
+    [ -z "${PYTHONDONTWRITEBYTECODE+x}" ]                                   # unset in the parent
+    _body '- `tests/test_p.py` (3 tests)'
+    _ccr
+    [ "$status" -eq 3 ]; _has 'claimed 3, found 4 (at HEAD)'               # and the claim is compared
+    grep -qF -- '-m pytest --version|PDWB=1|' "$PYLOG"
+    grep -qF -- '--collect-only -q ./tests/test_p.py|PDWB=1|' "$PYLOG"
+}
+
+@test "python: (none) or no python: line → NOT CHECKED, stub never invoked" {
+    _py_fixture
+    _body '- `tests/test_p.py` (3 tests)'
+    _pyart '(none)'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — suite run recorded no interpreter'
+    _pyart
+    _ccr
+    [ "$status" -eq 0 ]; _has 'suite run recorded no interpreter'
+    rm "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"              # no artifact at all
+    _ccr
+    [ "$status" -eq 0 ]; _has 'suite run recorded no interpreter'
+    [ ! -s "$PYLOG" ]
+}
+
+@test "an interpreter recorded on another host → NOT CHECKED naming both values" {
+    _py_fixture
+    _pyart /home/other/proj/.venv/bin/python
+    _body '- `tests/test_p.py` (3 tests)'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has "mr.md:1: NOT CHECKED pytest-count: \`tests/test_p.py\` (3 tests) — interpreter differs from the suite run's: /home/other/proj/.venv/bin/python vs $VENV_PY"
+    [ "$(_collections)" -eq 0 ]
+}
+
+@test "an override spelled differently (<dir>//python vs <dir>/python) → NOT CHECKED" {
+    _py_fixture
+    _pystub "$DEVAGENT_TMP/py/python"
+    export DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/py//python"
+    _pyart "$DEVAGENT_TMP/py/python"
+    _body '- `tests/test_p.py` (3 tests)'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has "interpreter differs from the suite run's: $DEVAGENT_TMP/py/python vs $DEVAGENT_TMP/py//python"
+    export DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/py/python"                   # the same spelling: compared
+    _ccr
+    [ "$status" -eq 3 ]; _has 'claimed 3, found 4 (at HEAD)'
+}
+
+@test "no pytest claim → resolver never called" {
+    _py_fixture; _tests tests/f.bats 5; _commit f
+    _body '- `tests/f.bats` (4 tests)'
+    _ccr
+    [ "$status" -eq 3 ]
+    [ ! -s "$PYLOG" ]
+    _body '- `tests/f.bats` (4 tests)' '- `tests/test_p.py` (3 tests)'          # the survivor: one pytest claim
+    _ccr
+    [ "$status" -eq 3 ]
+    grep -qF -- '-m pytest --version' "$PYLOG"
+}
+
+@test "dirty tree → NOT CHECKED" {
+    _py_fixture
+    echo 'x = 1' >> "$SOURCE_DIR/tests/test_p.py"
+    _body '- `tests/test_p.py` (3 tests)'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — dirty tree'
+    [ "$(_collections)" -eq 0 ]
+}
+
+@test "collection exit 2 → NOT CHECKED" {
+    _py_fixture
+    _body '- `tests/test_p.py` (3 tests)'
+    PYRC=2 _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — collection failed (exit 2)'
+    printf '\nno tests ran in 0.01s\n' > "$PYOUT"
+    PYRC=5 _ccr                                                             # rc 5: found 0
+    [ "$status" -eq 3 ]; _has 'claimed 3, found 0 (at HEAD)'
+}
+
+@test "unparseable collection (only 'file: N', rc 0) → NOT CHECKED \"collection output not parseable\"" {
+    _py_fixture
+    printf 'tests/test_p.py: 4\n' > "$PYOUT"
+    _body '- `tests/test_p.py` (3 tests)'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — collection output not parseable'
+    printf '%s\n' 'tests/test_p.py::test_a' '' '2 tests collected in 0.01s' > "$PYOUT"   # ids and summary disagree
+    _ccr
+    [ "$status" -eq 0 ]; _has 'collection output not parseable'
+}
+
+@test "collection that sleeps past DEVAGENT_COLLECT_TIMEOUT=1 → NOT CHECKED \"collection timed out\"" {
+    _py_fixture
+    _body '- `tests/test_p.py` (3 tests)'
+    PYSLEEP=5 DEVAGENT_COLLECT_TIMEOUT=1 _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — collection timed out'
+    DEVAGENT_COLLECT_TIMEOUT=0 _ccr                                          # an invalid bound dies
+    [ "$status" -eq 1 ]; [ -z "$output" ]
+    [[ "$stderr" == *"DEVAGENT_COLLECT_TIMEOUT must be a positive integer"* ]]
+}
+
+@test "DEVAGENT_PYTEST_PYTHON set to a non-executable → NOT CHECKED \"override not executable\"; other reports still print, rc 3 not 1" {
+    _py_fixture; _tests tests/f.bats 5; _commit f
+    export DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/no-such-python"
+    _body '- `tests/test_p.py` (3 tests)' '- `tests/f.bats` (4 tests)'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has "mr.md:1: NOT CHECKED pytest-count: \`tests/test_p.py\` (3 tests) — override not executable: $DEVAGENT_TMP/no-such-python"
+    _has 'mr.md:2: MISMATCH bats-count: `tests/f.bats` (4 tests) — claimed 4, found 5 (at HEAD)'
+    [ "$(_summary)" = "$(_sum 1 0 0 0 0 0 0 1 1)" ]
+}
+
+@test "stub argv holds ./<tracked path> and no other mr.md token" {
+    _py_fixture
+    _body '- `tests/test_p.py` (3 tests) -- --rootdir=/etc'
+    _ccr
+    [ "$status" -eq 3 ]
+    [ "$(grep -- '--collect-only' "$PYLOG" | cut -d'|' -f1)" = "-m pytest -p no:cacheprovider --collect-only -q ./tests/test_p.py" ]
+}
+
+@test "an outside, an untracked and a -leading test_*.py path are NOT CHECKED and absent from the stub's argv log" {
+    _py_fixture
+    printf 'def test_u():\n    pass\n' > "$SOURCE_DIR/tests/test_u.py"; echo 'tests/test_u.py' >> "$SOURCE_DIR/.git/info/exclude"
+    _body '- `../x/test_o.py` (3 tests)' '- `tests/test_u.py` (3 tests)' '- `-test_x.py` (3 tests)' '- `tests/test_p.py` (3 tests)'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `../x/test_o.py` (3 tests) — path refused (contains ..)'
+    _has 'mr.md:2: NOT CHECKED pytest-count: `tests/test_u.py` (3 tests) — not tracked at HEAD'
+    _has 'mr.md:3: NOT CHECKED pytest-count: `-test_x.py` (3 tests) — path refused (leading -)'
+    _has 'mr.md:4: MISMATCH pytest-count:'
+    ! grep -qE 'test_o|test_u|test_x' "$PYLOG"
+    [ "$(_collections)" -eq 1 ]
+}
+
+@test "SUITE_CHILD_UNSET is the one list" {
+    local r="$DEVAGENT_ROOT/scripts"
+    [ "$(grep -c '^SUITE_CHILD_UNSET=' "$r/lib/config.sh")" -eq 1 ]
+    run grep -c '_child_unset' "$r/run-suite.sh"; [ "$output" -eq 0 ]
+    [ "$(grep -cF '"${SUITE_CHILD_UNSET[@]}"' "$r/run-suite.sh")" -eq 2 ]
+    [ "$(grep -cF '"${SUITE_CHILD_UNSET[@]}"' "$r/claims-check.sh")" -eq 1 ]
+    # Behaviour: the collection child never sees the session pin.
+    _py_fixture
+    _body '- `tests/test_p.py` (3 tests)'
+    DEVAGENT_ACTIVE_ISSUE=Issue-1 _cc "$TEST_PROJECT"
+    [ "$status" -eq 3 ]
+    grep -qF -- '--collect-only -q ./tests/test_p.py|PDWB=1|PIN=unset' "$PYLOG"
 }

@@ -59,6 +59,14 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+# shellcheck source=lib/platform.sh
+. "$DEVAGENT_ROOT/scripts/lib/platform.sh"
+# shellcheck source=lib/evidence.sh
+. "$DEVAGENT_ROOT/scripts/lib/evidence.sh"
+# shellcheck source=lib/python-interp.sh
+. "$DEVAGENT_ROOT/scripts/lib/python-interp.sh"
+# shellcheck source=lib/upstream.sh
+. "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -79,6 +87,11 @@ for _a in "$@"; do
   case "$_a" in -*) _usage_exit "unknown option '$_a'" ;; esac
 done
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then _usage_exit "expected <project> <Issue-N>, got $# argument(s)"; fi
+# The bound on each pytest collection (seconds), validated before anything runs, as
+# run-suite validates DEVAGENT_FETCH_TIMEOUT. Scrubbed from the collection child.
+collect_timeout="${DEVAGENT_COLLECT_TIMEOUT:-30}"
+[[ "$collect_timeout" =~ ^[1-9][0-9]*$ ]] \
+  || _cnr "DEVAGENT_COLLECT_TIMEOUT must be a positive integer (seconds), got '$collect_timeout' — it bounds each pytest collection; unset it for the default, 30"
 
 active_resolve_project_try "$1" 2>/dev/null || true
 project="$ACTIVE_RESOLVED_PROJECT"
@@ -174,6 +187,7 @@ RE_FENCE='^[[:space:]]*(```|~~~)'
 RE_EMPH_PREV='^[[:space:]`(]$'
 RE_EMPH_NEXT='^[[:space:][:punct:]]$'
 RE_PATHCHARS='^[A-Za-z0-9._/+-]+$'
+RE_COLLECTED='^([0-9]+) tests? collected'
 # The bats predicate, spelled ONCE; core-draft-mr's writer command quotes it (Task 12).
 RE_TEST='^[[:blank:]]*@test[[:blank:]]'
 
@@ -214,9 +228,11 @@ _emph() {
   EMPH="$out"
 }
 
-# _class <path> - CLS by basename: bats | pytest | other (another framework) | "".
+# _class <path> - CLS by basename: bats | pytest | other (another framework) | "". Leading
+# dashes are ignored here: P admits them only so _path can refuse the token.
 _class() {
   local b="${1##*/}"
+  b="${b#"${b%%[!-]*}"}"
   CLS=""
   if [[ "$b" =~ $RE_BATS ]]; then CLS=bats
   elif [[ "$b" =~ $RE_PYTEST ]]; then CLS=pytest
@@ -325,6 +341,90 @@ _bats_claim() {
   [ "$NUM" = "$BC" ] || _mm "$L" bats-count "$claim" "$NUM" "$BC" "$basis"
 }
 
+# ---- pytest counts (imPlan "pytest-count", U6) ----------------------------------------
+# The gates run ONCE, lazily, at the first pytest claim that reaches them (no pytest claim:
+# no resolver, no collection). Each failing gate makes every pytest count NOT CHECKED with
+# its reason, in this order: an override that is not executable (checked before the resolve,
+# so python_interp_resolve's die is unreachable); the newest artifact's python: line absent
+# or (none) (read before the resolve, so no probe runs); the resolved interpreter not
+# string-equal to it (another host, or an override spelled differently: no normalisation);
+# the interpreter missing; a dirty tree; no timeout(1). The resolve runs with
+# PYTHONDONTWRITEBYTECODE=1 as an env prefix (its probe loads conftest; a subshell would
+# lose the setter-global), with cwd = the tree.
+PY_GATE_DONE=false; PY_GATE=""; PY=""
+declare -A PCACHE=() PCWHY=()
+_py_gate() {
+  local art rec="" l st
+  if $PY_GATE_DONE; then return 0; fi
+  PY_GATE_DONE=true
+  if [ -n "${DEVAGENT_PYTEST_PYTHON:-}" ] && ! command -v "$DEVAGENT_PYTEST_PYTHON" >/dev/null 2>&1 \
+     && [ ! -x "$DEVAGENT_PYTEST_PYTHON" ]; then
+    PY_GATE="override not executable: $DEVAGENT_PYTEST_PYTHON"; return 0
+  fi
+  art="$(evidence_newest_artifact "$issue_dir")"
+  if [ -n "$art" ]; then
+    while IFS= read -r l; do
+      case "$l" in 'python: '*) rec="${l#python: }"; rec="${rec%$'\r'}"; break ;; esac
+    done < "$art"
+  fi
+  if [ -z "$rec" ] || [ "$rec" = '(none)' ]; then PY_GATE="suite run recorded no interpreter"; return 0; fi
+  PYTHONDONTWRITEBYTECODE=1 python_interp_resolve "$work_dir" \
+    "$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
+  PY="$PYTHON_INTERP"
+  if [ "$rec" != "$PY" ]; then PY_GATE="interpreter differs from the suite run's: $rec vs $PY"; return 0; fi
+  if ! command -v "$PY" >/dev/null 2>&1; then PY_GATE="interpreter missing: $PY"; return 0; fi
+  st="$(GIT_OPTIONAL_LOCKS=0 _git status --porcelain)" || _cnr "git status --porcelain failed in $work_dir"
+  if [ -n "$st" ]; then PY_GATE="dirty tree"; return 0; fi
+  if ! command -v timeout >/dev/null 2>&1; then PY_GATE="timeout(1) not on PATH"; return 0; fi
+  config_suite_env_resolve "$project"
+}
+
+# _py_collect <tracked path> - PC: its collected test ids, or PCW: why not. Once per path,
+# bounded; rc 124/137 is read FIRST (a timed-out child's code is no status). rc 5 is
+# "no tests" (0); rc 0 is compared only when there are >= 1 `::` ids and a summary
+# `N tests collected` equal to them (`addopts = -q` makes -q into -qq: only `file: N`).
+_py_collect() {
+  local path="$1" out rc=0 l ids=0 sum=""
+  if [ -n "${PCACHE[$path]+x}" ]; then PC="${PCACHE[$path]}"; PCW="${PCWHY[$path]}"; return 0; fi
+  PC=""; PCW=""
+  out="$(bounded_call "$collect_timeout" env "${SUITE_CHILD_UNSET[@]}" \
+           "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" PYTHONDONTWRITEBYTECODE=1 \
+           "$PY" -m pytest -p no:cacheprovider --collect-only -q "./$path" 2>/dev/null)" || rc=$?
+  case "$rc" in
+    124|137) PCW="collection timed out" ;;
+    5) PC=0 ;;
+    0)
+      while IFS= read -r l; do
+        l="${l%$'\r'}"
+        if [[ "$l" == *::* ]]; then ids=$((ids + 1))
+        elif [[ "$l" =~ $RE_COLLECTED ]]; then sum="${BASH_REMATCH[1]}"
+        fi
+      done <<<"$out"
+      if [ "$ids" -ge 1 ] && [ "$sum" = "$ids" ]; then PC="$ids"; else PCW="collection output not parseable"; fi ;;
+    *) PCW="collection failed (exit $rc)" ;;
+  esac
+  PCACHE["$path"]="$PC"; PCWHY["$path"]="$PCW"
+}
+
+# _pytest_claim <L> <claim> <path token> <text before the count> <N> - one pytest count.
+# Any at-commit qualifier, HEAD included, is NOT CHECKED "measured at <tok>": the
+# collection runs on the tree, never at a commit (a miss, never a false report).
+_pytest_claim() {
+  local L="$1" claim="$2" path="$3" before="$4" n="$5"
+  _qual "$before"
+  if [ -n "$QUAL" ]; then _nc "$L" pytest-count "$claim" "$QUAL"; return 0; fi
+  if [ -n "$AT_TOK" ]; then _nc "$L" pytest-count "$claim" "measured at $AT_TOK"; return 0; fi
+  _path "$path"
+  if [ -z "$RP" ]; then _nc "$L" pytest-count "$claim" "$RP_WHY"; return 0; fi
+  _py_gate
+  if [ -n "$PY_GATE" ]; then _nc "$L" pytest-count "$claim" "$PY_GATE"; return 0; fi
+  _py_collect "$RP"
+  if [ -n "$PCW" ]; then _nc "$L" pytest-count "$claim" "$PCW"; return 0; fi
+  _num "$n"
+  _counted pytest-count
+  [ "$NUM" = "$PC" ] || _mm "$L" pytest-count "$claim" "$NUM" "$PC" "at HEAD"
+}
+
 # _scan_counts <L> <sentence> - the per-file count forms F1-F4 (imPlan "Per-file count").
 # The window W runs from P's end (past its backtick) to the next P-shaped token, a `;`
 # or the sentence end, at most 40 bytes, and must open with the connector.
@@ -377,7 +477,7 @@ _scan_counts() {
     PF_SEEN=1
     case "$cls" in
       bats)   _bats_claim "$L" "$claim" "$p" "${s:0:cpos}" "$n" ;;
-      pytest) : ;;   # Task 6
+      pytest) _pytest_claim "$L" "$claim" "$p" "${s:0:cpos}" "$n" ;;
       other)  _nc "$L" test-count "$claim" "another framework" ;;
     esac
   done

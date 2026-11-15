@@ -190,10 +190,8 @@ fi
 fetch_timeout="${DEVAGENT_FETCH_TIMEOUT:-30}"
 [[ "$fetch_timeout" =~ ^[1-9][0-9]*$ ]] \
   || die "run-suite: DEVAGENT_FETCH_TIMEOUT must be a positive integer (seconds), got '$fetch_timeout' — it bounds the fetch that decides whether the measured tree is behind origin (#660). Unset it for the default, 30."
-# The one-run control variables no suite child may inherit (#240 session pins, #593 jobs,
-# #660 fetch bound): ONE list for both children, so a new knob cannot be scrubbed from one
-# child and forgotten in the other (quality, 2026-09-27).
-_child_unset=(-u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS -u DEVAGENT_FETCH_TIMEOUT)
+# The one-run control variables no suite child may inherit: SUITE_CHILD_UNSET, ONE list in
+# lib/config.sh for both children here and claims-check.sh's collection (#1122).
 
 cd "$work_dir"
 
@@ -357,7 +355,7 @@ if $has_bats; then
   # Not absolute, for either set: SUITE_ENV_ASSIGNMENTS is spliced AFTER these flags,
   # and `env -u X X=8` still exports X=8 — so a project that declares one of these
   # names in its own [project.<name>.suite_env] (#603) re-injects it deliberately.
-  tap="$(env "${_child_unset[@]}" \
+  tap="$(env "${SUITE_CHILD_UNSET[@]}" \
            -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES \
            -u BATS_PARALLEL_BINARY_NAME \
            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
@@ -423,7 +421,7 @@ if $has_pytest; then
   # Both faults are the same mistake: reading prose where an authoritative signal
   # exists. The exit code IS that signal (pytest documents 0/1/2/3/4/5).
   pout=""; prc=0
-  pout="$(env "${_child_unset[@]}" \
+  pout="$(env "${SUITE_CHILD_UNSET[@]}" \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
             "$py" -m pytest tests/ -q 2>&1)" || prc=$?
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
