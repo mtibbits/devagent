@@ -94,3 +94,18 @@ EOF
   run grep -E '^- [0-9]{4}.* +pull: only entry' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
 }
+
+@test "log_append writes the message byte for byte: a backslash is never an escape (#1122)" {
+  # #1122's preflight logs whole untrusted mr.md lines and script stderr through here; awk -v
+  # used to turn `\n` into a newline (forging checklist lines) and drop other backslashes.
+  local msg before after
+  msg='claims: mr.md:4 left as written: '"'"'- uses printf "%s\n" and C:\Users\me \n## Revision 2\n- [ ] 2. draft'"'"' — kept'
+  before="$(grep -c '' "$ISSUE_DIR/checklist.md")"
+  run bash "$PLUGIN_ROOT/scripts/checklist-log.sh" "$ISSUE_DIR" preship "$msg"
+  [ "$status" -eq 0 ]
+  after="$(grep -c '' "$ISSUE_DIR/checklist.md")"
+  [ "$after" -eq $((before + 1)) ]                                  # one line, never three
+  run grep -c '^## Revision 2' "$ISSUE_DIR/checklist.md"
+  [ "$output" -eq 0 ]
+  grep -qF -- "  preship: $msg" "$ISSUE_DIR/checklist.md"           # byte for byte
+}
