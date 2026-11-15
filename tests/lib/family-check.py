@@ -24,6 +24,9 @@ Subcommands:
                                    themes; prints one row per pair. Every further
                                    file is read for rules that put --family-board
                                    behind text (only html and body may).
+  contract <family.js>             the header's key, class, control and exports
+                                   lines name what the code uses; prints
+                                   "header key=.. class=.. control=.. exports=.."
   scope    <page> <partial>...     no page rule reaches family markup: a selector
                                    whose last compound is a bare element the
                                    partials use, with nothing scoping it, or a
@@ -57,7 +60,7 @@ class Report:
 
 def usage(msg):
     print(f"{PROG}: {msg}", file=sys.stderr)
-    print(f"{PROG}: usage: family-check.py <header|tokens|literals|contrast|scope> <file>...", file=sys.stderr)
+    print(f"{PROG}: usage: family-check.py <header|tokens|literals|contrast|scope|contract> <file>...", file=sys.stderr)
     sys.exit(2)
 
 
@@ -552,7 +555,52 @@ def cmd_scope(files):
     return rep.done()
 
 
+JS_CONTRACT = ("key", "class", "control", "exports")
+
+
+def contract_js(path, text, rep):
+    """family.js's header names key, class, control and exports; each must be
+    what the code uses: the key, class and control as string literals in the
+    code below the header, each export assigned on window."""
+    m = re.match(r"\s*((?:/\*.*?\*/\s*)+)", text, re.S)
+    header = m.group(1) if m else ""
+    code = text[len(m.group(0)):] if m else text
+    base = text.count("\n", 0, len(m.group(0))) if m else 0
+    found = {}
+    for i, line in enumerate(header.split("\n"), 1):
+        hm = re.match(r"\s*\*?\s*(key|class|control|exports):\s*(\S.*?)\s*$", line)
+        if hm and hm.group(1) not in found:
+            found[hm.group(1)] = (hm.group(2), i)
+    for name in JS_CONTRACT:
+        rep.subjects += 1
+        if name not in found:
+            rep.bad(path, 0, f"the header names no '{name}:' line")
+            continue
+        val, line = found[name]
+        if name == "exports":
+            for ex in [x.strip() for x in val.split(",")]:
+                if not re.search(r"\bwindow\." + re.escape(ex) + r"\s*=", code):
+                    rep.bad(path, line, f"header exports {ex}, which the code never assigns on window")
+        elif not re.search(r"(['\"])" + re.escape(val) + r"\1", code):
+            rep.bad(path, line, f"header {name} {val} is not a string literal in the code")
+    print("header " + " ".join(f"{k}={found.get(k, ('?', 0))[0].replace(' ', '')}" for k in JS_CONTRACT))
+    if base == 0:
+        rep.bad(path, 0, "no header comment")
+
+
+def cmd_contract(files):
+    rep = Report("contract")
+    for path in files:
+        text = read(path)
+        if path.endswith(".js"):
+            contract_js(path, text, rep)
+        else:
+            usage(f"contract reads family.js: {path}")
+    return rep.done()
+
+
 COMMANDS = {
+    "contract": cmd_contract,
     "header": cmd_header,
     "tokens": cmd_tokens,
     "literals": cmd_literals,

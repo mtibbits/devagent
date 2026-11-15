@@ -1821,7 +1821,7 @@ fc_row() {
 # family_versioned — the files whose line 1 names the family version; each
 # task that adds a family file adds it here.
 family_versioned() {
-  printf '%s\n' "$FAMILY_STATIC/family.css"
+  printf '%s\n' "$FAMILY_STATIC/family.css" "$FAMILY_STATIC/family.js"
 }
 
 @test "build-docs-site: family files — each header names the same family version" {
@@ -1926,4 +1926,50 @@ family_versioned() {
   [ "$status" -eq 2 ]
   run fc tokens
   [ "$status" -eq 2 ]
+}
+
+# need_node — the family.js leg runs the real script under node (no npm).
+need_node() {
+  command -v node >/dev/null 2>&1 \
+    || skip "node not installed — the publish docs site lane runs this leg and forbids skips; install node locally"
+}
+
+@test "build-docs-site: family.js — the animation setting (node, stub storage)" {
+  need_node
+  echo "# node $(node --version)" >&3
+  run node "$PLUGIN_ROOT/tests/lib/family-js-test.js" "$FAMILY_STATIC/family.js"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  # the last line counts the cases; every case printed "ok", and an emptied
+  # case list cannot pass
+  [[ ${lines[${#lines[@]} - 1]} =~ ^cases:\ ([0-9]+)$ ]]
+  local n="${BASH_REMATCH[1]}"
+  [ "$n" -ge 22 ]
+  [ "$(printf '%s\n' "${lines[@]}" | grep -c '^ok ')" -eq "$n" ]
+  # the header's contract is what the code does (B7): key, class and control
+  # as observed on a first view, exports as observed after loading
+  local obs exports
+  obs="$(printf '%s\n' "${lines[@]}" | sed -n 's/^observed //p')"
+  exports="$(printf '%s\n' "${lines[@]}" | sed -n 's/^exports: //p')"
+  [ -n "$obs" ] && [ -n "$exports" ]
+  run fc contract "$FAMILY_STATIC/family.js"
+  [ "$status" -eq 0 ]
+  fc_count contract
+  [ "$fc_n" -eq 4 ]
+  local hdr
+  hdr="$(printf '%s\n' "${lines[@]}" | sed -n 's/^header //p')"
+  [ "$hdr" = "$obs exports=$exports" ] || { echo "header: $hdr / observed: $obs exports=$exports" >&2; return 1; }
+}
+
+@test "build-docs-site: family-check — contract reddens on a header that differs from the code" {
+  local d="$BATS_TEST_TMPDIR" js="$FAMILY_STATIC/family.js"
+  sed -E '1,/\*\//s/(key: )mtibbits-family-v1/\1mtibbits-family-v9/' "$js" > "$d/k.js"
+  ! cmp -s "$js" "$d/k.js"
+  fc_row 1 'header key mtibbits-family-v9 is not a string literal in the code' contract "$d/k.js"
+  sed -E '1,/\*\//s/(exports: .*)$/\1, familyNope/' "$js" > "$d/e.js"
+  ! cmp -s "$js" "$d/e.js"
+  fc_row 1 'header exports familyNope, which the code never assigns on window' contract "$d/e.js"
+  grep -vE '^ \* +control:' "$js" > "$d/c.js"
+  ! cmp -s "$js" "$d/c.js"
+  fc_row 1 "the header names no 'control:' line" contract "$d/c.js"
+  fc_row 0 '' contract "$js"
 }
