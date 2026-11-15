@@ -47,8 +47,15 @@ SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 usage="usage: preship-preflight.sh evidence|claims|prior <L>|save <L>|log <kind> [<L>] <project> <Issue-N> <issue-dir>"
 _usage() { printf 'preship-preflight: %s\n%s\n' "$1" "$usage" >&2; exit 2; }
 
+# `log <kind> <project> …` is read like `log <project> … <kind>`: the doc's `… log corrected <L>`
+# shorthand reads both ways (two of three eval subjects wrote the kind first).
+_kind_first=""
+if [ "${1:-}" = log ]; then
+  case "${2:-}" in corrected|named-commit|left-as-written|unresolved|could-not-run|preflight) _kind_first="$2"; set -- log "${@:3}" ;; esac
+fi
 [ "$#" -ge 4 ] || _usage "expected <subcommand> <project> <Issue-N> <issue-dir>"
 sub="$1"; project="$2"; issue="$3"; issue_dir="${4%/}"; shift 4
+[ -z "$_kind_first" ] || set -- "$_kind_first" "$@"
 case "$issue" in ''|*[!A-Za-z0-9_-]*) _usage "'$issue' is not an issue id" ;; esac
 case "$project" in ''|*[!A-Za-z0-9_.-]*) _usage "'$project' is not a project name" ;; esac
 [ "$(basename -- "$issue_dir")" = "$issue" ] || _usage "issue dir '$issue_dir' is not $issue's"

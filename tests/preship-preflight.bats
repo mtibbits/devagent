@@ -180,3 +180,13 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
   run bash -c "grep -v '^[[:space:]]*#' '$PLUGIN_ROOT/scripts/preship-preflight.sh' | grep -cE 'run-suite\.sh|evidence-stamp\.sh'"
   [ "$output" -eq 0 ]                                                     # code lines only; the header names them to forbid them
 }
+
+@test "log takes its kind after 'log' too: the order two of three eval subjects wrote" {
+  _pf save 2
+  run --separate-stderr bash "$ROOT/scripts/preship-preflight.sh" log corrected fake Issue-7 "$ISSUE_DIR" 2
+  [ "$status" -eq 0 ]
+  [ "$(_lastlog)" = "claims: mr.md:2 corrected: '- \`tests/x.bats\` (26 tests)' -> '- \`tests/x.bats\` (26 tests)'" ]
+  run --separate-stderr bash "$ROOT/scripts/preship-preflight.sh" log preflight fake Issue-7 "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$(_lastlog)" == "preflight: evidence exit (none);"* ]]
+}
