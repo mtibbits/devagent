@@ -65,9 +65,10 @@ _tiers() { printf '%s\n' "$@" > "$CAP/tiers.toml"; }
 # _cfg_set <dotted-key> <value>: one config field, via _toml.py (#335: no sed -i on TOML).
 _cfg_set() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" "$1" "$2"; }
 
-_file() { run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin "$@"; }
+_file() { run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin; }
 
 # _tier_lines: the file.sh tier outcome lines on stderr, in order.
+# shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
 _tier_lines() { grep '^file\.sh: tier ' <<<"$stderr" || true; }
 
 # ---------------------------------------------------------------- Task 2
