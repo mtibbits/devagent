@@ -108,6 +108,70 @@ cmd_branch_exists() {
   esac
 }
 
+# _is_abs <path>: one line, absolute (/… or X:/…).
+_is_abs() {
+  [[ "$1" != *$'\n'* ]] && [[ "$1" == /* || "$1" =~ ^[A-Za-z]:/ ]]
+}
+
+# _common_dir <repo>: set CDIR to git's own common-dir line for <repo>, its drive
+# letter (Git Bash) upper-cased, so one repo has one reference however it is spelled.
+CDIR=""
+_common_dir() {
+  local out rc=0
+  out="$("$DEVAGENT_GIT" -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || rc=$?
+  if [ "$rc" -ne 0 ]; then echo "not a git repository: $1" >&2; exit 1; fi
+  out="${out%$'\r'}"
+  # An older git echoes the unknown option back on a line of its own.
+  _is_abs "$out" || { echo "git 2.31 or newer is needed (rev-parse --path-format)" >&2; exit 1; }
+  [[ "$out" =~ ^[a-z]:/ ]] && out="$(printf '%s' "${out:0:1}" | tr '[:lower:]' '[:upper:]')${out:1}"
+  CDIR="$out"
+}
+
+# _need_branch <repo> <branch>: exit 1 unless refs/heads/<branch> exists.
+_need_branch() {
+  local rc=0
+  [ -n "$2" ] || { echo "not a local branch: $2" >&2; exit 1; }
+  _branch_rc "$1" "$2" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) echo "not a local branch: $2" >&2; exit 1 ;;
+    *) echo "git could not answer for $1 (exit $rc)" >&2; exit 1 ;;
+  esac
+}
+
+# _write_record <path> <head> <base> <head_sha> <title>: a temp file in the same
+# folder by a plain redirect, then one rename (up to 10 tries, 0.1 s apart).
+_write_record() {
+  local path="$1" dir tmp i
+  dir="${path%/*}"
+  tmp="$dir/.tmp-$$-${path##*/}"
+  if mkdir -p "$dir" 2>/dev/null \
+     && printf 'version: 1\nstate: open\nhead: %s\nbase: %s\nhead_sha: %s\nmerge_commit: -\ntitle: %s\n' \
+          "$2" "$3" "$4" "$5" > "$tmp" 2>/dev/null; then
+    for (( i = 0; i < 10; i++ )); do
+      mv -f "$tmp" "$path" 2>/dev/null && return 0
+      sleep 0.1
+    done
+  fi
+  rm -f "$tmp" 2>/dev/null || true
+  echo "cannot write the local MR record at $path" >&2
+  exit 1
+}
+
+cmd_create_mr() {
+  local repo="$1" title="$2" head="$3" base="$4" enc sha
+  _common_dir "$repo"
+  _need_branch "$repo" "$head"
+  _need_branch "$repo" "$base"
+  sha="$("$DEVAGENT_GIT" -C "$repo" rev-parse --verify --quiet "refs/heads/$head^{commit}" 2>/dev/null)" \
+    || { echo "git could not answer for $repo (exit $?)" >&2; exit 1; }
+  title="${title//[$'\r\n\t']/ }"
+  enc="$(bc_urlenc "$head")"
+  _write_record "$CDIR/devagent/local-mr/$enc" "$head" "$base" "$sha" "$title"
+  [ "$DRAFT" -eq 1 ] && echo "draft: not applicable (local code backend)" >&2
+  printf 'local:%s#%s\n' "$(bc_urlenc "$CDIR")" "$enc"
+}
+
 [ $# -ge 1 ] || usage
 verb="$1"; shift
 case "$verb" in
@@ -119,6 +183,11 @@ case "$verb" in
     _scan_key "$@"
     echo "$verb: not implemented by the local code backend" >&2
     exit 78
+    ;;
+  create-mr)
+    [ $# -ge 5 ] || usage
+    _opts 1 "${@:6}"
+    cmd_create_mr "$1" "$2" "$4" "$5"
     ;;
   branch-exists)
     [ $# -ge 2 ] || usage
