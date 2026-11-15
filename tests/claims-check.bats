@@ -446,8 +446,8 @@ _collections() { grep -c -- '--collect-only' "$PYLOG" || true; }
     _body '- `tests/test_p.py` (3 tests)' '- `tests/test_a__b.py` (3 tests)'
     _ccr
     [ "$status" -eq 3 ]
-    _has 'mr.md:1: MISMATCH pytest-count: `tests/test_p.py` (3 tests) — claimed 3, found 4 (at HEAD)'
-    _has 'mr.md:2: MISMATCH pytest-count: `tests/test_a__b.py` (3 tests) — claimed 3, found 4 (at HEAD)'
+    _has 'mr.md:1: MISMATCH pytest-count: `tests/test_p.py` (3 tests) — claimed 3, found 4 (collected at HEAD)'
+    _has 'mr.md:2: MISMATCH pytest-count: `tests/test_a__b.py` (3 tests) — claimed 3, found 4 (collected at HEAD)'
     [ "$(_summary)" = "$(_sum 0 2 0 0 0 0 0 2 0)" ]
     grep -qF -- '--collect-only -q ./tests/test_a__b.py|' "$PYLOG"           # the name survived the scan
 }
@@ -460,7 +460,7 @@ _collections() { grep -c -- '--collect-only' "$PYLOG" || true; }
     _ccr
     [ "$status" -eq 3 ]
     for i in "${!forms[@]}"; do
-        grep -qE "^mr\.md:$((i + 1)): MISMATCH pytest-count: .* — claimed 3, found 4 \(at HEAD\)$" <<<"$output" \
+        grep -qE "^mr\.md:$((i + 1)): MISMATCH pytest-count: .* — claimed 3, found 4 \(collected at HEAD\)$" <<<"$output" \
             || { echo "form $((i + 1)) not reported: ${forms[$i]}"; echo "$output"; return 1; }
     done
     [ "$(_summary)" = "$(_sum 0 7 0 0 0 0 0 7 0)" ]
@@ -486,7 +486,7 @@ _real_pytest() {
     [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 1 0 0 0 0 0 0 0)" ]
     _body '- `tests/test_real.py` (2 tests)'
     _ccr
-    [ "$status" -eq 3 ]; _has 'mr.md:1: MISMATCH pytest-count: `tests/test_real.py` (2 tests) — claimed 2, found 4 (at HEAD)'
+    [ "$status" -eq 3 ]; _has 'mr.md:1: MISMATCH pytest-count: `tests/test_real.py` (2 tests) — claimed 2, found 4 (collected at HEAD)'
 }
 
 @test "real pytest with addopts = -q → NOT CHECKED \"collection output not parseable\" (skip if pytest absent)" {
@@ -515,7 +515,7 @@ _real_pytest() {
     [ -z "${PYTHONDONTWRITEBYTECODE+x}" ]                                   # unset in the parent
     _body '- `tests/test_p.py` (3 tests)'
     _ccr
-    [ "$status" -eq 3 ]; _has 'claimed 3, found 4 (at HEAD)'               # and the claim is compared
+    [ "$status" -eq 3 ]; _has 'claimed 3, found 4 (collected at HEAD)'               # and the claim is compared
     grep -qF -- '-m pytest --version|PDWB=1|' "$PYLOG"
     grep -qF -- '--collect-only -q ./tests/test_p.py|PDWB=1|' "$PYLOG"
 }
@@ -557,7 +557,7 @@ _real_pytest() {
     _has "interpreter differs from the suite run's: $DEVAGENT_TMP/py/python vs $DEVAGENT_TMP/py//python"
     export DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/py/python"                   # the same spelling: compared
     _ccr
-    [ "$status" -eq 3 ]; _has 'claimed 3, found 4 (at HEAD)'
+    [ "$status" -eq 3 ]; _has 'claimed 3, found 4 (collected at HEAD)'
 }
 
 @test "no pytest claim → resolver never called" {
@@ -590,7 +590,7 @@ _real_pytest() {
     _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py` (3 tests) — collection failed (exit 2)'
     printf '\nno tests ran in 0.01s\n' > "$PYOUT"
     PYRC=5 _ccr                                                             # rc 5: found 0
-    [ "$status" -eq 3 ]; _has 'claimed 3, found 0 (at HEAD)'
+    [ "$status" -eq 3 ]; _has 'claimed 3, found 0 (collected at HEAD)'
 }
 
 @test "unparseable collection (only 'file: N', rc 0) → NOT CHECKED \"collection output not parseable\"" {
@@ -1047,7 +1047,7 @@ _state() {
     local before; before="$(_state)"
     _ccr
     [ "$status" -eq 3 ]
-    _has 'mr.md:2: MISMATCH pytest-count: `tests/test_p.py` (2 tests) — claimed 2, found 3 (at HEAD)'
+    _has 'mr.md:2: MISMATCH pytest-count: `tests/test_p.py` (2 tests) — claimed 2, found 3 (collected at HEAD)'
     [ "$(_summary)" = "$(_sum 1 1 1 1 1 1 1 6 0)" ]
     [ "$(_state)" = "$before" ]
     [ -z "$(find "$SOURCE_DIR" -name __pycache__ -o -name .pytest_cache)" ]
@@ -1085,4 +1085,27 @@ _state() {
     _body "- \`tests/w.bats\` ($((n + 1)) tests)"
     _ccr
     [ "$status" -eq 3 ]; _has "claimed $((n + 1)), found $n (at HEAD)"
+}
+
+# ---- final review fixes -----------------------------------------------------------------
+@test "a joint count marks its sentence per-file, so no suite total is read beside it (review 3)" {
+    _tests tests/f.bats 5; _tests tests/g.bats 3; _commit fg
+    _evsuite 100/100 20
+    _bodyev '- `tests/f.bats` and `tests/g.bats`: 8/8 bats' '- `tests/f.bats` `tests/g.bats` → 8 passed in the whole suite run'
+    _ccr
+    [ "$status" -eq 0 ]
+    _hasnt 'MISMATCH suite-total'; _hasnt 'NOT CHECKED suite-total'
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 0 0 2)" ]                          # the two joint NOT CHECKED lines only
+}
+
+@test "a pass count beside skips or xfails is NOT CHECKED; a pytest mismatch names the collected count (review 4)" {
+    _py_fixture; _tests tests/f.bats 5; _commit f
+    _body '- `tests/test_p.py`: 3 passed, 1 skipped' '- `tests/f.bats`: 4 ok, 1 skipped' '- `tests/test_p.py`: 3 passed, 1 xfailed' \
+          '- `tests/test_p.py`: 3 passed'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py`: 3 passed — the line counts skipped or xfailed tests apart'
+    _has 'mr.md:2: NOT CHECKED bats-count: `tests/f.bats`: 4 ok — the line counts skipped or xfailed tests apart'
+    _has 'mr.md:3: NOT CHECKED pytest-count:'
+    _has 'mr.md:4: MISMATCH pytest-count: `tests/test_p.py`: 3 passed — claimed 3, found 4 (collected at HEAD)'
 }

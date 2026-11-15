@@ -165,7 +165,8 @@ for cid in want:
 if errs: sys.stderr.write("\n".join(errs) + "\n"); sys.exit(1)
 PY
   [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
-  [ ! -e "$REPO/skills/preship/SKILL.md" ] && [ -f "$REPO/commands/preship.md" ]   # run-eval's fallback target
+  [ ! -e "$REPO/skills/preship/SKILL.md" ]                              # run-eval's fallback target
+  [ -f "$REPO/commands/preship.md" ]
   run bash "$REPO/evals/run-eval.sh" preship-preflight-red-suite
   [ "$status" -eq 0 ]
   [[ "$output" == *"Skill body: $(cd "$REPO" && pwd)/commands/preship.md"* ]]

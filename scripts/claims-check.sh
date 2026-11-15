@@ -183,6 +183,9 @@ RE_F4='(^|[^[:alnum:]#,./-])([0-9]{1,6}) (tests?|cases) in[[:space:]]+$'
 RE_JOINT='^([[:space:]]|,|&|[+])*(and)?([[:space:]]|,|&|[+])*$'
 RE_EARLIER='(baseline|pre-branch|before|previously|earlier|was|were)'
 RE_PARTIAL='(-k |--filter|subset|partial|only )'
+# A per-file count in a sentence that also counts skips or xfails is a pass count, not the
+# file's size (review 4): NOT CHECKED, never compared with @test blocks or collected ids.
+RE_SKIPS='(skip|xfail|xpass|deselect)'
 RE_AT='(^|[^[:alnum:]])([Aa]t|@)[[:space:]]+`?([^`[:space:],;:)]+)`?'
 RE_HEX='^[0-9a-f]{7,40}$'
 RE_FENCE='^[[:space:]]*(```|~~~)'
@@ -455,7 +458,7 @@ _pytest_claim() {
   if [ -n "$PCW" ]; then _nc "$L" pytest-count "$claim" "$PCW"; return 0; fi
   _num "$n"
   _counted pytest-count
-  [ "$NUM" = "$PC" ] || _mm "$L" pytest-count "$claim" "$NUM" "$PC" "at HEAD"
+  [ "$NUM" = "$PC" ] || _mm "$L" pytest-count "$claim" "$NUM" "$PC" "collected at HEAD"
 }
 
 # _scan_counts <L> <sentence> - the per-file count forms F1-F4 (imPlan "Per-file count").
@@ -496,6 +499,7 @@ _scan_counts() {
         between="${s:pe[k-1]:pstart-pe[k-1]}"; between="${between//\`/}"
         _class "${s:ps[k-1]:pe[k-1]-ps[k-1]}"
         if [ -n "$CLS" ] && [[ "$between" =~ $RE_JOINT ]]; then
+          PF_SEEN=1                       # a per-file recognition all the same (A9)
           _nc "$L" "$(_kind "$cls")" "$claim" "count for several files"; continue
         fi
       fi
@@ -508,6 +512,9 @@ _scan_counts() {
       claim="${s:cstart:cend-cstart}"
     fi
     PF_SEEN=1
+    if [[ "$s" =~ $RE_SKIPS ]] && [ "$cls" != other ]; then
+      _nc "$L" "$(_kind "$cls")" "$claim" "the line counts skipped or xfailed tests apart"; continue
+    fi
     case "$cls" in
       bats)   _bats_claim "$L" "$claim" "$p" "${s:0:cpos}" "$n" ;;
       pytest) _pytest_claim "$L" "$claim" "$p" "${s:0:cpos}" "$n" ;;
