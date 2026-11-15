@@ -145,12 +145,12 @@ _row() { grep -E "^- \[.\] +$1\. " "$CL" | sed -E 's/^- \[(.)\].*/\1/'; }
     [ "$status" -eq 0 ]
     [[ "$output" == *"mergemr: waiting (8): waiting for merge (merge step supports github only)"* ]]
     [ "$(_row 20)" = "?" ]
-    ! printf '%s\n' "$output" | grep -q '^CI '
+    [[ $'\n'"$output" != *$'\n'"CI "* ]]
     git -C "$SOURCE_DIR" merge -q --no-ff -m "merge feat/1-x" feat/1-x
     run "$DEVAGENT_ROOT/scripts/mergemr.sh" "$TEST_PROJECT" </dev/null
     [ "$status" -eq 0 ]
     [ "$(_row 20)" = "x" ]
     grep -qF "mergemr: PR $REF merged (merge commit -)" "$CL"
-    ! printf '%s\n' "$output" | grep -q '^CI '
+    [[ $'\n'"$output" != *$'\n'"CI "* ]]
     _no_remote_calls
 }

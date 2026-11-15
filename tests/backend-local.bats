@@ -312,7 +312,8 @@ _hand_rec() {
   local r3="$BATS_TEST_TMPDIR/r3"
   _mkrepo "$r3"; _mk "$r3"
   _hand_rec "$r3" feat merged "$(git -C "$r3" rev-parse feat)"
-  ! git -C "$r3" merge-base --is-ancestor feat main
+  run git -C "$r3" merge-base --is-ancestor feat main
+  [ "$status" -eq 1 ]
   _state_is "$REF" merged; n=$((n + 1))
   [ "$n" -eq 3 ]
 }
