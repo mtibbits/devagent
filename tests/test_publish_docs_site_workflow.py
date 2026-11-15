@@ -37,7 +37,12 @@ REQUIRED_PATHS = {
     "scripts/build-docs-site.sh",
     "scripts/docs-site/**",
     "tests/build-docs-site.bats",
+    "tests/lib/family-check.py",
+    "tests/lib/family-js-test.js",
     ".github/workflows/publish-docs-site.yml",
+    # #996: a count placeholder's source file is a build input
+    # (docs-site/live.txt's `count` lines; pinned below).
+    "docs/requirements.md",
 }
 PUBLISHING_ACTIONS = ("actions/upload-pages-artifact", "actions/deploy-pages")
 
@@ -85,6 +90,38 @@ def test_every_path_filter_names_something_tracked(entry):
         check=True, capture_output=True,
     ).stdout
     assert tracked.strip(b"\0"), f"{target}: no tracked file matches this path filter"
+
+
+def test_every_count_source_is_a_path_filter():
+    # #996: a {{count:<key>}} placeholder reads the file its `count` line in
+    # docs-site/live.txt names (relative to docs-site/). An edit to that file
+    # changes the published site, so it must trigger this workflow.
+    live = os.path.join(_REPO, "docs-site", "live.txt")
+    seen = 0
+    with open(live, encoding="utf-8") as fh:
+        for line in fh:
+            parts = line.split(None, 3)
+            if len(parts) < 4 or parts[0] != "count":
+                continue
+            seen += 1
+            path = os.path.normpath(os.path.join(_REPO, "docs-site", parts[2]))
+            rel = os.path.relpath(path, _REPO).replace(os.sep, "/")
+            covered = rel in REQUIRED_PATHS or any(
+                p.endswith("/**") and rel.startswith(p[: -len("**")]) for p in REQUIRED_PATHS
+            )
+            assert covered, f"count {parts[1]} reads {rel}, which no path filter names"
+    assert seen >= 1, "docs-site/live.txt declares no count line"
+
+
+def test_build_lane_sets_up_node_before_the_builder_tests(wf):
+    # #996: the family.js leg runs under node, and this lane forbids skips.
+    steps = _steps(wf["jobs"]["build"])
+    node_at = [i for i, s in enumerate(steps) if s.get("uses", "").startswith("actions/setup-node@")]
+    assert len(node_at) == 1, "expected one actions/setup-node step"
+    assert steps[node_at[0]]["uses"] == "actions/setup-node@v4"
+    assert str(steps[node_at[0]].get("with", {}).get("node-version")) == "22"
+    bats_at = next(i for i, s in enumerate(steps) if "tests/build-docs-site.bats" in s.get("run", ""))
+    assert node_at[0] < bats_at
 
 
 def test_gate_expression_is_spelled_exactly_once_with_all_three_clauses(wf, text):
