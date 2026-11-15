@@ -16,6 +16,19 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the local code backend (#1016).** `code_source.backend = "local"`
+  ships without a forge: nothing is pushed and `push_mr` is not asked; ship
+  prints its plan and records a local MR under the source repo's git dir,
+  named by a `local:` reference. `mr-state` reads that record and branch
+  ancestry, so a hand merge reads `merged`; `merge-mr` exits 78 until #1010.
+  The branch step resolves a local `default_baseline` as a local branch,
+  with no fetch, the CI line reads `CI not applicable: local code backend`,
+  and under a trust policy a local project in scope refuses
+  (`local-backend`, exit 9). Needs
+  git 2.31 or newer. `local` is now a built-in code backend name, so a
+  custom backend saved as `scripts/code/local.sh` is replaced; rename it.
+  `bc_urlenc` joins `scripts/lib/backend-common.sh` (#793's encoder).
+
 - **Added: capture-time model-tier proposals (#1101).** `/devagent:capture`
   now writes `Captures/<slug>/tiers.toml` for an issue draft whose body argues
   for a model tier other than the project's (keys `thinking`, `checking`,

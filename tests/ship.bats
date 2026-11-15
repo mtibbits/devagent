@@ -719,7 +719,7 @@ _target_repo() {
         . "$DEVAGENT_ROOT/scripts/lib/io.sh"
         . "$DEVAGENT_ROOT/scripts/lib/config.sh"
         config_code_target_repo "$2"
-        printf "target=%s\n" "$CODE_TARGET_REPO"
+        printf "target=%s|fork=%s|first=%s|only=%s\n" "$CODE_TARGET_REPO" "$CODE_FORK" "$CODE_FORK_FIRST" "$CODE_FORK_ONLY"
     ' _ "$DEVAGENT_ROOT" "$TEST_PROJECT"
 }
 
@@ -748,6 +748,20 @@ _target_repo() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"fork_only=true requires code_source.fork to be set"* ]]
     [[ "$output" != *"target="* ]]
+}
+
+@test "#1016 config_code_target_repo: a local project targets source_dir and ignores the fork keys" {
+    local cfg="$HOME/.claude/devagent/config.toml"
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.code_source.backend" local
+    devagent_config_set_bool "$cfg" "project.$TEST_PROJECT.fork_first" true
+    devagent_config_set_bool "$cfg" "project.$TEST_PROJECT.fork_only" true
+    run _target_repo
+    [ "$status" -eq 0 ]
+    [ "$output" = "target=$SOURCE_DIR|fork=|first=false|only=false" ]
+    devagent_config_unset "$cfg" "project.$TEST_PROJECT.code_source.fork"
+    run _target_repo
+    [ "$status" -eq 0 ]
+    [ "$output" = "target=$SOURCE_DIR|fork=|first=false|only=false" ]
 }
 
 @test "ship on a starter checklist refuses while preship is pending and passes once it is [x] (#989)" {

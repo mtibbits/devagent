@@ -288,3 +288,81 @@ PY
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' implement
     grep -q '^last_step[[:space:]]*=[[:space:]]*"9"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+# ---- #1016: a local code backend cuts from a local default_baseline, no fetch ----
+
+# _fetch_shim: a git on PATH that writes $FETCH_MARKER on `fetch` and exits 1,
+# else runs the real git.
+_fetch_shim() {
+    FETCH_MARKER="$DEVAGENT_TMP/fetched"
+    local real; real="$(command -v git)"
+    cat > "$DEVAGENT_STUB_BIN/git" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do [ "\$a" = fetch ] && { echo "git \$*" >> "$FETCH_MARKER"; exit 1; }; done
+exec "$real" "\$@"
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/git"
+}
+
+# _local_baseline_fixture <backend>: default_baseline = "main", no remote, HEAD on
+# another branch one commit ahead of main.
+_local_baseline_fixture() {
+    local cfg="$HOME/.claude/devagent/config.toml"
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.code_source.backend" "$1"
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.default_baseline" main
+    ( cd "$SOURCE_DIR" && git checkout -q -b other && git commit -q --allow-empty -m ahead )
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "local thing" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    export NOTE=""
+    _fetch_shim
+}
+
+@test "#1016 branch (local): cuts from main with no fetch and no fallback warning (AC 10)" {
+    _local_baseline_fixture local
+    local main_sha; main_sha="$(git -C "$SOURCE_DIR" rev-parse main)"
+    [ "$main_sha" != "$(git -C "$SOURCE_DIR" rev-parse HEAD)" ]
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -q "^baseline_sha *= *\"$main_sha\"" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ ! -e "$FETCH_MARKER" ]
+    [[ "$output" != *"falling back to HEAD"* ]]
+}
+
+@test "#1016 branch (github, no remote): the fetch still runs" {
+    _local_baseline_fixture github
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -e "$FETCH_MARKER" ]
+}
+
+@test "#1016 branch (no code_source.backend): not local, the fetch runs and nothing breaks" {
+    _local_baseline_fixture github
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.code_source.backend"
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -e "$FETCH_MARKER" ]
+}
+
+@test "#1016 branch (local): an unresolvable default_baseline dies with no HEAD fallback" {
+    _local_baseline_fixture local
+    git -C "$SOURCE_DIR" branch -q -m main master
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"default_baseline 'main'"* ]]
+    [[ "$output" == *"a local project's default_baseline must be an existing local branch"* ]]
+    [[ "$output" != *"falling back to HEAD"* ]]
+    [ "$(git -C "$SOURCE_DIR" for-each-ref --format='%(refname:short)' refs/heads | sort | tr '\n' ' ')" = "master other " ]
+    [ ! -e "$FETCH_MARKER" ]
+}
+
+@test "#1016 branch (local): a leftover origin/main default_baseline dies, not a frozen remote-tracking ref" {
+    _local_baseline_fixture local
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.default_baseline" origin/main
+    git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main main
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"default_baseline 'origin/main'"* ]]
+    [[ "$output" == *"a local project's default_baseline must be an existing local branch"* ]]
+    [ "$(git -C "$SOURCE_DIR" for-each-ref --format='%(refname:short)' refs/heads | sort | tr '\n' ' ')" = "main other " ]
+    [ ! -e "$FETCH_MARKER" ]
+}

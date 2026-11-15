@@ -172,6 +172,21 @@ config_suite_env_resolve() {
   done <<< "$_keys"
 }
 
+# code_backend_is_local <name>: 0 iff <name>, CR-stripped, is exactly `local`
+# (#1016), the name every dispatch site builds scripts/code/<name>.sh from. No
+# case-folding: `Local` names a custom Local.sh and takes the generic path.
+# With config_code_is_local, the only place that decides whether a project's
+# code backend is the local one.
+code_backend_is_local() { [ "${1//$'\r'/}" = local ]; }
+
+# config_code_is_local <project>: 0 iff the project's code_source.backend is the
+# local code backend. A missing key is quietly not local (returns 1, no output).
+config_code_is_local() {
+  local b
+  b="$(config_get_project_field "$1" code_source.backend 2>/dev/null)" || return 1
+  code_backend_is_local "$b"
+}
+
 # config_code_target_repo <project>
 #
 # #885: the repo a project's PRs are opened on — ship's rule, in one place for
@@ -180,6 +195,8 @@ config_suite_env_resolve() {
 #   code_source.upstream, else code_source.fork when fork_first = true.
 #   fork_only = true implies fork_first and requires code_source.fork, else
 #   dies "fork_only=true requires code_source.fork to be set".
+#   A local code backend (#1016) targets the project's source_dir and ignores
+#   the fork keys: CODE_FORK empty, CODE_FORK_FIRST and CODE_FORK_ONLY false.
 # Also sets CODE_FORK (code_source.fork), CODE_FORK_ONLY and CODE_FORK_FIRST (the
 # effective value: true under fork_only), so a caller never re-derives the rule.
 # SETTER-GLOBAL, called bare (register Issue-282/Issue-120): a die inside
@@ -188,6 +205,11 @@ config_suite_env_resolve() {
 config_code_target_repo() {
   local project="$1" upstream
   [[ -n "$project" ]] || die "config_code_target_repo: project required"
+  if config_code_is_local "$project"; then
+    CODE_TARGET_REPO="$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
+    CODE_FORK="" CODE_FORK_FIRST=false CODE_FORK_ONLY=false
+    return 0
+  fi
   upstream="$(config_get_project_field "$project" code_source.upstream 2>/dev/null || true)"
   CODE_FORK="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"
   CODE_FORK_FIRST="$(config_get_project_field "$project" fork_first 2>/dev/null || echo false)"
