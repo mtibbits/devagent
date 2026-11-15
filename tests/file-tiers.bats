@@ -168,12 +168,12 @@ GH_MISSING='not applied (label missing); add it to the issue before its first pu
   _file
   [ "$status" -eq 0 ]
   [ "$output" = "https://github.com/o/r/issues/7" ]
+  [ "$(_tier_lines)" = "file.sh: tier thinking=opus: matches project tier
+file.sh: tier checking=fable: applied as tier:check-fable" ]
   run cat "$STUB_LOG"
   [ "${lines[0]}" = "[state-exists] [o/r] [tier:check-fable]" ]
   [ "${lines[1]}" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
   [ "${#lines[@]}" -eq 2 ]
-  [ "$(_tier_lines)" = "file.sh: tier thinking=opus: matches project tier
-file.sh: tier checking=fable: applied as tier:check-fable" ]
 }
 
 @test "tiers: proposals equal to the project tiers file with no lookup and no label" {
@@ -217,9 +217,9 @@ file.sh: tier checking=opus: matches project tier" ]
   _tiers 'checking = "fable"'
   _file
   [ "$status" -eq 0 ]
+  [ "$(_tier_lines)" = "file.sh: tier checking=fable: $GH_MISSING gh label create tier:check-fable --repo o/r" ]
   run tail -n 1 "$STUB_LOG"
   [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT]" ]
-  [ "$(_tier_lines)" = "file.sh: tier checking=fable: $GH_MISSING gh label create tier:check-fable --repo o/r" ]
   [ -f "$CAP/filed.toml" ]
   [ ! -e "$CAP/.pending" ]
   [ ! -e "$CLI_LOG" ]
@@ -282,10 +282,10 @@ file.sh: tier checking=opus: matches project tier" ]
   _tiers 'thinking = "opus"' 'checking = "fable"'
   _file
   [ "$status" -eq 0 ]
-  run tail -n 1 "$STUB_LOG"
-  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
   [ "$(_tier_lines)" = "file.sh: tier thinking=opus: $GH_MISSING gh label create tier:impl-opus --repo o/r
 file.sh: tier checking=fable: applied as tier:check-fable" ]
+  run tail -n 1 "$STUB_LOG"
+  [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
 }
 
 @test "tiers: jira passes labels unchecked" {
