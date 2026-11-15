@@ -2,6 +2,8 @@
 # record path, built by an independent encoder (Python's urllib), for
 # tests/backend-local.bats and tests/local-callers.bats.
 
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
+
 # _enc <value>: <value> percent-encoded as D-ref encodes it.
 _enc() { python3 -X utf8 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe="~"))' "$1"; }
 
