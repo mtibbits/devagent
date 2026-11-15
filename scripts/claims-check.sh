@@ -188,6 +188,23 @@ RE_EMPH_PREV='^[[:space:]`(]$'
 RE_EMPH_NEXT='^[[:space:][:punct:]]$'
 RE_PATHCHARS='^[A-Za-z0-9._/+-]+$'
 RE_COLLECTED='^([0-9]+) tests? collected'
+# Suite totals. NUM (T1) is the first number of S1-S3, C1, C2 and D1: commas allowed
+# inside, never after #, comma, dot, slash or dash.
+RE_NUMG='([0-9]|[0-9][0-9,]{0,7}[0-9])'
+RE_NUM="(^|[^[:alnum:]#,./-])${RE_NUMG}"
+RE_S1="${RE_NUM}/${RE_NUMG} bats"
+RE_S2="(^|[^[:alnum:]#,./=-])${RE_NUMG} pytest([^[:alnum:]_]|\$)"
+RE_S3='(full|whole|entire)( bats| pytest)? suites?'                 # on the lowercased sentence
+RE_S3N="${RE_NUM}( tests?)? (passed|pass)"
+RE_AB="${RE_NUM}/${RE_NUMG}"
+RE_T2='^[[:space:]]+(tests?|cases?)([^[:alnum:]]|$)'
+RE_NOUN='^[[:space:]]+([A-Za-z]+)'
+S2_WORDS=' passed pass passes passing green ok at in on and plus with '
+RE_AFTER='(^|[^[:alnum:]])[Aa]fter([[:space:]]+[A-Za-z0-9_'"'"'-]+){1,4}[[:space:]]*\([[:space:]]*`?([0-9a-f]{7,40})`?[[:space:]]*\)'
+RE_EVLINE='^suite:[[:space:]]*(.*)$'
+RE_EVAT='^(.+) @ ([0-9a-f]{40})$'
+RE_EVBATS='^([0-9]{1,9})/([0-9]{1,9}) bats(, ([0-9]{1,9}) pytest)?$'
+RE_EVPY='^([0-9]{1,9}) pytest$'
 # The bats predicate, spelled ONCE; core-draft-mr's writer command quotes it (Task 12).
 RE_TEST='^[[:blank:]]*@test[[:blank:]]'
 
@@ -485,11 +502,175 @@ _scan_counts() {
 # _kind <class> - the report kind of a per-file count.
 _kind() { case "$1" in bats) echo bats-count ;; pytest) echo pytest-count ;; *) echo test-count ;; esac; }
 
+# ---- suite totals (imPlan "Suite total") -------------------------------------------------
+# _mask <var> <start> <end> - overwrite [start,end) of the named string with '#', so the
+# next leftmost search finds the next claim and '#' fails every NUM left boundary.
+_mask() {
+  local -n _mv="$1"
+  local fill
+  printf -v fill '%*s' "$(( $3 - $2 ))" ''
+  _mv="${_mv:0:$2}${fill// /#}${_mv:$3}"
+}
+
+# _code_spans <text> - CS_S[]/CS_E[]: its inline code spans. A run of k backticks opens
+# one, the next run of exactly k closes it; an unmatched run is literal.
+_code_spans() {
+  local s="$1" n=${#1} i=0 k j r found
+  CS_S=(); CS_E=()
+  while [ "$i" -lt "$n" ]; do
+    if [ "${s:i:1}" != '`' ]; then i=$((i + 1)); continue; fi
+    k=0; while [ "${s:i+k:1}" = '`' ]; do k=$((k + 1)); done
+    j=$((i + k)); found=""
+    while [ "$j" -lt "$n" ]; do
+      if [ "${s:j:1}" = '`' ]; then
+        r=0; while [ "${s:j+r:1}" = '`' ]; do r=$((r + 1)); done
+        if [ "$r" -eq "$k" ]; then found=$j; break; fi
+        j=$((j + r))
+      else
+        j=$((j + 1))
+      fi
+    done
+    if [ -n "$found" ]; then CS_S+=("$i"); CS_E+=("$((found + k))"); i=$((found + k)); else i=$((i + k)); fi
+  done
+}
+# _in_code <offset> - true when the offset lies inside one of CS_S/CS_E.
+_in_code() {
+  local x
+  for x in "${!CS_S[@]}"; do
+    if [ "$1" -ge "${CS_S[x]}" ] && [ "$1" -lt "${CS_E[x]}" ]; then return 0; fi
+  done
+  return 1
+}
+
+# The ## Evidence suite: line of mr.md itself (never the artifact): the first column-0
+# suite: line in the block, as preship-evidence.sh reads it. It must parse and name HEAD.
+EV_STATE=absent; EV_NONE=false; EV_OK=""; EV_PLAN=""; EV_PY=""
+_ev_read() {
+  local l in_b=false v parts
+  for l in "${LINES[@]+"${LINES[@]}"}"; do
+    l="${l%$'\r'}"
+    if [[ "$l" == '## Evidence'* ]]; then in_b=true; continue; fi
+    if [[ "$l" == '## '* ]]; then in_b=false; fi
+    if $in_b && [[ "$l" =~ $RE_EVLINE ]]; then v="${BASH_REMATCH[1]}"; break; fi
+  done
+  [ -n "${v+x}" ] || return 0
+  EV_STATE=bad
+  [[ "$v" =~ $RE_EVAT ]] && [ "${BASH_REMATCH[2]}" = "$head_sha" ] || return 0
+  parts="${BASH_REMATCH[1]}"
+  if [ "$parts" = none ]; then EV_STATE=ok; EV_NONE=true
+  elif [[ "$parts" =~ $RE_EVBATS ]]; then
+    EV_STATE=ok; _num "${BASH_REMATCH[1]}"; EV_OK="$NUM"; _num "${BASH_REMATCH[2]}"; EV_PLAN="$NUM"
+    if [ -n "${BASH_REMATCH[4]}" ]; then _num "${BASH_REMATCH[4]}"; EV_PY="$NUM"; fi
+  elif [[ "$parts" =~ $RE_EVPY ]]; then EV_STATE=ok; _num "${BASH_REMATCH[1]}"; EV_PY="$NUM"
+  fi
+}
+# _ev_need <bats|pytest|any> - EVW: why the Evidence suite: line cannot answer, or "".
+_ev_need() {
+  EVW=""
+  case "$EV_STATE" in
+    absent) EVW="no Evidence suite: line"; return 0 ;;
+    bad)    EVW="Evidence suite: line is not at HEAD"; return 0 ;;
+  esac
+  if $EV_NONE && [ "$1" = any ]; then EVW="Evidence suite: line has no figures"; return 0; fi
+  case "$1" in
+    bats)   [ -n "$EV_PLAN" ] || EVW="Evidence suite: line has no bats figures" ;;
+    pytest) [ -n "$EV_PY" ] || EVW="Evidence suite: line has no pytest figures" ;;
+  esac
+}
+# _total_qual <sentence> <offset of the count> [s2] - TQ: the NOT CHECKED reason from a
+# total's qualifiers, in the order earlier, partial, fix 2 (S2 only), at-commit (A6). Any
+# at-commit qualifier, the word HEAD and the HEAD sha included, is "measured at <tok>".
+_total_qual() {
+  TQ=""
+  _qual "${1:0:$2}"
+  if [ -n "$QUAL" ]; then TQ="$QUAL"; return 0; fi
+  if [ "${3:-}" = s2 ] && [[ "$1" =~ $RE_AFTER ]]; then TQ="measured at ${BASH_REMATCH[3]}"; return 0; fi
+  if [ -n "$AT_TOK" ]; then TQ="measured at $AT_TOK"; fi
+}
+
+# _scan_totals <L> <sentence> - S1, S2, then S3 when neither consumed the sentence. Read
+# only in a sentence with no per-file claim (any F1-F4 recognition, A9).
+_scan_totals() {
+  local L="$1" s="$2" w m g1 pre ns ke a b n rest claim lab form x found consumed=0 cs=false
+  local -a opts=()
+  [ "$PF_SEEN" -eq 0 ] || return 0
+  w="$s"
+  while [[ "$w" =~ $RE_S1 ]]; do                                   # S1: <ok>/<plan> bats
+    m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"; b="${BASH_REMATCH[3]}"
+    pre="${w%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ${#pre} + ${#m} ))
+    _mask w "$ns" "$ke"; consumed=1; claim="${s:ns:ke-ns}"
+    _total_qual "$s" "$ns"
+    if [ -n "$TQ" ]; then _nc "$L" suite-total "$claim" "$TQ"; continue; fi
+    _ev_need bats
+    if [ -n "$EVW" ]; then _nc "$L" suite-total "$claim" "$EVW"; continue; fi
+    _num "$a"; a="$NUM"; _num "$b"; b="$NUM"
+    _counted suite-total
+    [ "$a/$b" = "$EV_OK/$EV_PLAN" ] || _mm "$L" suite-total "$claim" "$a/$b" "$EV_OK/$EV_PLAN" "Evidence suite:"
+  done
+  w="$s"
+  while [[ "$w" =~ $RE_S2 ]]; do                                   # S2: <n> pytest
+    m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"; n="${BASH_REMATCH[2]}"
+    pre="${w%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ns + ${#n} + 7 ))
+    _mask w "$ns" "$ke"; rest="${s:ke}"
+    # Not a claim: T8 `pytest-`, T2 `pytest test(s)/case(s)`, T8 an unlisted noun after
+    # pytest (a miss, never a report), fix 1 a quote inside an inline code span.
+    if [[ "$rest" == -* ]] || [[ "$rest" =~ $RE_T2 ]]; then continue; fi
+    if [[ "$rest" =~ $RE_NOUN ]] && [[ "$S2_WORDS" != *" ${BASH_REMATCH[1]} "* ]]; then continue; fi
+    if ! $cs; then _code_spans "$s"; cs=true; fi
+    if _in_code "$ns"; then continue; fi
+    consumed=1; claim="${s:ns:ke-ns}"
+    _total_qual "$s" "$ns" s2
+    if [ -n "$TQ" ]; then _nc "$L" suite-total "$claim" "$TQ"; continue; fi
+    _ev_need pytest
+    if [ -n "$EVW" ]; then _nc "$L" suite-total "$claim" "$EVW"; continue; fi
+    _num "$n"
+    _counted suite-total
+    [ "$NUM" = "$EV_PY" ] || _mm "$L" suite-total "$claim" "$NUM" "$EV_PY" "Evidence suite:"
+  done
+  [ "$consumed" -eq 0 ] || return 0
+  [[ "${s,,}" =~ $RE_S3 ]] || return 0                             # S3: the whole suite
+  lab="${BASH_REMATCH[2]# }"
+  if [[ "$s" =~ $RE_AB ]]; then
+    m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"; b="${BASH_REMATCH[3]}"; form=ab
+  elif [[ "$s" =~ $RE_S3N ]]; then
+    m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"; b=""; form=n
+  else
+    return 0
+  fi
+  pre="${s%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ${#pre} + ${#m} )); claim="${s:ns:ke-ns}"
+  _total_qual "$s" "$ns"
+  if [ -n "$TQ" ]; then _nc "$L" suite-total "$claim" "$TQ"; return 0; fi
+  _ev_need "${lab:-any}"
+  if [ -n "$EVW" ]; then _nc "$L" suite-total "$claim" "$EVW"; return 0; fi
+  _num "$a"; a="$NUM"; [ -z "$b" ] || { _num "$b"; b="$NUM"; }
+  _counted suite-total
+  case "$lab:$form" in
+    bats:ab)  [ "$a/$b" = "$EV_OK/$EV_PLAN" ] || _mm "$L" suite-total "$claim" "$a/$b" "$EV_OK/$EV_PLAN" "Evidence suite:" ;;
+    bats:n)   [ "$a" = "$EV_PLAN" ] || _mm "$L" suite-total "$claim" "$a" "$EV_PLAN" "Evidence suite:" ;;
+    pytest:*) x="${b:-$a}"; [ "$x" = "$EV_PY" ] || _mm "$L" suite-total "$claim" "$x" "$EV_PY" "Evidence suite:" ;;
+    *)
+      # Unlabelled (Issue-118): reported only when it equals none of the bats plan, the
+      # pytest n and their sum. Evidence figures are <= 9 digits, so the sum is exact.
+      x="${b:-$a}"; found=""
+      [ -z "$EV_PLAN" ] || opts+=("$EV_PLAN (bats)")
+      [ -z "$EV_PY" ] || opts+=("$EV_PY (pytest)")
+      if [ -n "$EV_PLAN" ] && [ -n "$EV_PY" ]; then opts+=("$(( 10#$EV_PLAN + 10#$EV_PY )) (both)"); fi
+      for m in "${opts[@]}"; do [ "$x" != "${m%% *}" ] || return 0; done
+      for m in "${!opts[@]}"; do
+        if [ "$m" -eq 0 ]; then found="${opts[m]}"
+        elif [ "$m" -eq $(( ${#opts[@]} - 1 )) ]; then found+=" or ${opts[m]}"
+        else found+=", ${opts[m]}"; fi
+      done
+      _mm "$L" suite-total "$claim" "$x" "$found" "Evidence suite:" ;;
+  esac
+}
+
 # _scan_sentence <L> <sentence>
 _scan_sentence() {
   PF_SEEN=0
   _at_commit "$2"
   _scan_counts "$1" "$2"
+  _scan_totals "$1" "$2"
 }
 
 # ---- the scan ---------------------------------------------------------------------------
@@ -498,6 +679,7 @@ _scan_sentence() {
 # the marker that opened it), and <!-- --> comments. A sentence is a split of one line on
 # ". " and never spans lines (A2).
 mapfile -t LINES < "$mr"
+_ev_read
 in_ev=false; fence=""; in_cmt=false
 for ((li = 0; li < ${#LINES[@]}; li++)); do
   L=$((li + 1)); line="${LINES[li]%$'\r'}"

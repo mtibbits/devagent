@@ -655,3 +655,140 @@ _real_pytest() {
     [ "$status" -eq 3 ]
     grep -qF -- '--collect-only -q ./tests/test_p.py|PDWB=1|PIN=unset' "$PYLOG"
 }
+
+# ---- Task 7: suite totals (U1-U3) ------------------------------------------------------
+ART() { printf '%s\n' "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"; }
+# _evsuite <ok/plan | (none)> <pytest passed | (none)> [<head>] - SUITE: the canonical
+# suite: value, built by the REAL evidence_suite_resolve from an artifact (Issue-232).
+_evsuite() {
+    local b p
+    if [ "$1" = '(none)' ]; then b='(none)'; else b="$1 notok=0"; fi
+    if [ "$2" = '(none)' ]; then p='(none)'; else p="$2 passed, 0 failed"; fi
+    printf 'head: %s  dirty: no\nbats: %s\npytest: %s\n' "${3:-$(_head)}" "$b" "$p" > "$(ART)"
+    SUITE="$(bash -c '. "$1/scripts/lib/paths.sh"; . "$1/scripts/lib/io.sh"; . "$1/scripts/lib/config.sh"
+        . "$1/scripts/lib/platform.sh"; . "$1/scripts/lib/evidence.sh"
+        evidence_suite_resolve "$2"; printf %s "$EVIDENCE_SUITE_LINE"' _ "$DEVAGENT_ROOT" "$(ART)")"
+    [ -n "$SUITE" ]
+}
+# _bodyev <line>... - mr.md: the lines, then an Evidence block carrying suite: $SUITE.
+_bodyev() { _body "$@" '## Evidence' "suite: $SUITE" 'files: 1 changed'; }
+
+@test "a differing prose total is reported, an equal one is not; compared with mr.md's Evidence line, not the artifact" {
+    _evsuite 100/100 20
+    [ "$SUITE" = "100/100 bats, 20 pytest @ $(_head)" ]
+    printf 'head: %s  dirty: no\nbats: 7/7 notok=0\npytest: 9 passed, 0 failed\n' "$(_head)" > "$(ART)"   # the artifact differs
+    _bodyev '- 99/100 bats' '- 21 pytest passed' '- The full bats suite: 99 passed' \
+            '- 100/100 bats' '- 20 pytest passed' '- The full pytest suite: 20 passed'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:1: MISMATCH suite-total: 99/100 bats — claimed 99/100, found 100/100 (Evidence suite:)'
+    _has 'mr.md:2: MISMATCH suite-total: 21 pytest — claimed 21, found 20 (Evidence suite:)'
+    _has 'mr.md:3: MISMATCH suite-total: 99 passed — claimed 99, found 100 (Evidence suite:)'
+    _hasnt 'mr.md:4:'; _hasnt 'mr.md:5:'; _hasnt 'mr.md:6:'
+    [ "$(_summary)" = "$(_sum 0 0 6 0 0 0 0 3 0)" ]
+}
+
+@test "an unlabelled total equal to the plan, n or plan+n is not reported" {
+    _evsuite 100/100 20
+    _bodyev '- The full suite: 100 passed' '- The whole suite: 20 passed' '- The entire suite: 120 tests passed' \
+            '- The full suite: 121 passed' '- Full suite: 120/120'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:4: MISMATCH suite-total: 121 passed — claimed 121, found 100 (bats), 20 (pytest) or 120 (both) (Evidence suite:)'
+    [ "$(grep -c MISMATCH <<<"$output")" -eq 1 ]
+    [ "$(_summary)" = "$(_sum 0 0 5 0 0 0 0 1 0)" ]
+}
+
+@test "a total naming a commit is NOT CHECKED" {
+    _evsuite 100/100 20
+    _bodyev '- 99/100 bats at abc1234' '- At abc1234, 99/100 bats' '- 99/100 bats @ abc1234' \
+            "- 99/100 bats at $(_head)" '- The full suite: 720 passed at HEAD' '- 21 pytest at HEAD'
+    _ccr
+    [ "$status" -eq 0 ]
+    _has 'mr.md:1: NOT CHECKED suite-total: 99/100 bats — measured at abc1234'
+    _has 'mr.md:2: NOT CHECKED suite-total: 99/100 bats — measured at abc1234'
+    _has 'mr.md:3: NOT CHECKED suite-total: 99/100 bats — measured at abc1234'
+    _has "mr.md:4: NOT CHECKED suite-total: 99/100 bats — measured at $(_head)"
+    _has 'mr.md:5: NOT CHECKED suite-total: 720 passed — measured at HEAD'
+    _has 'mr.md:6: NOT CHECKED suite-total: 21 pytest — measured at HEAD'
+    [ "$(grep -c 'NOT CHECKED' <<<"$output")" -eq 6 ]
+}
+
+@test "T1: '#466 pytest' and 'bats 1321/1321, pytest 298' read no total" {
+    _evsuite 100/100 20
+    _bodyev '- see #466 pytest.' '- bats 1321/1321, pytest 298'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$ZERO_SUM" ]
+    _bodyev '- see 466 pytest.'                                             # the survivor
+    _ccr
+    [ "$status" -eq 3 ]; _has 'mr.md:1: MISMATCH suite-total: 466 pytest — claimed 466, found 20 (Evidence suite:)'
+}
+
+@test "T2/T8 refusals beside survivors" {
+    _evsuite 100/100 20
+    _bodyev '- 1 pytest test' '- X=1 pytest' '- 4 pytest-style' '- 3 pytest guards' '- 2 pytest failures' '- 12 pytests' \
+            '- 374 pytest passed' '- 12 pytest green' '- (298 pytest)' '- 9 pytest in the clone'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:7: MISMATCH suite-total: 374 pytest'; _has 'mr.md:8: MISMATCH suite-total: 12 pytest'
+    _has 'mr.md:9: MISMATCH suite-total: 298 pytest'; _has 'mr.md:10: MISMATCH suite-total: 9 pytest'
+    [ "$(_summary)" = "$(_sum 0 0 4 0 0 0 0 4 0)" ]
+}
+
+@test "a pytest total in a code span is a quote" {
+    _evsuite 100/100 20
+    _bodyev '- `…, 0 pytest`' '- ``a ` b, 0 pytest``'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$ZERO_SUM" ]
+    _bodyev '- …, 0 pytest' '- `x`, 0 pytest'                              # the same text, unquoted
+    _ccr
+    [ "$status" -eq 3 ]; [ "$(_summary)" = "$(_sum 0 0 2 0 0 0 0 2 0)" ]
+}
+
+@test "After code review (<sha>), N pytest passed → NOT CHECKED \"measured at\"" {
+    _evsuite 100/100 20
+    _bodyev '- After code review (abc1234), 21 pytest passed' '- Code review done, 21 pytest passed'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:1: NOT CHECKED suite-total: 21 pytest — measured at abc1234'
+    _has 'mr.md:2: MISMATCH suite-total: 21 pytest — claimed 21, found 20 (Evidence suite:)'
+}
+
+@test "the S2 fixes stay S2-only" {
+    _evsuite 100/100 20
+    _bodyev '- `99/100 bats`' '- After review (abc1234), 99/100 bats'
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:1: MISMATCH suite-total: 99/100 bats'; _has 'mr.md:2: MISMATCH suite-total: 99/100 bats'
+    [ "$(_summary)" = "$(_sum 0 0 2 0 0 0 0 2 0)" ]
+}
+
+@test "delta D1: S3 against 'suite: none @ <head>' → NOT CHECKED; S1 against a pytest-only line and S2 against a bats-only line → NOT CHECKED" {
+    _evsuite '(none)' '(none)'
+    [ "$SUITE" = "none @ $(_head)" ]
+    _bodyev '- The full suite: 120 passed'
+    _ccr
+    [ "$status" -eq 0 ]; _has 'mr.md:1: NOT CHECKED suite-total: 120 passed — Evidence suite: line has no figures'
+    _evsuite '(none)' 20
+    _bodyev '- 99/100 bats'
+    _ccr
+    [ "$status" -eq 0 ]; _has 'mr.md:1: NOT CHECKED suite-total: 99/100 bats — Evidence suite: line has no bats figures'
+    _evsuite 100/100 '(none)'
+    _bodyev '- 21 pytest passed'
+    _ccr
+    [ "$status" -eq 0 ]; _has 'mr.md:1: NOT CHECKED suite-total: 21 pytest — Evidence suite: line has no pytest figures'
+}
+
+@test "an Evidence suite: line not at HEAD, or absent → NOT CHECKED; 3,994 equals 3994" {
+    _evsuite 100/100 20 "$BASELINE"
+    _bodyev '- 99/100 bats'
+    _ccr
+    [ "$status" -eq 0 ]; _has 'mr.md:1: NOT CHECKED suite-total: 99/100 bats — Evidence suite: line is not at HEAD'
+    _body '- 99/100 bats'
+    _ccr
+    [ "$status" -eq 0 ]; _has 'mr.md:1: NOT CHECKED suite-total: 99/100 bats — no Evidence suite: line'
+    _evsuite 3994/3994 '(none)'
+    _bodyev '- 3,994/3,994 bats' '- The full bats suite: 3,994 passed'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 2 0 0 0 0 0 0)" ]
+}
