@@ -341,16 +341,60 @@ file.sh: tier checking=fable: not applied (no project)" ]
   [ "$output" = "[create] [o/r] [A captured idea] [$DRAFT] [--label] [tier:check-fable]" ]
 }
 
-@test "tiers: every outcome line matches the pinned grammar" {
+@test "tiers: every outcome line matches the grammar and crrf.md's vocabulary" {
   local re='^file\.sh: tier (thinking|checking)=[A-Za-z0-9._-]+: (applied as tier:(impl|check)-[A-Za-z0-9._-]+|matches project tier|not applied \((label missing|lookup failed|no project)\)(; .+)?)$'
-  export STUB_MISSING=tier:check-fable
+  local all="" crrf l n=0 phrase
+  crrf="$(<"$PLUGIN_ROOT/commands/crrf.md")"
+  # applied + matches
   _tiers 'thinking = "opus"' 'checking = "fable"'
-  _file
-  [ "$status" -eq 0 ]
-  local l n=0
+  _file; [ "$status" -eq 0 ]; all+="$(_tier_lines)"$'\n'
+  # label missing
+  rm -f "$CAP/filed.toml"; export STUB_MISSING=tier:check-fable
+  _file; [ "$status" -eq 0 ]; all+="$(_tier_lines)"$'\n'
+  # lookup failed
+  rm -f "$CAP/filed.toml"; unset STUB_MISSING; export STUB_LOOKUP_RC=1
+  _file; [ "$status" -eq 0 ]; all+="$(_tier_lines)"$'\n'
+  # no project
+  rm -f "$CAP/filed.toml"; unset STUB_LOOKUP_RC
+  export DEVAGENT_ISSUE_BACKEND=github DEVAGENT_REPO_ORIGIN=o/r
+  sed -i "s#^devdoc_dir = .*#devdoc_dir = \"$BATS_TEST_TMPDIR/elsewhere\"#" "$DA_HOME/config.toml"
+  _file; [ "$status" -eq 0 ]; all+="$(_tier_lines)"
   while IFS= read -r l; do
+    [ -n "$l" ] || continue
     [[ "$l" =~ $re ]] || { echo "off-grammar: $l" >&2; false; }
+    phrase="${l#file.sh: tier *=*: }"
+    case "$phrase" in
+      applied\ as*) phrase="applied as" ;;
+      not\ applied*) phrase="${phrase%%)*})" ;;
+    esac
+    [[ "$crrf" == *"$phrase"* ]] || { echo "crrf.md lacks: $phrase" >&2; false; }
     n=$((n + 1))
-  done <<<"$(_tier_lines)"
-  [ "$n" -eq 2 ]
+  done <<<"$all"
+  [ "$n" -ge 5 ]
+  [[ "$all" == *"applied as tier:check-fable"* ]]
+  [[ "$all" == *"matches project tier"* ]]
+  [[ "$all" == *"not applied (label missing)"* ]]
+  [[ "$all" == *"not applied (lookup failed)"* ]]
+  [[ "$all" == *"not applied (no project)"* ]]
+}
+
+@test "file.md documents tiers.toml, the outcomes, replace-don't-add and #87" {
+  local f="$PLUGIN_ROOT/commands/file.md"
+  grep -q 'tiers.toml' "$f"
+  grep -q 'gh label create' "$f"
+  grep -q 'glab label create' "$f"
+  grep -q '#87' "$f"
+  grep -qE 'two .*pull|pull.*two ' "$f"
+  grep -q 'invalid `tiers.toml`' "$f"
+  grep -q 'GITLAB_HOST' "$f"
+  grep -qi 'lowercase' "$f"
+  grep -q '#1042' "$f"
+  grep -q 'file.sh: tier ' "$f"
+  grep -q 'state-exists' "$f"
+}
+
+@test "spec names tiers.toml in the capture tree and file.sh as a label writer" {
+  local s="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -q '^├── tiers.toml .*#1101' "$s"
+  grep -q 'file.sh.*departing' "$s"
 }

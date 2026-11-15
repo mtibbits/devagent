@@ -447,6 +447,7 @@ Captures/2026-05-19-corn-planting/
 ├── draft.md                             # the captured issue or epic
 ├── redteam.md                           # populated by /devagent:redissue
 ├── filed.toml                           # populated by /devagent:file: issue_num, url
+├── tiers.toml                           # #1101 model-tier proposal (thinking/checking); /devagent:file labels departures
 └── (for epics) children/
     ├── 01-prepare-soil.md
     ├── 02-plant-seed.md
@@ -1187,7 +1188,9 @@ A step's tier is resolved in this order (first hit wins):
    in precedence order: an explicit body key (§6.3) > the body `tier:` shim >
    a recognized forge LABEL (below) > nothing, leaving the config rungs to
    resolve. Hand-editing is the documented post-scaffold path, and an existing
-   marker is never stomped.
+   marker is never stomped. Upstream of that,
+   `file.sh` applies a capture's departing `tiers.toml` proposal as these
+   labels at create (#1101).
 
    **Label channel** (#561). At first scaffold `pull.sh` also derives steering
    from the issue's forge labels — the same label set the backends already fetch

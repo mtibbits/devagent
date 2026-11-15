@@ -140,3 +140,35 @@ setup() { DOC="$(<"$F")"; }
   [[ "$DOC" == *'default_issue_source'* ]]
   [[ "$DOC" == *'--target <target>'* ]]
 }
+
+@test "crrf runs the propose step on each promoted child after promotion, never the epic (#1101)" {
+  # Canonical phrase (frozen): 'An epic draft gets no tier proposal' — shared
+  # verbatim with skills/capture/SKILL.md, the step's one home.
+  [[ "$DOC" == *'Propose model tiers'* ]]
+  [[ "$DOC" == *'An epic draft gets no tier proposal'* ]]
+  local fence propose sec3
+  fence="$(grep -n 'scripts/capture/capture.sh' "$F" | head -n 1 | cut -d: -f1)"
+  propose="$(grep -n 'Propose model tiers' "$F" | head -n 1 | cut -d: -f1)"
+  sec3="$(grep -nE '^## 3\.' "$F" | cut -d: -f1)"
+  [ "$fence" -lt "$propose" ]
+  [ "$propose" -lt "$sec3" ]
+}
+
+@test "crrf manifest carries the tier proposal column and its vocabulary (#1101)" {
+  # The outcome phrases are file.sh's (tests/file-tiers.bats checks file.sh's
+  # real output against this doc).
+  grep -qxF '| Artifact | Outcome | Tier proposal |' "$F"
+  [[ "$DOC" == *'applied as'* ]]
+  [[ "$DOC" == *'matches project tier'* ]]
+  [[ "$DOC" == *'not applied (label missing)'* ]]
+  [[ "$DOC" == *'not applied (lookup failed)'* ]]
+  [[ "$DOC" == *'not applied (no project)'* ]]
+  [[ "$DOC" == *'would apply'* ]]
+  [[ "$DOC" == *'none (epic)'* ]]
+  [[ "$DOC" == *'none (no proposal)'* ]]
+}
+
+@test "crrf Non-goals no longer claims file.sh and redissue are unchanged (#1101)" {
+  run grep -nF 'Changes no verb' "$F"
+  [ "$status" -eq 1 ]
+}
