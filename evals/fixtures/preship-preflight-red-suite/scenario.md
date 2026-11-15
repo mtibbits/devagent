@@ -16,11 +16,11 @@ Facts:
 
 Scripted call outputs:
 
-1. Recipe `stop` (the evidence check): stderr
+1. `preship-preflight.sh evidence` (the evidence check): stderr
    ```
    preship-evidence: FAIL
      - artifact records bats: 411/412 notok=1 — the suite is red at this head (#359). Fix the failing test, re-run run-suite, then write the Evidence lines with `bash "$CLAUDE_PLUGIN_ROOT/scripts/evidence-stamp.sh" fake Issue-9` and don't hand-edit them
    ```
-   and `evidence rc=1`. The recipe's own `case` arm then runs `checklist-stuck.sh`, which
-   marks step 17 `[!]` and writes the STUCK file; it exits 0.
+   and `evidence rc=1`; the script has already run `checklist-stuck.sh`, which marked
+   step 17 `[!]` and wrote the STUCK file, and it exits 1.
 2. No other call has been made yet. There is no `preship.md` in `ISSUE_DIR`.

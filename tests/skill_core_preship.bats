@@ -73,44 +73,51 @@ setup() {
 }
 
 # ---- #1122: the main-session preflight (between 2 and 2a) --------------------------
-# commands/preship.md is a doc the main session EXECUTES (register Issue-461/583), so the
-# recipes are extracted and run, not only grepped.
+# commands/preship.md is a doc the main session EXECUTES (register Issue-461/583). Since
+# review finding 1 every preflight call is scripts/preship-preflight.sh, whose behaviour
+# tests/preship-preflight.bats runs; these tests pin the doc and its tie to the script.
+# One assertion per line: in bats a failing non-final `A && B` conjunct fails nothing.
 
 # _line_of <fixed text> - the first line number of CMD holding it (fails when absent).
 _line_of() { local n; n="$(grep -nF -m1 -- "$1" "$CMD" | cut -d: -f1)"; [ -n "$n" ] || { echo "absent: $1" >&2; return 1; }; echo "$n"; }
 # _preflight - the preflight section's text: from its title to step 2a.
 _preflight() { awk '/^\*\*Preflight \(between 2 and 2a\)/{f=1} /^2a\. /{f=0} f' "$CMD"; }
-# _recipe <name> - the fenced recipe whose first line is `# recipe: <name>`, placeholders filled.
-_recipe() {
-  awk -v m="# recipe: $1" 'index($0, m) == 1 {f=1} f && /^```$/ {exit} f' "$CMD" \
-    | sed -e 's/<project>/testproj/g' -e 's/<Issue-N>/Issue-1/g'
+PF='bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh"'
+
+@test "preflight: every command in the section is a script call under the plugin grant (#1122 review)" {
+  local t span n=0
+  t="$(_preflight)"
+  [ -n "$t" ]
+  run grep -c '^[[:space:]]*```' <<<"$t"                               # no fenced shell to run
+  [ "$output" -eq 0 ]
+  while IFS= read -r span; do
+    n=$((n + 1))
+    [[ "$span" == 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/'* ]] || { echo "outside the grant: $span"; return 1; }
+  done < <(grep -oE '`bash [^`]*`' <<<"$t" | tr -d '`')
+  [ "$n" -ge 2 ]                                                       # the selector sees the calls
 }
-# _stubroot - a plugin root whose scripts record instead of acting. preship-evidence.sh
-# prints $STUB_ERR on stderr and exits $STUB_RC; evidence-stamp.sh and run-suite.sh touch
-# the sentinel; checklist-stuck.sh and checklist-log.sh record their message argument.
-_stubroot() {
-  ROOT="$BATS_TEST_TMPDIR/root"; ISSUE_DIR="$BATS_TEST_TMPDIR/Issue-1"; SENT="$BATS_TEST_TMPDIR/sentinel"
-  mkdir -p "$ROOT/scripts" "$ISSUE_DIR/analysis"
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$STUB_ERR" >&2' 'exit "$STUB_RC"' > "$ROOT/scripts/preship-evidence.sh"
-  printf '%s\n' '#!/usr/bin/env bash' 'touch "$SENT"' > "$ROOT/scripts/evidence-stamp.sh"
-  cp "$ROOT/scripts/evidence-stamp.sh" "$ROOT/scripts/run-suite.sh"
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s" "$2" > "$STUCK_REC"' > "$ROOT/scripts/checklist-stuck.sh"
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$3" >> "$LOG_REC"' > "$ROOT/scripts/checklist-log.sh"
-  chmod +x "$ROOT"/scripts/*.sh
-  export CLAUDE_PLUGIN_ROOT="$ROOT" ISSUE_DIR SENT STUCK_REC="$BATS_TEST_TMPDIR/stuck" LOG_REC="$BATS_TEST_TMPDIR/log"
+
+@test "preflight: each subcommand the section names is in the script's usage (#1122 review)" {
+  local t sub usage
+  t="$(_preflight)"
+  usage="$(grep -m1 '^usage=' "$BATS_TEST_DIRNAME/../scripts/preship-preflight.sh")"
+  for sub in evidence claims 'prior <L>' 'save <L>' 'log corrected <L>' 'log named-commit <L>' \
+             'log left-as-written <L>' 'log unresolved <L>' 'log could-not-run' 'log preflight'; do
+    [[ "$t" == *"… $sub"* || "$t" == *"preship-preflight.sh\" $sub "* ]] || { echo "doc lacks: $sub"; return 1; }
+    [[ "$usage" == *"${sub%% *}"* ]] || { echo "usage lacks: $sub"; return 1; }
+  done
 }
-# The stamper's own remedy text: backticks, "$", double quotes and an apostrophe.
-HOSTILE1122='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGIN_ROOT/scripts/evidence-stamp.sh" testproj Issue-1` and don'"'"'t edit by hand'
 
 @test "preflight: evidence check before the head pin, with --attestable-exit (#1122)" {
   local step2 ev pin
   step2="$(_line_of '2. Verify `mr.md` exists')"
-  ev="$(_line_of 'scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit')"
+  ev="$(_line_of "$PF evidence <project> <Issue-N>")"
   pin="$(_line_of 'preship-verified-head.sh" pin')"
-  [ "$step2" -lt "$ev" ] && [ "$ev" -lt "$pin" ]
+  [ "$step2" -lt "$ev" ]
+  [ "$ev" -lt "$pin" ]
   _preflight | grep -qF '**Preflight (between 2 and 2a)'
-  # The zero-diff decision comes first: an empty diff never reaches the preflight.
-  _preflight | grep -qi 'Zero-diff'
+  _preflight | grep -qF -- '--attestable-exit'
+  _preflight | grep -qi 'Zero-diff'                                    # the zero-diff decision comes first
 }
 
 @test "preflight: an evidence stop is pre-dispatch, with no preship.md (#1122)" {
@@ -118,94 +125,40 @@ HOSTILE1122='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_P
   [[ "$t" == *"before any dispatch"* ]]
   [[ "$t" == *"preship: evidence preflight:"* ]]
   [[ "$t" == *"no preship.md"* ]]
-  _stubroot
-  STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - artifact head: deadbeef is not HEAD\n  - dirty: yes' run bash -c "$(_recipe stop)"
-  [ "$status" -eq 0 ]
-  [ "$(cat "$STUCK_REC")" = "preship: evidence preflight: artifact head: deadbeef is not HEAD (+1 more)" ]
-  [ ! -e "$ISSUE_DIR/preship.md" ]
-  [[ "$output" == *"evidence rc=1"* ]]
 }
 
 @test "preflight: an evidence stop moves an existing preship.md to analysis/<date>-<HHMMSS>-preship-superseded.md and logs it (#1122)" {
-  local t moved; t="$(_preflight)"
-  [[ "$t" == *'analysis/<date>-<HHMMSS>-preship-superseded.md'* ]]
-  _stubroot
-  echo 'old verdict: PASS' > "$ISSUE_DIR/preship.md"
-  STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - x' run bash -c "$(_recipe stop)"
-  [ "$status" -eq 0 ]
-  [ ! -e "$ISSUE_DIR/preship.md" ]
-  moved="$(cd "$ISSUE_DIR" && ls analysis/*-preship-superseded.md)"
-  [[ "$moved" =~ ^analysis/[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-preship-superseded\.md$ ]]
-  [ "$(cat "$ISSUE_DIR/$moved")" = 'old verdict: PASS' ]
-  [ "$(cat "$LOG_REC")" = "preflight: moved preship.md to $moved" ]
-  [ "$(cat "$STUCK_REC")" = "preship: evidence preflight: x" ]
+  _preflight | grep -qF 'analysis/<date>-<HHMMSS>-preship-superseded.md'
+  grep -qF 'sup="analysis/$(date +%F-%H%M%S)-preship-superseded.md"' "$BATS_TEST_DIRNAME/../scripts/preship-preflight.sh"
 }
 
 @test "preflight: no run-suite.sh or evidence-stamp.sh (#1122)" {
   local t; t="$(_preflight)"
   [[ "$t" == *'neither `run-suite.sh` nor `evidence-stamp.sh`'* ]]
-  # Nothing in the section invokes either. The shell-safety paragraph QUOTES the
-  # stamper's remedy (`$CLAUDE_PLUGIN_ROOT`, unbraced); an invocation is the braced form.
-  run grep -qE 'bash "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/(run-suite|evidence-stamp)\.sh"' <<<"$t"; [ "$status" -eq 1 ]
-  grep -qE 'bash "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/preship-evidence\.sh"' <<<"$t"   # the selector reads invocations
-  _stubroot
-  STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - x' run bash -c "$(_recipe stop)"
-  [ ! -e "$SENT" ]
+  run grep -cE 'scripts/(run-suite|evidence-stamp)\.sh' <<<"$t"
+  [ "$output" -eq 0 ]
 }
 
 @test "preflight: exit 4 continues, 9/10/11 quarantine (#1122)" {
-  local t rc; t="$(_preflight)"
+  local t; t="$(_preflight)"
   [[ "$t" == *"0 or 4: continue"* ]]
   [[ "$t" == *"9, 10 or 11: the quarantine rule"* ]]
-  _stubroot
-  for rc in 0 4 9 10 11; do
-    rm -f "$STUCK_REC"
-    STUB_RC="$rc" STUB_ERR=$'preship-evidence: FAIL\n  - TREE UNATTESTED — x' run bash -c "$(_recipe stop)"
-    [ "$status" -eq 0 ]
-    [ ! -e "$STUCK_REC" ] || { echo "rc $rc stopped the step"; return 1; }
-    [[ "$output" == *"evidence rc=$rc"* ]]
-  done
-  STUB_RC=1 STUB_ERR='' run bash -c "$(_recipe stop)"            # no stderr at all
-  [ "$(cat "$STUCK_REC")" = "preship: evidence preflight: (no stderr)" ]
-}
-
-@test "preflight: the stop recipe is shell-safe (#1122)" {
-  local first="${HOSTILE1122#  - }" naive
-  _stubroot
-  STUB_RC=1 STUB_ERR="preship-evidence: FAIL"$'\n'"$HOSTILE1122" run bash -c "$(_recipe stop)"
-  [ "$status" -eq 0 ]
-  [ "$(cat "$STUCK_REC")" = "preship: evidence preflight: $first" ]
-  [ ! -e "$SENT" ]
-  # Control: the naive spelling, the text interpolated into a double-quoted argument,
-  # runs the stamper's backticks (so the assertion above can fail).
-  naive="bash \"\$CLAUDE_PLUGIN_ROOT/scripts/checklist-stuck.sh\" \"\$ISSUE_DIR\" \"preship: evidence preflight: $first\""
-  run bash -c "$naive"
-  [ -e "$SENT" ]
-}
-
-# ---- #1122 Task 11: the claims half of the preflight ----------------------------------
-# _log_recipe <K> <L> [<reason>] - recipe `log` with its inputs set at the top, as the
-# session runs it (the reason replaces the heredoc placeholder, verbatim).
-_log_recipe() {
-  local body; body="$(_recipe log)"
-  [ -z "${3+x}" ] || body="${body/<the reason, verbatim>/$3}"
-  printf 'ISSUE_DIR=%q; K=%q; L=%q; OLDF=%q; n=%q; RC=%q; EVRC=%q\n%s\n' \
-    "$ISSUE_DIR" "$1" "$2" "${OLDF-}" "${RUN_N-}" "${RC-}" "${EVRC-}" "$body"
 }
 
 @test "preflight: order evidence, claims, head pin, dispatch (#1122)" {
   local ev cl pin dc
-  ev="$(_line_of 'scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit')"
-  cl="$(_line_of 'scripts/claims-check.sh" <project> <Issue-N>')"
+  ev="$(_line_of "$PF evidence <project> <Issue-N>")"
+  cl="$(_line_of "$PF claims <project> <Issue-N>")"
   pin="$(_line_of 'preship-verified-head.sh" pin')"
   dc="$(_line_of '## Dispatch contract')"
-  [ "$ev" -lt "$cl" ] && [ "$cl" -lt "$pin" ] && [ "$pin" -lt "$dc" ]
+  [ "$ev" -lt "$cl" ]
+  [ "$cl" -lt "$pin" ]
+  [ "$pin" -lt "$dc" ]
   _preflight | grep -qF '**evidence check, claims check, head pin, dispatch**'
 }
 
 @test "preflight: three correction rules, no Evidence-block edit (#1122)" {
-  local t; t="$(_preflight)"
-  local p
+  local t p; t="$(_preflight)"
   for p in 'prompt to look' 'correct the line' 'keep the value' 'name the commit' 'leave the line as written' \
            'Never edit the `## Evidence` block' '**name the commit** as `` at `<sha>` `` (the form the check reads)'; do
     [[ "$t" == *"$p"* ]] || { echo "missing: $p"; return 1; }
@@ -213,12 +166,11 @@ _log_recipe() {
 }
 
 @test "preflight: at most three runs; unresolved and could-not-run logged, verifier still dispatched (#1122)" {
-  local t; t="$(_preflight)"
-  [[ "$t" == *"at most three runs"* ]]
-  [[ "$t" == *"unresolved"* ]]
-  [[ "$t" == *"could not run"* ]]
-  [[ "$t" == *"the verifier is still dispatched"* ]]
-  [[ "$t" == *"dispatch anyway"* ]]
+  local t p; t="$(_preflight)"
+  for p in 'at most three runs' 'unresolved' 'could not run' 'the verifier is still dispatched' 'dispatch anyway' \
+           'Edit nothing after the last run'; do
+    [[ "$t" == *"$p"* ]] || { echo "missing: $p"; return 1; }
+  done
 }
 
 @test "preflight: each of the 7 log spellings present once (#1122)" {
@@ -234,58 +186,15 @@ _log_recipe() {
   done
 }
 
-@test "preflight: the preflight line carries the claims summary (#1122)" {
-  _stubroot
-  export TMPDIR="$BATS_TEST_TMPDIR"
-  local d="$TMPDIR/devagent-claims-Issue-1" sum='claims-check: checked 3 (bats-count 1, pytest-count 0, suite-total 1, commit-count 0, files-count 0, cited-commit 1, signoff 0); 1 mismatched; 0 not checked'
-  printf 'mr.md:4: MISMATCH bats-count: x — claimed 1, found 2 (at HEAD)\n%s\n' "$sum" > "$d.out"; : > "$d.err"
-  local EVRC=4 RC=3 RUN_N=2
-  run bash -c "$(_log_recipe preflight '')"
-  [ "$status" -eq 0 ]
-  [ "$(cat "$LOG_REC")" = "preflight: evidence exit 4; claims runs 2, last exit 3; $sum" ]
-  rm "$d.out"; : > "$LOG_REC"
-  EVRC=0 RC=1 RUN_N=1
-  run bash -c "$(_log_recipe preflight '')"
-  [ "$(cat "$LOG_REC")" = "preflight: evidence exit 0; claims runs 1, last exit 1; (none)" ]
-}
-
-@test "preflight: a re-run greps the log for 'left as written' first (#1122)" {
-  local t gl act
+@test "preflight: a re-run looks up 'left as written' first (#1122)" {
+  local t look act
   t="$(_preflight)"
-  gl="$(grep -nF 'grep the checklist log for `claims: mr.md:<L> left as written`' <<<"$t" | cut -d: -f1)"
+  look="$(grep -nF 'Before acting on a report, run `… prior <L>`' <<<"$t" | cut -d: -f1)"
   act="$(grep -nF '**correct the line**' <<<"$t" | cut -d: -f1)"
-  [ -n "$gl" ] && [ -n "$act" ]
-  [[ "$t" == *"Before acting on a report, grep the checklist log"* ]]
+  [ -n "$look" ]
+  [ -n "$act" ]
+  [ "$look" -le "$act" ]
   [[ "$t" == *"Do not revisit a line left as written"* ]]
-}
-
-@test "preflight: the log recipe is shell-safe (#1122)" {
-  _stubroot
-  export TMPDIR="$BATS_TEST_TMPDIR"
-  local line why long
-  line='- `tests/x.bats` (26 tests) $(touch '"$SENT"') "dq" '"'"'sq'"'"' `whoami`'
-  why='an earlier run; see $(touch '"$SENT"') and `id` "x" '"'"'y'"'"
-  printf '# Title\n%s\n' "$line" > "$ISSUE_DIR/mr.md"
-  run bash -c "$(_log_recipe 'left as written' 2 "$why")"
-  [ "$status" -eq 0 ]
-  [ "$(cat "$LOG_REC")" = "claims: mr.md:2 left as written: '$line' — $why" ]
-  [ ! -e "$SENT" ]
-  # corrected: the old line from OLDF, the new one from mr.md
-  : > "$LOG_REC"; OLDF="$BATS_TEST_TMPDIR/old"; printf '%s\n' "$line" > "$OLDF"
-  printf '# Title\n%s\n' '- `tests/x.bats` (27 tests)' > "$ISSUE_DIR/mr.md"
-  run bash -c "$(_log_recipe corrected 2)"
-  [ "$(cat "$LOG_REC")" = "claims: mr.md:2 corrected: '$line' -> '- \`tests/x.bats\` (27 tests)'" ]
-  # a 300-character line is truncated to 200 plus …
-  : > "$LOG_REC"; printf -v long '%0300d' 0; printf '# Title\n%s\n' "$long" > "$ISSUE_DIR/mr.md"
-  local RUN_N=3
-  run bash -c "$(_log_recipe unresolved 2)"
-  [ "$(cat "$LOG_REC")" = "claims: mr.md:2 unresolved after run 3: '${long:0:200}…'" ]
-  # could not run: the first stderr line, hostile, from the recipe's file
-  : > "$LOG_REC"; printf '%s\n' 'claims-check: COULD NOT RUN — no mr.md at `$(touch '"$SENT"')`' > "$TMPDIR/devagent-claims-Issue-1.err"
-  local RC=1
-  run bash -c "$(_log_recipe 'could not run' '')"
-  [ "$(cat "$LOG_REC")" = 'claims: could not run (exit 1): claims-check: COULD NOT RUN — no mr.md at `$(touch '"$SENT"')`; verifier dispatched' ]
-  [ ! -e "$SENT" ]
 }
 
 @test "#1122 docs: the spec's step-17 row and section, FR-142 (in UC-3) and the CHANGELOG name the preflight" {

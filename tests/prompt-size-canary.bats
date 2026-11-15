@@ -22,7 +22,7 @@
 #   agents/preship-verifier.md    7524   3800   9500   (re-pinned by #660)
 #   agents/redteam-reviewer.md    5407   2600   6800
 #   agents/plan-improver.md       6130   3000   7700
-#   commands/preship.md          14718   7400  18400   (re-pinned by #1122: the preflight)
+#   commands/preship.md          11763   5900  14700   (re-pinned by #1122: the preflight, its calls in preship-preflight.sh)
 #   commands/redmr.md             6039   2900   7600
 #   commands/improve.md           6228   3000   7800
 #   skills/capture/SKILL.md       4453   2100   5400   (re-pinned by #1101: Propose model tiers)
@@ -40,7 +40,7 @@ _ROWS=(
   "agents/preship-verifier.md:3800:9500"
   "agents/redteam-reviewer.md:2600:6800"
   "agents/plan-improver.md:3000:7700"
-  "commands/preship.md:7400:18400"
+  "commands/preship.md:5900:14700"
   "commands/redmr.md:2900:7600"
   "commands/improve.md:3000:7800"
   "skills/capture/SKILL.md:2100:5400"

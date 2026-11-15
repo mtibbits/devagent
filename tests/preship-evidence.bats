@@ -1012,12 +1012,14 @@ _case1122() {
 
 @test "#1122: the preship.md evidence line runs as written (Issue-461)" {
     local cmd
-    cmd="$(grep -o '`bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project> <Issue-N> --attestable-exit`' \
+    cmd="$(grep -o '`bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh" evidence <project> <Issue-N> "$ISSUE_DIR"`' \
         "$DEVAGENT_ROOT/commands/preship.md" | head -1)"
     [ -n "$cmd" ]
     cmd="${cmd//\`/}"; cmd="${cmd//<project>/$TEST_PROJECT}"; cmd="${cmd//<Issue-N>/Issue-1}"
     _case1122 tree-absent
-    CLAUDE_PLUGIN_ROOT="$DEVAGENT_ROOT" run --separate-stderr bash -c "$cmd"
-    [ "$status" -eq 4 ]
+    ISSUE_DIR="$DEVDOC_DIR/Issue-1" TMPDIR="$BATS_TEST_TMPDIR" CLAUDE_PLUGIN_ROOT="$DEVAGENT_ROOT" \
+        run --separate-stderr bash -c "$cmd"
+    [ "$status" -eq 4 ]                                       # the preflight script passes the checker's 4 through
     [[ "$stderr" == *"TREE UNATTESTED"* ]]
+    [[ "$output" == *"evidence rc=4"* ]]
 }

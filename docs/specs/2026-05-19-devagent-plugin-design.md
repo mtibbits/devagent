@@ -109,6 +109,7 @@ devAgent/
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
 │   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885),
 │   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
+│   │   preship-preflight.sh (#1122) — every call the preflight makes,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
@@ -1745,7 +1746,10 @@ session treats each report as a prompt to look: it corrects a line about the bra
 keeps an earlier run's figure and names its commit, or leaves the line as written, never
 edits the `## Evidence` block, re-runs at most three times, and logs every outcome in one
 spelling. The preflight never passes the step: a check it cannot run is logged and the
-verifier is dispatched anyway. Blind spot: claims the grammar does not recognise, tokens
+verifier is dispatched anyway. Every preflight call is `scripts/preship-preflight.sh`
+(`evidence`, `claims`, `prior`, `save`, `log`), so each is a plain script call inside the
+plugin's `allowed-tools` grant, and script stderr and `mr.md` text never enter a
+command line; it holds the evidence stop, the three-run cap and the log spellings. Blind spot: claims the grammar does not recognise, tokens
 that resolve to no single local commit, and a pytest count measured with an interpreter
 other than the suite run's are NOT CHECKED, and stay with verification 3.
 

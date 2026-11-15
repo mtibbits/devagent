@@ -26,8 +26,10 @@ the README's "Versioning & releases" section has the release procedure.
   pytest per-file counts, suite totals, commit and file counts, cited
   commits, the sign-off box), and the session may now edit `mr.md` before the
   verifier reads it: it corrects, names the commit, or leaves a line as
-  written, and logs each. The verifier and its dispatch contract are
-  unchanged. `core-draft-mr` states the count forms and how to derive them;
+  written, and logs each, every call through the new
+  `scripts/preship-preflight.sh`. The verifier and its dispatch contract are
+  unchanged. `log_append` now writes a message byte for byte: a backslash in a
+  logged line is no longer an escape. `core-draft-mr` states the count forms and how to derive them;
   `run-suite.sh`'s child env list moved to `SUITE_CHILD_UNSET` in
   `scripts/lib/config.sh`; `scripts/lib/baseline.sh` gains the no-fetch
   `baseline_ref_name`.
