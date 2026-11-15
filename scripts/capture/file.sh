@@ -12,6 +12,10 @@ source "${SCRIPT_DIR}/lib/draft.sh"
 source "${SCRIPT_DIR}/../lib/trust.sh"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/../lib/permission.sh"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/../lib/flags.sh"
+# shellcheck source=lib/tiers.sh
+source "${SCRIPT_DIR}/lib/tiers.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -100,8 +104,15 @@ fi
 # that owns DEVAGENT_DEVDOC_DIR names the backend, and fills in each repo and
 # the backend dir (this plugin's) that the env leaves unset: an exported value
 # still wins. Its push_mr gate is still the env's.
-if [[ "${TRUST_HOST:-0}" != 1 && -z "${DEVAGENT_ISSUE_BACKEND:-}" ]]; then
+# #1101: the owning project is resolved unconditionally, never from
+# DEVAGENT_PROJECT (ambient scope, Issue-566): the tier proposal below compares
+# against ITS step_models. Under a policy that is the policy's project.
+if [[ "${TRUST_HOST:-0}" == 1 ]]; then
+  _proj="${TRUST_PROJECT:-}"
+else
   _proj="$(trust_project_for_devdoc "${DEVAGENT_DEVDOC_DIR:-}")"
+fi
+if [[ "${TRUST_HOST:-0}" != 1 && -z "${DEVAGENT_ISSUE_BACKEND:-}" ]]; then
   if [[ -n "${_proj}" ]]; then
     _section=issue_source
     [[ "${TARGET}" == fork ]] && _section=issue_source_fork
@@ -123,11 +134,46 @@ if issue_backend_is_disk "${backend}"; then
   is_disk=1
   [[ ! "${DEVAGENT_ISSUE_BACKEND_DIR:-}/${backend}.sh" -ef "$(plugin_root)/scripts/issue/disk.sh" ]] || gate_exempt=1
 fi
+# The backend kind, by name (#199's table; #1101 reads it for the label lookup).
+_shape="${backend}"
+[[ "${is_disk}" -ne 1 ]] || _shape=disk
 
 if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
   [[ "${YES}" -ne 1 ]] || refuse yes-refused
   gate_name="file"
   DEVAGENT_PERMISSION_PUSH_MR="$(permission_value "${TRUST_PROJECT}" file)"
+fi
+
+# #1101: a capture's tiers.toml proposes a model tier per class. It is validated
+# BEFORE the gate (a bad proposal stops the filing, exit 3, with nothing created
+# and no .pending) and compared with the owning project's class tier: a proposal
+# that departs becomes a tier:impl-/tier:check- label, looked up after the gate.
+# Per-class scalars (_tier_tok_<c>, _tier_label_<c>, _tier_out_<c>), no arrays.
+tiers_file="${cap_dir}/tiers.toml"
+has_tiers=0
+_tier_tok_thinking=""; _tier_tok_checking=""
+_tier_label_thinking=""; _tier_label_checking=""
+_tier_out_thinking=""; _tier_out_checking=""
+if [[ -e "${tiers_file}" || -L "${tiers_file}" ]]; then
+  has_tiers=1
+  _trc=0; tiers_read "${tiers_file}" || _trc=$?
+  [[ "${_trc}" -eq 0 ]] || { echo "file.sh: ${TIERS_ERR}" >&2; exit 3; }
+  _tier_tok_thinking="${TIERS_THINKING}"; _tier_tok_checking="${TIERS_CHECKING}"
+  for _cls in thinking checking; do
+    _tv="_tier_tok_${_cls}"; _tok="${!_tv}"
+    [[ -n "${_tok}" ]] || continue
+    if [[ -z "${_proj}" ]]; then
+      printf -v "_tier_out_${_cls}" '%s' "not applied (no project)"
+      continue
+    fi
+    _trc=0; tiers_class_tier "${_proj}" "${_cls}" || _trc=$?
+    [[ "${_trc}" -eq 0 ]] || { echo "file.sh: ${TIERS_ERR}" >&2; exit 3; }
+    if [[ "${TIERS_RESOLVED}" == "${_tok}" ]]; then
+      printf -v "_tier_out_${_cls}" '%s' "matches project tier"
+    else
+      printf -v "_tier_label_${_cls}" '%s' "$(tiers_label "${_cls}" "${_tok}")"
+    fi
+  done
 fi
 
 gate="${DEVAGENT_PERMISSION_PUSH_MR:-false}"
@@ -195,8 +241,6 @@ fi
 # closed instead. The .pending marker is intentionally NOT cleared here: the remote
 # create already ran, so the issue may exist, and #113's marker must keep blocking a
 # silent duplicate re-file.
-_shape="${backend}"
-[[ "${is_disk}" -ne 1 ]] || _shape=disk
 case "${_shape}" in
   github|gitlab) [[ "${issue_num}" =~ ^[0-9]+$ ]] ;;
   disk)          [[ "${issue_num}" =~ ^[1-9][0-9]*$ ]] ;;
