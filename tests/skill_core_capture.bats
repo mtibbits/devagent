@@ -40,3 +40,8 @@ SKILL="${REPO_ROOT:-$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)}/skills
   run grep -q 'checklist\.md' "${SKILL}"
   [ "$status" -ne 0 ]
 }
+
+@test "core-capture: points tier proposals at capture's propose step (#1101)" {
+  assert_file_grep "${SKILL}" "Propose model tiers"
+  assert_file_grep "${SKILL}" "after the draft body is written"
+}

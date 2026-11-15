@@ -39,3 +39,11 @@ CMD="${REPO_ROOT:-$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)}/commands
   run grep -q 'checklist\.md' "${SKILL}"
   [ "$status" -ne 0 ]
 }
+
+@test "core-redissue: reviews tiers.toml when present (#1101)" {
+  assert_file_grep "${SKILL}" "tiers_path"
+  assert_file_grep "${SKILL}" "tiers.toml"
+  assert_file_grep "${SKILL}" "Do not edit .draft.md. or .tiers.toml."
+  assert_file_grep "${CMD}" "tiers.toml"
+  assert_file_grep "${CMD}" "tiers_path"
+}

@@ -25,7 +25,7 @@
 #   commands/preship.md           7833   2900   8000   (re-pinned by #714: the quarantine-check lead)
 #   commands/redmr.md             6039   2900   7600
 #   commands/improve.md           6228   3000   7800
-#   skills/capture/SKILL.md       2553   1200   3300
+#   skills/capture/SKILL.md       4453   2100   5400   (re-pinned by #1101: Propose model tiers)
 #   skills/ship/SKILL.md          2249   1000   3000
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
@@ -43,7 +43,7 @@ _ROWS=(
   "commands/preship.md:2900:8000"
   "commands/redmr.md:2900:7600"
   "commands/improve.md:3000:7800"
-  "skills/capture/SKILL.md:1200:3300"
+  "skills/capture/SKILL.md:2100:5400"
   "skills/ship/SKILL.md:1000:3000"
 )
 

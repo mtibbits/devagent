@@ -36,9 +36,37 @@ Args: `[issue|epic] <free-form text>`
 
    For epics, omit `--subtype`. The script prints the slug; record it.
 
-4. Report each created `Captures/<slug>/draft.md` path to the operator
+4. For each **issue** draft, after the draft body is written, run
+   **Propose model tiers** (below); rerun it when a revise changes the
+   scope. In a standalone capture, where the operator fills the body in
+   later, run it once the body is written, before `/devagent:redissue`.
+   An epic draft gets no tier proposal.
+
+5. Report each created `Captures/<slug>/draft.md` path to the operator
    and suggest the next step (`/devagent:redissue <slug>` or, for
    epics, `/devagent:scaffold <slug>`).
+
+## Propose model tiers
+
+Write `Captures/<slug>/tiers.toml`; every key is optional:
+
+```toml
+thinking = "<token>"
+checking = "<token>"
+reason_thinking = "<one line: the evidence that decided it>"
+reason_checking = "<one line>"
+```
+
+- Propose a class only when the draft argues for a tier other than the
+  project's (`[project.<name>.step_models]`: the class key, else
+  `default`); otherwise omit the key. With no `step_models` table, omit it
+  unless the draft argues for a specific model. An empty file proposes nothing.
+- A token comes from `model_token_allowlist` (`scripts/lib/flags.sh`),
+  never `inherit`.
+- `/devagent:file` validates the file before filing and labels only
+  departures. A thinking tier is enforced at the draft step only (see
+  `commands/pull.md`, *Per-issue model steering*).
+- Reaped drafts and children promoted outside `/devagent:crrf` get none.
 
 ## Non-goals
 

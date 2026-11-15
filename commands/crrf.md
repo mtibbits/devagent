@@ -73,6 +73,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <
   write succeeds, so never bake a URL you have not been handed.
 - Leave `children/NN-*.md` in place as the binning record (the manifest
   states their disposition — see the Manifest section).
+- Run the propose step (`skills/capture/SKILL.md`, *Propose model tiers*) on
+  each promoted child right after promotion; it writes the child's
+  `tiers.toml`. An epic draft gets no tier proposal.
 
 The epic draft is filed as well, alongside its promoted children.
 
@@ -89,7 +92,8 @@ kept-vs-discarded claims must be checkable against these files, not recalled
 from context.
 
 - crrf MAY revise the draft and re-run `redissue` when Blocking findings are
-  addressable in the draft text — at most two revise cycles per draft. The
+  addressable in the draft text — at most two revise cycles per draft. A
+  revise that changes the scope reruns the propose step. The
   revise is performed by crrf, exercising the operator's standing grant;
   `commands/redissue.md`'s "the operator decides whether to revise" and
   core-redissue's "do not edit draft.md" both remain true — the red-team
@@ -117,6 +121,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/file.sh" --slug <slug> --target <tar
 not retry, and report the draft as ready-to-file (gate-closed) in the
 manifest — noting that `file.sh` runs its post-gate validations (H1 title,
 repo config) only after the gate, so a gate-closed draft has not yet passed
+them. `file.sh` validates `tiers.toml` BEFORE the gate, so a gate-closed
+draft has passed that check; an invalid one exits 3. After filing it prints
+one `file.sh: tier …` line per proposed class on stderr; the manifest copies
 them. Exit 9 (a trust policy refused — the host, identity or `--yes`, #713)
 and exit 10 (a trust check could not run) halt the same way: stop, do not
 retry, and report the refusal line verbatim. Exit 3 (draft or state problem)
@@ -135,10 +142,22 @@ the manifest.
 
 End every run — halted or complete — with:
 
-| Artifact | Outcome |
-|---|---|
-| `Captures/<epic-slug>` | filed, `<tracker URL>` — or unfiled, `<halt reason>` |
-| ↳ `Captures/<promoted-child-slug>` | filed, `<tracker URL>` — or unfiled, `<halt reason>` |
+| Artifact | Outcome | Tier proposal |
+|---|---|---|
+| `Captures/<epic-slug>` | filed, `<tracker URL>` — or unfiled, `<halt reason>` | none (epic) |
+| ↳ `Captures/<child>` | filed, `<tracker URL>` | thinking `opus` (reason): matches project tier; checking `fable` (reason): applied as `tier:check-fable` |
+| ↳ `Captures/<child2>` | unfiled, gate closed | checking `fable` (reason): would apply as `tier:check-fable` |
+
+The Tier proposal cell lists each proposed class with its token, its reason
+and `file.sh`'s outcome, copied from its `file.sh: tier …` line:
+`applied as <label>`, `matches project tier`,
+`not applied (label missing)`, `not applied (lookup failed)` or
+`not applied (no project)`. An unfiled draft's cell is derived from its
+`tiers.toml` and the gate plan's `labels:` line, which lists only the departing
+labels: `would apply as <label>`, `matches project tier` or
+`not applied (no project)`. A draft with no or an empty `tiers.toml` reads
+`none (no proposal)`. A `matches project tier` outcome means the proposal
+was redundant: the skill proposes a class only to depart from the project.
 
 Group promoted children under the epic they came from, and state once that
 the epic's `children/NN-*.md` files are staging copies superseded by the
@@ -153,10 +172,10 @@ plus `DEVAGENT_PERMISSION_PUSH_MR` for filing (see `commands/file.md`).
 
 ## Non-goals
 
-- Changes no verb's behavior: `scaffold`, `redissue` and `file.sh` behave as
-  before, and the `capture.sh` flags this loop uses (`--body-file`,
-  `--on-collision suffix`) are optional additions from #597 that leave every
-  other caller unchanged.
+- Redefines no verb: `scaffold`, `redissue` and `file.sh` behave as their own
+  docs say (since #1101 those include the tier proposal), and the
+  `capture.sh` flags this loop uses (`--body-file`, `--on-collision suffix`)
+  are optional additions from #597 that leave every other caller unchanged.
 - Adds no permission model.
 - One invocation covers one discussed topic; no batching across
   conversations.

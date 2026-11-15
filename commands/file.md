@@ -36,14 +36,44 @@ names a source with no `backend`, STOP and report the key —
 
    Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·
    `2` usage/bad `--target` · `3` draft or state problem (e.g. missing
-   `draft.md`, already filed, stale `.pending`, no H1 title, backend
-   failure) · `4` `push_mr` gate closed · `9` refused by a trust policy
-   (#713: under a policy in scope the policy's `file` gate decides and
-   `--yes` is refused; stop and report). With any policy on the host, in
+   `draft.md`, already filed, stale `.pending`, no H1 title,
+   invalid `tiers.toml`, backend failure) · `4` `push_mr` gate closed ·
+   `9` refused by a trust policy (#713: under a policy in scope the
+   policy's `file` gate decides and `--yes` is refused; stop and report). With any policy on the host, in
    scope or not, the backend and repo come from the config of the project
    that owns `DEVAGENT_DEVDOC_DIR`, never from the env below.
 
-4. On success, print the returned URL and remind the operator that
+   **Tier proposal (#1101).** When `Captures/<slug>/tiers.toml` exists
+   (capture's *Propose model tiers* step writes it):
+   - `file.sh` validates it before the gate; an invalid one exits 3 with
+     nothing created.
+   - It compares each proposed class with the class tier of the project that
+     owns `DEVAGENT_DEVDOC_DIR` (or the trust policy's project), never
+     `DEVAGENT_PROJECT`: `step_models.<class>`, else `default`; per-step keys
+     never count. Only a departure becomes a label, `tier:impl-<token>` or
+     `tier:check-<token>`, and the gate plan lists it on a `labels:` line.
+   - After the gate, github, gitlab and any custom backend are asked
+     `state-exists <repo> <label>`: 0 passes it as `--label`, 4 is missing,
+     anything else is a failed lookup. A custom backend must answer that for
+     labels, or exit non-0/4. jira and disk take the label unchecked.
+   - After filing it prints one `file.sh: tier <class>=<token>: <outcome>`
+     line per proposed class on stderr. A missing label is left off and its
+     create command printed (`gh label create <label> --repo <repo>`, or
+     `glab label create --name <label> --repo <repo>`; on self-hosted GitLab
+     set `GITLAB_HOST`, as `--repo` is host-relative). `file.sh` never creates
+     a label (#87): create it, then add it to the issue before its first pull.
+   - Until #1042, GitHub's lookup is fuzzy: a missing label reads
+     `label missing` when a similar label exists and
+     `lookup failed; state-exists exit 1` when none does (usually: no
+     similar label). Both leave the label off. GitHub's check ignores case
+     but pull reads `tier:` labels case-sensitively, so keep them lowercase.
+   - To override after filing, replace the label; never add a second:
+     two same-class labels make `pull.sh` die.
+   - Known gap: a labelled class's per-issue marker line overrides that
+     class's `step_models.<N>` pins; the other class keeps them.
+
+4. On success, print the returned URL, relay every `file.sh: tier …` stderr
+   line with it, and remind the operator that
    `Captures/<slug>/filed.toml` now records the issue number.
 
 ## Targets
