@@ -27,7 +27,13 @@ Subcommands:
   contract <family.js>             the header's key, class, control and exports
                                    lines name what the code uses; prints
                                    "header key=.. class=.. control=.. exports=.."
-  scope    <page> <partial>...     no page rule reaches family markup: a selector
+  contract <live.txt> <filler>     each "# example: <input> -> <output>" header
+                                   line renders as written (<N>: a positive count)
+  fragment <family.css> <filled>... a filled partial is a standalone fragment:
+                                   no placeholder left, balanced, one root, no
+                                   document/script/style tags or on*= handlers,
+                                   every class defined in family.css
+  scope   <page> <partial>...     no page rule reaches family markup: a selector
                                    whose last compound is a bare element the
                                    partials use, with nothing scoping it, or a
                                    class the partials use
@@ -588,19 +594,138 @@ def contract_js(path, text, rep):
         rep.bad(path, 0, "no header comment")
 
 
+EXAMPLE_RE = re.compile(r"#\s+example:\s+(.*?)\s+->\s+(.*?)\s*$")
+
+
+def contract_live(path, filler, rep):
+    """Each '# example: <input> -> <output>' line of a live settings file
+    renders as written through the real filler, with that file as settings.
+    An output of <N> stands for a positive decimal (a count)."""
+    import os
+    import subprocess
+    import tempfile
+    text = read(path)
+    for n, line in enumerate(text.split("\n"), 1):
+        m = EXAMPLE_RE.match(line)
+        if not m:
+            continue
+        rep.subjects += 1
+        given, want = m.group(1), m.group(2)
+        fd, tmp = tempfile.mkstemp(suffix=".html")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write((given + "\n").encode("utf-8"))
+            r = subprocess.run([sys.executable, "-I", "-X", "utf8", filler, "--settings", path, tmp],
+                               capture_output=True, text=True)
+            got = read(tmp).rstrip("\n")
+        finally:
+            os.unlink(tmp)
+        if r.returncode != 0:
+            rep.bad(path, n, f"example {given} did not fill (exit {r.returncode}): {r.stderr.strip()}")
+            continue
+        ok = re.fullmatch(r"[1-9][0-9]*", got) if want == "<N>" else got == want
+        if not ok:
+            rep.bad(path, n, f"example {given} renders as {got}, not {want}")
+    if rep.subjects == 0:
+        rep.bad(path, 0, "no '# example: <input> -> <output>' line")
+
+
 def cmd_contract(files):
     rep = Report("contract")
+    if files[0].endswith(".txt"):
+        if len(files) != 2:
+            usage("contract <live.txt> takes the filler too: contract <live.txt> <fill-placeholders.py>")
+        contract_live(files[0], files[1], rep)
+        return rep.done()
     for path in files:
         text = read(path)
         if path.endswith(".js"):
             contract_js(path, text, rep)
         else:
-            usage(f"contract reads family.js: {path}")
+            usage(f"contract reads family.js, or live.txt and the filler: {path}")
+    return rep.done()
+
+
+FORBIDDEN = {"html", "head", "body", "script", "style", "link", "meta"}
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+
+class Fragment(html.parser.HTMLParser):
+    def __init__(self, path, rep, classes):
+        super().__init__(convert_charrefs=True)
+        self.path, self.rep, self.classes = path, rep, classes
+        self.stack = []
+        self.roots = 0
+
+    def _start(self, tag, attrs, void):
+        line = self.getpos()[0]
+        if not self.stack:
+            self.roots += 1
+        if tag in FORBIDDEN:
+            self.rep.bad(self.path, line, f"<{tag}> is not allowed in a fragment")
+        for k, v in attrs:
+            if k.startswith("on"):
+                self.rep.bad(self.path, line, f"{k}= is not allowed in a fragment")
+            if k == "class" and v:
+                for c in v.split():
+                    if c not in self.classes:
+                        self.rep.bad(self.path, line, f"class '{c}' is not defined in family.css")
+        if not void:
+            self.stack.append((tag, line))
+
+    def handle_starttag(self, tag, attrs):
+        self._start(tag, attrs, tag in VOID)
+
+    def handle_startendtag(self, tag, attrs):
+        self._start(tag, attrs, True)
+
+    def handle_endtag(self, tag):
+        line = self.getpos()[0]
+        if tag in VOID:
+            return
+        if not self.stack:
+            self.rep.bad(self.path, line, f"</{tag}> has no open element")
+            return
+        top = self.stack[-1][0]
+        if top != tag:
+            self.rep.bad(self.path, line, f"</{tag}> closes <{top}>")
+            while self.stack and self.stack[-1][0] != tag:
+                self.stack.pop()
+        if self.stack:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if not self.stack and data.strip():
+            self.rep.bad(self.path, self.getpos()[0], "text outside the root element")
+
+
+def cmd_fragment(files):
+    if len(files) < 2:
+        usage("fragment takes family.css, then one or more filled partials")
+    css_path, frags = files[0], files[1:]
+    rep = Report("fragment")
+    classes = set()
+    for rule in parse_css(read(css_path))[0]:
+        classes |= set(re.findall(r"\.([A-Za-z0-9_-]+)", rule.sel))
+    for path in frags:
+        rep.subjects += 1
+        text = read(path)
+        i = text.find("{{")
+        if i >= 0:
+            rep.bad(path, text.count("\n", 0, i) + 1, "a placeholder is left (fill the partial first)")
+        p = Fragment(path, rep, classes)
+        p.feed(text)
+        p.close()
+        for tag, line in p.stack:
+            rep.bad(path, line, f"<{tag}> is never closed")
+        if p.roots != 1:
+            rep.bad(path, 0, f"{p.roots} root elements (want 1)")
     return rep.done()
 
 
 COMMANDS = {
     "contract": cmd_contract,
+    "fragment": cmd_fragment,
     "header": cmd_header,
     "tokens": cmd_tokens,
     "literals": cmd_literals,
