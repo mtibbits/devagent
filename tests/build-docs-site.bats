@@ -22,8 +22,9 @@
 #           fixture is the post-render count (exit 5 "expected N pages and M
 #           stubs"): nothing outside the script can make it fire, so it is
 #           pinned by a mutation row in the plan instead, and says so here.
-#           fx_build passes an empty --static, so a fixture build never copies
-#           the repo's own scripts/docs-site/static/.
+#           fx_build passes the repo's own scripts/docs-site/static/ as
+#           --static, read-only (the family files are required); a leg that
+#           plants or removes a static file calls fx_static_copy first.
 #   SCANNER — scripts/docs-site/check-fetches.py run directly on planted
 #           dirs (no pandoc): every rule's refusal and pass rows, each pinned
 #           to its status, file, line and a reason token. The "fetch policy"
@@ -65,10 +66,21 @@ setup_file() {
   env -u DEVAGENT_PYTHON bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
 }
 
-# fx_reset <dir> — point FX at a fresh fixture dir (src/ and static-empty/).
+# fx_reset <dir> — point FX at a fresh fixture dir: src/, holding the three
+# live lines of devagent's docs-site/live.txt (the build requires the file).
 fx_reset() {
   FX="$1"
-  mkdir -p "$FX/src" "$FX/static-empty"
+  mkdir -p "$FX/src"
+  printf '%s\n' 'live devagent yes index.html' 'live gantry no https://mtibbits.github.io/gantry/' \
+    'live learn no https://mtibbits.github.io/journeyman/' > "$FX/src/live.txt"
+}
+
+# fx_static_copy — copy the repo's static dir to $FX/static and build from
+# the copy (FX_STATIC), for a leg that plants or removes a static file.
+fx_static_copy() {
+  mkdir -p "$FX/static"
+  cp -R "$PLUGIN_ROOT/scripts/docs-site/static/." "$FX/static/"
+  FX_STATIC="$FX/static"
 }
 
 setup() {
@@ -177,15 +189,16 @@ fx_page() {
 
 # nav_of <html> — the <nav> block only. The theme CSS names aria-current and
 # page bodies link sibling pages, so nav assertions must not see the whole file.
-nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
+nav_of() { sed -n '/<nav aria-label="Pages">/,/<\/nav>/p' "$1"; }
 
 # fx_build [args...] — build the fixture source dir into $FX/out. FX_PATH, when
 # set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. It
-# passes --static "$FX/static-empty", so a fixture build never copies the
-# repo's own scripts/docs-site/static/. Later flags win: the script's parse
-# loop keeps the last value. DEVAGENT_PYTHON is always REPLACED (by FX_PYTHON,
-# else empty, which the builder reads as python3), never inherited.
-fx_build() { env PATH="${FX_PATH:-$PATH}" DEVAGENT_PYTHON="${FX_PYTHON:-}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "$FX/static-empty" "$@"; }
+# passes --static "$FX_STATIC" when a leg set it (fx_static_copy), else the
+# repo's own scripts/docs-site/static/, which a build only reads. Later flags
+# win: the script's parse loop keeps the last value. DEVAGENT_PYTHON is always
+# REPLACED (by FX_PYTHON, else empty, which the builder reads as python3),
+# never inherited.
+fx_build() { env PATH="${FX_PATH:-$PATH}" DEVAGENT_PYTHON="${FX_PYTHON:-}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "${FX_STATIC:-$PLUGIN_ROOT/scripts/docs-site/static}" "$@"; }
 
 # fx_fixture_b — #840's Fixture B: a fenced decoy bullet naming alpha above the
 # real list, which names only zeta.
@@ -816,10 +829,11 @@ t3i_row() {
 @test "build-docs-site: both asset folders copy byte-identical" {
   need_pandoc
   fx_page index "hello"
-  mkdir -p "$FX/src/assets/img" "$FX/static"
+  fx_static_copy
+  mkdir -p "$FX/src/assets/img"
   printf '\x89PNG\r\n\x1a\n\0\0\xff\xfe\x80 end\r\n' > "$FX/src/assets/img/a.png"
   printf 'body { color: #123; }\r\n\0\xc3\xa9\n' > "$FX/static/s.css"
-  run fx_build --static "$FX/static"
+  run fx_build
   [ "$status" -eq 0 ]
   cmp "$FX/src/assets/img/a.png" "$FX/out/assets/img/a.png"
   cmp "$FX/static/s.css" "$FX/out/static/s.css"
@@ -1537,6 +1551,7 @@ EOF
 }
 
 # fault_py <file> — an interpreter that runs the probes (any call holding -c or --self-test)
+# and the placeholder filler (a call naming fill-placeholders.py)
 # with the real python3, and the REAL scanner (its last three arguments:
 # scanner, --, out) with html.parser broken, so the scan crashes inside it.
 fault_py() {
@@ -1545,7 +1560,7 @@ fault_py() {
   mkdir -p "$(dirname "$1")"
   cat > "$1" <<EOF
 #!$(command -v bash)
-case " \$* " in *" -c "*|*" --self-test "*) exec "$real_py" "\$@" ;; esac
+case " \$* " in *" -c "*|*" --self-test "*|*fill-placeholders.py*) exec "$real_py" "\$@" ;; esac
 exec "$real_py" -I -X utf8 -c '$FAULT_PY' "\${@: -3}"
 EOF
   chmod +x "$1"
@@ -1584,9 +1599,9 @@ EOF
   [ "$status" -eq 0 ]
 }
 
-# t7_new — a fresh fixture dir for the next mutation row, with an empty
-# $FX/static the row may plant into.
-t7_new() { t7_n=$((${t7_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$t7_n"; mkdir -p "$FX/static" "$FX/src/assets"; }
+# t7_new — a fresh fixture dir for the next mutation row, with a copy of the
+# static dir ($FX/static, family files included) the row may plant into.
+t7_new() { t7_n=$((${t7_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$t7_n"; fx_static_copy; mkdir -p "$FX/src/assets"; }
 
 # t7_row <relpath> <needle> — build (with --static "$FX/static"; later flags
 # win); it must exit 7 and name <relpath> at the first built line holding
@@ -1610,7 +1625,8 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   t7_index 'import x' "<script type=\"module\">import x from \"$OH/m.js\";</script>"
   t7_index '<img' "<img src=\"$OH/a.png\" alt=\"\">"
   t7_index srcset "<img srcset=\"$OH/b.png 2x\" alt=\"\">"
-  t7_index '<link' "<link rel=\"stylesheet\" href=\"$OH/s.css\">"
+  # (the needle is the URL: the template carries its own <link> to family.css)
+  t7_index "$OH/s.css" "<link rel=\"stylesheet\" href=\"$OH/s.css\">"
   t7_index '<table' "<table background=\"$OH/bg.png\"><tr><td>x</td></tr></table>"
   t7_index '<p style' "<p style=\"background:url($OH/x.png)\">x</p>"
   t7_index '<iframe' '<iframe srcdoc="x"></iframe>'
@@ -2184,4 +2200,164 @@ fp_settings_row() {
   sed 's/<small>coming<\/small>/<small>soon<\/small>/' "$LIVE_TXT" > "$d/docs-site/live.txt"
   ! cmp -s "$LIVE_TXT" "$d/docs-site/live.txt"
   fc_row 1 'renders as' contract "$d/docs-site/live.txt" "$FILLER"
+}
+
+# ------------------------------------------ FAMILY: through the build (#996)
+
+@test "build-docs-site: build — no live.txt -> exit 4, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  rm "$FX/src/live.txt"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"no live settings file: $FX/src/live.txt (the top bar and placeholders read it)"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: build — malformed live.txt -> exit 4 naming the line, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  printf 'live devagent maybe index.html\n' >> "$FX/src/live.txt"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"fill-placeholders: $FX/src/live.txt:4: expected"* ]]
+  [[ "$output" == *"the live settings file is malformed"* ]]
+  [ ! -e "$FX/out" ]
+  # a live.txt missing a key the partials use is malformed too
+  grep -v '^live learn ' "$FX/src/live.txt" | grep -v maybe > "$FX/l" && mv "$FX/l" "$FX/src/live.txt"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"missing required key 'learn'"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: build — a static dir missing family.js -> exit 4 naming it, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  fx_static_copy
+  rm "$FX/static/family.js"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"$FX/static: missing family file family.js (the template links or inserts it)"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+# fx_fill_site — an index.md and a hand-written page, each holding a live
+# placeholder, a not-live one and a count over $FX/data.md (2 matching lines).
+fx_fill_site() {
+  printf 'count fx ../data.md ^x\n' >> "$FX/src/live.txt"
+  printf 'x1\ny\nx2\n' > "$FX/data.md"
+  fx_page index '- [Hand](./hand.html)' '' '{{live:devagent|Home}}' '' '{{live:gantry|Gantry}}' '' 'n={{count:fx}}.'
+  fx_html hand '<h1>Hand</h1>' '<p><a href="index.html">x</a></p>' '<p>{{live:devagent|Home}}</p>' \
+    '<p>{{live:gantry|Gantry}}</p>' '<p>n={{count:fx}}.</p>'
+}
+
+@test "build-docs-site: build — placeholders fill in Markdown and hand-written pages" {
+  need_pandoc
+  fx_fill_site
+  run fx_build
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  local p
+  for p in index hand; do
+    article_of "$FX/out/$p.html" | grep -qF '<a href="index.html">Home</a>'
+    article_of "$FX/out/$p.html" | grep -qF '<span class="family-coming">Gantry <small>coming</small></span>'
+    article_of "$FX/out/$p.html" | grep -qxF '<p>n=2.</p>'
+  done
+  # no placeholder is left in any page (the partials under static/ are
+  # published as written, for other sites to copy)
+  [ "$(cat "$FX"/out/*.html | grep -c '{{' || true)" -eq 0 ]
+}
+
+@test "build-docs-site: build — an unknown placeholder -> exit 5 naming page and placeholder" {
+  need_pandoc
+  fx_page index 'see {{live:nope|X}}'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"fill-placeholders: $FX/out/index.html: unknown placeholder {{live:nope|X}}"* ]]
+  [[ "$output" == *"a placeholder could not be filled"* ]]
+  [[ "$output" != *"built 1 pages"* ]]
+}
+
+@test "build-docs-site: build — a zero count -> exit 5" {
+  need_pandoc
+  printf 'count z ../data.md ^nomatch\n' >> "$FX/src/live.txt"
+  printf 'x\n' > "$FX/data.md"
+  fx_page index 'n={{count:z}}'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"count z is zero in ../data.md; a zero is never published"* ]]
+}
+
+@test "build-docs-site: build — a missing count source -> exit 5" {
+  need_pandoc
+  printf 'count m ../missing.md ^x\n' >> "$FX/src/live.txt"
+  fx_page index 'n={{count:m}}'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"count source not found: ../missing.md (count m)"* ]]
+}
+
+@test "build-docs-site: build — a placeholder in a page title (H1) -> exit 5 naming the page" {
+  need_pandoc
+  printf '# Home {{live:gantry|Gantry}}\n\nx\n' > "$FX/src/index.md"
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.md: placeholder in the page title (H1) — titles feed <title> and the nav"* ]]
+  # the titles are read before any page renders: no page is written
+  [ -z "$(find "$FX/out" -name '*.html' 2>/dev/null)" ]
+  # a hand-written page's <h1> and its nav-label header are refused too
+  rm -rf "$FX/out" "$FX/src/index.md"
+  fx_html index '<h1>Home {{count:x}}</h1>'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.html: placeholder in the page title (H1)"* ]]
+  rm -rf "$FX/out"
+  printf '%s\n' '<!-- derived-from: fixture -->' '<!-- nav-label: Go {{live:gantry|G}} -->' '<h1>Home</h1>' > "$FX/src/index.html"
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.html: placeholder in the nav label"* ]]
+}
+
+@test "build-docs-site: build — every page carries both partials once, placeholders filled" {
+  need_pandoc
+  fx_fill_site
+  run fx_build
+  [ "$status" -eq 0 ]
+  local p part l1
+  for p in index hand; do
+    for part in family-topbar.html family-footer.html; do
+      l1="$(sed -n 1p "$FAMILY_STATIC/$part")"
+      [ "$(grep -cxF -- "$l1" "$FX/out/$p.html")" -eq 1 ] || { echo "$p.html: $part line 1 not exactly once" >&2; return 1; }
+    done
+    [ "$(grep -c '{{' "$FX/out/$p.html" || true)" -eq 0 ]
+    ! grep -qxF '<!--family-topbar-->' "$FX/out/$p.html"
+    ! grep -qxF '<!--family-footer-->' "$FX/out/$p.html"
+  done
+}
+
+@test "build-docs-site: build — a body line equal to a marker -> exit 5 naming it" {
+  need_pandoc
+  fx_html index '<h1>Home</h1>' '<!--family-footer-->'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.html: expected one <!--family-footer--> line, found 2"* ]]
+}
+
+@test "build-docs-site: build — a filler crash -> exit 8, says the fill did not complete" {
+  need_pandoc
+  fx_page index "hello"
+  local real_py
+  real_py="$(command -v python3)"
+  mkdir -p "$FX/py"
+  printf '#!%s\ncase " $* " in *fill-placeholders.py*) case " $* " in *" --check "*) ;; *) exec "%s" -c "import sys; sys.exit(9)" ;; esac ;; esac\nexec "%s" "$@"\n' \
+    "$(command -v bash)" "$real_py" "$real_py" > "$FX/py/python3"
+  chmod +x "$FX/py/python3"
+  FX_PYTHON="$FX/py/python3"
+  run fx_build
+  [ "$status" -eq 8 ]
+  [[ "$output" == *"the placeholder fill did not complete (fill-placeholders exited 9)"* ]]
+  [[ "$output" != *"built 1 pages"* ]]
 }

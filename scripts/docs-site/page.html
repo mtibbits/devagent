@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="stylesheet" href="static/family.css">
+<script src="static/family.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>$pagetitle$</title>
 <style>
@@ -149,6 +151,7 @@ main > footer {
 </style>
 </head>
 <body>
+<!--family-topbar-->
 <div class="layout">
 $for(include-before)$
 $include-before$
@@ -158,6 +161,10 @@ $endfor$
 $body$
 </article>
 <footer>Built from <a href="$blob_base$docs-site/$srcname$">docs-site/$srcname$</a></footer>
+<footer class="site-footer">
+<!--family-footer-->
+<p class="site-links"><a href="https://github.com/mtibbits/devagent">Repository</a> · <a href="https://github.com/mtibbits/devagent/blob/master/LICENSE">Licence</a> · <a href="https://github.com/mtibbits/devagent/issues">Issues</a></p>
+</footer>
 </main>
 </div>
 </body>

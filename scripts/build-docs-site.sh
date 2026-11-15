@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/build-docs-site.sh — #465, #995.
+# scripts/build-docs-site.sh — #465, #995, #996.
 #
 # Renders the onboarding pages in docs-site/ to a static site for GitHub Pages.
 # It publishes FROM the tracked sources: there is no second, committed copy of
@@ -13,6 +13,16 @@
 #   - one moved-page stub <old>.html per data line of docs-site/moved.txt;
 #   - the asset folders: docs-site/assets/ -> assets/ and
 #     scripts/docs-site/static/ (or --static) -> static/, copied unchanged.
+#
+# The family template (#996): every content page carries the family top bar
+# and the shared footer, the partials static/family-topbar.html and
+# static/family-footer.html inserted byte for byte at page.html's
+# <!--family-topbar--> and <!--family-footer--> lines (moved-page stubs carry
+# neither: they are not pages). Then scripts/docs-site/fill-placeholders.py
+# fills the build-time placeholders, {{live:<key>|<label>}} and
+# {{count:<key>}}, in every content page from <src>/live.txt, the site's live
+# settings file (its header documents the format and the syntax). A
+# placeholder may not sit in a page title (the H1).
 #
 # Nav order: index first, then the pages the index's own top-level list names,
 # in its order (index.md: "- [T](./p.md)" or "(./p.html)" bullets outside code
@@ -31,13 +41,15 @@
 #                no quotes, angle brackets or spaces — page.html interpolates
 #                it into an href unescaped, so the value is checked here
 #   --static     the template's own static files, copied to <out>/static/
-#                (default: <repo>/scripts/docs-site/static, skipped when
-#                absent; a dir given here must exist)
+#                (default: <repo>/scripts/docs-site/static); it must exist
+#                and hold the four family files: family.css, family.js,
+#                family-topbar.html and family-footer.html
 #
 # Requires pandoc 3.x (CI installs the ubuntu-24.04 package), awk (the nav
 # and title readers; gawk and mawk both work) and python3 3.8+ with the 2025
 # html.parser fixes (${DEVAGENT_PYTHON:-python3}, for
-# scripts/docs-site/check-fetches.py, which tests for them). An
+# scripts/docs-site/check-fetches.py, which tests for them, and
+# scripts/docs-site/fill-placeholders.py). An
 # older pandoc is refused up front: its failures would otherwise be reported
 # against a page.
 #
@@ -49,7 +61,9 @@
 #      3.x), awk, sort, or python (absent, unable to run, older than 3.8, or
 #      with an html.parser that lacks the 2025 fixes; the message names the
 #      interpreter)
-#   4  bad input: --src or --static dir missing, no pages, no index page,
+#   4  bad input: --src or --static dir missing (the default --static too), a
+#      family file missing from --static, no <src>/live.txt, a malformed
+#      live.txt (or one missing a key the partials use), no pages, no index page,
 #      <x>.md and <x>.html both present, a README.html in --src, a hand-written
 #      page without its derived-from header (or with a byte-order mark), a
 #      malformed moved.txt line or one naming a live page or README, the
@@ -57,7 +71,11 @@
 #      --out not a directory, or --out not empty
 #   5  a page failed to render (includes a link or image the filter cannot
 #      classify, and a hand-written page with no <h1> or with an entity in it
-#      other than &amp; &lt; &gt; &quot; &#39;)
+#      other than &amp; &lt; &gt; &quot; &#39;), a placeholder in a page title,
+#      a template marker that does not occur exactly once in a rendered page,
+#      or a placeholder that could not be filled (unknown, unclosed, or a
+#      count whose source is missing or zero); stderr has a
+#      "fill-placeholders: <page>: <reason>" line for each
 #   6  a rendered page links to a local file the build did not produce (by
 #      href, src or srcset; stubs included), to a root-absolute path, or out of
 #      the site with ..; or a moved.txt home is not a content page
@@ -68,7 +86,9 @@
 #      "private preview"; stderr has one "check-fetches: <file>:<line>: <reason>"
 #      line per violation
 #   8  the fetch scan did not complete (the scanner crashed or exited with a
-#      status other than 0 or 3); the site was not checked
+#      status other than 0 or 3), or the placeholder fill did not complete
+#      (fill-placeholders crashed or exited outside 0, 4 and 5); the site was
+#      not checked
 # (--help prints this header: everything above the first non-comment line.)
 set -euo pipefail
 
@@ -79,7 +99,6 @@ repo="$(cd "$here/.." && pwd -P)"
 tmpl="$here/docs-site"
 src="$repo/docs-site"
 static_dir="$here/docs-site/static"
-static_given=0
 out="$repo/build-docs-site"
 blob_base="https://github.com/mtibbits/devagent/blob/master/"
 
@@ -90,7 +109,7 @@ while [ "$#" -gt 0 ]; do
     --blob-base) [ "$#" -ge 2 ] || die 2 "--blob-base needs a value"; blob_base="$2"; shift 2 ;;
     # -ge 2 alone would accept --static "", which names no directory.
     --static)    { [ "$#" -ge 2 ] && [ -n "$2" ]; } || die 2 "--static needs a value"
-                 static_dir="$2"; static_given=1; shift 2 ;;
+                 static_dir="$2"; shift 2 ;;
     -h|--help)   awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)           die 2 "unknown argument: $1 (see --help)" ;;
   esac
@@ -100,7 +119,14 @@ case "$blob_base" in
   *[\"\'\<\>\ ]*) die 2 "--blob-base must not contain quotes, angle brackets or spaces: $blob_base" ;;
 esac
 [ -d "$src" ] || die 4 "source dir not found: $src"
-[ "$static_given" -eq 0 ] || [ -d "$static_dir" ] || die 4 "static dir not found: $static_dir"
+[ -d "$static_dir" ] || die 4 "static dir not found: $static_dir"
+# The family files page.html links (family.css, family.js) and the partials
+# the build inserts. Without them a page would publish unstyled or without
+# its top bar and footer.
+FAMILY_FILES=(family.css family.js family-topbar.html family-footer.html)
+for f in "${FAMILY_FILES[@]}"; do
+  [ -f "$static_dir/$f" ] || die 4 "$static_dir: missing family file $f (the template links or inserts it)"
+done
 # The nav derivation and the title readers are awk programs. Without awk they
 # would read as "no list" and exit 4 blaming the page; name the tool instead.
 command -v awk >/dev/null 2>&1 || die 3 "awk is not installed (the nav derivation needs it)"
@@ -329,6 +355,10 @@ if [ -f "$src/moved.txt" ]; then
   done < "$src/moved.txt"
 fi
 
+# The live settings file: which family sites are live, and the count
+# sources placeholders read. Its contents are checked after the python probe.
+[ -f "$src/live.txt" ] || die 4 "no live settings file: $src/live.txt (the top bar and placeholders read it)"
+
 # python runs the fetch scan after link closure; probe it here, before anything
 # is written: it runs, imports what the scanner needs, and is 3.8 or later.
 py="${DEVAGENT_PYTHON:-python3}"
@@ -338,6 +368,15 @@ command -v "$py" >/dev/null 2>&1 \
   || die 3 "python cannot run: '$py' is not a working python3 3.8+ (a Windows Store python3 stub is found but cannot run; DEVAGENT_PYTHON names another interpreter)"
 "$py" -I "$tmpl/check-fetches.py" --self-test >/dev/null 2>&1 \
   || die 3 "python's html.parser is too old: '$py' lacks the 2025 html.parser security fixes the fetch scan relies on (DEVAGENT_PYTHON names another interpreter)"
+# The live settings file, and the live keys the partials use. The filler's
+# exit status is mapped, never its prose: 4 is a bad settings file.
+fill_rc=0
+"$py" -I -X utf8 "$tmpl/fill-placeholders.py" --settings "$src/live.txt" --static "$static_dir" --check >/dev/null || fill_rc=$?
+case "$fill_rc" in
+  0) ;;
+  4) die 4 "the live settings file is malformed (the fill-placeholders line above names the line)" ;;
+  *) die 8 "the placeholder fill did not complete (fill-placeholders exited $fill_rc)" ;;
+esac
 
 command -v pandoc >/dev/null 2>&1 \
   || die 3 "pandoc is not installed (Debian/Ubuntu: sudo apt-get install pandoc)"
@@ -362,6 +401,7 @@ mkdir -p "$out"
 # Either way the label is escaped here, the <title> by pandoc.
 declare -A title=() label=()
 entity_re='(&[#A-Za-z0-9]+;)'
+placeholder_re='\{\{[^[:space:]]'
 for p in "${pages[@]}"; do
   if [ "${kind[$p]}" = md ]; then
     t="$(page_title "$src/$p.md")" || die 5 "no top-level '# ' heading in $src/$p.md"
@@ -377,6 +417,11 @@ for p in "${pages[@]}"; do
     lbl="$(nav_label "$src/$p.html")"
     lbl="${lbl:-$t}"
   fi
+  # A placeholder would be filled inside <title> and the nav link; refuse it.
+  [[ ! $t =~ $placeholder_re ]] \
+    || die 5 "$p.${kind[$p]}: placeholder in the page title (H1) — titles feed <title> and the nav"
+  [[ ! $lbl =~ $placeholder_re ]] \
+    || die 5 "$p.${kind[$p]}: placeholder in the nav label — labels feed the nav"
   title[$p]="$t"
   label[$p]="$(printf '%s' "$lbl" | html_escape)"
 done
@@ -457,15 +502,44 @@ for old in "${!moved[@]}"; do
 done
 [ "${#moved[@]}" -eq 0 ] || printf 'build-docs-site: wrote %d moved-page stubs\n' "${#moved[@]}"
 
-# The two asset folders, copied unchanged: the content side (<src>/assets/)
-# and the template side (--static). Either may be absent.
+# The two asset folders, copied unchanged: the content side (<src>/assets/,
+# which may be absent) and the template side (--static, required).
 if [ -d "$src/assets" ]; then cp -R "$src/assets" "$out/assets"; fi
-if [ -d "$static_dir" ]; then cp -R "$static_dir" "$out/static"; fi
+cp -R "$static_dir" "$out/static"
 
-# Placeholder seam: child 2 defines the build-time tokens. It runs once per
-# content page, after rendering and before the closure check. Identity today.
-expand_placeholders() { :; }
-for p in "${pages[@]}"; do expand_placeholders "$out/$p.html"; done
+# The family partials, inserted byte for byte at page.html's marker lines
+# (like splice: the marker must occur exactly once, so a page body carrying a
+# marker line is refused). Written to a temp file, then moved over the page.
+insert_partial() {
+  local page="$1" mark="$2" part="$3" hits at tmp="$work/${1##*/}.partial.tmp" n
+  n="$(grep -cxF -- "$mark" "$page" || true)"
+  [ "$n" = 1 ] || die 5 "${page##*/}: expected one $mark line, found ${n:-0}"
+  hits="$(grep -nxF -- "$mark" "$page")"
+  at="${hits%%:*}"
+  {
+    head -n "$((at - 1))" "$page"
+    cat "$part"
+    [ -z "$(tail -c 1 "$part")" ] || printf '\n'
+    tail -n "+$((at + 1))" "$page"
+  } > "$tmp"
+  mv "$tmp" "$page"
+}
+page_files=()
+for p in "${pages[@]}"; do
+  insert_partial "$out/$p.html" '<!--family-topbar-->' "$static_dir/family-topbar.html"
+  insert_partial "$out/$p.html" '<!--family-footer-->' "$static_dir/family-footer.html"
+  page_files+=("$out/$p.html")
+done
+# Then the placeholders, over every content page at once (the partials'
+# included). The exit status is mapped, never the prose: 5 is a placeholder
+# that could not be filled, and the filler writes nothing then.
+fill_rc=0
+"$py" -I -X utf8 "$tmpl/fill-placeholders.py" --settings "$src/live.txt" -- "${page_files[@]}" || fill_rc=$?
+case "$fill_rc" in
+  0) ;;
+  5) die 5 "a placeholder could not be filled (the fill-placeholders line above names the page and placeholder)" ;;
+  *) die 8 "the placeholder fill did not complete (fill-placeholders exited $fill_rc)" ;;
+esac
 
 # Independent count: what landed on disk, not what the loops believe they
 # wrote. Every top-level .html is a content page or a stub.
