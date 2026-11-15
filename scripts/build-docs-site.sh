@@ -73,8 +73,8 @@
 #      classify, and a hand-written page with no <h1> or with an entity in it
 #      other than &amp; &lt; &gt; &quot; &#39;), a placeholder in a page title,
 #      a template marker that does not occur exactly once in a rendered page,
-#      or a placeholder that could not be filled (unknown, unclosed, or a
-#      count whose source is missing or zero); stderr has a
+#      or a placeholder that could not be filled (unknown, unclosed, inside a
+#      tag or comment, or a count whose source is missing or zero); stderr has a
 #      "fill-placeholders: <page>: <reason>" line for each
 #   6  a rendered page links to a local file the build did not produce (by
 #      href, src or srcset; stubs included), to a root-absolute path, or out of

@@ -646,7 +646,7 @@ def cmd_scope(files):
         for sel in split_top(rule.sel, ","):
             rep.subjects += 1
             parts = split_complex(sel)
-            if not parts or parts[0][0] in ("*", "html", "body", ":root"):
+            if not parts or parts[0][0] in ("html", "body", ":root") or (len(parts) == 1 and parts[0][0] == "*"):
                 continue
             hits = [n for n in family if selector_match(parts, n)]
             if not hits:

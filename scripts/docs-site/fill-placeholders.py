@@ -160,9 +160,12 @@ def fill(settings, text):
     """(filled text, placeholders filled); raises Refusal(5)."""
     def sub(m):
         s = m.string
-        if s.rfind("<", 0, m.start()) > s.rfind(">", 0, m.start()):
-            raise Refusal(5, "placeholder inside a tag: {{" + " ".join(m.group(1).split()) + "}}"
-                          " (an attribute cannot hold the rendered markup)")
+        lt = s.rfind("<", 0, m.start())
+        if lt > s.rfind(">", 0, m.start()):
+            shown = "{{" + " ".join(m.group(1).split()) + "}}"
+            if s.startswith("<!--", lt):
+                raise Refusal(5, f"placeholder inside an HTML comment: {shown} (delete it, or break its braces)")
+            raise Refusal(5, f"placeholder inside a tag: {shown} (an attribute cannot hold the rendered markup)")
         return render(settings, m.group(1))
 
     out, n = CANDIDATE.subn(sub, text)

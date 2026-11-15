@@ -145,9 +145,10 @@ of each kind, which the tests run.
   `{{count:<key>}}` (a number counted from the file a `count` line in
   `live.txt` names).
 - A malformed `live.txt`, or one missing a site the top bar names, exits 4.
-  An unknown placeholder, an unclosed one, a count whose file is missing, or
-  a count of zero exits 5, naming the page: a blank or a zero is never
-  published. A placeholder in a page title (the H1) exits 5 too. A fill that
+  An unknown placeholder, an unclosed one, one inside a tag or an HTML
+  comment, a count whose file is missing, or a count of zero exits 5, naming
+  the page: a blank or a zero is never published. A placeholder in a page
+  title (the H1) or a nav label exits 5 too. A fill that
   did not complete (the filler crashed) exits 8.
 - A count's source file becomes a build input: add it to
   `publish-docs-site.yml`'s `paths:` and to `REQUIRED_PATHS` in

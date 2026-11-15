@@ -1936,6 +1936,13 @@ family_versioned() {
   fc_row 1 "'.family-footer p' reaches family markup" scope "$d/s2.html" "$d/top.html" "$d/foot.html"
   printf '<style>\n.family-coming { color: red; }\n</style>\n' > "$d/s3.html"
   fc_row 1 "'.family-coming' styles family markup" scope "$d/s3.html" "$d/top.html" "$d/foot.html"
+  # a universal subject under a scoping ancestor still reaches; only a bare * is exempt
+  printf '<style>
+* { margin: 0; }
+div * { color: red; }
+</style>
+' > "$d/s5.html"
+  fc_row 1 "s5.html:3: 'div *' reaches family markup" scope "$d/s5.html" "$d/top.html" "$d/foot.html"
   printf '%s\n' '<style>' 'nav[aria-label="Pages"] a:hover { color: red; }' 'article p, main > footer > a { margin: 0; }' \
     '@media (prefers-reduced-motion: no-preference) { .family-motion nav[aria-label="Pages"] a { color: red; } }' '</style>' > "$d/s4.html"
   fc_row 0 '' scope "$d/s4.html" "$d/top.html" "$d/foot.html"
@@ -2098,6 +2105,8 @@ fp_settings_row() {
   fp_fail_row '{{live:gantry|<em>Gantry</em>}}' 'unclosed placeholder starting {{live:'
   # a placeholder inside a tag (an attribute value) would write broken HTML
   fp_fail_row '<img alt="{{live:home|Home}}" src="a.png">' 'placeholder inside a tag: {{live:home|Home}}'
+  # one inside a comment is refused too, and says where it is
+  fp_fail_row '<!-- {{live:home|Home}} -->' 'placeholder inside an HTML comment: {{live:home|Home}}'
   fp_fail_row '{{count:zzz}}' 'unknown placeholder {{count:zzz}}'
   fp_fail_row 'ok {{live:gantry|G' 'unclosed placeholder starting {{live:'
   fp_fail_row 'ok {{count:n' 'unclosed placeholder starting {{count:'
