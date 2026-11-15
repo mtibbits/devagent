@@ -125,7 +125,7 @@
   padding: 0;
 }
 .family-sites li { margin: 0; }
-.family-sites li + li::before { content: " \00B7 "; white-space: pre; color: var(--family-ink); }
+.family-sites li + li::before { content: " \00B7\0020"; white-space: pre; color: var(--family-ink); }
 .family-sites a {
   color: var(--family-accent-ink);
   text-decoration-thickness: 1px;

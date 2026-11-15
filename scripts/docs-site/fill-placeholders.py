@@ -41,6 +41,7 @@ Exit codes:
   5  a placeholder could not be filled: "fill-placeholders: <file>: <reason>"
   any other status: the fill did not complete
 """
+import bisect
 import os
 import re
 import sys
@@ -51,6 +52,10 @@ CANDIDATE = re.compile(r"\{\{(?=\S)([^{}<>\"]*)\}\}")
 LIVE = re.compile(r"live:([a-z0-9][a-z0-9-]*)\|([^{}|<>\"]+)")
 COUNT = re.compile(r"count:([a-z0-9][a-z0-9-]*)")
 LEFTOVER = re.compile(r"\{\{(live|count):")
+# A comment, or a tag with its quoted attribute values honoured, each to its
+# end or the end of the text: a placeholder inside one is refused, even
+# after a ">" in the comment or in a quoted value.
+MARKUP = re.compile(r"<!--.*?(?:-->|\Z)|<[A-Za-z/!?](?:\"[^\"]*\"|'[^']*'|[^>\"'])*(?:>|\Z)", re.S)
 
 BLANK_LINE = re.compile(r"[ \t]*(#.*)?")
 LIVE_LINE = re.compile(
@@ -158,12 +163,14 @@ def render(settings, body):
 
 def fill(settings, text):
     """(filled text, placeholders filled); raises Refusal(5)."""
+    spans = [(k.start(), k.end()) for k in MARKUP.finditer(text)]
+    starts = [a for a, _ in spans]
+
     def sub(m):
-        s = m.string
-        lt = s.rfind("<", 0, m.start())
-        if lt > s.rfind(">", 0, m.start()):
+        i = bisect.bisect_right(starts, m.start()) - 1
+        if i >= 0 and m.start() < spans[i][1]:
             shown = "{{" + " ".join(m.group(1).split()) + "}}"
-            if s.startswith("<!--", lt):
+            if text.startswith("<!--", spans[i][0]):
                 raise Refusal(5, f"placeholder inside an HTML comment: {shown} (delete it, or break its braces)")
             raise Refusal(5, f"placeholder inside a tag: {shown} (an attribute cannot hold the rendered markup)")
         return render(settings, m.group(1))

@@ -2107,6 +2107,9 @@ fp_settings_row() {
   fp_fail_row '<img alt="{{live:home|Home}}" src="a.png">' 'placeholder inside a tag: {{live:home|Home}}'
   # one inside a comment is refused too, and says where it is
   fp_fail_row '<!-- {{live:home|Home}} -->' 'placeholder inside an HTML comment: {{live:home|Home}}'
+  # a ">" earlier in the comment or in a quoted value does not end it
+  fp_fail_row '<!-- a > b {{live:home|Home}} -->' 'placeholder inside an HTML comment: {{live:home|Home}}'
+  fp_fail_row '<span title="a>b {{live:home|Home}}">x</span>' 'placeholder inside a tag: {{live:home|Home}}'
   fp_fail_row '{{count:zzz}}' 'unknown placeholder {{count:zzz}}'
   fp_fail_row 'ok {{live:gantry|G' 'unclosed placeholder starting {{live:'
   fp_fail_row 'ok {{count:n' 'unclosed placeholder starting {{count:'
