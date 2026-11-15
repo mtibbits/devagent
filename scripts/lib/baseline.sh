@@ -68,10 +68,15 @@ baseline_resolve() {
   # ref is absent — the post-fetch resolution block below uses fetch_failed to tell
   # those apart. stderr is still suppressed so offline tests stay quiet.
   fetch_failed=0
+  # #1016: a project on the local code backend has no remote to fetch; its
+  # default_baseline is a local branch, resolved as it stands.
+  local code_local=0
+  config_code_is_local "$project" && code_local=1
   # #269: capture the fetch stderr (into a var, not the terminal — offline tests stay
   # quiet) so the unreachable-remote die below can classify auth vs network. Order is
   # load-bearing: 2>&1 binds stderr to the capture, THEN 1>/dev/null drops stdout.
-  fetch_err="$("$DEVAGENT_GIT" fetch --quiet "$base_remote" 2>&1 1>/dev/null)" || fetch_failed=1
+  [ "$code_local" = 1 ] \
+    || fetch_err="$("$DEVAGENT_GIT" fetch --quiet "$base_remote" 2>&1 1>/dev/null)" || fetch_failed=1
   # Resolve baseline ref.
   if baseline_sha="$("$DEVAGENT_GIT" rev-parse --verify "$baseline" 2>/dev/null)"; then
       :
@@ -80,6 +85,9 @@ baseline_resolve() {
       # NEVER silently fall back to HEAD or default_baseline (that is the #72
       # mis-base hazard). Fail before any branch is created.
       die "per-issue baseline '$baseline' does not resolve as a git ref in $source_dir; refusing to fall back"
+  elif [ "$code_local" = 1 ]; then
+      # #1016: no remote to blame and no fetch to retry — never fall back to HEAD.
+      die "default_baseline '$baseline' does not resolve in $source_dir; a local project's default_baseline must be an existing local branch — refusing to fall back to HEAD (#72)"
   else
       # Default-baseline path. Three outcomes, not two (#244):
       #  (a) remote NOT configured (offline / no-remote fixture) → fall back to
