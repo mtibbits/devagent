@@ -54,90 +54,68 @@ EOF
   exit 2
 }
 
-# _opts <allow-draft> [args...]: the options after a verb's positionals. Each
-# verb takes --key <value> once; create-mr also takes --draft. Sets DRAFT.
+# _opts <mode> [args...]: the options after a verb's positionals. Each verb
+# takes --key <value> once. Mode draft also takes --draft once (sets DRAFT);
+# mode any, for the verbs that take any arguments, skips everything else but
+# still applies the --key clauses (no value, an empty one, --key=<v>, a second).
 DRAFT=0
 _opts() {
-  local allow_draft="$1" key_seen=0; shift
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --key)
-        { [ "$key_seen" -eq 0 ] && [ $# -ge 2 ] && [ -n "$2" ]; } || usage
-        key_seen=1; shift 2 ;;
-      --draft)
-        { [ "$allow_draft" -eq 1 ] && [ "$DRAFT" -eq 0 ]; } || usage
-        DRAFT=1; shift ;;
-      *) usage ;;
-    esac
-  done
-}
-
-# _scan_key [args...]: for the verbs that take any arguments, apply only the
-# --key clauses (no value, an empty one, --key=<v>, a second --key).
-_scan_key() {
-  local key_seen=0
+  local mode="$1" key_seen=0; shift
   while [ $# -gt 0 ]; do
     case "$1" in
       --key)
         { [ "$key_seen" -eq 0 ] && [ $# -ge 2 ] && [ -n "$2" ]; } || usage
         key_seen=1; shift 2 ;;
       --key=*) usage ;;
-      *) shift ;;
+      --draft)
+        if [ "$mode" = any ]; then shift; continue; fi
+        { [ "$mode" = draft ] && [ "$DRAFT" -eq 0 ]; } || usage
+        DRAFT=1; shift ;;
+      *) [ "$mode" = any ] || usage; shift ;;
     esac
   done
 }
 
-# _git_rc <git args...>: run git quietly; print nothing, return its exit code.
-_git_rc() {
-  local rc=0
+# _yn <fail> <what> <git args...>: run git quietly and return 0 (yes) or 1 (no).
+# Any other exit is "cannot tell": say so for <what> and exit <fail>.
+_yn() {
+  local fail="$1" what="$2" rc=0; shift 2
   "$DEVAGENT_GIT" "$@" >/dev/null 2>&1 || rc=$?
-  return "$rc"
+  case "$rc" in 0|1) return "$rc" ;; esac
+  echo "git could not answer for $what (exit $rc)" >&2
+  exit "$fail"
 }
 
-# _branch_rc <repo> <branch>: 0 the local branch exists, 1 it does not, else git's code.
-_branch_rc() {
-  _git_rc -C "$1" rev-parse --verify --quiet "refs/heads/$2^{commit}"
+# _branch <fail> <repo> <branch>: 0 the local branch exists, 1 it does not.
+_branch() {
+  _yn "$1" "$2" -C "$2" rev-parse --verify --quiet "refs/heads/$3^{commit}"
 }
 
-cmd_branch_exists() {
-  local rc=0
-  _branch_rc "$1" "$2" || rc=$?
-  case "$rc" in
-    0|1) exit "$rc" ;;
-    *) echo "git could not answer for $1 (exit $rc)" >&2; exit 2 ;;
-  esac
-}
+cmd_branch_exists() { _branch 2 "$1" "$2" || exit 1; }
 
 # _is_abs <path>: one line, absolute (/… or X:/…).
 _is_abs() {
   [[ "$1" != *$'\n'* ]] && [[ "$1" == /* || "$1" =~ ^[A-Za-z]:/ ]]
 }
 
-# _common_dir <repo>: set CDIR to git's own common-dir line for <repo>, its drive
-# letter (Git Bash) upper-cased, so one repo has one reference however it is spelled.
-# A failure exits ${2:-1}.
-CDIR=""
-_common_dir() {
-  local out rc=0 fail="${2:-1}"
+# _locate <repo> <head> <fail>: set RDIR to git's own common-dir line for <repo>,
+# its drive letter (Git Bash) upper-cased so one repo has one reference however
+# it is spelled, then RENC and RPATH for <head>. A failure exits <fail>.
+_locate() {
+  local out rc=0 fail="$3"
   out="$("$DEVAGENT_GIT" -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || rc=$?
   if [ "$rc" -ne 0 ]; then echo "not a git repository: $1" >&2; exit "$fail"; fi
   out="${out%$'\r'}"
   # An older git echoes the unknown option back on a line of its own.
   _is_abs "$out" || { echo "git 2.31 or newer is needed (rev-parse --path-format)" >&2; exit "$fail"; }
   [[ "$out" =~ ^[a-z]:/ ]] && out="$(printf '%s' "${out:0:1}" | tr '[:lower:]' '[:upper:]')${out:1}"
-  CDIR="$out"
+  RDIR="$out"; RENC="$(bc_urlenc "$2")"
+  _set_rpath
 }
 
 # _need_branch <repo> <branch>: exit 1 unless refs/heads/<branch> exists.
 _need_branch() {
-  local rc=0
-  [ -n "$2" ] || { echo "not a local branch: $2" >&2; exit 1; }
-  _branch_rc "$1" "$2" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) echo "not a local branch: $2" >&2; exit 1 ;;
-    *) echo "git could not answer for $1 (exit $rc)" >&2; exit 1 ;;
-  esac
+  { [ -n "$2" ] && _branch 1 "$1" "$2"; } || { echo "not a local branch: $2" >&2; exit 1; }
 }
 
 # _write_record <path> <head> <base> <head_sha> <title>: a temp file in the same
@@ -166,11 +144,14 @@ _write_record() {
 DEC=""
 _decode() { printf -v DEC '%b' "${1//%/\\x}"; }
 
-# _parse_ref <ref>: set RDIR (the common dir), RENC (the encoded branch) and RHEAD
-# (the branch), or exit 1. Valid only in D-ref's shape, with each part canonical
-# (re-encoding it gives it back byte for byte), an absolute directory, and a
-# branch that is neither . nor ..
-RDIR="" RENC="" RHEAD=""
+# RDIR (the common dir) and RENC (the encoded branch) name the record, at RPATH.
+RDIR="" RENC="" RHEAD="" RPATH=""
+_set_rpath() { RPATH="$RDIR/devagent/local-mr/$RENC"; }
+
+# _parse_ref <ref>: set RDIR, RENC, RHEAD (the branch) and RPATH, or exit 1.
+# Valid only in D-ref's shape, with each part canonical (re-encoding it gives
+# it back byte for byte), an absolute directory, and a branch that is neither
+# . nor ..
 _parse_ref() {
   local ref="$1" body enc_dir unit='([A-Za-z0-9._~-]|%[0-9A-F]{2})+'
   body="${ref#local:}"
@@ -180,7 +161,7 @@ _parse_ref() {
     _decode "$RENC"; RHEAD="$DEC"
     if [ "$(bc_urlenc "$RDIR")" = "$enc_dir" ] && [ "$(bc_urlenc "$RHEAD")" = "$RENC" ] \
        && _is_abs "$RDIR" && [ "$RHEAD" != . ] && [ "$RHEAD" != .. ]; then
-      return 0
+      _set_rpath; return 0
     fi
   fi
   echo "not a local MR reference: $ref" >&2
@@ -217,63 +198,44 @@ _read_record() {
   [ "$REC_head" = "$head" ] || _bad_record "head is not the record's branch"
 }
 
-# _rc <git args...>: run git quietly against the common dir $RDIR; return its code.
-_rc() { _git_rc --git-dir="$RDIR" "$@"; }
+# _rc <fail> <git args...>: _yn against the common dir $RDIR.
+_rc() { local fail="$1"; shift; _yn "$fail" "$RDIR" --git-dir="$RDIR" "$@"; }
 
 # _state <cannot-tell exit>: set STATE from REC_* by D-state. A git answer other
 # than yes or no exits <cannot-tell exit>.
 STATE=""
 _state() {
-  local fail="$1" rc
-  _cannot() { echo "git could not answer for $RDIR (exit $1)" >&2; exit "$fail"; }
+  local fail="$1"
   if [ "$REC_state" = merged ]; then STATE=merged; return 0; fi
   # Ancestor: the head_sha commit exists, the base resolves, and is-ancestor says yes.
-  rc=0; _rc rev-parse --verify --quiet "$REC_head_sha^{commit}" || rc=$?
-  case "$rc" in 0|1) ;; *) _cannot "$rc" ;; esac
-  if [ "$rc" -eq 0 ]; then
-    rc=0; _rc rev-parse --verify --quiet "refs/heads/$REC_base^{commit}" || rc=$?
-    case "$rc" in 0|1) ;; *) _cannot "$rc" ;; esac
-    if [ "$rc" -eq 0 ]; then
-      rc=0; _rc merge-base --is-ancestor "$REC_head_sha" "refs/heads/$REC_base" || rc=$?
-      case "$rc" in
-        0) STATE=merged; return 0 ;;
-        1) ;;
-        *) _cannot "$rc" ;;
-      esac
-    fi
+  if _rc "$fail" rev-parse --verify --quiet "$REC_head_sha^{commit}" \
+     && _rc "$fail" rev-parse --verify --quiet "refs/heads/$REC_base^{commit}" \
+     && _rc "$fail" merge-base --is-ancestor "$REC_head_sha" "refs/heads/$REC_base"; then
+    STATE=merged; return 0
   fi
   if [ "$REC_state" = closed ]; then STATE=closed; return 0; fi
-  rc=0; _rc rev-parse --verify --quiet "refs/heads/$REC_head^{commit}" || rc=$?
-  case "$rc" in
-    0) STATE=open ;;
-    1) STATE=closed ;;
-    *) _cannot "$rc" ;;
-  esac
+  if _rc "$fail" rev-parse --verify --quiet "refs/heads/$REC_head^{commit}"; then
+    STATE=open
+  else
+    STATE=closed
+  fi
 }
 
-cmd_mr_state() {
-  _parse_ref "$1"
-  _read_record "$RDIR/devagent/local-mr/$RENC" "$RHEAD" 5
-  _state 1
-  printf '%s\n' "$STATE"
-}
+# mr-state and mr-comments: the reference must name a well-formed record.
+_ref_record() { _parse_ref "$1"; _read_record "$RPATH" "$RHEAD" 5; }
 
-cmd_mr_comments() {
-  _parse_ref "$1"
-  _read_record "$RDIR/devagent/local-mr/$RENC" "$RHEAD" 5
-  bc_emit_comments_header 0
-}
+cmd_mr_state() { _ref_record "$1"; _state 1; printf '%s\n' "$STATE"; }
+
+cmd_mr_comments() { _ref_record "$1"; bc_emit_comments_header 0; }
 
 # create-mr applies D-state to an existing record first: an open one is
 # rewritten from this call's arguments (head_sha, title and base), a merged or
 # closed one refuses. Only an open record, or none, reaches the branch checks.
 cmd_create_mr() {
   local repo="$1" title="$2" head="$3" base="$4" sha
-  _common_dir "$repo"
-  RDIR="$CDIR"; RENC="$(bc_urlenc "$head")"
-  local path="$CDIR/devagent/local-mr/$RENC"
-  if [ -e "$path" ]; then
-    _read_record "$path" "$head" 5
+  _locate "$repo" "$head" 1
+  if [ -e "$RPATH" ]; then
+    _read_record "$RPATH" "$head" 5
     _state 1
     if [ "$STATE" != open ]; then
       echo "a merged or closed local MR exists for this branch; ship from a new branch" >&2
@@ -285,17 +247,15 @@ cmd_create_mr() {
   sha="$("$DEVAGENT_GIT" -C "$repo" rev-parse --verify --quiet "refs/heads/$head^{commit}" 2>/dev/null)" \
     || { echo "git could not answer for $repo (exit $?)" >&2; exit 1; }
   title="${title//[$'\r\n\t']/ }"
-  _write_record "$path" "$head" "$base" "$sha" "$title"
+  _write_record "$RPATH" "$head" "$base" "$sha" "$title"
   [ "$DRAFT" -eq 1 ] && echo "draft: not applicable (local code backend)" >&2
-  printf 'local:%s#%s\n' "$(bc_urlenc "$CDIR")" "$RENC"
+  printf 'local:%s#%s\n' "$(bc_urlenc "$RDIR")" "$RENC"
 }
 
 # merged-pr-head: 0 when D-state reads merged, 1 not merged or no record, 2 cannot tell.
 cmd_merged_pr_head() {
-  local repo="$1" head="$2"
-  _common_dir "$repo" 2
-  RDIR="$CDIR"; RENC="$(bc_urlenc "$head")"
-  _read_record "$RDIR/devagent/local-mr/$RENC" "$head" 2
+  _locate "$1" "$2" 2
+  _read_record "$RPATH" "$2" 2
   _state 2
   [ "$STATE" = merged ]
 }
@@ -304,27 +264,27 @@ cmd_merged_pr_head() {
 verb="$1"; shift
 case "$verb" in
   push-branch)
-    _scan_key "$@"
+    _opts any "$@"
     echo "push: not applicable (local code backend)" >&2
     ;;
   merge-mr|issue-mrs|mr-checks|mr-view)
-    _scan_key "$@"
+    _opts any "$@"
     echo "$verb: not implemented by the local code backend" >&2
     exit 78
     ;;
   create-mr)
     [ $# -ge 5 ] || usage
-    _opts 1 "${@:6}"
+    _opts draft "${@:6}"
     cmd_create_mr "$1" "$2" "$4" "$5"
     ;;
   mr-state|mr-comments)
     [ $# -ge 1 ] || usage
-    _opts 0 "${@:2}"
+    _opts none "${@:2}"
     "cmd_${verb//-/_}" "$1"
     ;;
   branch-exists|merged-pr-head)
     [ $# -ge 2 ] || usage
-    _opts 0 "${@:3}"
+    _opts none "${@:3}"
     "cmd_${verb//-/_}" "$1" "$2"
     ;;
   *) usage ;;

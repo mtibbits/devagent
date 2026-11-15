@@ -7,6 +7,7 @@
 bats_require_minimum_version 1.5.0   # run --separate-stderr wherever stdout or stderr is pinned
 
 load 'lib/bats-helpers'
+load 'lib/local-backend'
 
 setup() {
   setup_tmp_devagent_home
@@ -133,22 +134,7 @@ _verb_want() {
 
 # --- create-mr, the reference and the record (Task 3) ------------------------
 
-# _cdir <repo>: git's own common-dir line for <repo>, CR stripped.
-_cdir() { git -C "$1" rev-parse --path-format=absolute --git-common-dir | tr -d '\r'; }
-
-# _ref <repo> <branch>: the reference D-ref builds, by an independent encoder.
-_ref() {
-  python3 -X utf8 -c 'import sys,urllib.parse as u; q=lambda s: u.quote(s, safe="~"); print("local:" + q(sys.argv[1]) + "#" + q(sys.argv[2]))' "$(_cdir "$1")" "$2"
-}
-
-# _rec <repo> <branch>: the record's path.
-_rec() {
-  printf '%s/devagent/local-mr/%s' "$(_cdir "$1")" \
-    "$(python3 -X utf8 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe="~"))' "$2")"
-}
-
-# _snap <repo>: refs, index and working tree as git reports them.
-_snap() { git -C "$1" status --porcelain=v2 --branch; git -C "$1" for-each-ref; }
+# _cdir, _ref, _rec and _snap are tests/lib/local-backend.bash.
 
 @test "local: create-mr writes the record and prints the reference" {
   local body="$BATS_TEST_TMPDIR/body.md"; echo body > "$body"
@@ -361,7 +347,7 @@ _hand_rec() {
 
 @test "local: malformed references exit 1" {
   local d n=0 ref
-  d="$(python3 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe="~"))' "$(_cdir "$R")")"
+  d="$(_enc "$(_cdir "$R")")"
   _mk "$R"
   for ref in "$d#feat" "local:$d" "local:$d#feat#x" "local:#feat" "local:$d#" \
              "local:$d#a%2fb" "local:$d#%ZZ" "local:$d#a%2" "local:$d#a%00" \
@@ -416,27 +402,22 @@ _hand_rec() {
 _sums() { (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum); }
 
 @test "local: the read verbs leave the git dir byte-identical" {
-  local g before ref n=0
+  local g before
   g="$(_cdir "$R")"
-  ref="$(_ref "$R" feat)"
+  _read_verbs() {
+    run "$LOCAL" mr-state "$1"
+    run "$LOCAL" mr-comments "$1"
+    run "$LOCAL" branch-exists "$R" feat
+    run "$LOCAL" merged-pr-head "$R" feat
+  }
   before="$(_sums "$g")"
-  for v in "mr-state $ref" "mr-comments $ref" "branch-exists $R feat" "merged-pr-head $R feat"; do
-    read -r verb a b <<<"$v"
-    if [ "$verb" = branch-exists ] || [ "$verb" = merged-pr-head ]; then
-      run "$LOCAL" "$verb" "$R" feat
-    else
-      run "$LOCAL" "$verb" "$ref"
-    fi
-    n=$((n + 1))
-  done
+  _read_verbs "$(_ref "$R" feat)"
   [ ! -e "$g/devagent" ]
   [ "$(_sums "$g")" = "$before" ]
   _mk "$R"
   before="$(_sums "$g")"
-  for verb in mr-state mr-comments; do run "$LOCAL" "$verb" "$REF"; n=$((n + 1)); done
-  run "$LOCAL" branch-exists "$R" feat; run "$LOCAL" merged-pr-head "$R" feat; n=$((n + 2))
+  _read_verbs "$REF"
   [ "$(_sums "$g")" = "$before" ]
-  [ "$n" -eq 8 ]
 }
 
 @test "local: mr-comments prints ## Comments (0)" {

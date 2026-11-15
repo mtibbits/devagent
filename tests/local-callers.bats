@@ -11,6 +11,7 @@
 # or any gh call, writes a line to $REMOTE_MARKER and exits 97.
 bats_require_minimum_version 1.5.0
 load 'helpers/common'
+load 'lib/local-backend'
 
 setup() {
     devagent_test_setup
@@ -134,8 +135,6 @@ _no_remote_calls() {
     [ ! -e "$REMOTE_MARKER" ] || { echo "remote reached: $(cat "$REMOTE_MARKER")" >&2; return 1; }
 }
 
-_row() { grep -E "^- \[.\] +$1\. " "$CL" | sed -E 's/^- \[(.)\].*/\1/'; }
-
 @test "comments (local): writes ## Comments (0) (AC 7)" {
     _shipped_by_hand
     run bash "$DEVAGENT_ROOT/scripts/comments.sh" "$TEST_PROJECT" Issue-1
@@ -151,12 +150,12 @@ _row() { grep -E "^- \[.\] +$1\. " "$CL" | sed -E 's/^- \[(.)\].*/\1/'; }
     run "$DEVAGENT_ROOT/scripts/mergemr.sh" "$TEST_PROJECT" </dev/null
     [ "$status" -eq 0 ]
     [[ "$output" == *"mergemr: waiting (8): waiting for merge (merge step supports github only)"* ]]
-    [ "$(_row 20)" = "?" ]
+    assert_step "$CL" 20 '?'
     [[ $'\n'"$output" != *$'\n'"CI "* ]]
     git -C "$SOURCE_DIR" merge -q --no-ff -m "merge feat/1-x" feat/1-x
     run "$DEVAGENT_ROOT/scripts/mergemr.sh" "$TEST_PROJECT" </dev/null
     [ "$status" -eq 0 ]
-    [ "$(_row 20)" = "x" ]
+    assert_step "$CL" 20 x
     grep -qF "mergemr: PR $REF merged (merge commit -)" "$CL"
     [[ $'\n'"$output" != *$'\n'"CI "* ]]
     _no_remote_calls
@@ -171,29 +170,16 @@ _ship_ready() {
     echo "Issue 1 title" > "$ISSUE_DIR/.devagent-title"
 }
 
-# _cdir: git's own common-dir line for the source repo.
-_cdir() { git -C "$SOURCE_DIR" rev-parse --path-format=absolute --git-common-dir | tr -d '\r'; }
-
-# _want_ref <branch>: the reference D-ref builds, by an independent encoder.
-_want_ref() {
-    python3 -X utf8 -c 'import sys,urllib.parse as u; q=lambda s: u.quote(s, safe="~"); print("local:" + q(sys.argv[1]) + "#" + q(sys.argv[2]))' "$(_cdir)" "$1"
-}
-
-_rec_of() {
-    printf '%s/devagent/local-mr/%s' "$(_cdir)" \
-        "$(python3 -X utf8 -c 'import sys,urllib.parse as u; print(u.quote(sys.argv[1], safe="~"))' "$1")"
-}
-
-_snap() { git -C "$SOURCE_DIR" status --porcelain=v2 --branch; git -C "$SOURCE_DIR" for-each-ref; }
+# _cdir, _ref, _rec and _snap (each takes the repo first) are tests/lib/local-backend.bash.
 
 # _mr_url: the state's mr_url (top-level and [context] copies, which agree).
 _mr_url() { sed -n 's/^mr_url *= *"\(.*\)"$/\1/p' "$STATE" | sort -u; }
 
 # _ship: run ship from the devdoc folder with no terminal and no DA_YES.
+# (run's subshell keeps the cd and the unset from leaking into the test.)
 _ship() {
-    ( cd "$DEVDOC_DIR" && unset DA_YES && "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1 </dev/null ) > "$DEVAGENT_TMP/ship.out" 2>&1
+    cd "$DEVDOC_DIR" && unset DA_YES && "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1 </dev/null
 }
-_ship_run() { run _ship; output="$(cat "$DEVAGENT_TMP/ship.out")"; }
 
 # _assert_local_ship: AC 1's result, for <branch> (default feat/1-x).
 _assert_local_ship() {
@@ -202,29 +188,29 @@ _assert_local_ship() {
     [[ "$output" != *"Proceed with"* ]]
     [[ "$output" != *"push_mr denied"* ]]
     _no_remote_calls
-    [ "$(_mr_url)" = "$(_want_ref "$b")" ]
-    grep -qxF "state: open" "$(_rec_of "$b")"
+    [ "$(_mr_url)" = "$(_ref "$SOURCE_DIR" "$b")" ]
+    grep -qxF "state: open" "$(_rec "$SOURCE_DIR" "$b")"
     [[ "$output" == *"  push to:    not applicable (local)"* ]]
     [[ "$output" == *"  MR repo:    $SOURCE_DIR"* ]]
-    [ "$(_row 18)" = x ]
+    assert_step "$CL" 18 x
 }
 
 @test "ship (local, push_mr=false): from the devdoc folder, no prompt, no push, fetch or gh (AC 1)" {
     _ship_ready
     devagent_config_set_bool "$CFG" "project.$TEST_PROJECT.permissions.push_mr" false
-    local before; before="$(_snap)"
-    _ship_run
+    local before; before="$(_snap "$SOURCE_DIR")"
+    run _ship
     _assert_local_ship
-    [ "$(_snap)" = "$before" ]
+    [ "$(_snap "$SOURCE_DIR")" = "$before" ]
 }
 
 @test "ship (local, push_mr=true): the same result (AC 2)" {
     _ship_ready
     devagent_config_set_bool "$CFG" "project.$TEST_PROJECT.permissions.push_mr" true
-    local before; before="$(_snap)"
-    _ship_run
+    local before; before="$(_snap "$SOURCE_DIR")"
+    run _ship
     _assert_local_ship
-    [ "$(_snap)" = "$before" ]
+    [ "$(_snap "$SOURCE_DIR")" = "$before" ]
 }
 
 @test "ship (local): leftover upstream, fork, fork_first and fork_only are ignored" {
@@ -233,20 +219,20 @@ _assert_local_ship() {
     devagent_config_set "$CFG" "project.$TEST_PROJECT.code_source.fork" me/testproj
     devagent_config_set_bool "$CFG" "project.$TEST_PROJECT.fork_first" true
     devagent_config_set_bool "$CFG" "project.$TEST_PROJECT.fork_only" true
-    _ship_run
+    run _ship
     _assert_local_ship
 }
 
 @test "ship (local): on_ship fires as today" {
     _ship_ready
-    _ship_run
+    run _ship
     _assert_local_ship
     [ "$(grep -c 'transition .* on_ship' "$DEVAGENT_STUB_LOG")" -eq 1 ]
     devagent_config_set_bool "$CFG" "project.$TEST_PROJECT.permissions.transition_issue" false
     : > "$DEVAGENT_STUB_LOG"
     devagent_state_set "$STATE" mr_url ""
     mark_step "$CL" 18 " "
-    _ship_run
+    run _ship
     [ "$status" -eq 0 ]
     [ "$(grep -c 'on_ship' "$DEVAGENT_STUB_LOG" || true)" -eq 0 ]
 }
@@ -254,7 +240,7 @@ _assert_local_ship() {
 @test "ship (local): ship_as_draft prints the draft line and the record is open" {
     _ship_ready
     devagent_config_set_bool "$CFG" "project.$TEST_PROJECT.ship_as_draft" true
-    _ship_run
+    run _ship
     _assert_local_ship
     [[ "$output" == *"draft: not applicable (local code backend)"* ]]
 }
@@ -276,32 +262,32 @@ _stack_child() {
 @test "ship (local): a stacked child bases on its parent branch (AC 6)" {
     _stack_child
     "$LOCAL" create-mr "$SOURCE_DIR" parent /dev/null feat/0-p main >/dev/null
-    _ship_run
+    run _ship
     _assert_local_ship
-    grep -qxF "base: feat/0-p" "$(_rec_of feat/1-x)"
+    grep -qxF "base: feat/0-p" "$(_rec "$SOURCE_DIR" feat/1-x)"
 }
 
 @test "ship (local): a parent whose record is merged sends the child to the default base (AC 6)" {
     _stack_child
     "$LOCAL" create-mr "$SOURCE_DIR" parent /dev/null feat/0-p main >/dev/null
-    sed -i 's/^state: open$/state: merged/' "$(_rec_of feat/0-p)"
+    sed -i 's/^state: open$/state: merged/' "$(_rec "$SOURCE_DIR" feat/0-p)"
     run git -C "$SOURCE_DIR" merge-base --is-ancestor feat/0-p main
     [ "$status" -eq 1 ]
-    _ship_run
+    run _ship
     _assert_local_ship
-    grep -qxF "base: main" "$(_rec_of feat/1-x)"
+    grep -qxF "base: main" "$(_rec "$SOURCE_DIR" feat/1-x)"
     [[ "$output" == *"stacked parent 'feat/0-p' has an already-merged PR"* ]]
 }
 
 @test "ship (local): a second ship after a hand merge fails with the new-branch message" {
     _ship_ready
-    _ship_run
+    run _ship
     _assert_local_ship
-    local url rec; url="$(_mr_url)"; rec="$(_rec_of feat/1-x)"
+    local url rec; url="$(_mr_url)"; rec="$(_rec "$SOURCE_DIR" feat/1-x)"
     cp "$rec" "$DEVAGENT_TMP/rec.copy"
     git -C "$SOURCE_DIR" merge -q --no-ff -m m feat/1-x
     mark_step "$CL" 18 " "
-    _ship_run
+    run _ship
     [ "$status" -ne 0 ]
     [[ "$output" == *"a merged or closed local MR exists for this branch; ship from a new branch"* ]]
     [ "$(_mr_url)" = "$url" ]
@@ -314,7 +300,7 @@ _stack_child() {
     echo more > "$SOURCE_DIR/more.txt"; git -C "$SOURCE_DIR" add more.txt; git -C "$SOURCE_DIR" commit -q -m more
     git -C "$SOURCE_DIR" checkout -q main
     _set_branch feat/1-x-2
-    _ship_run
+    run _ship
     _assert_local_ship feat/1-x-2
 }
 
@@ -327,7 +313,7 @@ _stack_child() {
     printf '#!/usr/bin/env bash\necho "Local.sh $*" >> "%s"\n[ "$1" = create-mr ] && echo custom:1\nexit 0\n' "$DEVAGENT_STUB_LOG" > "$DEVAGENT_TMP/code/Local.sh"
     chmod +x "$DEVAGENT_TMP/code/Local.sh"
     export DEVAGENT_CODE_BACKEND_DIR="$DEVAGENT_TMP/code"
-    _ship_run
+    run _ship
     [ "$status" -ne 0 ]
     [[ "$output" == *"permission_gate: push_mr denied"* ]]
     [[ "$output" == *"  push to:    origin"* ]]
@@ -361,7 +347,7 @@ _entry_check() {
         n=$((n + 1))
     done
     [ "$n" -eq 3 ]
-    [ ! -e "$(_cdir)/devagent" ]
+    [ ! -e "$(_cdir "$SOURCE_DIR")/devagent" ]
     _no_remote_calls
 }
 

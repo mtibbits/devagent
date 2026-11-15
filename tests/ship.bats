@@ -719,7 +719,7 @@ _target_repo() {
         . "$DEVAGENT_ROOT/scripts/lib/io.sh"
         . "$DEVAGENT_ROOT/scripts/lib/config.sh"
         config_code_target_repo "$2"
-        printf "target=%s\n" "$CODE_TARGET_REPO"
+        printf "target=%s|fork=%s|first=%s|only=%s\n" "$CODE_TARGET_REPO" "$CODE_FORK" "$CODE_FORK_FIRST" "$CODE_FORK_ONLY"
     ' _ "$DEVAGENT_ROOT" "$TEST_PROJECT"
 }
 
@@ -755,21 +755,13 @@ _target_repo() {
     devagent_config_set "$cfg" "project.$TEST_PROJECT.code_source.backend" local
     devagent_config_set_bool "$cfg" "project.$TEST_PROJECT.fork_first" true
     devagent_config_set_bool "$cfg" "project.$TEST_PROJECT.fork_only" true
-    run bash -c '
-        set -euo pipefail
-        DEVAGENT_ROOT="$1"
-        . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
-        . "$DEVAGENT_ROOT/scripts/lib/io.sh"
-        . "$DEVAGENT_ROOT/scripts/lib/config.sh"
-        config_code_target_repo "$2"
-        printf "target=%s|fork=%s|first=%s|only=%s\n" "$CODE_TARGET_REPO" "$CODE_FORK" "$CODE_FORK_FIRST" "$CODE_FORK_ONLY"
-    ' _ "$DEVAGENT_ROOT" "$TEST_PROJECT"
+    run _target_repo
     [ "$status" -eq 0 ]
     [ "$output" = "target=$SOURCE_DIR|fork=|first=false|only=false" ]
     devagent_config_unset "$cfg" "project.$TEST_PROJECT.code_source.fork"
     run _target_repo
     [ "$status" -eq 0 ]
-    [ "$output" = "target=$SOURCE_DIR" ]
+    [ "$output" = "target=$SOURCE_DIR|fork=|first=false|only=false" ]
 }
 
 @test "ship on a starter checklist refuses while preship is pending and passes once it is [x] (#989)" {
