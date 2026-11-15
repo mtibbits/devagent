@@ -2,7 +2,8 @@
 
 This directory holds the devAgent onboarding site: its content pages
 (Markdown `*.md` pages, and hand-written `*.html` pages, which the build also
-accepts), `moved.txt` (old page names and their new homes) and, when one
+accepts), `moved.txt` (old page names and their new homes), `live.txt`
+(which family sites are live, and the counts pages may show) and, when one
 exists, an `assets/` folder. Nothing generated is committed.
 `scripts/build-docs-site.sh` renders the pages at publish time. This file is
 the site's maintenance policy, not one of the pages: the build leaves
@@ -56,7 +57,9 @@ and `workflow.md`'s table rows must survive rendering, the two
 `claude plugin …` lines in `install.md` must appear verbatim in the HTML,
 `install.md`'s and `concurrency.md`'s H1s are pinned as page titles, and the
 site's navigation order is read from `index.md`'s "Where to go next" bullet
-list — which must stay a top-level `- [Title](./page.md)` list. If no bullet
+list — which must stay a top-level `- [Title](./page.md)` list. Its
+real-site legs also read `live.txt`: the expected top bar and footer are
+rendered from it, so flipping a site live moves them with the file. If no bullet
 is in that form the build refuses (exit 4); if a single bullet drifts, that
 page silently moves to the end of the nav and the nav-order assertion in
 `tests/build-docs-site.bats` reddens instead. That suite needs pandoc: the
@@ -72,9 +75,9 @@ exit codes); this section is the editor's view of it.
 **Hand-written pages.** A `<name>.html` file here is a page body. The build
 wraps it in the same template as a Markdown page, so it gets the same head,
 nav and footer, and inserts its bytes unchanged between `<article>` and
-`</article>`: neither of pandoc's readers touches it. (A build-time
-placeholder hook runs over every page; it changes nothing until a later
-child of #994 defines the placeholders.)
+`</article>`: neither of pandoc's readers touches it. Like every page, it
+also gets the family top bar and footer, and its placeholders filled ("Live
+settings and placeholders", below).
 
 - Line 1 is the same `<!-- derived-from: ... -->` header a Markdown page
   carries. Without it, or with a UTF-8 byte-order mark before it, the build
@@ -108,8 +111,10 @@ alphabetical (`LC_ALL=C`) order of base name across both kinds.
 
 **Asset folders.** `docs-site/assets/` is copied to `assets/` and
 `scripts/docs-site/static/` (the template's own files) to `static/`, byte for
-byte; either may be absent. A Markdown page may show an image from
-`./assets/<path>`; any other image target fails the build (exit 5). Every
+byte. `assets/` may be absent; `static/` is required, because it holds the four
+family files (`family.css`, `family.js`, `family-topbar.html`,
+`family-footer.html`), and a build missing one exits 4. A Markdown page may
+show an image from `./assets/<path>`; any other image target fails the build (exit 5). Every
 `href`, `src` and `srcset` attribute of a tag in the rendered output must name
 a file the build produced (exit 6); the same words written in code or prose
 are text, not links, and so is a tag inside an HTML comment or inside the body
@@ -127,6 +132,30 @@ ask not to be indexed, appear in no nav and are not counted as pages. A line
 whose old name is still a content page, is `README`, or repeats an old name,
 exits 4; a new home that is not a content page this build produces (a missing
 page, the stub itself, or another stub) exits 6.
+
+**Live settings and placeholders.** Every page gets the family top bar and
+shared footer (`scripts/docs-site/static/family-topbar.html` and
+`family-footer.html`, copied byte for byte by the Gantry and Journeyman sites
+too), and `live.txt` here says which family sites are live. Its header is the
+reference: the line format, the placeholder syntax, and one rendered example
+of each kind, which the tests run.
+
+- A page, Markdown or hand-written, may carry `{{live:<key>|<label>}}` (the
+  label as a link when that site is live, else the label marked "coming") or
+  `{{count:<key>}}` (a number counted from the file a `count` line in
+  `live.txt` names).
+- A malformed `live.txt`, or one missing a site the top bar names, exits 4.
+  An unknown placeholder, an unclosed one, a count whose file is missing, or
+  a count of zero exits 5, naming the page: a blank or a zero is never
+  published. A placeholder in a page title (the H1) exits 5 too. A fill that
+  did not complete (the filler crashed) exits 8.
+- A count's source file becomes a build input: add it to
+  `publish-docs-site.yml`'s `paths:` and to `REQUIRED_PATHS` in
+  `tests/test_publish_docs_site_workflow.py` (a test checks every `count`
+  line against them).
+- In a Markdown table cell, write `\|` for the `|` inside a placeholder.
+- There is no escape: a placeholder is filled anywhere in a page, code
+  included.
 
 **What the site may load.** After link closure, every build runs
 `scripts/docs-site/check-fetches.py` over everything it wrote (#1030). A page

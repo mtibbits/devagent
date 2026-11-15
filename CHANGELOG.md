@@ -16,6 +16,20 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the docs site is built on a shared family template (#996).**
+  Four family files under `scripts/docs-site/static/`, all `family v1.0`,
+  are what the devagent, Gantry and Journeyman sites copy byte for byte:
+  `family.css` (the palette as separate light and dark sets, the type scale,
+  the graph-paper grid), `family.js` (the animation setting: the first page
+  view plays once, a footer control turns animations on or off,
+  `prefers-reduced-motion` always wins; it exports `familyAnimationsOn()` and
+  `familyPlayOnce(name)` under the storage key `mtibbits-family-v1`), and
+  the `family-topbar.html` and `family-footer.html` partials. The build
+  inserts the partials into every page as plain HTML and fills two
+  build-time placeholders, `{{live:<key>|<label>}}` and `{{count:<key>}}`,
+  from `docs-site/live.txt` (which family sites are live; Gantry and Learn
+  show "coming"). An unknown or zero placeholder fails the build (exit 5); a
+  malformed `live.txt` or a missing family file exits 4.
 - **Changed: `/devagent:pull <project> <issue-num> [--origin|--fork]` takes
   its source from config (#1099).** A flagless pull reads the new
   `[project.<p>] default_issue_source` (`"origin"` or `"fork"`), else the
