@@ -5,4 +5,4 @@ contact_links:
     about: Private report to the maintainer. Never file an exploitable problem as a public issue (see SECURITY.md).
   - name: Read the docs first
     url: https://github.com/mtibbits/devagent/tree/master/docs-site
-    about: Install, quickstart, configuration, the workflow and concurrency pages.
+    about: Install, quickstart, the workflow, and a Reference page linking configuration and concurrency.

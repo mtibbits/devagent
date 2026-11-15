@@ -20,7 +20,7 @@ body:
     id: expected
     attributes:
       label: What you expected
-      description: What the README, a command body, or docs-site/ says should happen.
+      description: What the README, a command body, docs-site/, docs/configuration.md or docs/concurrency.md says should happen.
     validations:
       required: true
   - type: textarea
