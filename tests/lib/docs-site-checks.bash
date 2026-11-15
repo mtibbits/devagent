@@ -49,6 +49,7 @@ CONFIG_REL=docs/configuration.md
 CONCURRENCY_REL=docs/concurrency.md
 REFERENCE_DOCS=("$CONFIG_REL" "$CONCURRENCY_REL")
 # Every document docs-site/reference.md links: the moved ones plus the spec.
+# shellcheck disable=SC2034  # read by the bats files that load this library
 REFERENCE_LINKS=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md)
 # The forge home of a repo file: the build's own default --blob-base, read from
 # scripts/build-docs-site.sh so the two cannot drift.
