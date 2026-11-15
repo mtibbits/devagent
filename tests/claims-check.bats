@@ -987,3 +987,68 @@ _pair() {
     done
     [ "$n" -ge 5 ]                                                         # rev-parse x2, merge-base, cat-file -e/-p
 }
+
+# ---- Task 10: the sign-off box and the read-only invariant -------------------------------
+
+@test "a ticked box with one unsigned commit → MISMATCH naming its sha12; all signed → not reported" {
+    _body '- [x] Every commit is signed off (DCO)'
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 0 0 0 0 0 0 1 0 0)" ]           # setup's commits are signed
+    echo u > "$SOURCE_DIR/u.txt"; git -C "$SOURCE_DIR" add -A; git -C "$SOURCE_DIR" commit -q -m unsigned
+    local u; u="$(_head)"
+    git -C "$SOURCE_DIR" checkout -q -b topic HEAD~1; echo t > "$SOURCE_DIR/t.txt"; _commit topic
+    git -C "$SOURCE_DIR" checkout -q main; git -C "$SOURCE_DIR" merge -q --no-ff -m 'merge topic' topic
+    local mg; mg="$(_head)"                                                  # an unsigned merge
+    _ccr
+    [ "$status" -eq 3 ]
+    _has "mr.md:1: MISMATCH signoff: [x] Every commit is signed off (DCO) — claimed every commit signed off, found unsigned ${mg:0:12}, ${u:0:12} (${BASELINE:0:12}..HEAD)"
+    [ "$(_summary)" = "$(_sum 0 0 0 0 0 0 1 1 0)" ]
+}
+
+@test "an unticked box is not a claim" {
+    echo u > "$SOURCE_DIR/u.txt"; git -C "$SOURCE_DIR" add -A; git -C "$SOURCE_DIR" commit -q -m unsigned
+    _body '- [ ] Every commit is signed off' '- [x] Not signed off yet: not all commits' '- [x] DCO: 2 commits unsigned' \
+          '* [X] Signed-off-by on every commit'
+    _ccr
+    [ "$status" -eq 3 ]
+    _hasnt 'mr.md:1:'; _hasnt 'mr.md:2:'; _hasnt 'mr.md:3: MISMATCH signoff'
+    _has 'mr.md:4: MISMATCH signoff: [X] Signed-off-by on every commit'          # the survivor: * and [X]
+}
+
+# _all_kinds - a body with one claim of each of the seven kinds, every one compared.
+_all_kinds() {
+    _tests tests/f.bats 5; _commit f; _side
+    git -C "$SOURCE_DIR" update-ref refs/remotes/origin/main "$HEAD_SHA"
+    _evsuite 5/5 4
+    _bodyev '- `tests/f.bats` (4 tests)' '- `tests/test_p.py` (3 tests)' '- 99/100 bats' \
+            '- On this branch: 9 commits.' '- 7 files changed' "- From \`${SIDE:0:9}\`." '- [x] All signed off (DCO)'
+}
+# _state - what a read-only run must leave unchanged.
+_state() {
+    sha256sum "$(MR)"; git -C "$SOURCE_DIR" rev-parse HEAD
+    git -C "$SOURCE_DIR" status --porcelain --ignored -uall
+}
+
+@test "after a run over a body with all seven kinds, mr.md's sha256, HEAD and status --porcelain --ignored -uall are unchanged (the .venv stub)" {
+    _py_fixture; _all_kinds; _pyart "$VENV_PY"
+    local before; before="$(_state)"
+    _ccr
+    [ "$status" -eq 3 ]
+    [ "$(_summary)" = "$(_sum 1 1 1 1 1 1 1 6 0)" ]                            # every kind compared
+    [ "$(_state)" = "$before" ]
+}
+
+@test "after a run over a body with all seven kinds, the tree is unchanged (real pytest, skip if absent)" {
+    _real_pytest; _all_kinds; _pyart "$DEVAGENT_PYTEST_PYTHON"
+    printf 'import pytest\n\n@pytest.mark.parametrize("x", [1, 2, 3])\ndef test_a(x):\n    assert x\n' > "$SOURCE_DIR/tests/test_p.py"
+    _commit p; _evsuite 5/5 4; _pyart "$DEVAGENT_PYTEST_PYTHON"
+    _bodyev '- `tests/f.bats` (4 tests)' '- `tests/test_p.py` (2 tests)' '- 99/100 bats' \
+            '- On this branch: 9 commits.' '- 7 files changed' "- From \`${SIDE:0:9}\`." '- [x] All signed off (DCO)'
+    local before; before="$(_state)"
+    _ccr
+    [ "$status" -eq 3 ]
+    _has 'mr.md:2: MISMATCH pytest-count: `tests/test_p.py` (2 tests) — claimed 2, found 3 (at HEAD)'
+    [ "$(_summary)" = "$(_sum 1 1 1 1 1 1 1 6 0)" ]
+    [ "$(_state)" = "$before" ]
+    [ -z "$(find "$SOURCE_DIR" -name __pycache__ -o -name .pytest_cache)" ]
+}

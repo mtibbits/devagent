@@ -213,6 +213,9 @@ RE_D2='\(([0-9]{1,5}) files?, [+]'
 # Cited commits: URLs are blanked first; H1 backticked, H2 bare with >= 1 digit and >= 1
 # of a-f (A1: `]` first in the trailing class, no backslash in the leading one).
 RE_URL='https?://[^[:space:])>]+'
+# The sign-off box: a ticked list item naming the sign-off, on a line without `not ` or
+# `unsigned`.
+RE_B1='^[[:space:]]*[-*+][[:space:]]+(\[[xX]\][[:space:]].*([Ss]igned[- ]off|DCO).*)$'
 RE_H1='`([0-9a-f]{7,40})`'
 RE_H2='(^|[[:space:]([])([0-9a-f]{7,40})([][:space:]).,;:]|$)'
 RE_EVAT='^(.+) @ ([0-9a-f]{40})$'
@@ -814,6 +817,34 @@ _scan_cited() {
   done
 }
 
+# ---- the sign-off box -----------------------------------------------------------------
+# Every commit in <baseline_sha>..HEAD, merges included, must carry a non-empty
+# Signed-off-by trailer; the MISMATCH names each sha12 that lacks one. Decided once.
+SIGNOFF_DONE=false; UNSIGNED=""
+_unsigned() {
+  local out l sha
+  if $SIGNOFF_DONE; then return 0; fi
+  SIGNOFF_DONE=true
+  out="$(_git log --format='%H%x09%(trailers:key=Signed-off-by,valueonly,separator=%x2C)' "$baseline_sha..HEAD")" \
+    || _cnr "git log ${baseline_sha:0:12}..HEAD failed in $work_dir"
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    sha="${l%%$'\t'*}"
+    if [ -z "${l#*$'\t'}" ]; then UNSIGNED+="${UNSIGNED:+, }${sha:0:12}"; fi
+  done <<<"$out"
+}
+# _scan_signoff <L> <line text>
+_scan_signoff() {
+  local claim
+  [[ "$2" =~ $RE_B1 ]] || return 0
+  claim="${BASH_REMATCH[1]}"
+  if [[ "$2" == *'not '* || "$2" == *unsigned* ]]; then return 0; fi
+  _unsigned
+  _counted signoff
+  [ -z "$UNSIGNED" ] \
+    || _mm "$1" signoff "$claim" "every commit signed off" "unsigned $UNSIGNED" "${baseline_sha:0:12}..HEAD"
+}
+
 # _scan_sentence <L> <sentence>
 _scan_sentence() {
   PF_SEEN=0
@@ -851,6 +882,7 @@ for ((li = 0; li < ${#LINES[@]}; li++)); do
     if [[ "$_post" == *'-->'* ]]; then text="$_pre${_post#*-->}"; else text="$_pre"; in_cmt=true; break; fi
   done
   _emph "$text"; rest="$EMPH"
+  _scan_signoff "$L" "$rest"
   while :; do
     case "$rest" in
       *'. '*) sent="${rest%%. *}"; rest="${rest#*. }" ;;
