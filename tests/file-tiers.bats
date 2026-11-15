@@ -62,6 +62,9 @@ _config() {
 
 _tiers() { printf '%s\n' "$@" > "$CAP/tiers.toml"; }
 
+# _cfg_set <dotted-key> <value>: one config field, via _toml.py (#335: no sed -i on TOML).
+_cfg_set() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" "$1" "$2"; }
+
 _file() { run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin "$@"; }
 
 # _tier_lines: the file.sh tier outcome lines on stderr, in order.
@@ -205,7 +208,8 @@ file.sh: tier checking=opus: matches project tier" ]
 
 @test "tiers: a missing GitLab label prints the glab command" {
   _config '[project.tp.step_models]' 'checking = "opus"'
-  sed -i 's/^backend = "github"/backend = "gitlab"/; s#^repo = "o/r"#repo = "grp/proj"#' "$DA_HOME/config.toml"
+  _cfg_set project.tp.issue_source.backend gitlab
+  _cfg_set project.tp.issue_source.repo grp/proj
   export STUB_MISSING=tier:check-fable
   _tiers 'checking = "fable"'
   _file
@@ -215,7 +219,7 @@ file.sh: tier checking=opus: matches project tier" ]
 }
 
 @test "tiers: a custom backend reports a missing label with no command" {
-  sed -i 's/^backend = "github"/backend = "acme"/' "$DA_HOME/config.toml"
+  _cfg_set project.tp.issue_source.backend acme
   export STUB_MISSING=tier:check-fable
   _tiers 'checking = "fable"'
   _file
@@ -224,7 +228,7 @@ file.sh: tier checking=opus: matches project tier" ]
 }
 
 @test "tiers: a custom backend without state-exists files without the label" {
-  sed -i 's/^backend = "github"/backend = "acme"/' "$DA_HOME/config.toml"
+  _cfg_set project.tp.issue_source.backend acme
   export STUB_LOOKUP_RC=78
   _tiers 'checking = "fable"'
   _file
@@ -266,7 +270,7 @@ file.sh: tier checking=fable: applied as tier:check-fable" ]
 }
 
 @test "tiers: jira passes labels unchecked" {
-  sed -i 's/^backend = "github"/backend = "jira"/' "$DA_HOME/config.toml"
+  _cfg_set project.tp.issue_source.backend jira
   export STUB_NUM=ABC-12
   _tiers 'checking = "fable"'
   _file
@@ -310,7 +314,7 @@ file.sh: tier checking=fable: applied as tier:check-fable" ]
   for leg in none shared; do
     rm -f "$STUB_LOG" "$CAP/filed.toml"
     if [ "$leg" = none ]; then
-      sed -i "s#^devdoc_dir = .*#devdoc_dir = \"$BATS_TEST_TMPDIR/elsewhere\"#" "$DA_HOME/config.toml"
+      _cfg_set project.tp.devdoc_dir "$BATS_TEST_TMPDIR/elsewhere"
     else
       _config '[project.tp.step_models]' 'checking = "opus"'
       printf '%s\n' '[project.tp2]' "devdoc_dir = \"$DEVDOC\"" >> "$DA_HOME/config.toml"
@@ -357,7 +361,7 @@ file.sh: tier checking=fable: not applied (no project)" ]
   # no project
   rm -f "$CAP/filed.toml"; unset STUB_LOOKUP_RC
   export DEVAGENT_ISSUE_BACKEND=github DEVAGENT_REPO_ORIGIN=o/r
-  sed -i "s#^devdoc_dir = .*#devdoc_dir = \"$BATS_TEST_TMPDIR/elsewhere\"#" "$DA_HOME/config.toml"
+  _cfg_set project.tp.devdoc_dir "$BATS_TEST_TMPDIR/elsewhere"
   _file; [ "$status" -eq 0 ]; all+="$(_tier_lines)"
   while IFS= read -r l; do
     [ -n "$l" ] || continue
@@ -397,4 +401,11 @@ file.sh: tier checking=fable: not applied (no project)" ]
   local s="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
   grep -q '^├── tiers.toml .*#1101' "$s"
   grep -q 'file.sh.*departing' "$s"
+}
+
+@test "CHANGELOG: only github and gitlab print a create command for a missing label" {
+  local e
+  e="$(awk '/capture-time model-tier proposals \(#1101\)/{f=1} f&&/^- \*\*/&&!/#1101/{exit} f' "$PLUGIN_ROOT/CHANGELOG.md")"
+  [ -n "$e" ]
+  [[ "$e" == *"github and gitlab print its create command"* ]]
 }

@@ -146,14 +146,14 @@ End every run — halted or complete — with:
 |---|---|---|
 | `Captures/<epic-slug>` | filed, `<tracker URL>` — or unfiled, `<halt reason>` | none (epic) |
 | ↳ `Captures/<child>` | filed, `<tracker URL>` | thinking `opus` (reason): matches project tier; checking `fable` (reason): applied as `tier:check-fable` |
-| ↳ `Captures/<child2>` | unfiled, gate closed | checking `fable` (reason): would apply `tier:check-fable` |
+| ↳ `Captures/<child2>` | unfiled, gate closed | checking `fable` (reason): would apply as `tier:check-fable` |
 
 The Tier proposal cell lists each proposed class with its token, its reason
 and `file.sh`'s outcome, copied from its `file.sh: tier …` line:
 `applied as <label>`, `matches project tier`,
 `not applied (label missing)`, `not applied (lookup failed)` or
 `not applied (no project)`. An unfiled draft reads the gate plan's `labels:`
-line instead: `would apply <label>`, `matches project tier` or
+line instead: `would apply as <label>`, `matches project tier` or
 `not applied (no project)`. A draft with no or an empty `tiers.toml` reads
 `none (no proposal)`.
 

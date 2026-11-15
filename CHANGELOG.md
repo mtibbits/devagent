@@ -29,8 +29,9 @@ the README's "Versioning & releases" section has the release procedure.
   `labels:` line; after filing, one `file.sh: tier <class>=<token>: <outcome>`
   line per class goes to stderr (stdout is still the URL alone). github,
   gitlab and custom backends look each label up with `state-exists` first: a
-  missing label is left off and its create command printed, never run (#87);
-  jira and disk take it unchecked. Until #1042, a missing GitHub label reads
+  missing label is left off and reported, and
+  github and gitlab print its create command (never run, #87); jira and disk
+  take it unchecked. Until #1042, a missing GitHub label reads
   `label missing` when a similar label exists and `lookup failed` when none
   does; both leave it off. The crrf manifest gains a Tier proposal column.
   pull.sh and the backends are unchanged. Known gap: a labelled class's

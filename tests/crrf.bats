@@ -172,3 +172,9 @@ setup() { DOC="$(<"$F")"; }
   run grep -nF 'Changes no verb' "$F"
   [ "$status" -eq 1 ]
 }
+
+@test "crrf gate-closed tier wording is 'would apply as <label>' (#1101)" {
+  # Canonical vocabulary (frozen): the plan's gate-closed form.
+  [[ "$DOC" == *'would apply as `tier:check-fable`'* ]]
+  [[ "$DOC" == *'would apply as <label>'* ]]
+}
