@@ -421,6 +421,19 @@ case "$CI_VERDICT" in
     proceed) ;;
     *) _wait 16 "unexpected CI verdict '$CI_VERDICT'" ;;
 esac
+# rule 17, a head recorded by forward (#1125): it merges only on green CI, whatever
+# merge_checks says. verified_by counts as forward unless it reads as preship or empty
+# (a legacy record): a read error or a garbled value fails closed.
+vb_rc=0
+verified_by="$(state_ctx_get "$project" verified_by "$issue_arg" 2>/dev/null)" || vb_rc=$?
+verified_by="${verified_by//$'\r'/}"
+case "$vb_rc:$verified_by" in
+    0:preship|0:) vb_forward=0 ;;         # an absent key reads as empty: a legacy record
+    *) vb_forward=1 ;;
+esac
+if [ "$vb_forward" = 1 ] && [ "$CI_RESULT" != green ]; then
+    _stop 17 "head ${verified_head:0:7} was recorded by forward and merges only on green CI ($CI_RESULT); to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+fi
 if [ "$CI_RESULT" = none ] && [ "$MERGE_CHECKS" = required ]; then           # rule 17
     _stop 17 "no CI checks on head commit; set merge_checks = \"if-present\" to merge without CI, then run /devagent:unstuck"
 fi

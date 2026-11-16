@@ -1434,3 +1434,116 @@ STUB
     run "$MM" "$TEST_PROJECT" Issue-1
     [ -s "$MERGE_LOG" ] || { echo "$output" >&2; false; }
 }
+
+# ---- #1125: rule 17 for a head recorded by forward ------------------------------
+
+R17_FWD_RECIPE="re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+
+# _no_checks_past_grace: the PR head reports no checks, and the grace has run out.
+_no_checks_past_grace() {
+    _view checks=""
+    devagent_state_set "$STATE" ci_seen_head "$PR_HEAD"
+    devagent_state_set "$STATE" ci_seen_at 1000
+}
+
+@test "#1125 R17: a forwarded head merges on green" {
+    devagent_state_set "$STATE" verified_by forward
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_merges)" -eq 1 ]
+    grep -qxF "[$PR_HEAD]" "$MERGE_LOG"
+}
+
+@test "#1125 R17: a forwarded head waits while CI is pending" {
+    devagent_state_set "$STATE" verified_by forward
+    _view checks="pending:ci"
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 '?' mergemr
+    [[ "$output" == *"mergemr: waiting (16): "* ]]
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R17: a forwarded head stops at rule 15 on red" {
+    devagent_state_set "$STATE" verified_by forward
+    _view checks="fail:ci"
+    _run
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): ci; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R17: a forwarded head with no checks stops under required" {
+    devagent_state_set "$STATE" verified_by forward
+    _no_checks_past_grace
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (none); to verify it in full, $R17_FWD_RECIPE"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R17: a forwarded head with no checks stops under if-present" {
+    _set merge_checks if-present
+    devagent_state_set "$STATE" verified_by forward
+    _no_checks_past_grace
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (none); to verify it in full, $R17_FWD_RECIPE"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R17: a passing record clears the forward rule-17 stop; the next run merges under if-present" {
+    _set merge_checks if-present
+    devagent_state_set "$STATE" verified_by forward
+    _no_checks_past_grace
+    _run
+    [ "$status" -eq 1 ]
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#1125 R17: a head recorded by record behaves as today under if-present" {
+    _set merge_checks if-present
+    devagent_state_set "$STATE" verified_by preship
+    _no_checks_past_grace
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#1125 R17: a legacy record with no verified_by behaves as today" {
+    _set merge_checks if-present
+    _no_checks_past_grace
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#1125 R17: a garbled verified_by is treated as forward" {
+    _set merge_checks if-present
+    devagent_state_set "$STATE" verified_by forwrad
+    _no_checks_past_grace
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (none); to verify it in full, $R17_FWD_RECIPE"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R17: a backend without mr-view never merges a forwarded head" {
+    devagent_state_set "$STATE" verified_by forward
+    STUB_VIEW_RC=78 run "$MM" "$TEST_PROJECT" </dev/null
+    echo "status=$status output=$output" >&2
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 '?' mergemr
+    [[ "$output" == *"mergemr: waiting (read): "* ]]
+    _mrlog | grep -q '^waiting (read): '
+    [ "$(_merges)" -eq 0 ]
+}
