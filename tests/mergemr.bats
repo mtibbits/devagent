@@ -680,10 +680,143 @@ JIRA_R7="cannot read Issue-2 tracker state on jira; merge order is yours: record
 }
 
 @test "#885 R14: CONFLICTING is [!]" {
+    # #1125: no origin remote here, so the conflicted paths are unknown.
     _view mergeable=CONFLICTING mergestate=DIRTY
     _run
-    _stop_is 14 "conflict with main; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _stop_is 14 "conflict with main (conflicted paths unknown: cannot resolve origin/main); $R14_TODAY"
     [ ! -e "$MERGE_LOG" ]
+}
+
+# ---- #1125: rule 14 names the conflicted paths and the remedy ------------------
+
+R14_TODAY="merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+R14_LIGHT="merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward"
+
+# _r14_origin: a bare origin whose main and the PR head (verified_head) each add a
+# different ## [Unreleased] entry to CHANGELOG.md; the forge says CONFLICTING.
+_r14_origin() {
+    ORIGIN="$DEVAGENT_TMP/origin.git" UPWC="$DEVAGENT_TMP/upwc"
+    git -c init.defaultBranch=main init -q --bare "$ORIGIN"
+    ( cd "$SOURCE_DIR" && git checkout -q main \
+      && printf '# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n- old\n' > CHANGELOG.md \
+      && git add CHANGELOG.md && git commit -q -m changelog \
+      && git remote add origin "$ORIGIN" && git push -q origin main && git fetch -q origin \
+      && git checkout -q feat/1-x && git rebase -q main \
+      && sed -i '/^## \[Unreleased\]$/a - ours entry' CHANGELOG.md && git commit -q -am ours )
+    PR_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    devagent_state_set "$STATE" verified_head "$PR_HEAD"
+    git clone -q -b main "$ORIGIN" "$UPWC"
+    ( cd "$UPWC" && git config user.email u@example.com && git config user.name U \
+      && sed -i '/^## \[Unreleased\]$/a - theirs entry' CHANGELOG.md && git commit -q -am theirs \
+      && git push -q origin main )
+    printf '# Issue-1 MR\n\nA change.\n' > "$ISSUE_DIR/mr.md"
+    _view head="$PR_HEAD" mergeable=CONFLICTING mergestate=DIRTY
+}
+
+_mf() {   # _mf <verify-literal|-> <append_only-literal|->
+    {
+        printf '\n[project.%s.merge_forward]\n' "$TEST_PROJECT"
+        [ "$1" = - ] || printf 'verify = %s\n' "$1"
+        [ "$2" = - ] || printf 'append_only = %s\n' "$2"
+    } >> "$CFG"
+}
+
+@test "#1125 R14: light remedy when verify = ci and only CHANGELOG.md conflicts" {
+    _r14_origin
+    _mf '"ci"' '["CHANGELOG.md"]'
+    _run
+    _stop_is 14 "conflict only in CHANGELOG.md; $R14_LIGHT"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1125 R14: verify absent gives today's remedy naming the paths" {
+    _r14_origin
+    _run
+    _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
+}
+
+@test "#1125 R14: a conflicted path outside append_only gives today's remedy" {
+    _r14_origin
+    ( cd "$SOURCE_DIR" && echo ours > z.txt && git add z.txt && git commit -q -m z )
+    PR_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    devagent_state_set "$STATE" verified_head "$PR_HEAD"
+    ( cd "$UPWC" && echo theirs > z.txt && git add z.txt && git commit -q -m z && git push -q origin main )
+    _view head="$PR_HEAD" mergeable=CONFLICTING mergestate=DIRTY
+    _mf '"ci"' '["CHANGELOG.md"]'
+    _run
+    _stop_is 14 "conflict with main in CHANGELOG.md, z.txt; $R14_TODAY"
+}
+
+@test "#1125 R14: mr.md with a merge gate gives today's remedy" {
+    _r14_origin
+    _mf '"ci"' '["CHANGELOG.md"]'
+    printf '# Issue-1 MR\n\n**Merge gate:** a flag first.\n' > "$ISSUE_DIR/mr.md"
+    _run
+    _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
+}
+
+@test "#1125 R14: a conflicted path with a merge driver gives today's remedy" {
+    _r14_origin
+    _mf '"ci"' '["CHANGELOG.md"]'
+    # A driver that gives up still leaves git a conflict; forward would refuse the
+    # driver (merge_forward_driver), so the light remedy is withheld.
+    echo 'CHANGELOG.md merge=giveup' >> "$SOURCE_DIR/.git/info/attributes"
+    git -C "$SOURCE_DIR" config merge.giveup.driver false
+    _run
+    _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
+}
+
+@test "#1125 R14: a failed fetch says the paths are unknown" {
+    _r14_origin
+    _mf '"ci"' '["CHANGELOG.md"]'
+    git -C "$SOURCE_DIR" remote set-url origin "$DEVAGENT_TMP/gone.git"
+    _run
+    _stop_is 14 "conflict with main (conflicted paths unknown: could not fetch 'origin' (git fetch exited 128)); $R14_TODAY"
+}
+
+@test "#1125 R14: a timed-out fetch says the paths are unknown" {
+    _r14_origin
+    _mf '"ci"' '["CHANGELOG.md"]'
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = fetch ] && exec sleep 30; done\nexec git "$@"\n' > "$DEVAGENT_TMP/gitshim"
+    chmod +x "$DEVAGENT_TMP/gitshim"
+    DEVAGENT_GIT="$DEVAGENT_TMP/gitshim" DEVAGENT_MERGEMR_FETCH_SECS=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 14 "conflict with main (conflicted paths unknown: could not fetch 'origin' (timed out after 1s)); $R14_TODAY"
+}
+
+@test "#1125 R14: git finds no conflict where the forge reports one" {
+    _r14_origin
+    ( cd "$UPWC" && git reset -q --hard HEAD~1 && echo up > up.txt && git add up.txt \
+      && git commit -q -m up && git push -q -f origin main )
+    local tip; tip="$(git -C "$UPWC" rev-parse HEAD)"
+    _run
+    _stop_is 14 "conflict with main (git finds no conflict between ${PR_HEAD:0:7} and ${tip:0:7}); $R14_TODAY"
+}
+
+@test "#1125 R14: an unresolvable issue tree says the paths are unknown" {
+    _r14_origin
+    devagent_state_set "$STATE" worktree_path "$DEVAGENT_TMP/gone-wt"
+    _run
+    _stop_is 14 "conflict with main (conflicted paths unknown: cannot resolve the issue tree: active_tree_resolve: recorded worktree_path is not a usable git tree: $DEVAGENT_TMP/gone-wt — refusing to silently measure a different tree instead (#571/#148)); $R14_TODAY"
+}
+
+@test "#1125 config: bad merge_forward.verify dies at mergemr start, also with merge_mr false" {
+    _mf '"maybe"' -
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"merge_forward.verify must be \"ci\" or \"preship\" (got 'maybe'); fix [project.testproj.merge_forward] verify"* ]]
+        assert_step "$CL" 20 ' ' mergemr
+    done
+    [ "$(_calls mr-view)" -eq 0 ]
+}
+
+@test "#1125 config: append_only as a string dies at mergemr start" {
+    _mf '"ci"' '"CHANGELOG.md"'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"merge_forward.append_only must be an array of strings"*"fix [project.testproj.merge_forward] append_only"* ]]
+    [ "$(_calls mr-view)" -eq 0 ]
 }
 
 @test "#885 R15: red CI is [!] naming the failing check" {
@@ -1144,6 +1277,8 @@ _preship() {
     _view mergeable=CONFLICTING mergestate=DIRTY
     _run
     [ "$status" -eq 1 ]
+    # #1125: git itself finds no conflict here (the forge's word stands alone).
+    [ "$(_reason)" = "mergemr rule 14: conflict with main (git finds no conflict between ${PR_HEAD:0:7} and $(git -C "$upwc" rev-parse HEAD | cut -c1-7)); $R14_TODAY" ]
     ( cd "$SOURCE_DIR" && git fetch -q origin && git merge -q --no-edit origin/main )
     run "$DEVAGENT_ROOT/scripts/rebaseline.sh" "$TEST_PROJECT"
     echo "$output" >&2

@@ -3,7 +3,9 @@
 # the project approves it (permissions.merge_mr is exactly true, read directly, never
 # permission_gate: DA_YES and a TTY cannot open it) and only at the head the last
 # passing preship recorded (verified_head). Never waits: every read is bounded and a
-# run decides at once.
+# run decides at once. Rule 14 (#1125) also makes one fetch of default_baseline's
+# branch, bounded by DEVAGENT_MERGEMR_FETCH_SECS, and runs a local `git merge-tree`
+# that writes loose objects into the issue tree, to name the conflicted paths.
 #
 # It marks its own row BY NAME and ends one of four ways:
 #   [x] merged, [-] ship was skipped   exit 0 (also writes last_step/last_step_name)
@@ -18,7 +20,8 @@
 #
 # Knobs: DEVAGENT_MERGEMR_READ_SECS (20; the PR read, the re-read after a merge, each
 # dependency read), DEVAGENT_MERGEMR_MERGE_SECS (30; the merge call and the auto-merge
-# disable), DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace).
+# disable), DEVAGENT_MERGEMR_FETCH_SECS (20; rule 14's base fetch, #1125),
+# DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace).
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -34,6 +37,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/depends.sh"
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
 # shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/merge-forward.sh"   # #1125: rule 14's light remedy, rule 17
+# shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
@@ -41,6 +46,7 @@ source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 source "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 
 _die() { printf '%s\n' "$*" >&2; exit 1; }
+: "${DEVAGENT_GIT:=git}"
 
 project="${1:-}"
 [ -n "$project" ] || die "project required"
@@ -50,6 +56,7 @@ config_is_project "$project" || die "unknown project '$project'"
 # turns merging on (fail closed, Issue-780). Both are setter-globals: call bare.
 merge_checks_resolve "$project"
 merge_method_resolve "$project"
+merge_forward_resolve "$project"     # #1125: MF_VERIFY, MF_APPEND_ONLY
 
 trust_entry_check "mergemr" "$project"
 quarantine_guard "mergemr" "$project" "${2:-}"
@@ -327,8 +334,80 @@ fi
 if [ "$MV_MERGEABLE" = UNKNOWN ] || [ "$MV_MERGESTATE" = UNKNOWN ]; then      # rule 13
     _wait 13 "mergeability not computed yet"
 fi
-[ "$MV_MERGEABLE" != CONFLICTING ] \
-    || _stop 14 "conflict with $MV_BASE; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"   # rule 14
+# rule 14 (#1125 names the paths): git's own merge of verified_head and the base tip,
+# asked in the issue tree after one bounded fetch of the base. The light remedy
+# (preship-verified-head.sh forward) only when forward could accept it: verify = "ci",
+# every conflicted path in append_only with no merge driver, and no merge gate in mr.md.
+_r14() {
+    local today="merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    local why="" out rc=0 base_ref tip tmp p paths joined light=1 i
+    local -a mt=() attrs=()
+    if ! out="$( (active_tree_resolve "$project" "$issue_arg") 2>&1 >/dev/null)"; then
+        out="${out%%$'\n'*}"
+        _stop 14 "conflict with $MV_BASE (conflicted paths unknown: cannot resolve the issue tree: ${out#*: }); $today"
+    fi
+    active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )
+    local tree="$ACTIVE_TREE_DIR"
+    base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+    base_ref="${base_ref//$'\r'/}"
+    _ci_secs DEVAGENT_MERGEMR_FETCH_SECS 20
+    upstream_fetch_base "$tree" "$base_ref" "$_CI_SECS"
+    case "$BASE_FETCH" in
+        failed|notimeout) why="could not fetch '$BASE_FETCH_REMOTE' ($BASE_FETCH_WHY)" ;;
+    esac
+    if [ -z "$why" ]; then
+        tip="$("$DEVAGENT_GIT" -C "$tree" rev-parse --verify --quiet "${base_ref}^{commit}" 2>/dev/null)" \
+            || why="cannot resolve ${base_ref:-default_baseline}"
+    fi
+    if [ -z "$why" ]; then
+        tmp="$(mktemp)"
+        "$DEVAGENT_GIT" -C "$tree" merge-tree --write-tree --name-only -z "$verified_head" "$tip" >"$tmp" 2>/dev/null || rc=$?
+        mapfile -d '' mt <"$tmp"
+        rm -f "$tmp"
+        case "$rc" in
+            0) _stop 14 "conflict with $MV_BASE (git finds no conflict between ${verified_head:0:7} and ${tip:0:7}); $today" ;;
+            1) : ;;
+            *) why="git merge-tree exited $rc" ;;
+        esac
+    fi
+    [ -z "$why" ] || _stop 14 "conflict with $MV_BASE (conflicted paths unknown: $why); $today"
+
+    paths=()
+    for (( i = 1; i < ${#mt[@]}; i++ )); do
+        [ -n "${mt[i]}" ] || break
+        [[ "${mt[i]}" != *$'\n'* ]] \
+            || _stop 14 "conflict with $MV_BASE (conflicted paths unknown: a conflicted path contains a newline); $today"
+        paths+=("${mt[i]}")
+    done
+    mapfile -t paths < <(printf '%s\n' "${paths[@]}" | LC_ALL=C sort -u)
+    joined="${paths[0]}"
+    for p in "${paths[@]:1}"; do joined+=", $p"; done
+
+    [ "$MF_VERIFY" = ci ] || light=0
+    for p in "${paths[@]}"; do merge_forward_listed "$p" || light=0; done
+    if [ "$light" = 1 ]; then
+        tmp="$(mktemp)"; rc=0
+        "$DEVAGENT_GIT" -C "$tree" check-attr -z merge -- "${paths[@]}" >"$tmp" 2>/dev/null || rc=$?
+        mapfile -d '' attrs <"$tmp"
+        rm -f "$tmp"
+        if [ "$rc" -ne 0 ] || [ "${#attrs[@]}" -ne $(( 3 * ${#paths[@]} )) ]; then
+            light=0
+        else
+            for (( i = 2; i < ${#attrs[@]}; i += 3 )); do
+                ! merge_forward_driver "${attrs[i]}" || light=0
+            done
+        fi
+    fi
+    if [ "$light" = 1 ]; then
+        rc=0; merge_forward_gate "$issue_dir" || rc=$?
+        [ "$rc" -eq 1 ] || light=0
+    fi
+    if [ "$light" = 1 ]; then
+        _stop 14 "conflict only in $joined; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward"
+    fi
+    _stop 14 "conflict with $MV_BASE in $joined; $today"
+}
+[ "$MV_MERGEABLE" != CONFLICTING ] || _r14                                     # rule 14
 
 # rules 15-17: #782's verdict, unchanged. ci_gate does not apply here: merging is a
 # stronger act than reporting.
