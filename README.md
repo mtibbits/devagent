@@ -432,6 +432,14 @@ verifier does that too. In a single tree, `(unreachable)` needs the same step.
 `[upstream=unpushed]` (#660). With origin persistently unreachable, preship cannot
 pass, and neither can ship, which pushes to it.
 
+Before it dispatches the verifier, `/devagent:preship` runs a main-session preflight
+(#1122). `preship-evidence.sh --attestable-exit` exits 4 when the only failures are the
+attestations above, which the verifier supplies, so the step continues; any other
+failure stops it `[!]` before dispatch. `scripts/claims-check.sh` then reports `mr.md`
+claims that differ from the branch (test counts, suite totals, commit and file counts,
+cited commits), and the session corrects or logs each. Each pytest collection it runs is
+bounded by `DEVAGENT_COLLECT_TIMEOUT` seconds (default 30).
+
 **Declaring which platforms count (optional, #654).** `preship-evidence.sh` echoes
 the artifact's `platform:` line at the end of its PASS line as `[platform=…]`:
 `os=Linux … fs=ext4 modes=posix` from the WSL clone; `fs=9p` from a `/mnt/c`

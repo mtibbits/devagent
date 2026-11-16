@@ -47,7 +47,7 @@
 # these names instead of minting their own.
 #   Usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>']
 #                              [--attest-upstream '<attestation>']
-#                              [--attest-platform '<attestation>']
+#                              [--attest-platform '<attestation>'] [--attestable-exit]
 #   rung        one provenance check on the artifact. There are three: `tree` (the #571
 #               stamp), `upstream` (#660: what the producing tree's origin said about
 #               its branch), and `platform` (#654: where the artifact was produced,
@@ -69,6 +69,14 @@
 #   <RUNG> UNATTESTED   the failure tag (TREE UNATTESTED, UPSTREAM UNATTESTED,
 #               PLATFORM UNATTESTED) for a rung this environment cannot decide and no
 #               attestation covers. rc 1, like every fails+= entry.
+#   --attestable-exit   (#1122, opt-in; the main-session preflight of /devagent:preship
+#               passes it, the verifier never does) exit 4, not 1, when EVERY fails[]
+#               entry is an ABSENT attestation: TREE UNATTESTED or UPSTREAM UNATTESTED
+#               raised because no --attest-tree / --attest-upstream was supplied, which the
+#               verifier can attest. Exits with it: 0 pass, 4 attestation-absent only, 1
+#               any other failure or die (a refuted or malformed attestation, dirty=yes,
+#               PLATFORM, the #149 exit), 9/10/11 quarantine. stderr is byte-identical to
+#               the flag-less run, and without the flag nothing changes.
 #   --attest-<rung> '<attestation>'   the per-run input, also spelled
 #               --attest-<rung>=<attestation>.
 #               tree: exactly 'head=<full sha> dirty=no path=<the artifact's tree: path>'.
@@ -161,6 +169,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # positional [project] [issue] contract unchanged. ARGUMENTS, never env vars: no exported
 # value outlives the run it describes (vocabulary in the header).
 attest_tree=""; attest_upstream=""; attest_platform=""; _rep_flag=""; _rep_ref=""; _pos=()
+attestable_exit=false   # #1122 (header)
 _attest_take() {   # <flag> <value>: the ONE table of per-rung attestation flags
   local var form ref
   case "$1" in
@@ -179,6 +188,7 @@ while [ $# -gt 0 ]; do
       _attest_take "$1" "${2-}"; shift 2 ;;
     --attest-tree=*|--attest-upstream=*|--attest-platform=*)
       _attest_take "${1%%=*}" "${1#*=}"; shift ;;
+    --attestable-exit) attestable_exit=true; shift ;;
     --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] [--attest-upstream '<attestation>'] [--attest-platform '<attestation>'] (#655/#660/#654)" ;;
     *) _pos+=("$1"); shift ;;
   esac
@@ -229,6 +239,10 @@ _ep_where="[project.$project] evidence_platforms in $(config_path)"
 # a third argument, no-block: an acknowledgment cannot clear an mr.md with no Evidence
 # block, so there the UNATTESTED message offers remedies (1) and (2) only (imPlan D10).
 platform_unattested="PLATFORM UNATTESTED"
+# #1122: the absent-attestation marker (lib/evidence.sh, evidence_tree_rung, resets and
+# counts the tree's; the upstream rung below counts its own). Initialised HERE, before the
+# #149 exit can reach _fail_exit under set -u.
+EVIDENCE_ABSENT_ATTEST=0
 _platform_rung() {   # <artifact file> <its head: sha> [no-block]
   local art="$1" head="$2" no_block="${3:-}" body e decl n ack_head ack_body ack_remedy
   local ack_re='^head=([[:xdigit:]]+) platform=(.+)$'
@@ -285,10 +299,14 @@ _platform_rung() {   # <artifact file> <its head: sha> [no-block]
 # _qjoin <item...> - stdout: 'a', 'b', ... (the quoted list the failure messages name).
 _qjoin() { local o="" x; for x; do o+="${o:+, }'$x'"; done; printf '%s' "$o"; }
 # _fail_exit - report every fails[] entry and exit 1: the ONE FAIL report, for both exits.
+# #1122: with --attestable-exit, exit 4 when every entry is an absent attestation.
 _fail_exit() {
   local f
   printf 'preship-evidence: FAIL\n' >&2
   for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
+  if $attestable_exit && [ "${#fails[@]}" -ge 1 ] && [ "${#fails[@]}" -eq "$EVIDENCE_ABSENT_ATTEST" ]; then
+    exit 4
+  fi
   exit 1
 }
 # The #655 rule: an acknowledgment the rung did not need is warned about and ignored.
@@ -476,6 +494,7 @@ case "$a_upstream" in
       # step, after preship, so this is every forge-origin project's first-round state.
       upstream_verdict="unpushed"
     elif [ -z "$attest_upstream" ]; then
+      EVIDENCE_ABSENT_ATTEST=$((EVIDENCE_ABSENT_ATTEST + 1))   # #1122 (header)
       fails+=("$upstream_unattested — the artifact records upstream: $a_upstream, so run-suite could not compare the producing tree with origin's $_up_br ((unreachable): its bounded call to origin failed or timed out; (unpushed): origin has no such branch), and nothing shows that tree was not behind it (#660). Either make origin reachable, or push $_up_br, and re-run run-suite in the producing tree. Or check origin THERE (git -C '<tree>' rev-parse HEAD, and git -C '<tree>' ls-remote origin refs/heads/${a_branch:-<branch>}, which must exit 0) and re-run this check adding --attest-upstream 'head=<the sha rev-parse printed> upstream=<the sha ls-remote printed, or (unpushed) if it printed nothing>'. The rung is then attested by you, and an attestation binds to this artifact's head:, so every new artifact needs a new one.$_push_note")
     else
       _up_attest_used=true
