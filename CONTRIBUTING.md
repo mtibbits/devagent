@@ -81,8 +81,9 @@ so there is no list to maintain.
   severities are held to the same standard in review. Silence a finding with a
   targeted `# shellcheck disable=` and a reason, never a file-wide one.
 - **One change per PR.** Unrelated fixes go in their own PR, even when small.
-- **Docs travel with the change.** The README, `docs-site/`, and the
-  `commands/*.md` bodies are the user-facing homes; `docs/specs/` is the
+- **Docs travel with the change.** The README, `docs-site/`,
+  `docs/configuration.md`, `docs/concurrency.md` and the `commands/*.md`
+  bodies are the user-facing homes; `docs/specs/` is the
   design record. If a change alters what a command does, its body and the
   README's command table change in the same PR. Some documented totals are
   guarded by tests (`tests/cmd_wrappers.bats`) and will tell you. A change

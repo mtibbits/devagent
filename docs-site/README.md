@@ -1,13 +1,22 @@
 # docs-site — content-drift policy
 
-This directory holds the devAgent onboarding site: its content pages
-(Markdown `*.md` pages, and hand-written `*.html` pages, which the build also
-accepts), `moved.txt` (old page names and their new homes), `live.txt`
-(which family sites are live, and the counts pages may show) and, when one
-exists, an `assets/` folder. Nothing generated is committed.
+This directory holds the devAgent onboarding site: its content pages,
+`moved.txt` (old page names and their new homes), `live.txt` (which family
+sites are live, and the counts pages may show) and, when one exists, an
+`assets/` folder. The content pages are the index plus the pages its own list
+names (the one page list; see "Nav source" below), as Markdown `*.md` or
+hand-written `*.html`, which the build also accepts. Nothing generated is
+committed.
 `scripts/build-docs-site.sh` renders the pages at publish time. This file is
 the site's maintenance policy, not one of the pages: the build leaves
 `README.*` out of the published site (its content is public-safe either way).
+
+Reference material does not live here. The configuration and multi-project
+reference is `docs/configuration.md` and `docs/concurrency.md`, rendered by
+GitHub next to the spec and `docs/requirements.md`; `reference.md` links all
+four, and `moved.txt` keeps their 1.0 site URLs (`configuration.html`,
+`concurrency.html`) working as stubs. The two documents keep their line-1
+`derived-from` header, and `tests/docs-site.bats` still checks it.
 
 ## Derivation rule
 
@@ -45,19 +54,24 @@ Counts and versions are restated minimally, with the sources' exact tokens:
 
 ## Enforcement today
 
-`tests/docs-site.bats` is the enforcement: it pins the pages against their
-sources (drift on either side reddens), and its header comment — which lives
-next to the assertions and is edited with them — enumerates the pinned
-surface. Anything the suite does not pin is held only by the derivation rule
-above and by review.
+`tests/docs-site.bats` is the enforcement, and it pins **facts, not wording**:
+things that must stay true wherever they are written (the install commands
+match README, the workflow table derives from the checklist template, every
+backend verb is documented, the version homes agree), never a page's
+sentence. The checks are functions in `tests/lib/docs-site-checks.bash`, each
+taking its subject files, and every check has a mutation leg that breaks a copy
+and watches the same check fail. The test file's `@test` names list the facts; the
+library's PAGE PINS block lists the few that can only be checked through a
+sentence today, each with the issue that owns its page. Anything the suite
+does not pin is held only by the derivation rule above and by review.
 
 **A second suite reads these pages.** `tests/build-docs-site.bats` builds the
 site and derives expectations from the markdown: each page's code-fence count
 and `workflow.md`'s table rows must survive rendering, the two
 `claude plugin …` lines in `install.md` must appear verbatim in the HTML,
-`install.md`'s and `concurrency.md`'s H1s are pinned as page titles, and the
-site's navigation order is read from `index.md`'s "Where to go next" bullet
-list — which must stay a top-level `- [Title](./page.md)` list. Its
+`install.md`'s H1 is pinned as a page title, and the site's navigation order
+is the one page list, `index.md`'s own top-level bullet list — which must stay
+a top-level `- [Title](./page.md)` list. Its
 real-site legs also read `live.txt`: the expected top bar and footer are
 rendered from it, so flipping a site live moves them with the file. If no bullet
 is in that form the build refuses (exit 4); if a single bullet drifts, that
@@ -108,6 +122,11 @@ alphabetical (`LC_ALL=C`) order of base name across both kinds.
   on the next exits 4. Entries inside a comment or a `<pre>`, `<code>`, `<script>`,
   `<style>`, `<template>` or `<textarea>` are ignored.
 - A list that names no page exits 4, rather than publish an alphabetical nav.
+
+The same list is the site's **page list**: `tests/docs-site.bats` holds the
+directory's content pages equal to the index plus the pages it names. The build
+alone would append an unlisted page to the nav; the test fails it instead, so a
+new page is added by adding its bullet.
 
 **Asset folders.** `docs-site/assets/` is copied to `assets/` and
 `scripts/docs-site/static/` (the template's own files) to `static/`, byte for

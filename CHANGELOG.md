@@ -16,6 +16,15 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: the configuration and concurrency pages moved to `docs/` (#997).**
+  `docs-site/configuration.md` and `docs-site/concurrency.md` are now
+  `docs/configuration.md` and `docs/concurrency.md`, rendered by GitHub next to
+  the spec. Their old site URLs (`configuration.html`, `concurrency.html`) are
+  stubs linking there, and a short Reference page in the site's nav links them,
+  the design spec and `docs/requirements.md`. `tests/docs-site.bats` now pins
+  facts rather than page wording: its checks live in
+  `tests/lib/docs-site-checks.bash`, every check has a mutation leg, and the page
+  set is the index's own list.
 - **Added: the local code backend (#1016).** `code_source.backend = "local"`
   ships without a forge: nothing is pushed and `push_mr` is not asked; ship
   prints its plan and records a local MR under the source repo's git dir,

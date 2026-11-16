@@ -871,7 +871,7 @@ _declare() {
     local f t n=0 tag
     tag="$(_tag platform_unattested preship-evidence.sh)"
     [ "$tag" = "PLATFORM UNATTESTED" ]
-    local homes=(README.md CONTRIBUTING.md docs-site/configuration.md templates/config.toml.skel
+    local homes=(README.md CONTRIBUTING.md docs/configuration.md templates/config.toml.skel
                  docs/specs/2026-05-19-devagent-plugin-design.md CHANGELOG.md scripts/preship-evidence.sh)
     [ "${#homes[@]}" -eq 7 ]
     for f in "${homes[@]}"; do
@@ -879,6 +879,7 @@ _declare() {
     done
     [ "$(printf 'x TREE\n   UNATTESTED y\n' | tr -s '[:space:]' ' ' | grep -c 'TREE UNATTESTED')" -eq 1 ]   # planted control
     for f in "$DEVAGENT_ROOT"/README.md "$DEVAGENT_ROOT"/docs/specs/*.md "$DEVAGENT_ROOT"/docs-site/*.md \
+             "$DEVAGENT_ROOT"/docs/configuration.md "$DEVAGENT_ROOT"/docs/concurrency.md \
              "$DEVAGENT_ROOT"/skills/*/SKILL.md "$DEVAGENT_ROOT"/agents/*.md; do
         t="$(tr -s '[:space:]' ' ' < "$f")"
         if [[ "$t" == *"TREE UNATTESTED"* ]]; then
@@ -897,13 +898,13 @@ _declare() {
     [[ "$framing" == *"evidence_platforms"* ]]
 }
 
-@test "#654: the evidence_platforms example as written in config.toml.skel, README and docs-site pins modes=posix and is a declaration preship-evidence accepts" {
+@test "#654: the evidence_platforms example as written in config.toml.skel, README and docs/configuration.md pins modes=posix and is a declaration preship-evidence accepts" {
     # register Issue-461/583: a doc an operator copies is product behaviour; each home
     # carries an editor note naming this test. imPlan D12: the example pins modes=posix.
     local skel readme site d n=0 noop
     skel="$(sed -n 's/^# evidence_platforms = \(.*\)$/\1/p' "$DEVAGENT_ROOT/templates/config.toml.skel")"
     readme="$(sed -n 's/^evidence_platforms = \(.*\)$/\1/p' "$DEVAGENT_ROOT/README.md")"
-    site="$(sed -n 's/^# evidence_platforms = \(\[[^]]*\]\).*$/\1/p' "$DEVAGENT_ROOT/docs-site/configuration.md")"
+    site="$(sed -n 's/^# evidence_platforms = \(\[[^]]*\]\).*$/\1/p' "$DEVAGENT_ROOT/docs/configuration.md")"
     _art654 "$WSL_EXT4"
     _mr654 "$WSL_EXT4"                                # b': declared, so the Evidence line is required
     for d in "$skel" "$readme" "$site"; do
