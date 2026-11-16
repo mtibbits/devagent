@@ -2461,8 +2461,19 @@ region_of() {
   awk -v f="$first" -v n="$n" 'c == 0 && !done && $0 == f { c = n } c > 0 { print; c--; if (c == 0) done = 1 }' "$1"
 }
 
+# partial_live_lines <partial>... — live.txt's live lines whose key one of the
+# given partials uses. Site keys (the landing page's rung-* and blazeahead) are
+# no partial's business, and their URLs may carry a # fragment.
+partial_live_lines() {
+  local line k
+  while IFS= read -r line; do
+    read -r _ k _ <<<"$line"
+    if grep -qF "{{live:$k|" "$@"; then printf '%s\n' "$line"; fi
+  done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+}
+
 # expect_region <partial> — the partial's lines 2 to its end, each live
-# placeholder rendered from docs-site/live.txt.
+# placeholder rendered from docs-site/live.txt (the keys the partial uses).
 expect_region() {
   local sedargs=() k state url
   while read -r _ k state url; do
@@ -2471,7 +2482,7 @@ expect_region() {
     else
       sedargs+=(-e "s#{{live:$k|\\([^}]*\\)}}#<span class=\"family-coming\">\\1 <small>coming</small></span>#g")
     fi
-  done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+  done < <(partial_live_lines "$1")
   [ "${#sedargs[@]}" -gt 0 ] || return 1
   sed -n '2,$p' "$1" | sed "${sedargs[@]}"
 }
@@ -2507,8 +2518,11 @@ expect_region() {
   # today's settings (child 11 flips these when the sites go live)
   grep -qE '^live gantry no ' "$LIVE_TXT"
   grep -qE '^live learn no ' "$LIVE_TXT"
-  local content=() p k state url label li yes=0 no=0 region
+  local content=() p k state url label li yes=0 no=0 region keys
   mapfile -t content < <(real_content)
+  # the keys the top bar uses (site keys render in their own pages' tests)
+  keys="$(partial_live_lines "$FAMILY_STATIC/family-topbar.html")"
+  [ "$(grep -c . <<<"$keys")" -ge 3 ]
   for p in "${content[@]}"; do
     region="$(region_of "$REAL_OUT/$p.html" "$FAMILY_STATIC/family-topbar.html")"
     while read -r _ k state url; do
@@ -2525,7 +2539,7 @@ expect_region() {
         [[ $li == *"href=\"$url\""* ]] || { echo "$p.html: $k is live but its <li> lacks href=\"$url\": $li" >&2; return 1; }
         yes=$((yes + 1))
       fi
-    done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+    done <<<"$keys"
   done
   [ "$yes" -ge "${#content[@]}" ]
   [ "$no" -ge "${#content[@]}" ]

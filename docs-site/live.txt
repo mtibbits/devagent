@@ -42,4 +42,17 @@
 live devagent yes index.html
 live gantry no https://mtibbits.github.io/gantry/
 live learn no https://mtibbits.github.io/journeyman/
-count requirements ../docs/requirements.md ^- [A-Z][A-Z0-9]*-[1-9][0-9]*:
+# The requirement count reads docs/requirements.md as tests/test_own_requirements.py
+# does: a column-0 "-", "*" or "+" item whose ID has one of the requirement layer
+# codes. tests/test_own_requirements.py pins this rule to that reader.
+count requirements ../docs/requirements.md ^[-*+][ \t]+(?:BRule|UC|SR|FR|QA|EI|CON)-[1-9][0-9]{0,8}:
+
+# Site keys: used only by this site's own pages (the landing page), never by the
+# partials, so adding one is not a family version change. The landing page's
+# start-small strip reads the rung-* keys and its family strip reads blazeahead
+# (and gantry). A URL on a "no" line is never published: the filler writes no link.
+live rung-disk no https://mtibbits.github.io/journeyman/
+live rung-queue yes https://github.com/mtibbits/devagent/blob/master/README.md#the-25-step-workflow
+live rung-projects yes https://github.com/mtibbits/devagent/blob/master/README.md#concurrent-sessions
+live rung-shared no https://mtibbits.github.io/journeyman/
+live blazeahead no https://mtibbits.github.io/blazeahead/
