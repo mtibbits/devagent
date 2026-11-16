@@ -189,7 +189,7 @@ while [ $# -gt 0 ]; do
     --attest-tree=*|--attest-upstream=*|--attest-platform=*)
       _attest_take "${1%%=*}" "${1#*=}"; shift ;;
     --attestable-exit) attestable_exit=true; shift ;;
-    --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] [--attest-upstream '<attestation>'] [--attest-platform '<attestation>'] (#655/#660/#654)" ;;
+    --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] [--attest-upstream '<attestation>'] [--attest-platform '<attestation>'] [--attestable-exit] (#655/#660/#654/#1122)" ;;
     *) _pos+=("$1"); shift ;;
   esac
 done

@@ -190,8 +190,6 @@ fi
 fetch_timeout="${DEVAGENT_FETCH_TIMEOUT:-30}"
 [[ "$fetch_timeout" =~ ^[1-9][0-9]*$ ]] \
   || die "run-suite: DEVAGENT_FETCH_TIMEOUT must be a positive integer (seconds), got '$fetch_timeout' — it bounds the fetch that decides whether the measured tree is behind origin (#660). Unset it for the default, 30."
-# The one-run control variables no suite child may inherit: SUITE_CHILD_UNSET, ONE list in
-# lib/config.sh for both children here and claims-check.sh's collection (#1122).
 
 cd "$work_dir"
 

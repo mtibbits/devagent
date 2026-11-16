@@ -66,10 +66,11 @@ evidence_platform_check() {
 #                  a MEASURED zero rather than an absent framework: a false green
 #                  (#572 redmr MINOR-5).
 # One representation, both sides — mirrored in templates/mr_template.md,
-# skills/core-draft-mr/SKILL.md and agents/preship-verifier.md, which move in the same
-# commit. An (error) artifact contributes no parts entry, so the line still reconstructs
-# from whatever else is present and the checker reports the suite-line verdict ALONGSIDE
-# the (error) verdict rather than instead of it.
+# skills/core-draft-mr/SKILL.md, agents/preship-verifier.md and the RE_EV* parser in
+# scripts/claims-check.sh (#1122), which move in the same commit. An (error) artifact
+# contributes no parts entry, so the line still reconstructs from whatever else is present
+# and the checker reports the suite-line verdict ALONGSIDE the (error) verdict rather than
+# instead of it.
 evidence_suite_resolve() {
   local artifact="$1" unparseable p joined=""
   local -a parts=()

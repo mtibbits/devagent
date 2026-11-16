@@ -66,11 +66,11 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
 
 @test "evidence: an older preship.md moves to analysis/<date>-<HHMMSS>-preship-superseded.md and is logged" {
   echo 'old verdict: PASS' > "$ISSUE_DIR/preship.md"
-  STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - x\n' _pf evidence
+  DEVAGENT_DATE_OVERRIDE=2026-07-09 STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - x\n' _pf evidence
   [ "$status" -eq 1 ]
   [ ! -e "$ISSUE_DIR/preship.md" ]
   local moved; moved="$(cd "$ISSUE_DIR" && ls analysis/*-preship-superseded.md)"
-  [[ "$moved" =~ ^analysis/[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-preship-superseded\.md$ ]]
+  [[ "$moved" =~ ^analysis/2026-07-09-[0-9]{6}-preship-superseded\.md$ ]]   # date_tag's #338 freeze
   [ "$(cat "$ISSUE_DIR/$moved")" = 'old verdict: PASS' ]
   _log | grep -qF "preship: preflight: moved preship.md to $moved"
   echo 'kept' > "$ISSUE_DIR/preship.md"

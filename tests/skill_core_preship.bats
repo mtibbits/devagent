@@ -129,7 +129,7 @@ PF='bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh"'
 
 @test "preflight: an evidence stop moves an existing preship.md to analysis/<date>-<HHMMSS>-preship-superseded.md and logs it (#1122)" {
   _preflight | grep -qF 'analysis/<date>-<HHMMSS>-preship-superseded.md'
-  grep -qF 'sup="analysis/$(date +%F-%H%M%S)-preship-superseded.md"' "$BATS_TEST_DIRNAME/../scripts/preship-preflight.sh"
+  grep -qF 'sup="analysis/$(date_tag)-$(date +%H%M%S)-preship-superseded.md"' "$BATS_TEST_DIRNAME/../scripts/preship-preflight.sh"
 }
 
 @test "preflight: no run-suite.sh or evidence-stamp.sh (#1122)" {

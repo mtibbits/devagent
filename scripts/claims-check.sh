@@ -43,6 +43,9 @@
 # git as a revision. Git calls that carry an mr.md token run with GIT_NO_LAZY_FETCH=1
 # (git 2.44+ honours it). Stated blind spot: in a partial clone on git <= 2.43 a lazy
 # fetch stays possible on such a call.
+#
+# LABELS. S1-S3, F1-F4, C1, C2, D1, D2, H1 and H2 are the recognised forms (the RE_*
+# below); T1-T9, A1-A12, U6 and "decision N" cite the rows of Issue-1122's imPlan.md.
 set -euo pipefail
 export LC_ALL=C
 
@@ -78,6 +81,7 @@ _usage_exit() { trap - EXIT; printf 'claims-check: %s\n%s\n' "$1" "$usage" >&2; 
 # _cnr <reason> - could not run: exit 1 with the one stderr shape, stdout empty.
 _cnr() { trap - EXIT; printf 'claims-check: COULD NOT RUN — %s\n' "$1" >&2; exit 1; }
 # Any exit other than _finish, _usage_exit or _cnr (a lib die, an errexit) becomes 1.
+# shellcheck disable=SC2317  # invoked by the EXIT trap
 _on_exit() {
   local rc=$?
   trap - EXIT
@@ -184,8 +188,9 @@ RE_JOINT='^([[:space:]]|,|&|[+])*(and)?([[:space:]]|,|&|[+])*$'
 RE_EARLIER='(baseline|pre-branch|before|previously|earlier|was|were)'
 RE_PARTIAL='(-k |--filter|subset|partial|only )'
 # A per-file count in a sentence that also counts skips or xfails is a pass count, not the
-# file's size (the final code review's fourth finding): NOT CHECKED, never compared with @test blocks or collected ids.
+# file's size: NOT CHECKED, never compared with @test blocks or collected ids.
 RE_SKIPS='(skip|xfail|xpass|deselect)'
+# shellcheck disable=SC2016  # the backticks are literal markdown, not a command
 RE_AT='(^|[^[:alnum:]])([Aa]t|@)[[:space:]]+`?([^`[:space:],;:)]+)`?'
 RE_HEX='^[0-9a-f]{7,40}$'
 RE_FENCE='^[[:space:]]*(```|~~~)'
@@ -205,6 +210,7 @@ RE_AB="${RE_NUM}/${RE_NUMG}"
 RE_T2='^[[:space:]]+(tests?|cases?)([^[:alnum:]]|$)'
 RE_NOUN='^[[:space:]]+([A-Za-z]+)'
 S2_WORDS=' passed pass passes passing green ok at in on and plus with '
+# shellcheck disable=SC2016  # the backticks are literal markdown, not a command
 RE_AFTER='(^|[^[:alnum:]])[Aa]fter([[:space:]]+[A-Za-z0-9_'"'"'-]+){1,4}[[:space:]]*\([[:space:]]*`?([0-9a-f]{7,40})`?[[:space:]]*\)'
 RE_EVLINE='^suite:[[:space:]]*(.*)$'
 # Commit and file counts. C1 only in a sentence that names the branch or its sign-off.
@@ -219,6 +225,7 @@ RE_URL='https?://[^[:space:])>]+'
 # The sign-off box: a ticked list item naming the sign-off, on a line without `not ` or
 # `unsigned`.
 RE_B1='^[[:space:]]*[-*+][[:space:]]+(\[[xX]\][[:space:]].*([Ss]igned[- ]off|DCO).*)$'
+# shellcheck disable=SC2016  # the backticks are literal markdown, not a command
 RE_H1='`([0-9a-f]{7,40})`'
 RE_H2='(^|[[:space:]([])([0-9a-f]{7,40})([][:space:]).,;:]|$)'
 RE_EVAT='^(.+) @ ([0-9a-f]{40})$'
@@ -340,12 +347,12 @@ _bats_count() {
   if [ -n "${BCACHE[$key]+x}" ]; then BC="${BCACHE[$key]}"; return 0; fi
   content="$(_gitt cat-file -p "$1:$2")" || _cnr "git cat-file -p ${1:0:12}:$2 failed in $work_dir"
   while IFS= read -r l; do
-    if [[ "$l" =~ $RE_TEST ]]; then n=$((n + 1)); fi
+    if [[ "$l" == *@test* ]] && [[ "$l" =~ $RE_TEST ]]; then n=$((n + 1)); fi
   done <<<"$content"
   BCACHE[$key]=$n; BC=$n
 }
 
-# _bats_claim <L> <claim> <N> <path token> <text before the count> - one bats per-file
+# _bats_claim <L> <claim> <path token> <text before the count> <N> - one bats per-file
 # count: qualifiers, then the path, then the commit, then the count.
 _bats_claim() {
   local L="$1" claim="$2" path="$3" before="$4" n="$5" rev basis rc
@@ -465,14 +472,14 @@ _pytest_claim() {
 # The window W runs from P's end (past its backtick) to the next P-shaped token, a `;`
 # or the sentence end, at most 40 bytes, and must open with the connector.
 _scan_counts() {
-  local L="$1" s="$2" k np pstart pend p cls after lim w conn r n cpos cend cstart claim bd before between
+  local L="$1" s="$2" k np pstart pend p cls kind after lim w conn r n cpos cend cstart claim bd before between
   _p_spans "$s"
   local -a ps=("${P_S[@]+"${P_S[@]}"}") pe=("${P_E[@]+"${P_E[@]}"}")
   np=${#ps[@]}
   for ((k = 0; k < np; k++)); do
     pstart=${ps[k]}; pend=${pe[k]}; p="${s:pstart:pend-pstart}"
     _class "$p"; cls="$CLS"
-    [ -n "$cls" ] || continue
+    case "$cls" in bats) kind=bats-count ;; pytest) kind=pytest-count ;; '') continue ;; *) kind=test-count ;; esac
     after=$pend; [ "${s:after:1}" != '`' ] || after=$((after + 1))
     # T3: P directly followed by ':' and a digit is a file:line citation (A10).
     if [[ "${s:pend:2}" =~ ^:[0-9] ]] || [[ "${s:after:2}" =~ ^:[0-9] ]]; then continue; fi
@@ -500,7 +507,7 @@ _scan_counts() {
         _class "${s:ps[k-1]:pe[k-1]-ps[k-1]}"
         if [ -n "$CLS" ] && [[ "$between" =~ $RE_JOINT ]]; then
           PF_SEEN=1                       # a per-file recognition all the same (A9)
-          _nc "$L" "$(_kind "$cls")" "$claim" "count for several files"; continue
+          _nc "$L" "$kind" "$claim" "count for several files"; continue
         fi
       fi
     else
@@ -513,17 +520,15 @@ _scan_counts() {
     fi
     PF_SEEN=1
     if [[ "$s" =~ $RE_SKIPS ]] && [ "$cls" != other ]; then
-      _nc "$L" "$(_kind "$cls")" "$claim" "the line counts skipped or xfailed tests apart"; continue
+      _nc "$L" "$kind" "$claim" "the line counts skipped or xfailed tests apart"; continue
     fi
     case "$cls" in
       bats)   _bats_claim "$L" "$claim" "$p" "${s:0:cpos}" "$n" ;;
       pytest) _pytest_claim "$L" "$claim" "$p" "${s:0:cpos}" "$n" ;;
-      other)  _nc "$L" test-count "$claim" "another framework" ;;
+      other)  _nc "$L" "$kind" "$claim" "another framework" ;;
     esac
   done
 }
-# _kind <class> - the report kind of a per-file count.
-_kind() { case "$1" in bats) echo bats-count ;; pytest) echo pytest-count ;; *) echo test-count ;; esac; }
 
 # ---- suite totals (imPlan "Suite total") -------------------------------------------------
 # _mask <var> <start> <end> - overwrite [start,end) of the named string with '#', so the
@@ -601,8 +606,9 @@ _ev_need() {
   esac
 }
 # _total_qual <sentence> <offset of the count> [s2] - TQ: the NOT CHECKED reason from a
-# total's qualifiers, in the order earlier, partial, fix 2 (S2 only), at-commit (A6). Any
-# at-commit qualifier, the word HEAD and the HEAD sha included, is "measured at <tok>".
+# total's qualifiers, in the order earlier, partial, `after … (<sha>)` (S2 only),
+# at-commit (A6). Any at-commit qualifier, the word HEAD and the HEAD sha included, is
+# "measured at <tok>".
 _total_qual() {
   TQ=""
   _qual "${1:0:$2}"
@@ -610,6 +616,16 @@ _total_qual() {
   if [ "${3:-}" = s2 ] && [[ "$1" =~ $RE_AFTER ]]; then TQ="measured at ${BASH_REMATCH[3]}"; return 0; fi
   if [ -n "$AT_TOK" ]; then TQ="measured at $AT_TOK"; fi
 }
+# _total_gate <L> <sentence> <offset> <claim> <bats|pytest|any> [s2] - return 1, after
+# printing its NOT CHECKED line, when a qualifier or the Evidence suite: line rules the
+# total out.
+_total_gate() {
+  _total_qual "$2" "$3" "${6:-}"
+  if [ -n "$TQ" ]; then _nc "$1" suite-total "$4" "$TQ"; return 1; fi
+  _ev_need "$5"
+  if [ -n "$EVW" ]; then _nc "$1" suite-total "$4" "$EVW"; return 1; fi
+}
+_cmp_total() { [ "$3" = "$4" ] || _mm "$1" suite-total "$2" "$3" "$4" "Evidence suite:"; }
 
 # _scan_totals <L> <sentence> - S1, S2, then S3 when neither consumed the sentence. Read
 # only in a sentence with no per-file claim (any F1-F4 recognition, A9).
@@ -622,13 +638,10 @@ _scan_totals() {
     m="${BASH_REMATCH[0]}"; g1="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"; b="${BASH_REMATCH[3]}"
     pre="${w%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ${#pre} + ${#m} ))
     _mask w "$ns" "$ke"; consumed=1; claim="${s:ns:ke-ns}"
-    _total_qual "$s" "$ns"
-    if [ -n "$TQ" ]; then _nc "$L" suite-total "$claim" "$TQ"; continue; fi
-    _ev_need bats
-    if [ -n "$EVW" ]; then _nc "$L" suite-total "$claim" "$EVW"; continue; fi
+    _total_gate "$L" "$s" "$ns" "$claim" bats || continue
     _num "$a"; a="$NUM"; _num "$b"; b="$NUM"
     _counted suite-total
-    [ "$a/$b" = "$EV_OK/$EV_PLAN" ] || _mm "$L" suite-total "$claim" "$a/$b" "$EV_OK/$EV_PLAN" "Evidence suite:"
+    _cmp_total "$L" "$claim" "$a/$b" "$EV_OK/$EV_PLAN"
   done
   w="$s"
   while [[ "$w" =~ $RE_S2 ]]; do                                   # S2: <n> pytest
@@ -636,19 +649,16 @@ _scan_totals() {
     pre="${w%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ns + ${#n} + 7 ))
     _mask w "$ns" "$ke"; rest="${s:ke}"
     # Not a claim: T8 `pytest-`, T2 `pytest test(s)/case(s)`, T8 an unlisted noun after
-    # pytest (a miss, never a report), fix 1 a quote inside an inline code span.
+    # pytest (a miss, never a report), a quote inside an inline code span.
     if [[ "$rest" == -* ]] || [[ "$rest" =~ $RE_T2 ]]; then continue; fi
     if [[ "$rest" =~ $RE_NOUN ]] && [[ "$S2_WORDS" != *" ${BASH_REMATCH[1]} "* ]]; then continue; fi
     if ! $cs; then _code_spans "$s"; cs=true; fi
     if _in_code "$ns"; then continue; fi
     consumed=1; claim="${s:ns:ke-ns}"
-    _total_qual "$s" "$ns" s2
-    if [ -n "$TQ" ]; then _nc "$L" suite-total "$claim" "$TQ"; continue; fi
-    _ev_need pytest
-    if [ -n "$EVW" ]; then _nc "$L" suite-total "$claim" "$EVW"; continue; fi
+    _total_gate "$L" "$s" "$ns" "$claim" pytest s2 || continue
     _num "$n"
     _counted suite-total
-    [ "$NUM" = "$EV_PY" ] || _mm "$L" suite-total "$claim" "$NUM" "$EV_PY" "Evidence suite:"
+    _cmp_total "$L" "$claim" "$NUM" "$EV_PY"
   done
   [ "$consumed" -eq 0 ] || return 0
   [[ "${s,,}" =~ $RE_S3 ]] || return 0                             # S3: the whole suite
@@ -661,16 +671,13 @@ _scan_totals() {
     return 0
   fi
   pre="${s%%"$m"*}"; ns=$(( ${#pre} + ${#g1} )); ke=$(( ${#pre} + ${#m} )); claim="${s:ns:ke-ns}"
-  _total_qual "$s" "$ns"
-  if [ -n "$TQ" ]; then _nc "$L" suite-total "$claim" "$TQ"; return 0; fi
-  _ev_need "${lab:-any}"
-  if [ -n "$EVW" ]; then _nc "$L" suite-total "$claim" "$EVW"; return 0; fi
+  _total_gate "$L" "$s" "$ns" "$claim" "${lab:-any}" || return 0
   _num "$a"; a="$NUM"; [ -z "$b" ] || { _num "$b"; b="$NUM"; }
   _counted suite-total
   case "$lab:$form" in
-    bats:ab)  [ "$a/$b" = "$EV_OK/$EV_PLAN" ] || _mm "$L" suite-total "$claim" "$a/$b" "$EV_OK/$EV_PLAN" "Evidence suite:" ;;
-    bats:n)   [ "$a" = "$EV_PLAN" ] || _mm "$L" suite-total "$claim" "$a" "$EV_PLAN" "Evidence suite:" ;;
-    pytest:*) x="${b:-$a}"; [ "$x" = "$EV_PY" ] || _mm "$L" suite-total "$claim" "$x" "$EV_PY" "Evidence suite:" ;;
+    bats:ab)  _cmp_total "$L" "$claim" "$a/$b" "$EV_OK/$EV_PLAN" ;;
+    bats:n)   _cmp_total "$L" "$claim" "$a" "$EV_PLAN" ;;
+    pytest:*) x="${b:-$a}"; _cmp_total "$L" "$claim" "$x" "$EV_PY" ;;
     *)
       # Unlabelled (Issue-118): reported only when it equals none of the bats plan, the
       # pytest n and their sum. Evidence figures are <= 9 digits, so the sum is exact.
@@ -856,9 +863,11 @@ _scan_signoff() {
 _scan_sentence() {
   PF_SEEN=0
   _at_commit "$2"
-  _scan_counts "$1" "$2"
-  _scan_totals "$1" "$2"
-  _scan_commits "$1" "$2"
+  if [[ "$2" == *[0-9]* ]]; then             # every count, total and commit form has one
+    _scan_counts "$1" "$2"
+    _scan_totals "$1" "$2"
+    _scan_commits "$1" "$2"
+  fi
   _scan_cited "$1" "$2"
 }
 

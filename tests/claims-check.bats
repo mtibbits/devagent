@@ -18,7 +18,6 @@ setup() {
     HEAD_SHA="$(git rev-parse HEAD)"
     ST="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     devagent_state_set "$ST" baseline_sha "$BASELINE"
-    devagent_state_set "$ST" branch main
     mkdir -p "$DEVDOC_DIR/Issue-1/analysis"
 }
 teardown() { devagent_test_teardown; }

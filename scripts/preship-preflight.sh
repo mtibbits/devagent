@@ -43,6 +43,8 @@ SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
 . "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=lib/history.sh
+. "$DEVAGENT_ROOT/scripts/lib/history.sh"
 
 usage="usage: preship-preflight.sh evidence|claims|prior <L>|save <L>|log <kind> [<L>] <project> <Issue-N> <issue-dir>"
 _usage() { printf 'preship-preflight: %s\n%s\n' "$1" "$usage" >&2; exit 2; }
@@ -75,6 +77,15 @@ _line() {
     if [ "$i" -eq "$1" ]; then LINE="${l%$'\r'}"; return 0; fi
   done < "$mr"
 }
+# _first <file> - FIRST: the file's first non-empty line ("" when none, or no file).
+_first() {
+  local l
+  FIRST=""
+  [ -f "$1" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    if [ -n "$l" ]; then FIRST="$l"; return 0; fi
+  done < "$1"
+}
 _log() { bash "$SCRIPTS/checklist-log.sh" "$issue_dir" preship "$1"; }
 
 base="${TMPDIR:-/tmp}/devagent-preflight-$(id -u)"
@@ -82,6 +93,7 @@ state="$base/$project/$issue"
 # The per-user base is private (700) and must be ours; everything below inherits that.
 _state_ready() {
   mkdir -m 700 "$base" 2>/dev/null || true
+  # shellcheck disable=SC2015  # die exits: a guard, not an if-then-else
   [ -d "$base" ] && [ -O "$base" ] && [ ! -L "$base" ] \
     || die "preflight state dir $base is missing, a symlink, or not owned by $(id -un)"
   mkdir -p "$state"
@@ -104,15 +116,11 @@ case "$sub" in
             '  - '*) if [ -z "$first" ]; then first="${l#  - }"; else more=$((more + 1)); fi ;;
           esac
         done < "$state/evidence.err"
-        if [ -z "$first" ]; then
-          while IFS= read -r l || [ -n "$l" ]; do
-            if [ -n "$l" ]; then first="$l"; break; fi
-          done < "$state/evidence.err"
-        fi
+        if [ -z "$first" ]; then _first "$state/evidence.err"; first="$FIRST"; fi
         [ -n "$first" ] || first='(no stderr)'
         [ "$more" -eq 0 ] || first="$first (+$more more)"
         if [ -f "$issue_dir/preship.md" ]; then
-          sup="analysis/$(date +%F-%H%M%S)-preship-superseded.md"
+          sup="analysis/$(date_tag)-$(date +%H%M%S)-preship-superseded.md"
           mkdir -p "$issue_dir/analysis"
           mv -- "$issue_dir/preship.md" "$issue_dir/$sup"
           _log "preflight: moved preship.md to $sup"
@@ -135,9 +143,9 @@ case "$sub" in
   prior)
     _line_arg "${1:-}"; _line "$1"
     want="claims: mr.md:$1 left as written: '$(_t "$LINE")' — "
-    while IFS= read -r l; do
-      if [[ "$l" == *"  preship: $want"* ]]; then printf 'prior: %s\n' "$l"; exit 0; fi
-    done < "$issue_dir/checklist.md"
+    while IFS='|' read -r ts _iss step msg; do
+      if [ "$step" = preship ] && [[ "$msg" == "$want"* ]]; then printf 'prior: %s  %s: %s\n' "$ts" "$step" "$msg"; exit 0; fi
+    done < <(history_parse_log "$issue_dir/checklist.md" "$issue")
     printf 'prior: no prior decision for mr.md:%s\n' "$1"
     exit 1 ;;
   save)
@@ -161,13 +169,8 @@ case "$sub" in
         _line_arg "${1:-}"; _line "$1"
         msg="claims: mr.md:$1 unresolved after run $(_get runs 0): '$(_t "$LINE")'" ;;
       could-not-run)
-        first=""
-        if [ -f "$state/claims.err" ]; then
-          while IFS= read -r l || [ -n "$l" ]; do
-            if [ -n "$l" ]; then first="$l"; break; fi
-          done < "$state/claims.err"
-        fi
-        msg="claims: could not run (exit $(_get rc '(none)')): ${first:-(no stderr)}; verifier dispatched" ;;
+        _first "$state/claims.err"
+        msg="claims: could not run (exit $(_get rc '(none)')): ${FIRST:-(no stderr)}; verifier dispatched" ;;
       preflight)
         sum=""
         if [ -f "$state/claims.out" ]; then

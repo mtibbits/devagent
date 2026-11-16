@@ -1005,8 +1005,10 @@ _case1122() {
         [ "$status" -eq "$rc1" ] || { echo "$name: with-flag rc $status, want $rc1"; echo "$stderr"; return 1; }
         [ "$stderr" = "$err0" ] || { echo "$name: stderr differs"; diff <(echo "$err0") <(echo "$stderr"); return 1; }
         [ "$output" = "$out0" ] || { echo "$name: stdout differs"; return 1; }
-        # Each row starts from a pristine config (the platform rows declare).
-        devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.evidence_platforms"   # #335: never sed -i on TOML
+        # Each row starts from a pristine config: undo the rows that declare.
+        case "$name" in tree-platform|platform|no-block)
+            devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.evidence_platforms" ;;   # #335: never sed -i on TOML
+        esac
     done
 }
 
