@@ -18,6 +18,9 @@ Usage:
       document order.
   landing-check.py links --within <id> <html>
       the href of each <a> in that subtree, one per line, in document order.
+  landing-check.py linked-coming [--article] <html>
+      the text of each <span class="family-coming"> that sits inside an <a>,
+      one per line, in document order (a not-live item must never link).
   landing-check.py loop <html>
       TSV, one row per phase in document order, inside the element id=loop:
         svg<TAB><id><TAB><name><TAB><steps-label>
@@ -209,6 +212,20 @@ def cmd_codes(args):
             for ln in raw_text(n, skip=()).split("\n") if ln.strip()]
 
 
+def cmd_linked_coming(args):
+    use_article = False
+    if args and args[0] == "--article":
+        args.pop(0)
+        use_article = True
+    if len(args) != 1:
+        raise Usage("linked-coming takes [--article] <html>")
+    node = parse(args[0])
+    if use_article:
+        node = article(node)
+    return [text_of(s) for a in walk(node) if a.tag == "a"
+            for s in walk(a) if s.tag == "span" and s.has_class("family-coming")]
+
+
 def cmd_links(args):
     if len(args) != 3 or args[0] != "--within":
         raise Usage("links takes --within <id> <html>")
@@ -244,13 +261,14 @@ def cmd_loop(args):
     return rows
 
 
-COMMANDS = {"text": cmd_text, "codes": cmd_codes, "links": cmd_links, "loop": cmd_loop}
+COMMANDS = {"text": cmd_text, "codes": cmd_codes, "links": cmd_links,
+            "linked-coming": cmd_linked_coming, "loop": cmd_loop}
 
 
 def main(argv):
     try:
         if len(argv) < 2 or argv[1] not in COMMANDS:
-            raise Usage("usage: landing-check.py text|codes|links|loop ... <html>")
+            raise Usage("usage: landing-check.py text|codes|links|linked-coming|loop ... <html>")
         out = COMMANDS[argv[1]](argv[2:])
     except (Usage, Absent) as e:
         print(f"{PROG}: {e}", file=sys.stderr)

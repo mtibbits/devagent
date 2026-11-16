@@ -393,6 +393,10 @@ lc_lacks() {
   [[ "$output" == *"no element id=loop"* ]]
   run landing_py nope "$f"
   [ "$status" -eq 2 ]
+  f="$(lc_page '<p><a href="x"><span class="family-coming">G <small>coming</small></span></a> <span class="family-coming">B <small>coming</small></span></p>')"
+  run landing_py linked-coming "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = 'G coming' ]
 }
 
 @test "mutation: page set" {
@@ -633,6 +637,9 @@ lc_lacks() {
   holds check_live_items "$live" "$WEB/index.html" "$f"
   edit "$f" '<span class="family-coming">Gantry <small>coming</small></span>' '<a href="x">Gantry</a>'
   breaks 'gantry' check_live_items "$live" "$WEB/index.html" "$f"
+  f="$(filled_index)"
+  edit "$f" '<span class="family-coming">Gantry <small>coming</small></span>' '<a href="x"><span class="family-coming">Gantry <small>coming</small></span></a>'
+  breaks 'inside a link: Gantry coming' check_live_items "$live" "$WEB/index.html" "$f"
   f="$(filled_index)"
   plant "$f" '<p>More <small>coming</small></p>'
   breaks 'coming' check_live_items "$live" "$WEB/index.html" "$f"

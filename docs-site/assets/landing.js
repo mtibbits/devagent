@@ -2,7 +2,8 @@
    With scripts off the page is complete: every phase list is open, the
    buttons are disabled and the commands are selectable text. This script
    enables the copy buttons, collapses the phase lists, enables "Show me every
-   step", and makes each phase of the loop diagram open its own list. */
+   step", and makes each phase of the loop diagram open its own list. A link
+   to #phase-<id> keeps that phase's list open. */
 (function () {
   'use strict';
 
@@ -23,6 +24,7 @@
       var timer = 0;
       if (!code) { return; }
       button.disabled = false;
+      button.setAttribute('aria-live', 'polite');
       button.addEventListener('click', function () {
         var text = code.textContent;
         var copied = function () {
@@ -42,10 +44,11 @@
 
   function initLoop() {
     var loop = document.getElementById('loop');
-    var lists, all;
+    var lists, all, target;
     if (!loop) { return; }
     lists = loop.querySelectorAll('details');
-    each(lists, function (d) { d.open = false; });
+    target = location.hash.indexOf('#phase-') === 0 && document.getElementById(location.hash.slice(1));
+    each(lists, function (d) { d.open = !!target && target.contains(d); });
     all = loop.querySelector('[data-loop-all]');
     if (all) {
       all.disabled = false;

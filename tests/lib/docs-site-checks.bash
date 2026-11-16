@@ -390,6 +390,7 @@ check_install_pair() {
   local readme="$1" page="$2" r p cmd rc=0
   _need "$readme" "$page" || return 2
   r="$(awk '/^## Install$/ { s = 1; next }
+            s && !f && /^## / { exit }
             s && !f && /^```/ { f = 1; next }
             f && /^```$/ { exit }
             f' "$readme" | grep '^claude plugin ')" || true
@@ -473,7 +474,7 @@ check_scripts_off() {
 # .landing-family) holds exactly one placeholder. Floors: 7 placeholders, at
 # least one live and one not.
 check_live_items() {
-  local live="$1" src="$2" filled="$3" art ph k l state url yes=0 no=0 n=0 coming list items li
+  local live="$1" src="$2" filled="$3" art ph k l state url yes=0 no=0 n=0 coming list items li linked
   _need "$live" "$src" "$filled" || return 2
   art="$(_article "$filled")" || return 2
   for list in landing-rungs landing-family; do
@@ -506,6 +507,8 @@ check_live_items() {
   done < <(grep -oE '\{\{live:[a-z0-9-]+\|[^{}|<>"]+\}\}' "$src")
   coming="$(grep -o '<small>coming</small>' <<<"$art" | wc -l)"
   [ "$coming" -eq "$no" ] || { echo "$filled: $coming coming labels, but $no not-live placeholders" >&2; return 1; }
+  linked="$(landing_py linked-coming --article "$filled")" || return 2
+  [ -z "$linked" ] || { echo "$filled: a not-live item sits inside a link: ${linked//$'\n'/, }" >&2; return 1; }
   [ "$n" -ge 7 ] || { echo "$src: $n live placeholders, want >= 7" >&2; return 1; }
   [ "$yes" -ge 1 ] && [ "$no" -ge 1 ] || { echo "$src: want at least one live and one not-live item ($yes live, $no not)" >&2; return 1; }
 }

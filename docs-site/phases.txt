@@ -1,7 +1,8 @@
 # docs-site/phases.txt — the loop's five phases, and the steps each holds.
 #
-# The landing page (index.html) and the How it works page show the steps of
-# templates/checklist-standard.md in these phases. Every step of that template
+# The landing page (index.html) shows the steps of templates/checklist-standard.md
+# in these phases; the How it works page moves to them when it is rewritten (see
+# PAGE PINS in tests/lib/docs-site-checks.bash). Every step of that template
 # appears exactly once, and the phases read in template order. tests/docs-site.bats
 # derives the step list from the template and fails on a missing, duplicated,
 # unknown or out-of-order step; the pages are checked against this file.
