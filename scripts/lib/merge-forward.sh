@@ -78,6 +78,7 @@ merge_forward_listed() {
 # merge_forward_gate <issue_dir>: sets MF_GATE_LINE (the 1-based line number). rc 0 when
 # a line of <issue_dir>/mr.md mentions a merge gate, 1 when none does, 2 when it cannot
 # tell (mr.md missing, or grep exited >= 2). This is the one home #911 replaces.
+# shellcheck disable=SC2034  # MF_GATE_LINE is the return channel
 merge_forward_gate() {
   local f="$1/mr.md" out="" rc=0
   MF_GATE_LINE=""

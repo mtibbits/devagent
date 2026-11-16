@@ -107,6 +107,19 @@ _pin_record() {
     grep -qE "^- [0-9-]+ [0-9:]+  preship: verified_head $h$" "$CL"
 }
 
+@test "#1125 preship-verified-head: record writes verified_by = preship" {
+    _pin_record
+    [ "$status" -eq 0 ]
+    [ "$(_key verified_by)" = preship ]
+}
+
+@test "#1125 preship-verified-head: record writes verified_by = preship over a prior forward" {
+    devagent_state_set "$STATE" verified_by forward
+    _pin_record
+    [ "$status" -eq 0 ]
+    [ "$(_key verified_by)" = preship ]
+}
+
 @test "#885 preship-verified-head: record without a pin refuses" {
     run bash "$PVH" record "$TEST_PROJECT" Issue-1
     echo "$output" >&2

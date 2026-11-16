@@ -44,16 +44,21 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
+# #1125 (forward): the merge_forward config and predicates; ci.sh for _ci_secs, which
+# sources upstream.sh (upstream_fetch_base).
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/merge-forward.sh"
+. "$DEVAGENT_ROOT/scripts/lib/ci.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
 usage() {
-    echo "usage: preship-verified-head.sh (pin|record) <project> [issue]" >&2
+    echo "usage: preship-verified-head.sh (pin|record|forward) <project> [issue]" >&2
     exit 2
 }
 
 verb="${1:-}"
-case "$verb" in pin|record) : ;; *) usage ;; esac
+case "$verb" in pin|record|forward) : ;; *) usage ;; esac
 
 project="${2:-}"
 [ -n "$project" ] || die "preship-verified-head: project required"
@@ -100,6 +105,117 @@ if [ "$verb" = pin ]; then
     exit 0
 fi
 
+# ---- forward (#1125) ------------------------------------------------------------
+if [ "$verb" = forward ]; then
+    recipe='re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship'
+    refuse() { die "preship-verified-head: forward refused ($1): $2"; }
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+
+    # (a) enabled. merge_forward_resolve dies on a bad value (Issue-780).
+    merge_forward_resolve "$project"
+    if [ "$MF_VERIFY" != ci ]; then
+        vraw="$(config_get_project_field "$project" merge_forward.verify 2>/dev/null)" || vraw=absent
+        refuse enabled "[project.$project.merge_forward] verify is not \"ci\" (${vraw//$'\r'/}); $recipe"
+    fi
+
+    # (b) recorded: a verified head, and a clean tree to compare.
+    vh="$(state_ctx_get "$project" verified_head "$issue_arg" 2>/dev/null)" || vh=""
+    vh="${vh//$'\r'/}"
+    [ -n "$vh" ] || refuse recorded "no verified_head recorded; $recipe"
+    vh40="$(g rev-parse --verify --quiet "${vh}^{commit}" 2>/dev/null)" \
+        || refuse recorded "verified_head ${vh:0:7} is not a commit in $tree; $recipe"
+    st_rc=0
+    st="$(g status --porcelain --untracked-files=no 2>/dev/null)" || st_rc=$?
+    [ "$st_rc" -eq 0 ] || die "preship-verified-head: git status exited $st_rc in $tree"
+    [ -z "$st" ] || refuse recorded "uncommitted changes in $tree; commit or discard them first"
+
+    # (c) shape: HEAD's first-parent path from verified_head is two-parent merges of
+    # commits on the base, and baseline_sha is the base commit the last one brought in.
+    base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+    base_ref="${base_ref//$'\r'/}"
+    [ -n "$base_ref" ] || die "preship-verified-head: no default_baseline configured for '$project'"
+    _ci_secs DEVAGENT_REBASELINE_FETCH_SECS 20
+    upstream_fetch_base "$tree" "$base_ref" "$_CI_SECS"     # setter-globals; never $( … )
+    stale=""
+    case "$BASE_FETCH" in
+        failed|notimeout)
+            warn "preship-verified-head: could not fetch '$BASE_FETCH_REMOTE' ($BASE_FETCH_WHY); using the last-known $base_ref"
+            stale=" (the fetch failed, so $base_ref may be stale)" ;;
+    esac
+
+    rl_rc=0
+    walk="$(g rev-list --first-parent --parents "$vh40..HEAD" 2>/dev/null)" || rl_rc=$?
+    [ "$rl_rc" -eq 0 ] || die "preship-verified-head: git rev-list exited $rl_rc in $tree"
+    if [ -z "$walk" ]; then
+        [ "$head" = "$vh40" ] \
+            && refuse shape "HEAD is verified_head ${vh40:0:7}; there is no merge-forward to verify"
+        refuse shape "HEAD's first-parent path does not reach verified_head ${vh40:0:7}; $recipe"
+    fi
+    mapfile -t commits <<<"$walk"
+    seconds=()
+    for line in "${commits[@]}"; do
+        read -r -a f <<<"$line"
+        np=$(( ${#f[@]} - 1 ))
+        [ "$np" -ge 2 ] || refuse shape "${f[0]:0:7} on HEAD's first-parent path is not a merge; $recipe"
+        [ "$np" -eq 2 ] || refuse shape "${f[0]:0:7} has $np parents; only two-parent merges are forwarded"
+        seconds+=("${f[0]} ${f[2]}")
+    done
+    read -r -a f <<<"${commits[-1]}"
+    [ "${f[1]}" = "$vh40" ] \
+        || refuse shape "HEAD's first-parent path does not reach verified_head ${vh40:0:7}; $recipe"
+    tip="$(g rev-parse --verify --quiet "${base_ref}^{commit}" 2>/dev/null)" \
+        || refuse shape "cannot resolve $base_ref in $tree"
+    for pair in "${seconds[@]}"; do
+        c="${pair% *}" p2="${pair#* }" anc_rc=0
+        g merge-base --is-ancestor "$p2" "$tip" 2>/dev/null || anc_rc=$?
+        case "$anc_rc" in
+            0) : ;;
+            1) refuse shape "second parent ${p2:0:7} of ${c:0:7} is not on $base_ref (${tip:0:7})$stale" ;;
+            *) die "preship-verified-head: git merge-base --is-ancestor exited $anc_rc in $tree" ;;
+        esac
+    done
+    read -r -a f <<<"${commits[0]}"
+    T="${f[2]}"
+    b="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null)" || b=""
+    b="${b//$'\r'/}"
+    b40=""
+    [ -n "$b" ] && b40="$(g rev-parse --verify --quiet "${b}^{commit}" 2>/dev/null)" || true
+    [ "$b40" = "$T" ] \
+        || refuse shape "baseline_sha ${b:0:7} is not ${T:0:7}, the base commit HEAD's last merge brought in; run rebaseline.sh"
+
+    # (d) git's own merge of verified_head and T must equal HEAD's tree.
+    mt_rc=0
+    g -c merge.conflictStyle=diff3 merge-tree --write-tree -z "$vh40" "$T" >"$tmp/mt" 2>/dev/null || mt_rc=$?
+    [ "$mt_rc" -le 1 ] || refuse merge "git merge-tree exited $mt_rc on ${vh40:0:7} and ${T:0:7}"
+    mapfile -d '' mt <"$tmp/mt"
+    mtree="${mt[0]}"
+    kept=()
+    if [ "$mt_rc" -eq 1 ]; then
+        refuse merge "git's merge of ${vh40:0:7} and ${T:0:7} conflicts"
+    fi
+    dt_rc=0
+    g diff-tree -r -z --no-renames --raw "$mtree" HEAD >"$tmp/dt" 2>/dev/null || dt_rc=$?
+    [ "$dt_rc" -eq 0 ] || die "preship-verified-head: git diff-tree exited $dt_rc in $tree"
+    mapfile -d '' dt <"$tmp/dt"
+    if [ "${#dt[@]}" -ge 2 ]; then
+        refuse merge "${dt[1]} differs from git's merge of ${vh40:0:7} and ${T:0:7}"
+    fi
+
+    # Success: one transaction, one log line.
+    if [ "${#kept[@]}" -eq 0 ]; then
+        how="no conflict"
+    else
+        how="both sides kept in ${kept[0]}"
+        for p in "${kept[@]:1}"; do how+=", $p"; done
+    fi
+    msg="verified_head $head from ${vh40:0:7} (git's merge of ${T:0:7}; $how)"
+    state_ctx_set_many "$project" "$issue_arg" str verified_head "$head" str verified_by forward
+    log_append "$issue_dir" forward "$msg"
+    echo "forward: $msg"
+    exit 0
+fi
+
 # ---- record ------------------------------------------------------------------
 pin="$(state_ctx_get "$project" preship_pin_head "$issue_arg")" \
     || die "preship-verified-head: could not read preship_pin_head from state for $issue_arg"
@@ -108,7 +224,7 @@ pin="${pin//$'\r'/}"
 [ "$pin" = "$head" ] \
     || die "preship-verified-head: HEAD moved during preship (${pin:0:7} → ${head:0:7}); nothing recorded"
 
-state_ctx_set_many "$project" "$issue_arg" str verified_head "$head" str preship_pin_head ""
+state_ctx_set_many "$project" "$issue_arg" str verified_head "$head" str preship_pin_head "" str verified_by preship
 log_append "$issue_dir" preship "verified_head $head"
 echo "preship-verified-head: verified_head $head"
 
