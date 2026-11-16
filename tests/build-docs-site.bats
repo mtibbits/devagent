@@ -2596,8 +2596,8 @@ expect_region() {
 @test "build-docs-site: real site — the landing page carries the install commands verbatim and no other install detail" {
   need_pandoc
   local src built
-  src="$(landing_py codes "$SITE/index.html" | grep '^claude plugin ')"
-  built="$(landing_py codes --article "$REAL_OUT/index.html" | grep '^claude plugin ')"
+  src="$(landing_cmds "$SITE/index.html")"
+  built="$(landing_cmds --article "$REAL_OUT/index.html")"
   [ "$(grep -c . <<<"$src")" -ge 1 ]
   [ "$built" = "$src" ] || { echo "built: $built / source: $src" >&2; return 1; }
   run check_install_only "$REAL_OUT/index.html"
@@ -2619,7 +2619,7 @@ expect_region() {
 @test "build-docs-site: real site — with scripts off the landing page shows every phase, every step and the install commands" {
   need_pandoc
   local cmds=()
-  mapfile -t cmds < <(landing_py codes "$SITE/index.html" | grep '^claude plugin ')
+  mapfile -t cmds < <(landing_cmds "$SITE/index.html")
   [ "${#cmds[@]}" -ge 1 ]
   run check_scripts_off "$SITE/phases.txt" "$REAL_OUT/index.html" "${cmds[@]}"
   [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }

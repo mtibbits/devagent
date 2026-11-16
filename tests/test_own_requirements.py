@@ -525,11 +525,9 @@ def _filler():
     return mod
 
 
+@functools.cache
 def _site_count_regex():
-    lines = [ln for ln in LIVE_TXT.read_text(encoding="utf-8").split("\n")
-             if ln.split(None, 1)[:1] == ["count"] and ln.split()[1] == "requirements"]
-    assert len(lines) == 1, f"{LIVE_TXT}: want one 'count requirements' line, got {lines}"
-    return lines[0].split(None, 3)[3].rstrip()
+    return _filler().Settings(str(LIVE_TXT)).counts["requirements"][1].pattern
 
 
 def test_site_requirement_count_uses_this_rule():

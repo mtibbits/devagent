@@ -126,18 +126,15 @@ def collapse(s):
     return " ".join(s.split())
 
 
+def raw_text(node, skip=NEVER_READ):
+    """node's text content, uncollapsed, with the elements in skip excluded."""
+    return "".join(c if isinstance(c, str) else "" if c.tag in skip else raw_text(c, skip)
+                   for c in node.children)
+
+
 def text_of(node):
     """The collapsed text content of node (never-read elements excluded)."""
-    parts = []
-
-    def rec(n):
-        for c in n.children:
-            if isinstance(c, str):
-                parts.append(c)
-            elif c.tag not in NEVER_READ:
-                rec(c)
-    rec(node)
-    return collapse("".join(parts))
+    return collapse(raw_text(node))
 
 
 def by_id(root, ident):
@@ -208,20 +205,8 @@ def cmd_codes(args):
     node = parse(args[0])
     if use_article:
         node = article(node)
-    out = []
-    for n in walk(node):
-        if n.tag == "code":
-            parts = []
-
-            def rec(m):
-                for c in m.children:
-                    if isinstance(c, str):
-                        parts.append(c)
-                    else:
-                        rec(c)
-            rec(n)
-            out += [ln.strip() for ln in "".join(parts).split("\n") if ln.strip()]
-    return out
+    return [ln.strip() for n in walk(node) if n.tag == "code"
+            for ln in raw_text(n, skip=()).split("\n") if ln.strip()]
 
 
 def cmd_links(args):
@@ -267,12 +252,9 @@ def main(argv):
         if len(argv) < 2 or argv[1] not in COMMANDS:
             raise Usage("usage: landing-check.py text|codes|links|loop ... <html>")
         out = COMMANDS[argv[1]](argv[2:])
-    except Usage as e:
+    except (Usage, Absent) as e:
         print(f"{PROG}: {e}", file=sys.stderr)
-        return 2
-    except Absent as e:
-        print(f"{PROG}: {e}", file=sys.stderr)
-        return 1
+        return 2 if isinstance(e, Usage) else 1
     for line in out:
         print(line)
     return 0

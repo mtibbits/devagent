@@ -66,6 +66,14 @@ LANDING_CHECK="$(dirname "${BASH_SOURCE[0]}")/landing-check.py"
 # landing_py <subcommand> <arg>... — run landing-check.py (0 ok, 1 a structural
 # absence, 2 usage or an unreadable file; diagnostics on stderr).
 landing_py() { python3 -I -X utf8 "$LANDING_CHECK" "$@"; }
+
+# landing_cmds [--article] <page> — the page's install commands (its <code>
+# lines beginning "claude plugin "); 2 when the page cannot be read.
+landing_cmds() {
+  local c
+  c="$(landing_py codes "$@")" || return 2
+  grep '^claude plugin ' <<<"$c"
+}
 # The docs-site placeholder filler, the one count rule a page may show.
 FILLER_PY="$(dirname "${BASH_SOURCE[0]}")/../../scripts/docs-site/fill-placeholders.py"
 
@@ -326,18 +334,13 @@ check_phase_split() {
   while read -r _ cmd; do flat+=($cmd); done <<<"$split"
   for s in "${flat[@]}"; do
     [ -n "${pos[$s]+x}" ] || { echo "$ph: step $s is not a step of $tmpl" >&2; return 1; }
-  done
-  for s in "${flat[@]}"; do
     [ -z "${seen[$s]+x}" ] || { echo "$ph: step $s appears in more than one place" >&2; return 1; }
-    seen[$s]=1
+    [ "${pos[$s]}" -gt "$last" ] || { echo "$ph: step $s is out of template order" >&2; return 1; }
+    seen[$s]=1; last="${pos[$s]}"
   done
   while read -r num cmd; do
     [ -n "${seen[$cmd]+x}" ] || { echo "$ph: step $cmd of $tmpl is in no phase" >&2; return 1; }
   done <<<"$steps"
-  for s in "${flat[@]}"; do
-    [ "${pos[$s]}" -gt "$last" ] || { echo "$ph: step $s is out of template order" >&2; return 1; }
-    last="${pos[$s]}"
-  done
 }
 
 # check_loop <phases-file> <template> <page> — the landing page's loop (the
@@ -347,23 +350,18 @@ check_phase_split() {
 # open <details> whose <summary> is the Name, whose <ol start> is the template
 # number of the phase's first step, and whose steps are the phase's, in order.
 check_loop() {
-  local ph="$1" tmpl="$2" page="$3" split steps rows rc=0 n c i np
+  local ph="$1" tmpl="$2" page="$3" split steps rows n c i np pid
   local id name label open start summ lsteps first last want
-  local -a ids=() names=() stepsof=() svgrows=() listrows=()
+  local -a names=() stepsof=() svgrows=() listrows=()
   local -A num=()
   _need "$ph" "$tmpl" "$page" || return 2
   split="$(phase_split "$ph")" || return 2
   steps="$(template_steps "$tmpl")" || return 2
-  rows="$(landing_py loop "$page")" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) echo "$page: the loop cannot be read (see above)" >&2; return 1 ;;
-    *) return 2 ;;
-  esac
+  [ -n "$split" ] || { echo "$ph: no phases read" >&2; return 2; }
+  rows="$(landing_py loop "$page")" || return $?
   while read -r n c; do num[$c]=$n; done <<<"$steps"
-  while read -r name c; do ids+=("${name,,}"); names+=("$name"); stepsof+=("$c"); done <<<"$split"
-  np="${#ids[@]}"
-  [ "$np" -ge 1 ] && [ "$np" -eq "$(grep -c . <<<"$split")" ] || { echo "$ph: no phases read" >&2; return 2; }
+  while read -r name c; do names+=("$name"); stepsof+=("$c"); done <<<"$split"
+  np="${#names[@]}"
   mapfile -t svgrows < <(grep $'^svg\t' <<<"$rows")
   mapfile -t listrows < <(grep $'^list\t' <<<"$rows")
   [ "${#svgrows[@]}" -eq "$np" ] || { echo "$page: ${#svgrows[@]} svg phase groups, want $np" >&2; return 1; }
@@ -371,12 +369,13 @@ check_loop() {
   for ((i = 0; i < np; i++)); do
     first="${stepsof[i]%% *}"; last="${stepsof[i]##* }"
     want="$first"; [ "$first" = "$last" ] || want="$first … $last"
+    pid="${names[i],,}"
     IFS=$'\t' read -r _ id name label <<<"${svgrows[i]}"
-    [ "$id" = "${ids[i]}" ] || { echo "phase ${ids[i]}: svg row $((i + 1)) is phase '$id'" >&2; return 1; }
+    [ "$id" = "$pid" ] || { echo "phase $pid: svg row $((i + 1)) is phase '$id'" >&2; return 1; }
     [ "$name" = "${names[i]}" ] || { echo "phase $id: svg name '$name', want '${names[i]}'" >&2; return 1; }
     [ "$label" = "$want" ] || { echo "phase $id: svg steps-label '$label', want '$want'" >&2; return 1; }
     IFS=$'\t' read -r _ id open start summ lsteps <<<"${listrows[i]}"
-    [ "$id" = "${ids[i]}" ] || { echo "phase ${ids[i]}: list row $((i + 1)) is phase '$id'" >&2; return 1; }
+    [ "$id" = "$pid" ] || { echo "phase $pid: list row $((i + 1)) is phase '$id'" >&2; return 1; }
     [ "$open" = yes ] || { echo "phase $id: list open=$open, want yes (nothing hidden without scripts)" >&2; return 1; }
     [ "$summ" = "${names[i]}" ] || { echo "phase $id: list summary '$summ', want '${names[i]}'" >&2; return 1; }
     [ "$lsteps" = "${stepsof[i]}" ] || { echo "phase $id: list steps '$lsteps', want '${stepsof[i]}'" >&2; return 1; }
@@ -395,8 +394,7 @@ check_install_pair() {
             f && /^```$/ { exit }
             f' "$readme" | grep '^claude plugin ')" || true
   [ -n "$r" ] || { echo "$readme: no 'claude plugin ' line in the first fence after ## Install" >&2; return 2; }
-  p="$(landing_py codes "$page")" || return 2
-  p="$(grep '^claude plugin ' <<<"$p")" || rc=$?
+  p="$(landing_cmds "$page")" || rc=$?
   [ "$rc" -le 1 ] || return 2
   while IFS= read -r cmd; do
     grep -qxF -- "$cmd" <<<"$p" || { echo "$page: install command differs from README: $cmd" >&2; return 1; }
@@ -411,14 +409,9 @@ check_install_pair() {
 # check_hero_word <page> — the word "requirements" is visible text inside the
 # element id=hero.
 check_hero_word() {
-  local t rc=0
+  local t
   _need "$1" || return 2
-  t="$(landing_py text --within hero "$1")" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) echo "$1: no hero section (id=hero)" >&2; return 1 ;;
-    *) return 2 ;;
-  esac
+  t="$(landing_py text --within hero "$1")" || return $?
   grep -qiw requirements <<<"$t" || { echo "$1: no 'requirements' in the hero section" >&2; return 1; }
 }
 

@@ -95,18 +95,19 @@ temp_root() {
   printf '%s\n' "$t"
 }
 
-# filled_index — a copy of the landing page with its placeholders filled by the
-# real filler from docs-site/live.txt (no pandoc needed); prints its path.
+# filled_index [<source>] — a fresh copy of <source> (default: the landing
+# page) with its placeholders filled by the real filler from docs-site/live.txt
+# (no pandoc needed); prints its path. The landing page is filled once per file.
 filled_index() {
-  local f="$BATS_TEST_TMPDIR/filled.$RANDOM$RANDOM.html"
-  cp "$WEB/index.html" "$f" || return 1
-  python3 -I -X utf8 "$PLUGIN_ROOT/scripts/docs-site/fill-placeholders.py" \
-    --settings "$WEB/live.txt" "$f" >/dev/null || { echo "filled_index: the filler refused $f" >&2; return 1; }
+  local src="${1:-$WEB/index.html}" f="$BATS_TEST_TMPDIR/filled.$RANDOM$RANDOM.html"
+  local once="$BATS_FILE_TMPDIR/filled-index.html"
+  if [ -z "${1:-}" ] && [ -f "$once" ]; then cp "$once" "$f"; printf '%s\n' "$f"; return; fi
+  cp "$src" "$f" || return 1
+  python3 -I -X utf8 "$FILLER_PY" --settings "$WEB/live.txt" "$f" >/dev/null \
+    || { echo "filled_index: the filler refused $f" >&2; return 1; }
+  [ -n "${1:-}" ] || cp "$f" "$once"
   printf '%s\n' "$f"
 }
-
-# landing_cmds <page> — the page's install commands (its "claude plugin " code lines).
-landing_cmds() { landing_py codes "$1" | grep '^claude plugin '; }
 
 # ---------------------------------------------------------------------------
 # Facts
@@ -298,23 +299,23 @@ lc_page() {
   printf '%s\n' "$f"
 }
 
-# lc_has <line> — $output holds the exact line. lc_lacks <text> — $lc_out
+# lc_has <line> — $output holds the exact line. lc_lacks <text> — $output
 # does not hold the text (grep's status pinned to 1, so an error is not "absent").
 lc_has() { grep -qxF -- "$1" <<<"$output" || { echo "no line '$1' in: $output" >&2; return 1; }; }
 lc_lacks() {
-  run grep -qF -- "$1" <<<"$lc_out"
-  [ "$status" -eq 1 ] || { echo "'$1' read (status $status) in: $lc_out" >&2; return 1; }
+  local rc=0
+  grep -qF -- "$1" <<<"$output" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "'$1' read (status $rc) in: $output" >&2; return 1; }
 }
 
 @test "mutation: landing-check text reads text nodes, never attributes or styles" {
-  local f lc_out
+  local f
   f="$(lc_page '<html><head><style>p{color:#112233}</style></head><body>
 <p>see #12</p><svg><text>#7</text><rect fill="#123456"/></svg>
 <p style="color:#123">x</p><!-- #12 --><script>var a="#12"</script>
 <a href="#1x">y</a><p>caf&eacute; &amp; more</p></body></html>')"
   run landing_py text "$f"
   [ "$status" -eq 0 ]
-  lc_out="$output"
   lc_has 'see #12'
   lc_has '#7'
   lc_has 'x'
@@ -328,7 +329,7 @@ lc_lacks() {
 }
 
 @test "mutation: landing-check text --scripts-off and --no-svg" {
-  local f lc_out
+  local f
   f="$(lc_page '<details><summary>S</summary><p>in</p></details>')"
   run landing_py text --scripts-off "$f"
   [ "$status" -eq 0 ]
@@ -642,8 +643,7 @@ lc_lacks() {
   # a rung holding two placeholders
   src="$(fresh "$WEB/index.html")"
   edit "$src" '<li>{{live:rung-shared|Shared queues}}</li>' '<li>{{live:rung-shared|Shared queues}} {{live:gantry|Gantry}}</li>'
-  f="$BATS_TEST_TMPDIR/two.html"; cp "$src" "$f"
-  python3 -I -X utf8 "$PLUGIN_ROOT/scripts/docs-site/fill-placeholders.py" --settings "$live" "$f" >/dev/null
+  f="$(filled_index "$src")"
   breaks 'exactly one' check_live_items "$live" "$src" "$f"
   # the count: a filled number off by one, and a literal in the source.
   f="$(filled_index)"
