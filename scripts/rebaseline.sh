@@ -80,14 +80,11 @@ base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || 
 base_ref="${base_ref//$'\r'/}"
 [ -n "$base_ref" ] || die "rebaseline: no default_baseline configured for '$project'"
 
-# Best-effort, bounded refresh of the base ref (upstream_fetch_base, #1125): only
-# the one branch, into its remote-tracking ref, no FETCH_HEAD. A base whose prefix is
-# not a configured remote is a local ref: nothing to fetch.
+# Best-effort, bounded refresh of the base ref (upstream_fetch_base, #1125).
 _ci_secs DEVAGENT_REBASELINE_FETCH_SECS 20
 upstream_fetch_base "$tree" "$base_ref" "$_CI_SECS"     # setter-globals; never $( … )
 case "$BASE_FETCH" in
-    notimeout) warn "rebaseline: could not fetch '$BASE_FETCH_REMOTE' (timeout(1) not on PATH, so the fetch cannot be bounded); using the last-known $base_ref" ;;
-    failed)    warn "rebaseline: could not fetch '$BASE_FETCH_REMOTE' ($BASE_FETCH_WHY); using the last-known $base_ref" ;;
+    failed|notimeout) warn "rebaseline: could not fetch '$BASE_FETCH_REMOTE' ($BASE_FETCH_WHY); using the last-known $base_ref" ;;
 esac
 
 g rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null \

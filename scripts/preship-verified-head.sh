@@ -122,11 +122,8 @@ if [ "$verb" = pin ]; then
 fi
 
 # ---- clearing a mergemr stop the run just remedied -----------------------------
-# clear_mergemr_stop <tag> <regex>: record and forward (#1125) each clear the mergemr
-# stop whose STUCK `Reason:` matches <regex>, and only when ALL hold: ship is [x], the
-# mergemr row is [!], STUCK's `Step:` names mergemr, and the [!] row
-# checklist-unstuck.sh will flip (line-based, Issue-587: the active block's first [!])
-# IS mergemr. Logs `<tag>: cleared mergemr stop (<reason, up to 60 chars>)`.
+# clear_mergemr_stop <tag> <regex>: clears the mergemr stop whose STUCK `Reason:`
+# matches <regex>, under the conditions in this file's header ("Clearing a stop").
 clear_mergemr_stop() {
     local tag="$1" clear_re="$2" cl="$issue_dir/checklist.md" stuck="$issue_dir/STUCK"
     local ship_g mm_g stuck_step reason found row at msg
@@ -239,72 +236,42 @@ if [ "$verb" = forward ]; then
         || refuse shape "baseline_sha ${b:0:7} is not ${T:0:7}, the base commit HEAD's last merge brought in; run rebaseline.sh"
 
     # (d) git's own merge of verified_head and T must equal HEAD's tree.
-    mt_rc=0
-    # merge.default=text: a configured merge.default driver would apply to every path
-    # whose merge attribute is unspecified, which check-attr cannot see (final review).
-    g -c merge.conflictStyle=diff3 -c merge.default=text merge-tree --write-tree -z "$vh40" "$T" >"$tmp/mt" 2>/dev/null || mt_rc=$?
-    [ "$mt_rc" -le 1 ] || refuse merge "git merge-tree exited $mt_rc on ${vh40:0:7} and ${T:0:7}"
-    mapfile -d '' mt <"$tmp/mt"
-    mtree="${mt[0]}"
     m7="${vh40:0:7} and ${T:0:7}"
+    mt_rc=0
+    merge_forward_merge "$tree" "$vh40" "$T" || mt_rc=$?
+    case "$mt_rc" in
+        2) refuse merge "git merge-tree exited $MF_MERGE_RC on $m7" ;;
+        3) refuse merge "a conflicted path contains a newline" ;;
+    esac
 
     # A merge driver (merge=union, …) would hide a conflict from this comparison.
-    # merge-tree reads the WORKTREE's attributes, so check-attr in the same tree is the
-    # exact predicate (U2). Every path of git's merged tree is asked.
-    lt_rc=0
-    g ls-tree -r -z --name-only "$mtree" >"$tmp/names" 2>/dev/null || lt_rc=$?
-    [ "$lt_rc" -eq 0 ] || die "preship-verified-head: git ls-tree exited $lt_rc in $tree"
-    ca_rc=0
-    g check-attr -z --stdin merge <"$tmp/names" >"$tmp/attrs" 2>/dev/null || ca_rc=$?
-    [ "$ca_rc" -eq 0 ] || die "preship-verified-head: git check-attr exited $ca_rc in $tree"
-    mapfile -d '' names <"$tmp/names"
-    mapfile -d '' attrs <"$tmp/attrs"
-    [ $(( ${#attrs[@]} % 3 )) -eq 0 ] && [ $(( ${#attrs[@]} / 3 )) -eq "${#names[@]}" ] \
-        || refuse merge "git check-attr returned $(( ${#attrs[@]} / 3 )) records for ${#names[@]} paths"
-    for (( i = 0; i < ${#attrs[@]}; i += 3 )); do
-        if merge_forward_driver "${attrs[i+2]}"; then
-            refuse merge "${attrs[i]} has merge=${attrs[i+2]} (git check-attr); a merge driver hides conflicts from git's merge"
-        fi
+    dr_rc=0
+    merge_forward_drivers "$tree" "$MF_MTREE" || dr_rc=$?
+    case "$dr_rc" in
+        1) refuse merge "$MF_DRIVER_PATH has merge=$MF_DRIVER_VALUE (git check-attr); a merge driver hides conflicts from git's merge" ;;
+        2) die "preship-verified-head: $MF_DRIVER_WHY in $tree" ;;
+        3) refuse merge "$MF_DRIVER_WHY" ;;
+    esac
+
+    # Each conflicted path must be a listed append-only file git merged as text.
+    # shellcheck disable=SC2153  # MF_CONFLICTED is merge_forward_merge's
+    for cpath in "${MF_CONFLICTED[@]}"; do
+        merge_forward_listed "$cpath" \
+            || refuse merge "$cpath conflicts in git's merge and is not in merge_forward.append_only"
+        [ "${MF_CONFLICT[$cpath]}" = text ] \
+            || refuse merge "$cpath has a conflict git did not merge as text"
     done
 
-    # Conflicted paths (merge-tree exit 1): `<mode> <oid> <stage>\t<path>` records up
-    # to the first empty field. Each must be a listed append-only text file.
-    declare -A cstage=() cmode_bad=()
-    conflicted=()
-    if [ "$mt_rc" -eq 1 ]; then
-        for (( i = 1; i < ${#mt[@]}; i++ )); do
-            rec="${mt[i]}"
-            [ -n "$rec" ] || break
-            info="${rec%%$'\t'*}" cpath="${rec#*$'\t'}"
-            read -r cm _ cs <<<"$info"
-            [ -n "${cstage[$cpath]+x}" ] || conflicted+=("$cpath")
-            cstage[$cpath]+="$cs"
-            case "$cm" in 100644|100755) : ;; *) cmode_bad[$cpath]=1 ;; esac
-        done
-        for cpath in "${conflicted[@]}"; do
-            [[ "$cpath" != *$'\n'* ]] || refuse merge "a conflicted path contains a newline"
-        done
-        mapfile -t conflicted < <(printf '%s\n' "${conflicted[@]}" | LC_ALL=C sort)
-        for cpath in "${conflicted[@]}"; do
-            merge_forward_listed "$cpath" \
-                || refuse merge "$cpath conflicts in git's merge and is not in merge_forward.append_only"
-            [[ "${cstage[$cpath]}" == *2* && "${cstage[$cpath]}" == *3* && -z "${cmode_bad[$cpath]+x}" ]] \
-                || refuse merge "$cpath has a conflict git did not merge as text"
-        done
-    fi
-
     # HEAD's tree must equal git's merge at every path but the conflicted ones.
-    declare -A is_conflicted=()
-    for cpath in "${conflicted[@]}"; do is_conflicted[$cpath]=1; done
     dt_rc=0
     # --ignore-submodules=none: submodule.<name>.ignore=all would hide a gitlink change.
-    g diff-tree -r -z --no-renames --ignore-submodules=none --raw "$mtree" HEAD >"$tmp/dt" 2>/dev/null || dt_rc=$?
+    g diff-tree -r -z --no-renames --ignore-submodules=none --raw "$MF_MTREE" HEAD >"$tmp/dt" 2>/dev/null || dt_rc=$?
     [ "$dt_rc" -eq 0 ] || die "preship-verified-head: git diff-tree exited $dt_rc in $tree"
     mapfile -d '' dt <"$tmp/dt"
     for (( i = 0; i + 1 < ${#dt[@]}; i += 2 )); do
         meta="${dt[i]#:}" dpath="${dt[i+1]}"
         read -r srcm dstm _ <<<"$meta"
-        if [ -z "${is_conflicted[$dpath]+x}" ] || [ "$dstm" = 000000 ]; then
+        if [ -z "${MF_CONFLICT[$dpath]+x}" ] || [ "$dstm" = 000000 ]; then
             refuse merge "$dpath differs from git's merge of $m7"
         fi
         [ "$srcm" = "$dstm" ] || refuse merge "$dpath changes mode"
@@ -312,20 +279,17 @@ if [ "$verb" = forward ]; then
 
     # Each conflicted path: the append-only hunk checker on git's merged blob and HEAD's.
     hunks="${DEVAGENT_MF_HUNKS:-$DEVAGENT_ROOT/scripts/lib/merge-forward-hunks.py}"
-    kept=()
-    n=0
-    for cpath in "${conflicted[@]}"; do
-        n=$(( n + 1 ))
-        g cat-file blob "$mtree:$cpath" >"$tmp/merged.$n" 2>/dev/null \
+    for cpath in "${MF_CONFLICTED[@]}"; do
+        g cat-file blob "$MF_MTREE:$cpath" >"$tmp/merged" 2>/dev/null \
             || die "preship-verified-head: cannot read $cpath from git's merge in $tree"
-        g cat-file blob "HEAD:$cpath" >"$tmp/head.$n" 2>/dev/null \
+        g cat-file blob "HEAD:$cpath" >"$tmp/head" 2>/dev/null \
             || die "preship-verified-head: cannot read $cpath at HEAD in $tree"
         h_rc=0
-        python3 -I "$hunks" "$tmp/merged.$n" "$tmp/head.$n" "$vh40" "$T" >"$tmp/reason.$n" 2>/dev/null || h_rc=$?
+        python3 -I "$hunks" "$tmp/merged" "$tmp/head" "$vh40" "$T" >"$tmp/reason" 2>/dev/null || h_rc=$?
         reason=""
-        IFS= read -r reason <"$tmp/reason.$n" || true
+        IFS= read -r reason <"$tmp/reason" || true
         case "$h_rc:${reason:+set}" in
-            0:*)   kept+=("$cpath") ;;
+            0:*)   : ;;
             3:set) refuse append-only "$cpath: $reason" ;;
             *)     refuse append-only "$cpath: checker failed (exit $h_rc)" ;;
         esac
@@ -341,11 +305,11 @@ if [ "$verb" = forward ]; then
     esac
 
     # Success: one transaction, one log line.
-    if [ "${#kept[@]}" -eq 0 ]; then
+    if [ "${#MF_CONFLICTED[@]}" -eq 0 ]; then
         how="no conflict"
     else
-        how="both sides kept in ${kept[0]}"
-        for p in "${kept[@]:1}"; do how+=", $p"; done
+        how="both sides kept in ${MF_CONFLICTED[0]}"
+        for p in "${MF_CONFLICTED[@]:1}"; do how+=", $p"; done
     fi
     msg="verified_head $head from ${vh40:0:7} (git's merge of ${T:0:7}; $how)"
     state_ctx_set_many "$project" "$issue_arg" str verified_head "$head" str verified_by forward

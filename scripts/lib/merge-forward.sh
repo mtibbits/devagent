@@ -6,9 +6,10 @@
 #   verify      = "ci"               # absent or "preship": today's behaviour
 #   append_only = ["CHANGELOG.md"]   # exact repo-relative file paths
 #
-# One home each for the config reader, the merge-driver predicate, list membership and
-# the merge-gate predicate (preship-verified-head.sh forward, mergemr.sh rule 14,
-# doctor.sh). Requires io.sh (die) and config.sh sourced first; it sources nothing.
+# One home each for the config reader, the merge-driver scan, git's merge and its
+# conflicted paths, list membership and the merge-gate predicate
+# (preship-verified-head.sh forward, mergemr.sh rule 14, doctor.sh). Requires io.sh
+# (die) and config.sh sourced first, and DEVAGENT_GIT set; it sources nothing.
 
 # merge_forward_entry_valid <e>: rc 0 iff <e> is an exact repo-relative file path —
 # non-empty, no leading /, no drive letter, none of * ? [, and no empty, . or ..
@@ -64,6 +65,88 @@ merge_forward_driver() {
     unspecified|set|unset|text|binary) return 1 ;;
     *) return 0 ;;
   esac
+}
+
+# merge_forward_drivers <tree> <treeish>: rc 0 when no path of <treeish> has a merge
+# driver, asked with `git check-attr merge` in <tree> (merge-tree reads the WORKTREE's
+# attributes, U2). rc 1: MF_DRIVER_PATH has merge=MF_DRIVER_VALUE (the first such path).
+# rc 2: a git command failed; rc 3: check-attr's record count is wrong (MF_DRIVER_WHY).
+# shellcheck disable=SC2034  # the MF_DRIVER_* globals are the return channel
+merge_forward_drivers() {
+  local tree="$1" treeish="$2" tmp rc=0 i
+  local -a names=() attrs=()
+  MF_DRIVER_PATH="" MF_DRIVER_VALUE="" MF_DRIVER_WHY=""
+  tmp="$(mktemp -d)"
+  "$DEVAGENT_GIT" -C "$tree" ls-tree -r -z --name-only "$treeish" >"$tmp/names" 2>/dev/null || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    MF_DRIVER_WHY="git ls-tree exited $rc"
+  else
+    "$DEVAGENT_GIT" -C "$tree" check-attr -z --stdin merge <"$tmp/names" >"$tmp/attrs" 2>/dev/null || rc=$?
+    [[ "$rc" -eq 0 ]] || MF_DRIVER_WHY="git check-attr exited $rc"
+  fi
+  if [[ "$rc" -eq 0 ]]; then
+    mapfile -d '' names <"$tmp/names"
+    mapfile -d '' attrs <"$tmp/attrs"
+  fi
+  rm -rf "$tmp"
+  [[ "$rc" -eq 0 ]] || return 2
+  if [[ "${#attrs[@]}" -ne $(( 3 * ${#names[@]} )) ]]; then
+    MF_DRIVER_WHY="git check-attr returned $(( ${#attrs[@]} / 3 )) records for ${#names[@]} paths"
+    return 3
+  fi
+  for (( i = 0; i < ${#attrs[@]}; i += 3 )); do
+    if merge_forward_driver "${attrs[i+2]}"; then
+      MF_DRIVER_PATH="${attrs[i]}" MF_DRIVER_VALUE="${attrs[i+2]}"
+      return 1
+    fi
+  done
+  return 0
+}
+
+# merge_forward_merge <tree> <ours> <theirs>: git's own merge, as forward compares it and
+# rule 14 names it. merge.default=text: a configured merge.default driver would apply
+# to every path whose merge attribute is unspecified, which check-attr cannot see.
+# diff3: the hunk checker reads the base section. Sets MF_MTREE (the merged tree),
+# MF_CONFLICTED (the conflicted paths, sorted, unique) and MF_CONFLICT[<path>] = text
+# (stages 2 and 3, a 100644/100755 mode: git merged it as text) or other.
+# rc 0 clean, 1 conflicted, 2 merge-tree failed (MF_MERGE_RC), 3 a conflicted path
+# contains a newline.
+# shellcheck disable=SC2034  # the MF_* globals are the return channel
+merge_forward_merge() {
+  local tree="$1" ours="$2" theirs="$3" tmp rc=0 i rec info cpath cm cs
+  local -a mt=()
+  local -A stages=() badmode=()
+  MF_MTREE="" MF_MERGE_RC=0 MF_CONFLICTED=()
+  declare -gA MF_CONFLICT=()
+  tmp="$(mktemp)"
+  "$DEVAGENT_GIT" -C "$tree" -c merge.conflictStyle=diff3 -c merge.default=text \
+    merge-tree --write-tree -z "$ours" "$theirs" >"$tmp" 2>/dev/null || rc=$?
+  mapfile -d '' mt <"$tmp"
+  rm -f "$tmp"
+  MF_MERGE_RC="$rc"
+  [[ "$rc" -le 1 ]] || return 2
+  MF_MTREE="${mt[0]:-}"
+  [[ "$rc" -eq 1 ]] || return 0
+  # `<mode> <oid> <stage>\t<path>` records up to the first empty field.
+  for (( i = 1; i < ${#mt[@]}; i++ )); do
+    rec="${mt[i]}"
+    [[ -n "$rec" ]] || break
+    info="${rec%%$'\t'*}" cpath="${rec#*$'\t'}"
+    [[ "$cpath" != *$'\n'* ]] || return 3
+    read -r cm _ cs <<<"$info"
+    [[ -n "${stages[$cpath]+x}" ]] || MF_CONFLICTED+=("$cpath")
+    stages[$cpath]+="$cs"
+    case "$cm" in 100644|100755) : ;; *) badmode[$cpath]=1 ;; esac
+  done
+  mapfile -t MF_CONFLICTED < <(printf '%s\n' "${MF_CONFLICTED[@]}" | LC_ALL=C sort)
+  for cpath in "${MF_CONFLICTED[@]}"; do
+    if [[ "${stages[$cpath]}" == *2* && "${stages[$cpath]}" == *3* && -z "${badmode[$cpath]+x}" ]]; then
+      MF_CONFLICT[$cpath]=text
+    else
+      MF_CONFLICT[$cpath]=other
+    fi
+  done
+  return 1
 }
 
 # merge_forward_listed <path>: rc 0 iff <path> byte-equals an MF_APPEND_ONLY entry.

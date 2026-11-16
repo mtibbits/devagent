@@ -766,6 +766,16 @@ _mf() {   # _mf <verify-literal|-> <append_only-literal|->
     _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
 }
 
+@test "#1125 R14: a listed path git did not merge as text gives today's remedy" {
+    # modify/delete leaves no stage 3: forward refuses it ("did not merge as text"),
+    # so rule 14 must not offer it.
+    _r14_origin
+    ( cd "$UPWC" && git rm -q CHANGELOG.md && git commit -q -m rm && git push -q origin main )
+    _mf '"ci"' '["CHANGELOG.md"]'
+    _run
+    _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
+}
+
 @test "#1125 R14: a merge driver on any path of the tree withholds the light remedy" {
     # forward refuses a driver on any path of git's merged tree, so rule 14 must not
     # offer it there either (final review I1).

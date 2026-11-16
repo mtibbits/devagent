@@ -117,7 +117,7 @@ def check(merged_bytes, head_bytes, vh, t):
         x = [y for y in theirs if not _blank(y)]
         need = len(o) + len(x)
         # The slot: every blank up to its need-th non-blank line ...
-        idx, got, end = pos, [], pos
+        idx, got = pos, []
         while len(got) < need and idx < len(head):
             if not _blank(head[idx]):
                 got.append(idx)
@@ -158,12 +158,11 @@ def main(argv):
             merged = f.read()
         with open(argv[1], "rb") as f:
             head = f.read()
-        try:
-            check(merged, head, argv[2].encode(), argv[3].encode())
-        except Refuse as e:
-            print(str(e))
-            return 3
+        check(merged, head, argv[2].encode(), argv[3].encode())
         return 0
+    except Refuse as e:
+        print(str(e))
+        return 3
     except Exception as e:  # noqa: BLE001 — any failure is "could not check"
         print(f"merge-forward-hunks: {type(e).__name__}: {e}", file=sys.stderr)
         return 2

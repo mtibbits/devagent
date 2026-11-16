@@ -46,7 +46,6 @@ source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 source "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 
 _die() { printf '%s\n' "$*" >&2; exit 1; }
-: "${DEVAGENT_GIT:=git}"
 
 project="${1:-}"
 [ -n "$project" ] || die "project required"
@@ -212,8 +211,9 @@ ci_report "$issue_dir"
 [ "$CI_RESULT" != closed ] || _stop 4 "$R4_TEXT"                                         # rule 4
 [ "$MV_DRAFT" != true ] || _wait 5 "draft PR"                                            # rule 5
 
-default_base="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-default_base="$(printf '%s' "${default_base//$'\r'/}" | sed 's|^[^/]*/||')"
+default_baseline_raw="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+default_baseline_raw="${default_baseline_raw//$'\r'/}"
+default_base="$(printf '%s' "$default_baseline_raw" | sed 's|^[^/]*/||')"
 [ -n "$default_base" ] || default_base=main
 [ "$MV_BASE" = "$default_base" ] || _wait 6 "stacked on $MV_BASE"                       # rule 6
 
@@ -337,19 +337,18 @@ fi
 # rule 14 (#1125 names the paths): git's own merge of verified_head and the base tip,
 # asked in the issue tree after one bounded fetch of the base. The light remedy
 # (preship-verified-head.sh forward) only when forward could accept it: verify = "ci",
-# every conflicted path in append_only with no merge driver, and no merge gate in mr.md.
+# every conflicted path in append_only and merged by git as text, no merge gate in
+# mr.md, and no merge driver on any path of git's merged tree.
 _r14() {
     local today="merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
-    local why="" out rc=0 base_ref tip tmp p paths joined light=1 i
-    local -a mt=() attrs=()
+    local why="" out rc=0 base_ref tip p joined light=1
     if ! out="$( (active_tree_resolve "$project" "$issue_arg") 2>&1 >/dev/null)"; then
         out="${out%%$'\n'*}"
         _stop 14 "conflict with $MV_BASE (conflicted paths unknown: cannot resolve the issue tree: ${out#*: }); $today"
     fi
     active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )
     local tree="$ACTIVE_TREE_DIR"
-    base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-    base_ref="${base_ref//$'\r'/}"
+    base_ref="$default_baseline_raw"
     _ci_secs DEVAGENT_MERGEMR_FETCH_SECS 20
     upstream_fetch_base "$tree" "$base_ref" "$_CI_SECS"
     case "$BASE_FETCH" in
@@ -360,54 +359,31 @@ _r14() {
             || why="cannot resolve ${base_ref:-default_baseline}"
     fi
     if [ -z "$why" ]; then
-        tmp="$(mktemp)"
-        "$DEVAGENT_GIT" -C "$tree" -c merge.default=text merge-tree --write-tree --name-only -z "$verified_head" "$tip" >"$tmp" 2>/dev/null || rc=$?
-        mapfile -d '' mt <"$tmp"
-        rm -f "$tmp"
+        merge_forward_merge "$tree" "$verified_head" "$tip" || rc=$?
         case "$rc" in
             0) _stop 14 "conflict with $MV_BASE (git finds no conflict between ${verified_head:0:7} and ${tip:0:7}); $today" ;;
             1) : ;;
-            *) why="git merge-tree exited $rc" ;;
+            2) why="git merge-tree exited $MF_MERGE_RC" ;;
+            *) why="a conflicted path contains a newline" ;;
         esac
     fi
     [ -z "$why" ] || _stop 14 "conflict with $MV_BASE (conflicted paths unknown: $why); $today"
 
-    paths=()
-    for (( i = 1; i < ${#mt[@]}; i++ )); do
-        [ -n "${mt[i]}" ] || break
-        [[ "${mt[i]}" != *$'\n'* ]] \
-            || _stop 14 "conflict with $MV_BASE (conflicted paths unknown: a conflicted path contains a newline); $today"
-        paths+=("${mt[i]}")
-    done
-    mapfile -t paths < <(printf '%s\n' "${paths[@]}" | LC_ALL=C sort -u)
-    joined="${paths[0]}"
-    for p in "${paths[@]:1}"; do joined+=", $p"; done
+    joined="${MF_CONFLICTED[0]}"
+    for p in "${MF_CONFLICTED[@]:1}"; do joined+=", $p"; done
 
+    # Each check below mirrors a forward refusal (never a remedy forward always refuses);
+    # the cheap ones first.
     [ "$MF_VERIFY" = ci ] || light=0
-    for p in "${paths[@]}"; do merge_forward_listed "$p" || light=0; done
-    # forward refuses a merge driver on ANY path of git's merged tree, so the light
-    # remedy is withheld on the same set (never a remedy forward always refuses).
-    if [ "$light" = 1 ]; then
-        local -a names=()
-        tmp="$(mktemp -d)"; rc=0
-        "$DEVAGENT_GIT" -C "$tree" ls-tree -r -z --name-only "${mt[0]}" >"$tmp/names" 2>/dev/null || rc=$?
-        [ "$rc" -ne 0 ] || "$DEVAGENT_GIT" -C "$tree" check-attr -z --stdin merge <"$tmp/names" >"$tmp/attrs" 2>/dev/null || rc=$?
-        if [ "$rc" -eq 0 ]; then
-            mapfile -d '' names <"$tmp/names"
-            mapfile -d '' attrs <"$tmp/attrs"
-        fi
-        rm -rf "$tmp"
-        if [ "$rc" -ne 0 ] || [ "${#attrs[@]}" -ne $(( 3 * ${#names[@]} )) ]; then
-            light=0
-        else
-            for (( i = 2; i < ${#attrs[@]}; i += 3 )); do
-                ! merge_forward_driver "${attrs[i]}" || light=0
-            done
-        fi
-    fi
+    for p in "${MF_CONFLICTED[@]}"; do
+        merge_forward_listed "$p" && [ "${MF_CONFLICT[$p]}" = text ] || light=0
+    done
     if [ "$light" = 1 ]; then
         rc=0; merge_forward_gate "$issue_dir" || rc=$?
         [ "$rc" -eq 1 ] || light=0
+    fi
+    if [ "$light" = 1 ]; then
+        merge_forward_drivers "$tree" "$MF_MTREE" || light=0
     fi
     if [ "$light" = 1 ]; then
         _stop 14 "conflict only in $joined; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward"

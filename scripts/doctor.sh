@@ -25,6 +25,8 @@ source "$PLUGIN_ROOT/scripts/lib/trust.sh"   # #713: the trust block
 source "$PLUGIN_ROOT/scripts/lib/issue-source.sh"   # #1099: default_issue_source
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/merge-forward.sh"  # #1125: check_merge_forward
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/ci.sh"   # #1125: _ci_key_resolve (merge_checks)
 
 declare -i ERRORS=0
 
@@ -165,7 +167,9 @@ check_merge_step() {
 # merge_checks = "if-present" (rule 17 never merges a forwarded head without CI). No
 # table: no line at all.
 check_merge_forward() {
-  local project="$1" src="$2" out rc=0 e mc tmp files=()
+  local project="$1" src="$2" out rc=0 e tmp
+  local -a specs=() files=()
+  local -A tracked=()
   out="$( (merge_forward_resolve "$project") 2>&1)" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     out="${out%%$'\n'*}"
@@ -173,21 +177,22 @@ check_merge_forward() {
     return 0
   fi
   merge_forward_resolve "$project"   # bare: the subshell discarded MF_APPEND_ONLY
-  tmp="$(mktemp)"
-  for e in "${MF_APPEND_ONLY[@]}"; do
+  if [[ "${#MF_APPEND_ONLY[@]}" -gt 0 ]]; then
+    for e in "${MF_APPEND_ONLY[@]}"; do specs+=(":(literal)$e"); done
     # NUL output goes to a file, never $(...) or a pipe (#1125 cross-task rule).
-    files=(); : >"$tmp"
-    git -C "$src" ls-files -z -- ":(literal)$e" >"$tmp" 2>/dev/null && mapfile -d '' files <"$tmp"
-    [[ "${#files[@]}" -eq 1 && "${files[0]}" == "$e" ]] && continue
-    check "project.$project.merge_forward.append_only" warn "'$e' names no tracked file in $src"
-  done
-  rm -f "$tmp"
+    tmp="$(mktemp)"
+    git -C "$src" ls-files -z -- "${specs[@]}" >"$tmp" 2>/dev/null && mapfile -d '' files <"$tmp"
+    rm -f "$tmp"
+    for e in "${files[@]}"; do tracked[$e]=1; done
+    for e in "${MF_APPEND_ONLY[@]}"; do
+      [[ -n "${tracked[$e]+x}" ]] \
+        || check "project.$project.merge_forward.append_only" warn "'$e' names no tracked file in $src"
+    done
+  fi
   if [[ "$MF_VERIFY" == ci ]]; then
-    # A raw read, never merge_checks_resolve (it dies on a bad value; ci.sh).
-    mc="$(config_get_project_field "$project" merge_checks 2>/dev/null)" \
-      || mc="$(config_get_default merge_checks 2>/dev/null)" || mc=""
-    mc="${mc//$'\r'/}"
-    if [[ "$mc" == if-present ]]; then
+    # _ci_key_resolve, never merge_checks_resolve (it dies on a bad value).
+    _ci_key_resolve "$project" merge_checks ""
+    if [[ "$_CI_KEY_VAL" == if-present ]]; then
       check "project.$project.merge_forward.verify" warn 'verify = "ci" with merge_checks = "if-present": a project without CI can never merge a forwarded head (rule 17)'
     fi
   fi
@@ -363,7 +368,7 @@ check_one_project() {
 
   check_tracker_mapping "$project"
   check_merge_step "$project"
-  check_merge_forward "$project" "$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
+  check_merge_forward "$project" "$src"
 
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"

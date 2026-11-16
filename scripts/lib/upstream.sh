@@ -69,7 +69,8 @@ _upstream_bounded() {
 # to fetch. SETTER-GLOBALS — never command-substitute this (register Issue-282):
 #   BASE_FETCH         ok | skipped | failed | notimeout (timeout(1) missing: no fetch)
 #   BASE_FETCH_WHY     "timed out after <secs>s" | "git fetch exited <rc>" |
-#                      "timeout(1) not on PATH" (empty for ok/skipped)
+#                      "timeout(1) not on PATH, so the fetch cannot be bounded"
+#                      (empty for ok/skipped)
 #   BASE_FETCH_REMOTE  the remote name (empty when the ref has no remote prefix)
 # shellcheck disable=SC2034  # the return channel — read by rebaseline.sh, preship-verified-head.sh, mergemr.sh
 upstream_fetch_base() {
@@ -79,7 +80,7 @@ upstream_fetch_base() {
     BASE_FETCH_REMOTE="${base_ref%%/*}"; rbranch="${base_ref#*/}"
     upstream_remote_configured "$tree" "$BASE_FETCH_REMOTE" || return 0
     if ! command -v timeout >/dev/null 2>&1; then
-        BASE_FETCH=notimeout; BASE_FETCH_WHY="timeout(1) not on PATH"; return 0
+        BASE_FETCH=notimeout; BASE_FETCH_WHY="timeout(1) not on PATH, so the fetch cannot be bounded"; return 0
     fi
     _upstream_bounded "$tree" "$secs" fetch --quiet --no-write-fetch-head \
         "$BASE_FETCH_REMOTE" "+refs/heads/$rbranch:refs/remotes/$BASE_FETCH_REMOTE/$rbranch" </dev/null >/dev/null || f_rc=$?
