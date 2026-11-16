@@ -885,6 +885,7 @@ _case1122() {
     esac
 }
 
+# shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
 @test "#1122: --attestable-exit: TREE absent → rc 4, naming TREE UNATTESTED" {
     _case1122 tree-absent
     _pe1122 --attestable-exit

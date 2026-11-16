@@ -49,6 +49,7 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
   done
 }
 
+# shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
 @test "evidence: any other exit stops the step [!] with the first failure line, byte-equal and shell-safe" {
   local err="preship-evidence: FAIL"$'\n'"${HOSTILE//SENTINEL/$SENT}"$'\n''  - dirty: yes'$'\n'
   local first="${HOSTILE//SENTINEL/$SENT}"; first="${first#  - }"
