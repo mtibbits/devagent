@@ -62,6 +62,34 @@ _upstream_bounded() {
     GIT_TERMINAL_PROMPT=0 bounded_call "$secs" "$DEVAGENT_GIT" -C "$work_dir" "$@" 2>/dev/null
 }
 
+# upstream_fetch_base <tree> <base_ref> <secs>   (#1125; extracted from rebaseline.sh)
+# Best-effort, bounded refresh of a base ref like `origin/master`: only the one branch,
+# into its remote-tracking ref, no FETCH_HEAD (as upstream_branch_tip, #660). A ref with
+# no remote prefix, or whose prefix is not a configured remote, is a local ref: nothing
+# to fetch. SETTER-GLOBALS — never command-substitute this (register Issue-282):
+#   BASE_FETCH         ok | skipped | failed | notimeout (timeout(1) missing: no fetch)
+#   BASE_FETCH_WHY     "timed out after <secs>s" | "git fetch exited <rc>" |
+#                      "timeout(1) not on PATH" (empty for ok/skipped)
+#   BASE_FETCH_REMOTE  the remote name (empty when the ref has no remote prefix)
+# shellcheck disable=SC2034  # the return channel — read by rebaseline.sh, preship-verified-head.sh, mergemr.sh
+upstream_fetch_base() {
+    local tree="$1" base_ref="$2" secs="$3" rbranch f_rc=0
+    BASE_FETCH=skipped; BASE_FETCH_WHY=""; BASE_FETCH_REMOTE=""
+    case "$base_ref" in */*) ;; *) return 0 ;; esac
+    BASE_FETCH_REMOTE="${base_ref%%/*}"; rbranch="${base_ref#*/}"
+    upstream_remote_configured "$tree" "$BASE_FETCH_REMOTE" || return 0
+    if ! command -v timeout >/dev/null 2>&1; then
+        BASE_FETCH=notimeout; BASE_FETCH_WHY="timeout(1) not on PATH"; return 0
+    fi
+    _upstream_bounded "$tree" "$secs" fetch --quiet --no-write-fetch-head \
+        "$BASE_FETCH_REMOTE" "+refs/heads/$rbranch:refs/remotes/$BASE_FETCH_REMOTE/$rbranch" </dev/null >/dev/null || f_rc=$?
+    case "$f_rc" in
+        0)       BASE_FETCH=ok ;;
+        124|137) BASE_FETCH=failed; BASE_FETCH_WHY="timed out after ${secs}s" ;;
+        *)       BASE_FETCH=failed; BASE_FETCH_WHY="git fetch exited $f_rc" ;;
+    esac
+}
+
 # upstream_branch_tip <work_dir> <branch> <timeout_secs>   (#660)
 # What `origin` says about <branch> right now. SETTER-GLOBALS — never command-substitute
 # this (register Issue-282):
