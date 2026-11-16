@@ -62,6 +62,13 @@ REFERENCE_LINKS=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-de
 # scripts/build-docs-site.sh so the two cannot drift.
 BLOB_BASE="$(sed -n 's/^blob_base="\(.*\)"$/\1/p' "$(dirname "${BASH_SOURCE[0]}")/../../scripts/build-docs-site.sh")"
 
+# The landing page's HTML reader (stdlib html.parser), next to this library.
+LANDING_CHECK="$(dirname "${BASH_SOURCE[0]}")/landing-check.py"
+
+# landing_py <subcommand> <arg>... — run landing-check.py (0 ok, 1 a structural
+# absence, 2 usage or an unreadable file; diagnostics on stderr).
+landing_py() { python3 -I -X utf8 "$LANDING_CHECK" "$@"; }
+
 # _blob_base_ok — return 2 (naming the scrape) unless BLOB_BASE read as a URL.
 _blob_base_ok() {
   [[ "$BLOB_BASE" == https://*/ ]] && return 0

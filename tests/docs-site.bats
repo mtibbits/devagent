@@ -221,6 +221,109 @@ temp_root() {
   [[ "$output" == *"no index.md"* ]]
 }
 
+# lc_page <html-fragment> — write a fixture page; prints its path.
+lc_page() {
+  local f="$BATS_TEST_TMPDIR/lc.$RANDOM$RANDOM.html"
+  printf '%s\n' "$1" >"$f"
+  printf '%s\n' "$f"
+}
+
+# lc_has <line> — $output holds the exact line. lc_lacks <text> — $lc_out
+# does not hold the text (grep's status pinned to 1, so an error is not "absent").
+lc_has() { grep -qxF -- "$1" <<<"$output" || { echo "no line '$1' in: $output" >&2; return 1; }; }
+lc_lacks() {
+  run grep -qF -- "$1" <<<"$lc_out"
+  [ "$status" -eq 1 ] || { echo "'$1' read (status $status) in: $lc_out" >&2; return 1; }
+}
+
+@test "mutation: landing-check text reads text nodes, never attributes or styles" {
+  local f lc_out
+  f="$(lc_page '<html><head><style>p{color:#112233}</style></head><body>
+<p>see #12</p><svg><text>#7</text><rect fill="#123456"/></svg>
+<p style="color:#123">x</p><!-- #12 --><script>var a="#12"</script>
+<a href="#1x">y</a><p>caf&eacute; &amp; more</p></body></html>')"
+  run landing_py text "$f"
+  [ "$status" -eq 0 ]
+  lc_out="$output"
+  lc_has 'see #12'
+  lc_has '#7'
+  lc_has 'x'
+  lc_has 'y'
+  lc_has 'café & more'
+  [ "$(grep -c '#' <<<"$output")" -eq 2 ]     # only the two text-node marks
+  lc_lacks '#123'
+  lc_lacks '#112233'
+  lc_lacks 'var a'
+  lc_lacks '#1x'
+}
+
+@test "mutation: landing-check text --scripts-off and --no-svg" {
+  local f lc_out
+  f="$(lc_page '<details><summary>S</summary><p>in</p></details>')"
+  run landing_py text --scripts-off "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = S ]
+  run landing_py text "$f"
+  [ "$output" = $'S\nin' ]
+  f="$(lc_page '<details open><summary>S</summary><p>in</p></details>')"
+  run landing_py text --scripts-off "$f"
+  [ "$output" = $'S\nin' ]
+  f="$(lc_page '<p hidden>h</p><p style="display: none">d</p><p style="visibility:hidden">v</p><template><p>t</p></template><p>shown</p>')"
+  run landing_py text --scripts-off "$f"
+  [ "$output" = shown ]
+  f="$(lc_page '<p>a</p><svg><title>T</title><text>svgtext</text></svg>')"
+  run landing_py text --no-svg "$f"
+  [ "$output" = a ]
+  run landing_py text "$f"
+  lc_has svgtext
+  # --within: a void <img> inside the section does not swallow its siblings,
+  # and the read stops at </section>.
+  f="$(lc_page '<section id="hero"><img src="a.svg" alt="pic"><h1>Title</h1><br><p>under</p></section><p>after</p>')"
+  run landing_py text --within hero "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'Title\nunder' ]
+  run landing_py text --within absent "$f"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no element id=absent"* ]]
+  # --article: the first <article>, or the whole document without one.
+  f="$(lc_page '<nav>top</nav><article><p>body</p></article><footer>foot</footer>')"
+  run landing_py text --article "$f"
+  [ "$output" = body ]
+  f="$(lc_page '<p>whole</p>')"
+  run landing_py text --article "$f"
+  [ "$output" = whole ]
+  run landing_py text "$BATS_TEST_TMPDIR/absent.html"
+  [ "$status" -eq 2 ]
+}
+
+@test "mutation: landing-check codes, links and loop" {
+  local f
+  f="$(lc_page '<pre><code id="a">claude a &amp; b</code></pre><p>x <code>two</code></p>')"
+  run landing_py codes "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'claude a & b\ntwo' ]
+  f="$(lc_page '<section id="install"><a href="install.html">I</a><a name="n">no href</a></section><a href="out.html">o</a>')"
+  run landing_py links --within install "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = install.html ]
+  f="$(lc_page '<section id="loop"><svg>
+<a href="#phase-plan"><g data-phase="plan"><rect/><text class="loop-name">Plan</text><text class="loop-steps">pull … draft</text></g></a>
+<a href="#phase-ship"><g data-phase="ship"><text class="loop-name">Ship</text><text class="loop-steps">ship</text></g></a>
+</svg><ol class="landing-phases">
+<li id="phase-plan"><details open><summary>Plan</summary><ol><li>pull</li><li>draft</li></ol></details></li>
+<li id="phase-ship"><details><summary>Ship</summary><ol start="18"><li>ship</li></ol></details></li>
+</ol></section>')"
+  run landing_py loop "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'svg\tplan\tPlan\tpull … draft\nsvg\tship\tShip\tship\nlist\tplan\tyes\t1\tPlan\tpull draft\nlist\tship\tno\t18\tShip\tship')" ]
+  f="$(lc_page '<section id="other"></section>')"
+  run landing_py loop "$f"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no element id=loop"* ]]
+  run landing_py nope "$f"
+  [ "$status" -eq 2 ]
+}
+
 @test "mutation: page set" {
   local d="$BATS_TEST_TMPDIR/web"
   cp -r "$WEB" "$d"
