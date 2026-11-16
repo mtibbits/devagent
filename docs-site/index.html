@@ -1,4 +1,4 @@
-<!-- derived-from: README.md templates/checklist-standard.md docs/requirements.md docs-site/phases.txt docs-site/live.txt -->
+<!-- derived-from: README.md templates/checklist-standard.md docs/requirements.md docs-site/phases.txt docs-site/live.txt docs/checking-dispatch-contract.md scripts/preship-evidence.sh -->
 <!-- nav-label: Home -->
 <div class="landing">
 <link rel="stylesheet" href="assets/landing.css">
@@ -117,9 +117,9 @@
 <h2>Why it's different</h2>
 <ul>
 <li><strong>Requirements first.</strong> devAgent's own behaviour is written down as <strong class="landing-req-count">{{count:requirements}}</strong> requirements in one file, from business rules down to functional ones, and its tests keep that file in shape. <a href="https://github.com/mtibbits/devagent/blob/master/docs/requirements.md">Read them</a>.</li>
-<li><strong>Fresh eyes before it ships.</strong> Reviewers started in a fresh context, which never saw the drafting, red-team the merge request and verify the branch against the issue's acceptance criteria. <a href="https://github.com/mtibbits/devagent/blob/master/README.md#the-25-step-workflow">See the steps</a>.</li>
-<li><strong>Shipping on evidence.</strong> Before anything ships, its evidence is checked against the recorded test-suite run for the exact commit being shipped, not taken on a claim that the tests pass. <a href="https://github.com/mtibbits/devagent/blob/master/README.md#running-the-test-suite">How evidence is recorded</a>.</li>
-<li><strong>The record on disk.</strong> Every issue keeps a folder of plain files: its checklist, plan, reviews and merge-request body. Any session, today's or next week's, picks it up where the last one stopped. <a href="https://github.com/mtibbits/devagent/blob/master/README.md#concurrent-sessions">Working across sessions</a>.</li>
+<li><strong>Fresh eyes before it ships.</strong> By default, reviewers started in a fresh context, which never saw the drafting, red-team the merge request and verify the branch against the issue's acceptance criteria. <a href="https://github.com/mtibbits/devagent/blob/master/docs/checking-dispatch-contract.md">How the checks are dispatched</a>.</li>
+<li><strong>Shipping on evidence.</strong> The test evidence a merge request records is checked against the recorded test-suite run for the exact commit being shipped, not taken on a claim that the tests pass. <a href="https://github.com/mtibbits/devagent/blob/master/README.md#running-the-test-suite">How evidence is recorded</a>.</li>
+<li><strong>The record on disk.</strong> Every issue keeps a folder of plain files: its checklist, plan, reviews and merge-request body. Any session, today's or next week's, picks it up where the last one stopped. <a href="workflow.html">The checklist and its steps</a>.</li>
 </ul>
 </section>
 

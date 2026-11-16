@@ -32,7 +32,10 @@
 #   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
 #        /devagent:mergemr and WAITING (#885); the 21-step mutation leg, which
 #        edits a copy of workflow.md. Reuse docs-site/phases.txt unchanged;
-#        check_phase_split and check_loop are the readers.
+#        check_phase_split and check_loop are the readers. The workflow page's
+#        Phase column and README's step-group bullets ("The 25-step workflow":
+#        Plan / Implement / Ship / Integrate & close) still use the 1.0 four-phase
+#        split; move both to phases.txt's five phases, read from that file.
 #   #1002: none beyond its bullet in the one list.
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
