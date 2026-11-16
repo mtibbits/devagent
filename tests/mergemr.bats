@@ -1591,6 +1591,65 @@ _no_checks_past_grace() {
     [ "$(_merges)" -eq 0 ]
 }
 
+@test "#1125 R12: a forwarded head with auto-merge on and no checks: auto-merge off, then rule 17" {
+    devagent_state_set "$STATE" verified_by forward
+    _no_checks_past_grace
+    _view checks="" automerge=on
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (none); to verify it in full, $R17_FWD_RECIPE"
+    [[ "$output" == *"mergemr: auto-merge disabled: head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (none)"* ]]
+    _mrlog | grep -qxF "auto-merge disabled: head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (none)"
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R12: a forwarded head with auto-merge on and CI pending: auto-merge off, then rule 16 waits" {
+    devagent_state_set "$STATE" verified_by forward
+    _view checks="pending:ci" automerge=on
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 '?' mergemr
+    [[ "$output" == *"mergemr: auto-merge disabled: "* ]]
+    [[ "$output" == *"mergemr: waiting (16): "* ]]
+    grep -qxF -- "[--disable-auto]" "$MERGE_LOG"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R12: a forwarded head with auto-merge on and green CI waits, no merge-mr call" {
+    devagent_state_set "$STATE" verified_by forward
+    _view automerge=on
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1125 R12: a forwarded head in a merge queue without green CI stops, no merge-mr call" {
+    devagent_state_set "$STATE" verified_by forward
+    _view queue=true mergestate=BLOCKED checks="pending:ci"
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (pending), but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1125 R12: a forwarded head whose auto-merge cannot be disabled stops" {
+    devagent_state_set "$STATE" verified_by forward
+    _view checks="pending:ci" automerge=on
+    export MERGE_RC=1 STUB_MERGE_ERR="GraphQL: Pull request auto merge is not allowed"
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (pending); could not disable auto-merge: GraphQL: Pull request auto merge is not allowed; disable it on the forge, then run /devagent:unstuck"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1125 R12: a passing record clears the queue stop for a forwarded head" {
+    devagent_state_set "$STATE" verified_by forward
+    _view queue=true mergestate=BLOCKED checks="pending:ci"
+    _run
+    [ "$status" -eq 1 ]
+    _preship
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    assert_step "$CL" 20 ' ' mergemr
+}
+
 @test "#1125 R17: a backend without mr-view never merges a forwarded head" {
     devagent_state_set "$STATE" verified_by forward
     STUB_VIEW_RC=78 run "$MM" "$TEST_PROJECT" </dev/null

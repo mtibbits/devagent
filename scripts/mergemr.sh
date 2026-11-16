@@ -328,10 +328,34 @@ if [ "$CI_HEAD" != "$verified_head" ]; then                                   # 
     _stop 11 "PR head ${CI_HEAD:0:7} was not verified; run /devagent:preship on it (or push the verified head ${verified_head:0:7})$_note"
 fi
 
+# verified_by (#1125) counts as forward unless it reads as preship or empty (a legacy
+# record): a read error or a garbled value fails closed. Rules 12 and 17 read it.
+vb_rc=0
+verified_by="$(state_ctx_get "$project" verified_by "$issue_arg" 2>/dev/null)" || vb_rc=$?
+verified_by="${verified_by//$'\r'/}"
+case "$vb_rc:$verified_by" in
+    0:preship|0:) vb_forward=0 ;;         # an absent key reads as empty: a legacy record
+    *) vb_forward=1 ;;
+esac
+fwd_text="head ${verified_head:0:7} was recorded by forward and merges only on green CI ($CI_RESULT)"
+
 # rule 12: the PR's live state, not the log — a queue that ejects it, or a cancelled
-# auto-merge, falls through to the rules below.
+# auto-merge, falls through to the rules below. A forwarded head is left to the forge
+# only on green CI (#1125): before that, auto-merge is turned off, as rule 11 does, and
+# rules 13-17 decide; a merge queue cannot be left from here, so it stops.
 if [ "$MV_AUTOMERGE" = on ] || [ "$MV_QUEUE" = true ]; then
-    _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"
+    if [ "$vb_forward" = 0 ] || [ "$CI_RESULT" = green ]; then
+        _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"
+    fi
+    if [ "$MV_QUEUE" = true ]; then
+        _stop 17 "$fwd_text, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck"
+    fi
+    _call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" merge-mr "$mr_url" --disable-auto
+    if [ "$_CALL_RC" -ne 0 ]; then
+        _stop 17 "$fwd_text; could not disable auto-merge: $_CALL_ERR; disable it on the forge, then run /devagent:unstuck"
+    fi
+    echo "mergemr: auto-merge disabled: $fwd_text"
+    log_append "$issue_dir" mergemr "auto-merge disabled: $fwd_text"
 fi
 if [ "$MV_MERGEABLE" = UNKNOWN ] || [ "$MV_MERGESTATE" = UNKNOWN ]; then      # rule 13
     _wait 13 "mergeability not computed yet"
@@ -414,17 +438,9 @@ case "$CI_VERDICT" in
     *) _wait 16 "unexpected CI verdict '$CI_VERDICT'" ;;
 esac
 # rule 17, a head recorded by forward (#1125): it merges only on green CI, whatever
-# merge_checks says. verified_by counts as forward unless it reads as preship or empty
-# (a legacy record): a read error or a garbled value fails closed.
-vb_rc=0
-verified_by="$(state_ctx_get "$project" verified_by "$issue_arg" 2>/dev/null)" || vb_rc=$?
-verified_by="${verified_by//$'\r'/}"
-case "$vb_rc:$verified_by" in
-    0:preship|0:) vb_forward=0 ;;         # an absent key reads as empty: a legacy record
-    *) vb_forward=1 ;;
-esac
+# merge_checks says (vb_forward, read before rule 12).
 if [ "$vb_forward" = 1 ] && [ "$CI_RESULT" != green ]; then
-    _stop 17 "head ${verified_head:0:7} was recorded by forward and merges only on green CI ($CI_RESULT); to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _stop 17 "$fwd_text; to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 fi
 if [ "$CI_RESULT" = none ] && [ "$MERGE_CHECKS" = required ]; then           # rule 17
     _stop 17 "no CI checks on head commit; set merge_checks = \"if-present\" to merge without CI, then run /devagent:unstuck"

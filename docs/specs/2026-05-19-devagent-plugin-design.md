@@ -97,7 +97,7 @@ devAgent/
 │   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
-│   │                        #   merge-forward.sh — #1125 merge_forward config, driver/list/merge-gate predicates,
+│   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
 │   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh;
@@ -173,9 +173,6 @@ default_issue_source = "fork"           # #1099: a flagless /devagent:pull reads
 all_prs_branch   = "dev/all-prs"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 # merge_method   = "squash"              # #885: how step 20 merges — squash | merge | rebase
-# [project.<name>.merge_forward]         # #1125: verify = "ci" lets `preship-verified-head.sh forward`
-# verify      = "ci"                     #   re-record verified_head after git's own merge-forward;
-# append_only = ["CHANGELOG.md"]         #   keep-both is accepted only in these exact files
 # merge_checks   = "required"            # #885: or "if-present" for a repo without CI (§6.3 row 20)
 
 [project.volk.permissions]
@@ -249,8 +246,9 @@ is git's own merge of `verified_head` and the base commit `T` the last merge bro
 (`git merge-tree`, diff3), except that a conflict in an `append_only` file may be resolved
 by keeping both sides' lines as two contiguous runs (the branch's lines staying under
 `## [Unreleased]` when that is the file's first `## ` heading). It refuses on any other
-shape, a merge driver (`git check-attr merge`), a merge gate named in `mr.md`, or a
-`baseline_sha` other than `T`. "The base" is `default_baseline`'s ref, so a project whose
+shape, a merge driver (`git check-attr merge`), a merge gate named in `mr.md` (any line
+containing `merge gate`, in any case; #911 replaces this predicate), or a `baseline_sha`
+other than `T`. "The base" is `default_baseline`'s ref, so a project whose
 `default_baseline` does not track the PR's base should not set `verify = "ci"`. A bad
 value dies naming the key in `mergemr.sh` (at start, whatever `merge_mr` says) and in
 `forward`; `doctor` reports it, and warns on an entry naming no tracked file and on

@@ -20,8 +20,11 @@
 #           is the base commit T the last one brought in, no merge driver is set,
 #           mr.md names no merge gate, and HEAD's tree equals `git merge-tree` of
 #           verified_head and T at every path, except keep-both of a conflict in an
-#           append_only file (lib/merge-forward-hunks.py). Every refusal is
-#           `forward refused (<condition>): <detail>`, exit 1, nothing written.
+#           append_only file (lib/merge-forward-hunks.py). Every refusal of those
+#           conditions is `forward refused (<condition>): <detail>`, exit 1, nothing
+#           written; bad config and git failures die. It first fetches
+#           default_baseline's branch once, bounded by DEVAGENT_REBASELINE_FETCH_SECS
+#           (20); a failed fetch warns and uses the last-known ref.
 #           Success logs `forward: verified_head <sha40> from <old7> (git's merge
 #           of <T7>; no conflict | both sides kept in <paths>)`. mergemr merges a
 #           forwarded head only on green CI (rule 17).
@@ -196,7 +199,7 @@ if [ "$verb" = forward ]; then
     esac
 
     rl_rc=0
-    walk="$(g rev-list --first-parent --parents "$vh40..HEAD" 2>/dev/null)" || rl_rc=$?
+    walk="$(g rev-list --first-parent --parents "$vh40..$head" 2>/dev/null)" || rl_rc=$?
     [ "$rl_rc" -eq 0 ] || die "preship-verified-head: git rev-list exited $rl_rc in $tree"
     if [ -z "$walk" ]; then
         [ "$head" = "$vh40" ] \
@@ -266,10 +269,12 @@ if [ "$verb" = forward ]; then
     # HEAD's tree must equal git's merge at every path but the conflicted ones.
     dt_rc=0
     # --ignore-submodules=none: submodule.<name>.ignore=all would hide a gitlink change.
-    g diff-tree -r -z --no-renames --ignore-submodules=none --raw "$MF_MTREE" HEAD >"$tmp/dt" 2>/dev/null || dt_rc=$?
+    g diff-tree -r -z --no-renames --ignore-submodules=none --raw "$MF_MTREE" "$head" >"$tmp/dt" 2>/dev/null || dt_rc=$?
     [ "$dt_rc" -eq 0 ] || die "preship-verified-head: git diff-tree exited $dt_rc in $tree"
     mapfile -d '' dt <"$tmp/dt"
-    for (( i = 0; i + 1 < ${#dt[@]}; i += 2 )); do
+    [ $(( ${#dt[@]} % 2 )) -eq 0 ] \
+        || die "preship-verified-head: git diff-tree returned an odd field count (${#dt[@]}) in $tree"
+    for (( i = 0; i < ${#dt[@]}; i += 2 )); do
         meta="${dt[i]#:}" dpath="${dt[i+1]}"
         read -r srcm dstm _ <<<"$meta"
         if [ -z "${MF_CONFLICT[$dpath]+x}" ] || [ "$dstm" = 000000 ]; then
@@ -283,7 +288,7 @@ if [ "$verb" = forward ]; then
     for cpath in "${MF_CONFLICTED[@]}"; do
         g cat-file blob "$MF_MTREE:$cpath" >"$tmp/merged" 2>/dev/null \
             || die "preship-verified-head: cannot read $cpath from git's merge in $tree"
-        g cat-file blob "HEAD:$cpath" >"$tmp/head" 2>/dev/null \
+        g cat-file blob "$head:$cpath" >"$tmp/head" 2>/dev/null \
             || die "preship-verified-head: cannot read $cpath at HEAD in $tree"
         h_rc=0
         python3 -I "$hunks" "$tmp/merged" "$tmp/head" "$vh40" "$T" >"$tmp/reason" 2>/dev/null || h_rc=$?

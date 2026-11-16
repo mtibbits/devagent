@@ -23,8 +23,8 @@ every call (config `phase_breaks`; `--no-breaks` skips it for one chain).
 Step 20, `/devagent:mergemr`, merges the PR only when the project sets
 `permissions.merge_mr = true`, and only at the head the last passing preship
 verified (`verified_head`), or, after a merge-forward git made itself, the head
-`preship-verified-head.sh forward` re-recorded, on green CI only; otherwise it marks its row `[?]` until the PR is
-merged elsewhere. `/devagent:next` re-checks a `[?]` mergemr row on every run;
+`preship-verified-head.sh forward` re-recorded, on green CI only; otherwise it
+marks its row `[?]` until the PR is merged elsewhere. `/devagent:next` re-checks a `[?]` mergemr row on every run;
 while the PR is still open it prints `WAITING at step 20 (mergemr): the PR is
 not merged yet; …` and stops with exit 0. Nothing polls: run `/devagent:next`
 again later. mergetoall (19) holds on pending CI before mergemr runs, so an

@@ -1,5 +1,5 @@
 ---
-description: "Step 20: merge the issue's PR at the verified head (preship's, or one preship-verified-head.sh forward re-recorded, on green CI) when permissions.merge_mr = true; otherwise mark the step waiting [?] until the PR is merged."
+description: "Step 20: merge the issue's PR at the verified head when permissions.merge_mr = true (a head preship-verified-head.sh forward re-recorded merges only on green CI); otherwise mark the step waiting [?] until the PR is merged."
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [issue]"
 ---
@@ -57,7 +57,7 @@ merge.
 | 9 | the PR is not on ship's target repo (`code_source.upstream`, or `code_source.fork` under `fork_first`; case-insensitive) | `[!]` `PR is not on <target>; it is on <repo>. Fix mr_url or code_source, then run /devagent:unstuck`. No target configured: `[!]` `no code_source.upstream configured for '<project>'; set it, then run /devagent:unstuck` |
 | 10 | no `verified_head` | `[!]` `no verified head for this PR; run /devagent:preship` |
 | 11 | PR head is not `verified_head` | `[!]` `PR head <sha7> was not verified; run /devagent:preship on it (or push the verified head <verified sha7>)`. With auto-merge on, it first disables it and adds ` (auto-merge disabled)`, or ` (could not disable auto-merge: <error>; disable it on the forge)` |
-| 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`; no second merge call |
+| 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`; no second merge call. A head recorded by `forward` (as rule 17 reads `verified_by`) whose CI is not green is not left to the forge (#1125): with auto-merge on, the step disables it, prints `mergemr: auto-merge disabled: head <sha7> was recorded by forward and merges only on green CI (<CI result>)`, logs the same text, and rules 13-17 decide. A failed disable is `[!]` (rule 17) `head <sha7> was recorded by forward and merges only on green CI (<CI result>); could not disable auto-merge: <error>; disable it on the forge, then run /devagent:unstuck`. In a merge queue it is `[!]` (rule 17) `head <sha7> was recorded by forward and merges only on green CI (<CI result>), but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck` |
 | 13 | `mergeable` or `mergeStateStatus` is `UNKNOWN` | `[?]` `mergeability not computed yet` |
 | 14 | `CONFLICTING` | `[!]`, naming git's own conflicted paths (`git merge-tree` of `verified_head` and the base tip, after one bounded fetch of `default_baseline`; `<paths>` sorted, joined `, `). With `merge_forward` `verify = "ci"`, every conflicted path in `append_only`, merged by git as text and only insertions on both sides (each conflict hunk's base section empty), no merge driver on any path of git's merged tree (as `forward` checks), and no merge gate in `mr.md`: `conflict only in <paths>; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward`. Otherwise `conflict with <base> in <paths>; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. When the paths cannot be known: `conflict with <base> (conflicted paths unknown: <why>); <the same remedy>`, `<why>` one of `could not fetch '<remote>' (<reason>)`, `cannot resolve <base_ref>`, `git merge-tree exited <rc>`, `cannot resolve the issue tree: <reason>`, `a conflicted path contains a newline`, `git reports a conflict but names no conflicted path`. When git finds none: `conflict with <base> (git finds no conflict between <verified sha7> and <tip sha7>); <the same remedy>` |
 | 15 | CI red (red wins over pending) | `[!]` `<CI FAILED line>; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
@@ -173,7 +173,10 @@ read PR <url>: <error>`.
   value dies naming the key, e.g. `merge_forward.verify must be "ci" or
   "preship" (got '<v>'); fix [project.<name>.merge_forward] verify`. "On the
   base" means `default_baseline`'s ref: a project whose `default_baseline` does
-  not track the PR's base should not set `verify = "ci"`.
+  not track the PR's base should not set `verify = "ci"`. "A merge gate in
+  `mr.md`" means any line of the issue's `mr.md` that contains `merge gate`, in
+  any case; name head-tied evidence (for example a Git Bash run at a given SHA)
+  with that phrase so `forward` refuses it. #911 replaces this predicate.
 
 The step also dies, with nothing marked, on `mergemr: no mergemr row in
 <checklist>` (a checklist without the row; migrate it with

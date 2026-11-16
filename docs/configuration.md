@@ -112,8 +112,11 @@ append_only = ["CHANGELOG.md"] # in these exact files) without a full preship:
                                # head only on green CI. Absent or "preship": every
                                # merge-forward needs /devagent:preship. "The base" is
                                # default_baseline's ref: if it does not track the
-                               # PR's base, leave verify unset. A bad value stops
-                               # step 20 and forward naming the key; doctor reports it.
+                               # PR's base, leave verify unset. forward also refuses
+                               # when a line of mr.md contains "merge gate" (any case):
+                               # use that phrase for head-tied evidence. A bad value
+                               # stops step 20 and forward naming the key; doctor
+                               # reports it.
 
 [project.myproj.step_models]   # optional per-step-class model tiers
 checking = "opus"
@@ -226,8 +229,9 @@ CHECKED` and gates nothing. See spec §7.2 and §9.2.
 
 `mr-view` is what step 20 (`/devagent:mergemr`) reads to decide whether to
 merge, and `merge-mr --match-head-commit` is how it merges only the head
-preship verified (or that `preship-verified-head.sh forward` re-recorded, #1125). GitHub implements both; on any other forge the step reads
-`mr-state` and waits for a merge done by hand.
+preship verified (or that `preship-verified-head.sh forward` re-recorded,
+#1125). GitHub implements both; on any other forge the step reads `mr-state`
+and waits for a merge done by hand.
 
 Exit-code conventions across all backends:
 
