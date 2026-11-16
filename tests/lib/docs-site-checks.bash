@@ -259,6 +259,56 @@ _step_n() {
   grep -c . <<<"$steps"
 }
 
+# phase_split <phases-file> — docs-site/phases.txt's data lines as
+# "<Name> <step>..." (colon dropped), one per line. Comment and blank lines are
+# skipped; any other line that is not "<Name>: <step> <step>..." returns 2
+# naming it, and so does a Name given twice.
+phase_split() {
+  _need "$1" || return 2
+  awk -v f="$1" '
+    /^[ \t]*(#|$)/ { next }
+    !/^[A-Z][a-z]+: [a-z]+( [a-z]+)*$/ {
+      printf "%s:%d: expected '\''<Name>: <step> <step>...'\''\n", f, NR > "/dev/stderr"; rc = 2; exit
+    }
+    {
+      n = $1; sub(/:$/, "", n)
+      if (seen[n]++) { printf "%s:%d: phase %s is listed twice\n", f, NR, n > "/dev/stderr"; rc = 2; exit }
+      sub(/:/, ""); print
+    }
+    END { exit rc }' "$1"
+}
+
+# check_phase_split <template> <phases-file> — the phases hold every template
+# step exactly once, in template order, and nothing else. Subject floor: the
+# template yields STEP_COUNT steps.
+check_phase_split() {
+  local tmpl="$1" ph="$2" n split steps num cmd s i=0 last=-1
+  local -a flat=()
+  local -A pos=() seen=()
+  _need "$tmpl" "$ph" || return 2
+  n="$(_step_n "$tmpl")" || return 2
+  [ "$n" -eq "$STEP_COUNT" ] || { echo "$tmpl: $n steps, want $STEP_COUNT" >&2; return 1; }
+  split="$(phase_split "$ph")" || return 2
+  steps="$(template_steps "$tmpl")" || return 2
+  while read -r num cmd; do pos[$cmd]=$i; i=$((i + 1)); done <<<"$steps"
+  # shellcheck disable=SC2086  # word-split each phase line into its steps
+  while read -r _ cmd; do flat+=($cmd); done <<<"$split"
+  for s in "${flat[@]}"; do
+    [ -n "${pos[$s]+x}" ] || { echo "$ph: step $s is not a step of $tmpl" >&2; return 1; }
+  done
+  for s in "${flat[@]}"; do
+    [ -z "${seen[$s]+x}" ] || { echo "$ph: step $s appears in more than one place" >&2; return 1; }
+    seen[$s]=1
+  done
+  while read -r num cmd; do
+    [ -n "${seen[$cmd]+x}" ] || { echo "$ph: step $cmd of $tmpl is in no phase" >&2; return 1; }
+  done <<<"$steps"
+  for s in "${flat[@]}"; do
+    [ "${pos[$s]}" -gt "$last" ] || { echo "$ph: step $s is out of template order" >&2; return 1; }
+    last="${pos[$s]}"
+  done
+}
+
 # check_step_headline <template> <file> — "<N>-step workflow", N derived.
 check_step_headline() {
   local n

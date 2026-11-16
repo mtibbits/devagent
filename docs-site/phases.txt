@@ -1,0 +1,18 @@
+# docs-site/phases.txt — the loop's five phases, and the steps each holds.
+#
+# The landing page (index.html) and the How it works page show the steps of
+# templates/checklist-standard.md in these phases. Every step of that template
+# appears exactly once, and the phases read in template order. tests/docs-site.bats
+# derives the step list from the template and fails on a missing, duplicated,
+# unknown or out-of-order step; the pages are checked against this file.
+#
+# Lines (any other line is an error):
+#   # comment, or a blank line
+#   <Name>: <step> <step>...
+# <Name> is one capitalised word, shown as written. Its lowercase form is the
+# phase id that pages use in anchors (#phase-<id>) and in data-phase="<id>".
+Plan: pull research draft spike scope improve prune tighten
+Build: branch implement quality document commit analyze
+Verify: draftmr review redmr preship
+Ship: ship mergetoall mergemr
+Learn: updatewbs impact lessonslearned cleanup

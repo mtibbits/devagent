@@ -136,6 +136,10 @@ temp_root() {
   holds check_step_table "$TEMPLATE" "$WEB/workflow.md"
 }
 
+@test "docs-site: the phase-split file covers each checklist-template step once, in order" {
+  holds check_phase_split "$TEMPLATE" "$WEB/phases.txt"
+}
+
 @test "docs-site: the configuration reference names every backend verb" {
   holds check_backend_verbs "$CONFIG_DOC"
 }
@@ -359,6 +363,39 @@ temp_root() {
   f="$(fresh "$WEB/workflow.md")"
   edit "$f" "| $num | \`$cmd\`" "| $num | \`${cmd}x\`"
   breaks "step $num" check_step_table "$TEMPLATE" "$f"
+}
+
+@test "mutation: phase split" {
+  local f n
+  f="$(fresh "$WEB/phases.txt")"
+  holds check_phase_split "$TEMPLATE" "$f"
+  edit "$f" ' impact ' ' '
+  breaks 'impact of' check_phase_split "$TEMPLATE" "$f"
+  breaks 'in no phase' check_phase_split "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" 'Ship: ship' 'Ship: review ship'
+  breaks 'step review appears in more than one place' check_phase_split "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" ' redmr ' ' redmrx '
+  breaks 'step redmrx is not a step of' check_phase_split "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" 'review redmr' 'redmr review'
+  breaks 'out of template order' check_phase_split "$TEMPLATE" "$f"
+  # The grammar: a line without its colon, and a phase named twice, cannot run.
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" 'Plan: pull' 'Plan pull'
+  n="$(grep -n '^Plan pull' "$f" | cut -d: -f1)"
+  [ -n "$n" ]
+  run phase_split "$f"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"$f:$n: expected '<Name>: <step> <step>...'"* ]]
+  run check_phase_split "$TEMPLATE" "$f"
+  [ "$status" -eq 2 ]
+  f="$(fresh "$WEB/phases.txt")"
+  plant "$f" 'Plan: pull'
+  run phase_split "$f"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"phase Plan is listed twice"* ]]
 }
 
 @test "mutation: backend verbs" {
