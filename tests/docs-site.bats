@@ -163,6 +163,10 @@ filled_index() {
   holds check_install_pair "$README" "$WEB/index.html"
 }
 
+@test "docs-site: the nav list is exactly the landing page's 'Where to go next' links" {
+  holds check_nav_section "$WEB"
+}
+
 @test "docs-site: 'requirements' appears in the landing hero" {
   holds check_hero_word "$WEB/index.html"
 }
@@ -397,6 +401,14 @@ lc_lacks() {
   run landing_py linked-coming "$f"
   [ "$status" -eq 0 ]
   [ "$output" = 'G coming' ]
+}
+
+@test "mutation: nav section" {
+  local d="$BATS_TEST_TMPDIR/web"
+  cp -r "$WEB" "$d"
+  holds check_nav_section "$d"
+  edit "$d/index.html" $'<ul>\n<li><strong>Requirements first.' $'<ul>\n<li><a href="workflow.html">Steps</a> first.</li>\n<li><strong>Requirements first.'
+  breaks "is not the #next section's page links" check_nav_section "$d"
 }
 
 @test "mutation: page set" {

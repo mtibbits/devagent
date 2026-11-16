@@ -548,8 +548,24 @@ check_install_only() {
     0) echo "$page: install detail on the landing page: $(sort -u <<<"$hits" | tr '\n' ' ')" >&2; return 1 ;;
     *) return 2 ;;
   esac
-  links="$(landing_py links --within install "$page")" || { echo "$page: no install section (id=install)" >&2; return 1; }
+  links="$(landing_py links --within install "$page")" || return $?
   grep -qxE '(\./)?install\.html' <<<"$links" || { echo "$page: the install section does not link install.html" >&2; return 1; }
+}
+
+# check_nav_section <site-dir> — the index's page list (site_pages, the build's
+# nav) is exactly the page links of its id=next section, in order: a page link
+# opening an <li> line anywhere earlier on the index would reorder the nav.
+check_nav_section() {
+  local dir="$1" want got
+  _need "$dir/index.html" || return 2
+  want="$(site_pages "$dir")" || return 2
+  got="$(landing_py links --within next "$dir/index.html")" || return $?
+  got="$(sed -nE 's#^(\./)?([a-z0-9_-]+)\.html$#\2#p' <<<"$got" | awk '$0 != "index" && !seen[$0]++')"
+  [ -n "$want" ] || { echo "$dir/index.html: no page list read" >&2; return 2; }
+  [ "$got" = "$want" ] || {
+    echo "$dir/index.html: the nav list ($(tr '\n' ' ' <<<"$want")) is not the #next section's page links ($(tr '\n' ' ' <<<"$got"))" >&2
+    return 1
+  }
 }
 
 # check_step_headline <template> <file> — "<N>-step workflow", N derived.

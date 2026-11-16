@@ -31,8 +31,9 @@ Usage:
             start= of its <ol> (absent -> 1), the <summary> text, and the text
             of each <li> of that <ol>
 
-Exit: 0 ok; 1 a structural absence (named on stderr); 2 usage or an
-unreadable file. Diagnostics go to stderr only (stdout is data).
+Exit: 0 ok; 1 a structural absence (named on stderr); 2 usage, an
+unreadable file, or any other failure (a crash never reads as an absence).
+Diagnostics go to stderr only (stdout is data).
 
 Parse model (stdlib html.parser): void elements and self-closing tags
 (<rect/>) are never pushed; an end tag pops the stack down to its matching
@@ -273,6 +274,9 @@ def main(argv):
     except (Usage, Absent) as e:
         print(f"{PROG}: {e}", file=sys.stderr)
         return 2 if isinstance(e, Usage) else 1
+    except Exception as e:  # noqa: BLE001 - exit 1 is reserved for Absent
+        print(f"{PROG}: internal error: {type(e).__name__}: {e}", file=sys.stderr)
+        return 2
     for line in out:
         print(line)
     return 0
