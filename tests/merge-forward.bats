@@ -747,3 +747,35 @@ _fwd_leaves() {
     _forwardable
     _fwd_leaves "mergemr rule 17: head abc1234 was recorded by forward and merges only on green CI (none); to verify it in full, $RECIPE"
 }
+
+# ---- final review fixes (Task 11) ---------------------------------------------
+
+@test "#1125 merge.default = union cannot hide a conflict in an unlisted file" {
+    # merge.default names a driver for paths whose merge attribute is unspecified, so
+    # check-attr cannot see it; forward asks git's merge with the text driver.
+    _mf_config '"ci"' '[]'
+    git -C "$SOURCE_DIR" config merge.default union
+    ( cd "$UPWC" && sed -i 's/^- old$/- old BASE/' CHANGELOG.md && git commit -q -am base && git push -q origin main )
+    ( cd "$SOURCE_DIR" && sed -i 's/^- old$/- old BRANCH/' CHANGELOG.md && git commit -q -am br )
+    VH="$(_head)"; devagent_state_set "$STATE" verified_head "$VH"
+    _merge_forward; _rebaseline; _snapshot      # union keeps both lines: no conflict locally
+    _fwd
+    _refused merge "CHANGELOG.md conflicts in git's merge and is not in merge_forward.append_only"
+}
+
+@test "#1125 a gitlink change hidden by submodule ignore = all refuses" {
+    _mf_config '"ci"' '["CHANGELOG.md"]'
+    ( cd "$SOURCE_DIR" \
+      && printf '[submodule "s"]\n\tpath = s\n\turl = ./x\n\tignore = all\n' > .gitmodules \
+      && git add .gitmodules \
+      && git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,s \
+      && git commit -q -m sub )
+    VH="$(_head)"; devagent_state_set "$STATE" verified_head "$VH"
+    local t; t="$(_upstream_commit u1)"
+    _merge_forward
+    ( cd "$SOURCE_DIR" && git update-index --cacheinfo 160000,2222222222222222222222222222222222222222,s \
+      && git commit -q --amend --no-edit )
+    _rebaseline; _snapshot
+    _fwd
+    _refused merge "s differs from git's merge of ${VH:0:7} and ${t:0:7}"
+}

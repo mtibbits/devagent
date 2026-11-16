@@ -766,6 +766,16 @@ _mf() {   # _mf <verify-literal|-> <append_only-literal|->
     _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
 }
 
+@test "#1125 R14: a merge driver on any path of the tree withholds the light remedy" {
+    # forward refuses a driver on any path of git's merged tree, so rule 14 must not
+    # offer it there either (final review I1).
+    _r14_origin
+    _mf '"ci"' '["CHANGELOG.md"]'
+    echo 'f1.txt merge=giveup' >> "$SOURCE_DIR/.git/info/attributes"
+    _run
+    _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
+}
+
 @test "#1125 R14: a failed fetch says the paths are unknown" {
     _r14_origin
     _mf '"ci"' '["CHANGELOG.md"]'

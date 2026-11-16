@@ -240,7 +240,9 @@ if [ "$verb" = forward ]; then
 
     # (d) git's own merge of verified_head and T must equal HEAD's tree.
     mt_rc=0
-    g -c merge.conflictStyle=diff3 merge-tree --write-tree -z "$vh40" "$T" >"$tmp/mt" 2>/dev/null || mt_rc=$?
+    # merge.default=text: a configured merge.default driver would apply to every path
+    # whose merge attribute is unspecified, which check-attr cannot see (final review).
+    g -c merge.conflictStyle=diff3 -c merge.default=text merge-tree --write-tree -z "$vh40" "$T" >"$tmp/mt" 2>/dev/null || mt_rc=$?
     [ "$mt_rc" -le 1 ] || refuse merge "git merge-tree exited $mt_rc on ${vh40:0:7} and ${T:0:7}"
     mapfile -d '' mt <"$tmp/mt"
     mtree="${mt[0]}"
@@ -295,7 +297,8 @@ if [ "$verb" = forward ]; then
     declare -A is_conflicted=()
     for cpath in "${conflicted[@]}"; do is_conflicted[$cpath]=1; done
     dt_rc=0
-    g diff-tree -r -z --no-renames --raw "$mtree" HEAD >"$tmp/dt" 2>/dev/null || dt_rc=$?
+    # --ignore-submodules=none: submodule.<name>.ignore=all would hide a gitlink change.
+    g diff-tree -r -z --no-renames --ignore-submodules=none --raw "$mtree" HEAD >"$tmp/dt" 2>/dev/null || dt_rc=$?
     [ "$dt_rc" -eq 0 ] || die "preship-verified-head: git diff-tree exited $dt_rc in $tree"
     mapfile -d '' dt <"$tmp/dt"
     for (( i = 0; i + 1 < ${#dt[@]}; i += 2 )); do
