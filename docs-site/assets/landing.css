@@ -58,6 +58,7 @@
   .landing .landing-rungs { grid-template-columns: 1fr 1fr; }
   .landing .landing-phases { grid-template-columns: 1fr 1fr; }
   .landing-command { flex-direction: column; }
+  .landing-command pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   .landing-copy { align-self: flex-start; }
 }
 
