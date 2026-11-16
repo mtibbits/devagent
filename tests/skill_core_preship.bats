@@ -90,6 +90,9 @@ PF='bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh"'
   [ -n "$t" ]
   run grep -c '^[[:space:]]*```' <<<"$t"                               # no fenced shell to run
   [ "$output" -eq 0 ]
+  run grep -c '<<' <<<"$t"                                             # no heredoc: multi-line, outside the grant (Issue-584)
+  [ "$output" -eq 0 ]
+  [[ "$t" == *'`$ISSUE_DIR/.preflight-reason` with the Write'* ]]      # the reason travels in a file
   while IFS= read -r span; do
     n=$((n + 1))
     [[ "$span" == 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/'* ]] || { echo "outside the grant: $span"; return 1; }

@@ -37,7 +37,7 @@ re-run after ship, where a correction changes `mr.md` only. Every preflight call
 `scripts/preship-preflight.sh` (its header is the reference); below, `… <sub> [args]`
 stands for `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh" <sub> <project> <Issue-N> "$ISSUE_DIR" [args]`.
 Script stderr and `mr.md` text hold backticks, `$` and quotes: never type them into a
-command; the script reads them from files, and a reason from stdin.
+command; the script reads them from files, and a reason from a file you write.
 
 - **Evidence check:**
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh" evidence <project> <Issue-N> "$ISSUE_DIR"`
@@ -62,9 +62,10 @@ command; the script reads them from files, and a reason from stdin.
   **name the commit** as `` at `<sha>` `` (the form the check reads) if the log or
   git establishes it; (c) otherwise wrong: **leave the line as written**.
   **Never edit the `## Evidence` block.** Run `… save <L>` before an edit, then
-  `… log corrected <L>` or `… log named-commit <L>`; log a line left as written with
-  `… log left-as-written <L>`, the reason on stdin through a quoted heredoc
-  (`<<'EOF'`).
+  `… log corrected <L>` or `… log named-commit <L>`; log a line left as written by
+  writing the reason, one line, to `$ISSUE_DIR/.preflight-reason` with the Write
+  tool, then running `… log left-as-written <L>` (it reads and removes the file;
+  never a heredoc, which is a multi-line command outside the grant).
 - Re-run the check only after a run that edited `mr.md`, **at most three runs** (the
   script refuses a fourth). Edit nothing after the last run: a line still reported
   then, and not left as written, is logged **unresolved** (`… log unresolved <L>`),

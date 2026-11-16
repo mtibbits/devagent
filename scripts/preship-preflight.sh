@@ -25,8 +25,10 @@
 #     save <L>          keep line <L> of mr.md, before an edit, for log corrected/named-commit.
 #     log <kind> [<L>]  append the one spelling for <kind> through checklist-log.sh:
 #                       corrected <L> | named-commit <L> | left-as-written <L> (the reason is
-#                       the first line of stdin) | unresolved <L> | could-not-run | preflight
-#                       (then the preflight's state is removed).
+#                       the first line of <issue-dir>/.preflight-reason, which the session
+#                       writes with its Write tool and this removes once logged; else of
+#                       stdin) | unresolved <L> | could-not-run | preflight (then the
+#                       preflight's state and any leftover reason file are removed).
 # "First failure line" = stderr's first "  - " entry (plus "(+N more)"), else its first
 # non-empty line, else "(no stderr)". Logged mr.md lines are truncated to 200 characters
 # plus "…". Exits 2 on usage. Never runs run-suite.sh or the Evidence stamper.
@@ -45,8 +47,10 @@ SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 . "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=lib/history.sh
 . "$DEVAGENT_ROOT/scripts/lib/history.sh"
+# shellcheck source=lib/utf8-locale.sh
+. "$DEVAGENT_ROOT/scripts/lib/utf8-locale.sh"
 
-usage="usage: preship-preflight.sh evidence|claims|prior <L>|save <L>|log <kind> [<L>] <project> <Issue-N> <issue-dir>"
+usage="usage: preship-preflight.sh <subcommand> <project> <Issue-N> <issue-dir> [args], where <subcommand> [args] is evidence | claims | prior <L> | save <L> | log <kind> [<L>]"
 _usage() { printf 'preship-preflight: %s\n%s\n' "$1" "$usage" >&2; exit 2; }
 
 # `log <kind> <project> …` is read like `log <project> … <kind>`: the doc's `… log corrected <L>`
@@ -59,15 +63,21 @@ fi
 sub="$1"; project="$2"; issue="$3"; issue_dir="${4%/}"; shift 4
 [ -z "$_kind_first" ] || set -- "$_kind_first" "$@"
 case "$issue" in ''|*[!A-Za-z0-9_-]*) _usage "'$issue' is not an issue id" ;; esac
-case "$project" in ''|*[!A-Za-z0-9_.-]*) _usage "'$project' is not a project name" ;; esac
+case "$project" in ''|.|..|*[!A-Za-z0-9_.-]*) _usage "'$project' is not a project name" ;; esac
 [ "$(basename -- "$issue_dir")" = "$issue" ] || _usage "issue dir '$issue_dir' is not $issue's"
 [ -f "$issue_dir/checklist.md" ] || _usage "no checklist.md in '$issue_dir'"
 quarantine_guard_dir "preship-preflight" "$issue_dir"
 mr="$issue_dir/mr.md"
 
 _line_arg() { case "${1:-}" in ''|*[!0-9]*|0*) _usage "a line number is required, got '${1:-}'" ;; esac; }
-# _t <text> - the text, or its first 200 characters plus "…".
-_t() { if [ "${#1}" -gt 200 ]; then printf '%s…' "${1:0:200}"; else printf '%s' "$1"; fi; }
+# _t <text> - the text, or its first 200 characters plus "…". Characters under a UTF-8
+# locale whatever the session's, so a cut never splits one and `prior` matches across
+# sessions (bytes only when the host has no UTF-8 locale).
+utf8_locale_resolve || true
+_t() {
+  local LC_ALL="${UTF8_LOCALE:-${LC_ALL:-}}"
+  if [ "${#1}" -gt 200 ]; then printf '%s…' "${1:0:200}"; else printf '%s' "$1"; fi
+}
 # _line <L> - LINE: line <L> of mr.md, one CR stripped ("" past the end).
 _line() {
   local i=0 l
@@ -90,14 +100,14 @@ _log() { bash "$SCRIPTS/checklist-log.sh" "$issue_dir" preship "$1"; }
 
 base="${TMPDIR:-/tmp}/devagent-preflight-$(id -u)"
 state="$base/$project/$issue"
-# The per-user base is private (700) and must be ours; everything below inherits that.
-_state_ready() {
-  mkdir -m 700 "$base" 2>/dev/null || true
-  # shellcheck disable=SC2015  # die exits: a guard, not an if-then-else
-  [ -d "$base" ] && [ -O "$base" ] && [ ! -L "$base" ] \
-    || die "preflight state dir $base is missing, a symlink, or not owned by $(id -un)"
-  mkdir -p "$state"
-}
+# The per-user base is private (700) and must be ours: checked here, before any subcommand
+# reads, writes or removes $state, and everything below inherits it.
+mkdir -m 700 "$base" 2>/dev/null || true
+# shellcheck disable=SC2015  # die exits: a guard, not an if-then-else
+[ ! -L "$base" ] && [ -d "$base" ] && [ -O "$base" ] \
+  || die "preflight state dir $base is missing, a symlink, or not owned by $(id -un)"
+chmod 700 "$base"
+_state_ready() { mkdir -p "$state"; }
 _get() { if [ -f "$state/$1" ]; then cat "$state/$1"; else printf '%s' "${2-}"; fi; }
 
 case "$sub" in
@@ -162,8 +172,13 @@ case "$sub" in
         msg="claims: mr.md:$1 ${kind/-/ }: '$(_t "$old")' -> '$(_t "$LINE")'" ;;
       left-as-written)
         _line_arg "${1:-}"; _line "$1"
-        why=""; IFS= read -r why || true
-        [ -n "$why" ] || _usage "left-as-written needs the reason on stdin (a quoted heredoc)"
+        # A file, not a heredoc: a multi-line command falls outside the plugin grant (Issue-584).
+        why=""
+        if [ -f "$issue_dir/.preflight-reason" ]; then IFS= read -r why < "$issue_dir/.preflight-reason" || true
+        elif [ ! -t 0 ]; then IFS= read -r why || true
+        fi
+        why="${why%$'\r'}"
+        [ -n "$why" ] || _usage "left-as-written needs a one-line reason in $issue_dir/.preflight-reason (write it with the Write tool first)"
         msg="claims: mr.md:$1 left as written: '$(_t "$LINE")' — $why" ;;
       unresolved)
         _line_arg "${1:-}"; _line "$1"
@@ -182,6 +197,9 @@ case "$sub" in
       *) _usage "unknown log kind '$kind'" ;;
     esac
     _log "$msg"
-    if [ "$kind" = preflight ]; then rm -rf -- "$state"; fi ;;
+    case "$kind" in
+      left-as-written) rm -f -- "$issue_dir/.preflight-reason" ;;
+      preflight)       rm -rf -- "$state"; rm -f -- "$issue_dir/.preflight-reason" ;;
+    esac ;;
   *) _usage "unknown subcommand '$sub'" ;;
 esac

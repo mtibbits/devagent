@@ -119,7 +119,24 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
   [ "$(_lastlog)" = "claims: mr.md:2 left as written: '- \`tests/x.bats\` (26 tests)' — $why" ]
   [ ! -e "$SENT" ]
   run --separate-stderr bash -c 'bash "$1" log fake Issue-7 "$2" left-as-written 2 </dev/null' _ "$ROOT/scripts/preship-preflight.sh" "$ISSUE_DIR"
-  [ "$status" -eq 2 ]; [[ "$stderr" == *"reason"* ]]
+  [ "$status" -eq 2 ]; [[ "$stderr" == *".preflight-reason"* ]]
+}
+
+@test "log left-as-written: the reason from <issue-dir>/.preflight-reason (one CR dropped), removed once logged; log preflight removes a leftover" {
+  local why='an earlier run; see $(touch '"$SENT"') and `id` "x" '"'"'y'"'"' C:\tmp'
+  printf '%s\r\nsecond line\n' "$why" > "$ISSUE_DIR/.preflight-reason"
+  _pf log left-as-written 2 </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(_lastlog)" = "claims: mr.md:2 left as written: '- \`tests/x.bats\` (26 tests)' — $why" ]
+  [ ! -e "$ISSUE_DIR/.preflight-reason" ]                     # consumed, so it is never reused
+  [ ! -e "$SENT" ]
+  : > "$ISSUE_DIR/.preflight-reason"                          # empty: refused, nothing logged
+  _pf log left-as-written 2 </dev/null
+  [ "$status" -eq 2 ]
+  echo 'leftover' > "$ISSUE_DIR/.preflight-reason"
+  _pf log preflight
+  [ "$status" -eq 0 ]
+  [ ! -e "$ISSUE_DIR/.preflight-reason" ]
 }
 
 @test "log unresolved: the run number; a 300-character line is cut to 200 plus …" {
@@ -190,4 +207,48 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
   run --separate-stderr bash "$ROOT/scripts/preship-preflight.sh" log preflight fake Issue-7 "$ISSUE_DIR"
   [ "$status" -eq 0 ]
   [[ "$(_lastlog)" == "preflight: evidence exit (none);"* ]]
+}
+
+@test "state dir: a symlinked base is refused before any subcommand reads, writes or removes \$state" {
+  local base tgt before sub
+  base="$TMPDIR/devagent-preflight-$(id -u)"; tgt="$BATS_TEST_TMPDIR/elsewhere"
+  mkdir -p "$tgt/fake/Issue-7"
+  echo keep > "$tgt/fake/Issue-7/claims.out"; echo 1 > "$tgt/fake/Issue-7/runs"
+  ln -s "$tgt" "$base" 2>/dev/null || true
+  [ -L "$base" ] || skip "no symlinks on this host (Git Bash copies)"
+  before="$(_log)"
+  for sub in evidence claims 'save 2' 'log preflight' 'log unresolved 2'; do
+    # shellcheck disable=SC2086  # the subcommand and its argument, split on purpose
+    _pf $sub
+    [ "$status" -eq 1 ] || { echo "$sub → $status"; return 1; }
+    [[ "$stderr" == *"is missing, a symlink, or not owned by"* ]]
+  done
+  [ "$(cat "$tgt/fake/Issue-7/claims.out")" = keep ]          # nothing removed through the link
+  [ "$(_log)" = "$before" ]                                   # nothing planted reached the log
+  [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+@test "state dir: the project names . and .. are usage errors, so state never leaves the private base" {
+  local p
+  for p in . ..; do
+    run --separate-stderr bash "$ROOT/scripts/preship-preflight.sh" claims "$p" Issue-7 "$ISSUE_DIR"
+    [ "$status" -eq 2 ] || { echo "'$p' → $status"; return 1; }
+    [[ "$stderr" == *"'$p' is not a project name"* ]]
+  done
+  [ ! -e "$TMPDIR/Issue-7" ]
+}
+
+@test "a logged line is cut on a character boundary whatever the session's locale, and prior matches across locales" {
+  source "$PLUGIN_ROOT/scripts/lib/utf8-locale.sh"
+  utf8_locale_resolve || skip "no UTF-8 locale on this host"
+  local long; long="$(printf 'é%.0s' $(seq 300))"
+  printf '# Title\n%s\n' "$long" > "$ISSUE_DIR/mr.md"
+  LC_ALL=C _pf log unresolved 2
+  [ "$status" -eq 0 ]
+  _lastlog | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")'   # valid UTF-8
+  [[ "$(_lastlog)" == *"'$(printf 'é%.0s' $(seq 200))…'" ]]
+  run bash -c 'LC_ALL=C bash "$1" log fake Issue-7 "$2" left-as-written 2 <<<"kept: an earlier run"' _ "$ROOT/scripts/preship-preflight.sh" "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  LC_ALL="$UTF8_LOCALE" _pf prior 2
+  [ "$status" -eq 0 ]; [[ "$output" == *"left as written"* ]]
 }
