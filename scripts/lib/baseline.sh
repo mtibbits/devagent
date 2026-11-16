@@ -21,19 +21,22 @@
 # and leaves CWD at the source dir (branch.sh has always depended on that `cd`;
 # preserved exactly rather than "cleaned up", so the extraction stays behavior-preserving).
 #
+# `baseline_ref_name <project> <issue_dir>` (#1122) is the no-fetch half: it sets
+#   BASELINE_REF and BASELINE_OVERRIDE (as above) and nothing else, with NO git call and
+#   NO `cd`, and dies with the #162 messages on an empty or invalid marker. A read-only
+#   caller (claims-check.sh) names the ref without fetching; baseline_resolve calls it.
+#
 # Requires the caller to have sourced: io.sh (die/warn), config.sh
 # (config_get_project_field), conn-diag.sh (conn_diag_message), and to have
 # $DEVAGENT_GIT set. No lib self-sources its deps — that is the house convention.
 #
 # Source-only file: do not execute directly.
 
-baseline_resolve() {
+baseline_ref_name() {
   local project="$1" issue_dir="$2"
-  local baseline source_dir baseline_file baseline_override override_ref
-  local base_remote fetch_failed fetch_err baseline_sha cause
+  local baseline baseline_file baseline_override override_ref
 
   baseline="$(config_get_project_field "$project" default_baseline)"
-  source_dir="$(config_get_project_field "$project" source_dir)"
 
   # Per-issue baseline override (#162). A .devagent-baseline marker in the issue
   # dir (mirroring .devagent-type/.devagent-title) cuts the branch from a
@@ -55,6 +58,21 @@ baseline_resolve() {
       baseline="$override_ref"
       baseline_override=1
   fi
+  # shellcheck disable=SC2034  # return channel (see CONTRACT)
+  BASELINE_REF="$baseline"
+  # shellcheck disable=SC2034  # return channel (see CONTRACT)
+  BASELINE_OVERRIDE="$baseline_override"
+}
+
+baseline_resolve() {
+  local project="$1" issue_dir="$2"
+  local baseline source_dir baseline_override
+  local base_remote fetch_failed fetch_err baseline_sha cause
+
+  source_dir="$(config_get_project_field "$project" source_dir)"
+  baseline_ref_name "$project" "$issue_dir"     # setter-globals; never $( … )
+  baseline="$BASELINE_REF"
+  baseline_override="$BASELINE_OVERRIDE"
 
   cd "$source_dir" || die "cannot enter source_dir '$source_dir'"
   # First path component of a remote/branch baseline names the remote to fetch; for

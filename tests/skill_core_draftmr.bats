@@ -30,3 +30,12 @@ setup() {
 @test "core-draft-mr writes Related: disk:<N>, never Closes #<N>, for a disk issue (#1009)" {
   grep -qF 'write `Related: disk:<N>`, never `Closes #<N>`' "$SKILL/SKILL.md"
 }
+
+@test "core-draft-mr states the claim forms, the name-the-commit rule and (N new) (#1122)" {
+  local f="$SKILL/SKILL.md" p
+  for p in '`tests/x.bats` (27 tests)' '`: 14/14`' '`N/N bats`' '`N pytest`' '`N commits`' '`N files changed`' \
+           "grep -cE '^[[:blank:]]*@test[[:blank:]]' <file>" '14/14 at `<sha>`' '`(N new)`' 'never `— N tests`' \
+           'claims-check.sh' 'out of code spans'; do
+    grep -qF -- "$p" "$f" || { echo "missing: $p"; return 1; }
+  done
+}

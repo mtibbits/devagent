@@ -59,7 +59,8 @@ a new file inherits:
 - Nothing writes into the plugin tree (`$PLUGIN_ROOT`, `$BATS_TEST_DIRNAME/..`).
 - Git identity is per-repo under tmp; `lib/hermetic-env.bash` nulls the global
   config, TZ and locale, and unsets the session pins, `DEVAGENT_SUITE_JOBS`,
-  `DEVAGENT_FETCH_TIMEOUT`, `DEVAGENT_BC_MAX_PAGES` and `BC_MAX_PAGES`. It also
+  `DEVAGENT_FETCH_TIMEOUT`, `DEVAGENT_COLLECT_TIMEOUT`, `DEVAGENT_BC_MAX_PAGES` and
+  `BC_MAX_PAGES`. It also
   unsets `CLAUDE_CONFIG_DIR` and `DA_HOME`, but only the first time a shell
   sources it (`_DEVAGENT_HERMETIC_HOMES`), so a harness that re-sources it
   inside a test keeps the `DA_HOME` its `setup()` exported.

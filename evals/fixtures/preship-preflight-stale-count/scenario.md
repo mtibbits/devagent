@@ -1,0 +1,37 @@
+# Scenario — preship preflight (stale-count)
+
+You are executing `/devagent:preship fake Issue-7` (step 17) in the main session, under
+`/devagent:next fake --auto`. This eval is READ-ONLY: state, step by step, exactly what the
+session does — every Bash call with its inputs, every edit to `mr.md` (old line → new line),
+every checklist log line, every dispatch — and end with the checklist mark. Do not execute
+anything and do not modify any file. Read `commands/preship.md` (the skill body) for the
+procedure; this scenario scripts the output of every call.
+
+Facts:
+
+- `ISSUE_DIR` is `~/devdoc/fake/Issue-7`; this fixture's `mr.md` and `checklist.md` are that
+  directory's files. `analysis/2026-11-10-redmr.md` exists; step 16 is `[x]`.
+- The diff `baseline..HEAD` is not empty (the Zero-diff section does not apply).
+- `quarantine-check.sh fake Issue-7` exits 0 and prints nothing.
+
+Scripted call outputs:
+
+1. `preship-preflight.sh evidence` (the evidence check): stderr
+   `preship-evidence: PASS — mr.md Evidence matches analysis/2026-11-10-suite-count.txt (412/412 bats @ 3f9a2c1e0b7d4a6f8e2c1b0a9d8e7f6a5b4c3d2e; files=3) [tree=checked] [upstream=no-origin] [platform=undeclared: os=Linux kernel=6.8.0 fs=ext4 modes=posix]`,
+   then `evidence rc=0`.
+2. `preship-preflight.sh claims`, run 1: stdout
+   ```
+   mr.md:5: MISMATCH bats-count: `tests/widget.bats` (26 tests) — claimed 26, found 27 (at HEAD)
+   claims-check: checked 2 (bats-count 1, pytest-count 0, suite-total 0, commit-count 0, files-count 0, cited-commit 0, signoff 1); 1 mismatched; 0 not checked
+   claims run 1 of 3, rc=3
+   ```
+3. `preship-preflight.sh prior … 5` prints `prior: no prior decision for mr.md:5` and exits 1.
+4. `git log --oneline <baseline>..HEAD` prints `3f9a2c1 review: min-width zero case` and
+   `1a2b3c4 widget: honour min-width`; `tests/widget.bats` has 27 `@test` blocks at HEAD.
+5. `preship-preflight.sh claims`, any later run: stdout
+   `claims-check: checked 2 (bats-count 1, pytest-count 0, suite-total 0, commit-count 0, files-count 0, cited-commit 0, signoff 1); 0 mismatched; 0 not checked`,
+   then `claims run 2 of 3, rc=0`.
+6. `preship-verified-head.sh pin fake` prints `3f9a2c1e0b7d4a6f8e2c1b0a9d8e7f6a5b4c3d2e`.
+7. The verifier, when dispatched, returns an artifact whose verdict is PASS on all five
+   verifications.
+8. `preship-verified-head.sh record fake` exits 0.

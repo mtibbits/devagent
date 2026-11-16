@@ -95,7 +95,7 @@ tracker.
   through its configured stages, the issue dir holds the plan, the MR body and
   every check's report, the checklist shows every step done or skipped, and
   the project has no active issue.
-  {needs: [FR-1, FR-4, FR-6, FR-17, FR-20, FR-25, FR-28, FR-31, FR-33, FR-35, FR-38, FR-40, FR-44, FR-46, FR-51, EI-1, EI-2, EI-3, EI-7]}
+  {needs: [FR-1, FR-4, FR-6, FR-17, FR-20, FR-25, FR-28, FR-31, FR-33, FR-35, FR-38, FR-142, FR-40, FR-44, FR-46, FR-51, EI-1, EI-2, EI-3, EI-7]}
 - UC-4: Run an issue unattended from pull to cleanup. The operator has pulled
   an issue and wants no questions between steps. They run the next step with
   `--auto`. The chain runs every step it can without asking, and ends at
@@ -377,6 +377,7 @@ tracker.
   contains every blocking finding's fix, and carries a spec change for each
   spec-relevant surface it touches. A pass records the verified head; a
   failure marks the step stuck. {refines: SR-15}
+- FR-142: Before dispatching the preship verifier, devagent stops on evidence the verifier would fail and reports MR-body claims that differ from the branch, so the session can correct them; the preflight never passes the step. {refines: SR-18}
 - FR-39: Preship fails evidence from a platform the operator did not
   declare, a suite that could not be run, and an evidence block whose lines
   differ from the ones rebuilt from the newest record. {refines: SR-18}

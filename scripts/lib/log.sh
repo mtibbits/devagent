@@ -29,7 +29,11 @@ log_append() {
   # section are buffered so the new entry sits with the other log lines.
   # #329: same-dir temp → atomic rename (a cross-fs mv can truncate the log).
   tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
-  if awk -v line="$line" '
+  # #1122: the line reaches awk through ENVIRON, never -v: -v processes escape
+  # sequences, so a message holding `\n` (an mr.md line, a script's stderr) became
+  # several lines and other backslashes vanished.
+  if _LOG_LINE="$line" awk '
+    BEGIN { line = ENVIRON["_LOG_LINE"] }
     /^## / {
       if (in_log && !inserted) { print line; inserted = 1 }
       for (i = 1; i <= nb; i++) print blanks[i]

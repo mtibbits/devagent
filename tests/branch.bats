@@ -366,3 +366,39 @@ _local_baseline_fixture() {
     [ "$(git -C "$SOURCE_DIR" for-each-ref --format='%(refname:short)' refs/heads | sort | tr '\n' ' ')" = "main other " ]
     [ ! -e "$FETCH_MARKER" ]
 }
+
+# ---- #1122: baseline_ref_name, the no-fetch half of baseline_resolve -----------------
+# _brn [<marker text>]: run baseline_ref_name in a fresh shell from cwd /, with every git
+# call logged and failed, and print REF|OVERRIDE|PWD|SHA-set. The marker is written first
+# when given.
+_brn() {
+    [ "$#" -eq 0 ] || printf '%s\n' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-baseline"
+    printf '%s\n' '#!/usr/bin/env bash' "echo \"\$*\" >> '$DEVAGENT_TMP/git.log'" 'exit 97' > "$DEVAGENT_TMP/gitlog-shim"
+    chmod +x "$DEVAGENT_TMP/gitlog-shim"
+    run env DEVAGENT_GIT="$DEVAGENT_TMP/gitlog-shim" bash -c '
+        r="$1"; . "$r/scripts/lib/paths.sh"; . "$r/scripts/lib/io.sh"; . "$r/scripts/lib/config.sh"
+        . "$r/scripts/lib/baseline.sh"
+        cd / && baseline_ref_name "$2" "$3"
+        printf "%s|%s|%s|%s\n" "$BASELINE_REF" "$BASELINE_OVERRIDE" "$PWD" "${BASELINE_SHA+set}"' \
+        _ "$DEVAGENT_ROOT" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1"
+}
+
+@test "baseline_ref_name: marker beats default_baseline, no git call (#1122)" {
+    _brn
+    [ "$status" -eq 0 ]
+    [ "$output" = "origin/main|0|/|" ]                        # default_baseline, no override
+    _brn ' dev/all-prs '
+    [ "$status" -eq 0 ]
+    [ "$output" = "dev/all-prs|1|/|" ]                        # the marker wins, whitespace stripped
+    [ ! -e "$DEVAGENT_TMP/git.log" ]                          # no fetch, no rev-parse: no git at all
+}
+
+@test "baseline_ref_name: invalid marker dies with the #162 message (#1122)" {
+    _brn 'main; rm -rf /'
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid baseline ref 'main;rm-rf/' in $DEVDOC_DIR/Issue-1/.devagent-baseline (allowed: A-Za-z0-9 . _ / -)"* ]]
+    _brn '   '
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"$DEVDOC_DIR/Issue-1/.devagent-baseline is empty (no baseline ref)"* ]]
+    [ ! -e "$DEVAGENT_TMP/git.log" ]
+}

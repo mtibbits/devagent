@@ -1,20 +1,21 @@
 # Resolver-scope triage (#572)
 
-The 21 scripts that resolve the active project — the 20 call sites of
+The 22 scripts that resolve the active project — the 21 call sites of
 `active_resolve_project` plus `next.sh`, which calls
 `active_resolve_project_src` directly — classified PROTECTED (a wrong scope
 writes, verifies, or transitions against the wrong project; the site calls
 `active_guard_scope`) or EXEMPT (read-only and self-identifying; no guard).
 Line anchors are at the pre-change baseline `86efe8c`, except the `rederive.sh`
-row, re-anchored after #590 moved its guard, and the `evidence-stamp.sh` and
-`quarantine-check.sh` rows, added by #894 and #714 at their own commits.
+row, re-anchored after #590 moved its guard, and the `evidence-stamp.sh`,
+`quarantine-check.sh` and `claims-check.sh` rows, added by #894, #714 and #1122 at
+their own commits.
 
 Derivation (the sweep test `tests/resolver-scope-triage.bats` re-runs this and
 diffs it against the rows below):
 
 ```bash
 grep -rln 'active_resolve_project' scripts/ \
-  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 21 files
+  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 22 files
 ```
 
 Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
@@ -25,6 +26,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 |---|---|---|---|
 | `born-red.sh` | PROTECTED | creates worktrees at another project's `baseline_sha` and writes the gate artifact `commit.sh` reads — a wrong scope greens or FLAGs the wrong issue | validates (`:40`) |
 | `checklist-init.sh` | PROTECTED | resolved project selects the per-project checklist template (§12 registry, `:38-39`); a wrong scope writes another project's template into the named issue dir | no-validation |
+| `claims-check.sh` | PROTECTED | print-only verdict about another project's `mr.md` (#1122): reports its stale claims for the preship preflight to correct, after running git and a pytest collection in that project's resolved tree | validates (`:114`) |
 | `comments.sh` | PROTECTED | writes `<issue-dir>/revisions/r<N>/comments.md` and appends a `## Log` line in the resolved project | no-validation |
 | `depends.sh` | PROTECTED | `depends_add` records into another project's dependency graph; the read-only `list` form shares the same resolution site | no-validation |
 | `evidence-stamp.sh` | PROTECTED | rewrites the `## Evidence` block of another project's `mr.md` from that project's suite-count artifact (#894) — the write side of `preship-evidence.sh`'s verdict | validates (`:94`) |
@@ -45,7 +47,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `wbs-show.sh` | EXEMPT | read-only render of another project's WBS; no write, no verdict | validates (`:39`) |
 | `wbs-update.sh` | PROTECTED | rewrites another project's committed `WBS.md` (#572's first observed misfire) | validates (`:53`) |
 
-Counts: **17 PROTECTED, 4 EXEMPT; 13 validate, 8 no-validation.** The eight
+Counts: **18 PROTECTED, 4 EXEMPT; 14 validate, 8 no-validation.** The eight
 non-validating sites are `checklist-init`, `comments`, `depends`, `grep`,
 `history`, `revise`, `template`, `transition-draft-start`. Four of those eight
 are PROTECTED (`checklist-init`, `comments`, `revise`,
