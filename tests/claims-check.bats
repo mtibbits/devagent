@@ -453,17 +453,29 @@ _collections() { grep -c -- '--collect-only' "$PYLOG" || true; }
 
 @test "each of the 7 recorded pytest forms reports a stale count" {
     _py_fixture
-    local forms=('`tests/test_p.py`: 3 passed' '`tests/test_p.py` 3/3' '`tests/test_p.py` (3 tests)' '`tests/test_p.py` 3 passed'
+    local basis forms=('`tests/test_p.py`: 3 passed' '`tests/test_p.py` 3/3' '`tests/test_p.py` (3 tests)' '`tests/test_p.py` 3 passed'
                  '`tests/test_p.py`: 3/3' '`tests/test_p.py`: 3 tests' '`tests/test_p.py` passes 3/3') i
     _body "${forms[@]/#/- }"
     _ccr
     [ "$status" -eq 3 ]
     for i in "${!forms[@]}"; do
-        grep -qE "^mr\.md:$((i + 1)): MISMATCH pytest-count: .* — claimed 3, found 4 \(collected at HEAD\)$" <<<"$output" \
+        # A pass count below the collected count names the skip/xfail reading (the redmr finding).
+        basis='collected at HEAD'
+        [[ "${forms[$i]}" != *pass* ]] || basis='collected at HEAD; a pass count below it can be true when tests skip or xfail'
+        grep -qE "^mr\.md:$((i + 1)): MISMATCH pytest-count: .* — claimed 3, found 4 \($basis\)$" <<<"$output" \
             || { echo "form $((i + 1)) not reported: ${forms[$i]}"; echo "$output"; return 1; }
     done
     [ "$(_summary)" = "$(_sum 0 7 0 0 0 0 0 7 0)" ]
     [ "$(_collections)" -eq 1 ]                                          # one collection per path
+}
+
+@test "a pytest pass count above the collected count, or a size form, gets the plain basis" {
+    _py_fixture
+    _body '- `tests/test_p.py`: 5 passed' '- `tests/test_p.py`: 3 tests'
+    _ccr
+    [ "$status" -eq 3 ]
+    grep -qxF -- 'mr.md:1: MISMATCH pytest-count: `tests/test_p.py`: 5 passed — claimed 5, found 4 (collected at HEAD)' <<<"$output"
+    grep -qxF -- 'mr.md:2: MISMATCH pytest-count: `tests/test_p.py`: 3 tests — claimed 3, found 4 (collected at HEAD)' <<<"$output"
 }
 
 # _real_pytest - DEVAGENT_PYTEST_PYTHON = an interpreter that can run pytest, or skip.
@@ -1107,5 +1119,5 @@ _state() {
     _has 'mr.md:1: NOT CHECKED pytest-count: `tests/test_p.py`: 3 passed — the line counts skipped or xfailed tests apart'
     _has 'mr.md:2: NOT CHECKED bats-count: `tests/f.bats`: 4 ok — the line counts skipped or xfailed tests apart'
     _has 'mr.md:3: NOT CHECKED pytest-count:'
-    _has 'mr.md:4: MISMATCH pytest-count: `tests/test_p.py`: 3 passed — claimed 3, found 4 (collected at HEAD)'
+    _has 'mr.md:4: MISMATCH pytest-count: `tests/test_p.py`: 3 passed — claimed 3, found 4 (collected at HEAD; a pass count below it can be true when tests skip or xfail)'
 }

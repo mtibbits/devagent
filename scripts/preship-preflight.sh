@@ -112,7 +112,7 @@ _get() { if [ -f "$state/$1" ]; then cat "$state/$1"; else printf '%s' "${2-}"; 
 
 case "$sub" in
   evidence)
-    rm -rf -- "$state"; _state_ready
+    rm -rf -- "$state"; _state_ready; rm -f -- "$issue_dir/.preflight-reason"   # a fresh preflight
     rc=0
     bash "$SCRIPTS/preship-evidence.sh" "$project" "$issue" --attestable-exit 2>"$state/evidence.err" || rc=$?
     cat "$state/evidence.err" >&2

@@ -252,3 +252,10 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
   LC_ALL="$UTF8_LOCALE" _pf prior 2
   [ "$status" -eq 0 ]; [[ "$output" == *"left as written"* ]]
 }
+
+@test "evidence starts a fresh preflight: a reason file left by an interrupted run is removed" {
+  echo 'stale reason' > "$ISSUE_DIR/.preflight-reason"
+  STUB_RC=0 _pf evidence
+  [ "$status" -eq 0 ]
+  [ ! -e "$ISSUE_DIR/.preflight-reason" ]
+}

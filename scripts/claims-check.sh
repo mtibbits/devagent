@@ -34,8 +34,13 @@
 #     commit-count <n>, files-count <n>, cited-commit <n>, signoff <n>); <M> mismatched;
 #     <K> not checked
 # "checked" counts the claims that were compared (equal or not); NOT CHECKED lines are
-# counted in K only. <basis> is one of `at HEAD`, `at <sha12>`, `Evidence suite:`,
-# `<base12>..HEAD`, `<ref>`.
+# counted in K only. <basis> is one of `at HEAD`, `at <sha12>`, `collected at HEAD`
+# (a pytest count, compared with the collected ids), `Evidence suite:`,
+# `<base12>..HEAD`, `<ref>`. A pytest pass count (pass, passed, ok, …) below the
+# collected count adds "; a pass count below it can be true when tests skip or xfail"
+# to `collected at HEAD`: a prompt to look, since skips are not collected apart.
+# A NOT CHECKED line may also carry the kind `test-count` (a count for a framework
+# other than bats and pytest); it is never compared and has no summary count.
 #
 # ORDER (evidence-stamp.sh's): project, scope guard, quarantine marker, EXIT trap,
 # ISSUE UNSTATED, issue, issue dir, mr.md, tree, tree guard, then ONE `cd` into the
@@ -194,6 +199,8 @@ RE_PARTIAL='(-k |--filter|subset|partial|only )'
 # A per-file count in a sentence that also counts skips or xfails is a pass count, not the
 # file's size: NOT CHECKED, never compared with @test blocks or collected ids.
 RE_SKIPS='(skip|xfail|xpass|deselect)'
+# A pass count, as against a size: the claim names passing.
+RE_PASSW='(^|[^[:alnum:]])(pass|passes|passed|passing|ok|green)([^[:alnum:]]|$)'
 # shellcheck disable=SC2016  # the backticks are literal markdown, not a command
 RE_AT='(^|[^[:alnum:]])([Aa]t|@)[[:space:]]+`?([^`[:space:],;:)]+)`?'
 RE_HEX='^[0-9a-f]{7,40}$'
@@ -469,7 +476,15 @@ _pytest_claim() {
   if [ -n "$PCW" ]; then _nc "$L" pytest-count "$claim" "$PCW"; return 0; fi
   _num "$n"
   _counted pytest-count
-  [ "$NUM" = "$PC" ] || _mm "$L" pytest-count "$claim" "$NUM" "$PC" "collected at HEAD"
+  [ "$NUM" != "$PC" ] || return 0
+  # NUM < PC without arithmetic on an mr.md number (Issue-774): both are digit strings with
+  # no leading zero, so a shorter one is smaller and equal lengths compare bytewise.
+  # shellcheck disable=SC2071  # a string comparison on purpose (above)
+  if [[ "$claim" =~ $RE_PASSW ]] && [ "${#NUM}" -le "${#PC}" ] && { [ "${#NUM}" -lt "${#PC}" ] || [[ "$NUM" < "$PC" ]]; }; then
+    _mm "$L" pytest-count "$claim" "$NUM" "$PC" "collected at HEAD; a pass count below it can be true when tests skip or xfail"
+  else
+    _mm "$L" pytest-count "$claim" "$NUM" "$PC" "collected at HEAD"
+  fi
 }
 
 # _scan_counts <L> <sentence> - the per-file count forms F1-F4 (imPlan "Per-file count").
