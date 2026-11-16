@@ -1024,8 +1024,9 @@ _all_kinds() {
 }
 # _state - what a read-only run must leave unchanged.
 _state() {
-    sha256sum "$(MR)"; git -C "$SOURCE_DIR" rev-parse HEAD
-    git -C "$SOURCE_DIR" status --porcelain --ignored -uall
+    sha256sum "$(MR)" "$(git -C "$SOURCE_DIR" rev-parse --absolute-git-dir)/index"
+    git -C "$SOURCE_DIR" rev-parse HEAD
+    GIT_OPTIONAL_LOCKS=0 git -C "$SOURCE_DIR" status --porcelain --ignored -uall   # never refreshes the index
 }
 
 @test "after a run over a body with all seven kinds, mr.md's sha256, HEAD and status --porcelain --ignored -uall are unchanged (the .venv stub)" {

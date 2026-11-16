@@ -10,6 +10,10 @@
 #
 #   usage: claims-check.sh <project> <Issue-N>
 #
+# DEVAGENT_COLLECT_TIMEOUT (seconds, a positive integer, default 30) bounds each pytest
+# collection; an invalid value is COULD NOT RUN. Like run-suite's one-run knobs it is
+# scrubbed from every suite child (SUITE_CHILD_UNSET).
+#
 # OPT-IN CONTEXT. Only the main-session preflight runs it, after preship-evidence.sh and
 # before the head pin; the preship verifier never does, and nothing from it enters the
 # dispatch prompt. It is also safe to run by hand (draftmr's dogfood run does).

@@ -26,7 +26,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 |---|---|---|---|
 | `born-red.sh` | PROTECTED | creates worktrees at another project's `baseline_sha` and writes the gate artifact `commit.sh` reads — a wrong scope greens or FLAGs the wrong issue | validates (`:40`) |
 | `checklist-init.sh` | PROTECTED | resolved project selects the per-project checklist template (§12 registry, `:38-39`); a wrong scope writes another project's template into the named issue dir | no-validation |
-| `claims-check.sh` | PROTECTED | print-only verdict about another project's `mr.md` (#1122): reports its stale claims for the preship preflight to correct, after running git and a pytest collection in that project's resolved tree | validates (`:101`) |
+| `claims-check.sh` | PROTECTED | print-only verdict about another project's `mr.md` (#1122): reports its stale claims for the preship preflight to correct, after running git and a pytest collection in that project's resolved tree | validates (`:109`) |
 | `comments.sh` | PROTECTED | writes `<issue-dir>/revisions/r<N>/comments.md` and appends a `## Log` line in the resolved project | no-validation |
 | `depends.sh` | PROTECTED | `depends_add` records into another project's dependency graph; the read-only `list` form shares the same resolution site | no-validation |
 | `evidence-stamp.sh` | PROTECTED | rewrites the `## Evidence` block of another project's `mr.md` from that project's suite-count artifact (#894) — the write side of `preship-evidence.sh`'s verdict | validates (`:94`) |
