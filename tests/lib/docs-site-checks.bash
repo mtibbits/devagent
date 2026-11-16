@@ -19,12 +19,6 @@
 #
 # PAGE PINS — owned by later children. These facts can only be checked through
 # a sentence today; the child that rewrites the page owns the pin:
-#   #998 (landing, index.md -> index.html): site_pages reads index.md only and
-#        returns 2 naming #998 on an index.html; check_step_headline and
-#        check_numbering_claim read the index; a check_install_block home if the
-#        landing shows the commands; README.md's docs-site/index.md pointer; the
-#        comment in tests/skills-no-bang-exec.bats naming docs-site/index.md; the
-#        permanent-ID mutation leg, which edits a copy of index.md.
 #   #999 (install): check_platform_tokens; the bash-floor presence; the "You
 #        need:" .. "- Contributors additionally" region, which #999 moves to
 #        CONTRIBUTING.md and which two checks read: check_prereqs_trace (the region,
@@ -37,7 +31,8 @@
 #        the arity mutation leg, which edits a copy of quickstart.md.
 #   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
 #        /devagent:mergemr and WAITING (#885); the 21-step mutation leg, which
-#        edits a copy of workflow.md.
+#        edits a copy of workflow.md. Reuse docs-site/phases.txt unchanged;
+#        check_phase_split and check_loop are the readers.
 #   #1002: none beyond its bullet in the one list.
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
@@ -338,6 +333,88 @@ check_phase_split() {
     [ "${pos[$s]}" -gt "$last" ] || { echo "$ph: step $s is out of template order" >&2; return 1; }
     last="${pos[$s]}"
   done
+}
+
+# check_loop <phases-file> <template> <page> — the landing page's loop (the
+# element id=loop) shows the phases of the phase-split file, in its order, once
+# in the SVG and once as lists: each svg group's name is the phase Name and its
+# steps label is "<first> … <last>" (or <first> alone); each list item is an
+# open <details> whose <summary> is the Name, whose <ol start> is the template
+# number of the phase's first step, and whose steps are the phase's, in order.
+check_loop() {
+  local ph="$1" tmpl="$2" page="$3" split steps rows rc=0 n c i np
+  local id name label open start summ lsteps first last want
+  local -a ids=() names=() stepsof=() svgrows=() listrows=()
+  local -A num=()
+  _need "$ph" "$tmpl" "$page" || return 2
+  split="$(phase_split "$ph")" || return 2
+  steps="$(template_steps "$tmpl")" || return 2
+  rows="$(landing_py loop "$page")" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) echo "$page: the loop cannot be read (see above)" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  while read -r n c; do num[$c]=$n; done <<<"$steps"
+  while read -r name c; do ids+=("${name,,}"); names+=("$name"); stepsof+=("$c"); done <<<"$split"
+  np="${#ids[@]}"
+  [ "$np" -ge 1 ] && [ "$np" -eq "$(grep -c . <<<"$split")" ] || { echo "$ph: no phases read" >&2; return 2; }
+  mapfile -t svgrows < <(grep $'^svg\t' <<<"$rows")
+  mapfile -t listrows < <(grep $'^list\t' <<<"$rows")
+  [ "${#svgrows[@]}" -eq "$np" ] || { echo "$page: ${#svgrows[@]} svg phase groups, want $np" >&2; return 1; }
+  [ "${#listrows[@]}" -eq "$np" ] || { echo "$page: ${#listrows[@]} phase lists, want $np" >&2; return 1; }
+  for ((i = 0; i < np; i++)); do
+    first="${stepsof[i]%% *}"; last="${stepsof[i]##* }"
+    want="$first"; [ "$first" = "$last" ] || want="$first … $last"
+    IFS=$'\t' read -r _ id name label <<<"${svgrows[i]}"
+    [ "$id" = "${ids[i]}" ] || { echo "phase ${ids[i]}: svg row $((i + 1)) is phase '$id'" >&2; return 1; }
+    [ "$name" = "${names[i]}" ] || { echo "phase $id: svg name '$name', want '${names[i]}'" >&2; return 1; }
+    [ "$label" = "$want" ] || { echo "phase $id: svg steps-label '$label', want '$want'" >&2; return 1; }
+    IFS=$'\t' read -r _ id open start summ lsteps <<<"${listrows[i]}"
+    [ "$id" = "${ids[i]}" ] || { echo "phase ${ids[i]}: list row $((i + 1)) is phase '$id'" >&2; return 1; }
+    [ "$open" = yes ] || { echo "phase $id: list open=$open, want yes (nothing hidden without scripts)" >&2; return 1; }
+    [ "$summ" = "${names[i]}" ] || { echo "phase $id: list summary '$summ', want '${names[i]}'" >&2; return 1; }
+    [ "$lsteps" = "${stepsof[i]}" ] || { echo "phase $id: list steps '$lsteps', want '${stepsof[i]}'" >&2; return 1; }
+    [ "$start" = "${num[$first]}" ] || { echo "phase $id: list start $start, want ${num[$first]} (the template number of $first)" >&2; return 1; }
+  done
+}
+
+# check_install_pair <readme> <page> — the page's install commands (its <code>
+# lines beginning "claude plugin ") are exactly the "claude plugin " lines of
+# README's first fence after "## Install", in order, and nothing else.
+check_install_pair() {
+  local readme="$1" page="$2" r p cmd rc=0
+  _need "$readme" "$page" || return 2
+  r="$(awk '/^## Install$/ { s = 1; next }
+            s && !f && /^```/ { f = 1; next }
+            f && /^```$/ { exit }
+            f' "$readme" | grep '^claude plugin ')" || true
+  [ -n "$r" ] || { echo "$readme: no 'claude plugin ' line in the first fence after ## Install" >&2; return 2; }
+  p="$(landing_py codes "$page")" || return 2
+  p="$(grep '^claude plugin ' <<<"$p")" || rc=$?
+  [ "$rc" -le 1 ] || return 2
+  while IFS= read -r cmd; do
+    grep -qxF -- "$cmd" <<<"$p" || { echo "$page: install command differs from README: $cmd" >&2; return 1; }
+  done <<<"$r"
+  while IFS= read -r cmd; do
+    [ -z "$cmd" ] || grep -qxF -- "$cmd" <<<"$r" \
+      || { echo "$page: carries an install command README's install block lacks: $cmd" >&2; return 1; }
+  done <<<"$p"
+  [ "$p" = "$r" ] || { echo "$page: the install commands are not README's, once each and in order" >&2; return 1; }
+}
+
+# check_hero_word <page> — the word "requirements" is visible text inside the
+# element id=hero.
+check_hero_word() {
+  local t rc=0
+  _need "$1" || return 2
+  t="$(landing_py text --within hero "$1")" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) echo "$1: no hero section (id=hero)" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  grep -qiw requirements <<<"$t" || { echo "$1: no 'requirements' in the hero section" >&2; return 1; }
 }
 
 # check_step_headline <template> <file> — "<N>-step workflow", N derived.

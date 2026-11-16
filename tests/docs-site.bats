@@ -13,8 +13,9 @@
 # shows the unbroken copy passes (the control), breaks the fact, proves the edit
 # took, and expects the SAME function to return exactly 1 with a reason.
 #
-# The page set is read, never listed here: the ONE page list is index.md's own
-# top-level list (the build's nav source; docs-site/README.md). The content
+# The page set is read, never listed here: the ONE page list is the index's own
+# top-level list (index.html's <li><a href> lines; the build's nav source;
+# docs-site/README.md). The content
 # pages are the directory's *.md/*.html minus README.*, and check_page_set
 # holds them equal to index plus that list.
 #
@@ -98,7 +99,7 @@ temp_root() {
 # Facts
 # ---------------------------------------------------------------------------
 
-@test "docs-site: the content pages are exactly index plus index.md's list, and README is present" {
+@test "docs-site: the content pages are exactly index plus the index's list, and README is present" {
   holds check_page_set "$WEB"
 }
 
@@ -129,7 +130,7 @@ temp_root() {
 
 @test "docs-site: the headline step count is derived from the template, in README and the index" {
   holds check_step_headline "$TEMPLATE" "$README"
-  holds check_step_headline "$TEMPLATE" "$WEB/index.md"
+  holds check_step_headline "$TEMPLATE" "$WEB/index.html"
 }
 
 @test "docs-site: the workflow table derives from the checklist template steps" {
@@ -138,6 +139,18 @@ temp_root() {
 
 @test "docs-site: the phase-split file covers each checklist-template step once, in order" {
   holds check_phase_split "$TEMPLATE" "$WEB/phases.txt"
+}
+
+@test "docs-site: the landing loop matches the phase-split file" {
+  holds check_loop "$WEB/phases.txt" "$TEMPLATE" "$WEB/index.html"
+}
+
+@test "docs-site: the landing install commands are README's two, and only those" {
+  holds check_install_pair "$README" "$WEB/index.html"
+}
+
+@test "docs-site: 'requirements' appears in the landing hero" {
+  holds check_hero_word "$WEB/index.html"
 }
 
 @test "docs-site: the configuration reference names every backend verb" {
@@ -157,7 +170,8 @@ temp_root() {
   mapfile -t pages < <(content_pages; reference_docs)
   [ "$(content_pages | grep -c .)" -ge 1 ]
   holds check_absent -iE 'permanent(ly)?[ -]+numbered|permanent (step )?ids?' "${pages[@]}" "$README"
-  for f in "$WEB/index.md" "$WEB/workflow.md" "$README"; do
+  # The landing page shows the numbers through <ol start>, not the sentence.
+  for f in "$WEB/workflow.md" "$README"; do
     holds check_numbering_claim "$TEMPLATE" "$f"
   done
 }
@@ -512,6 +526,41 @@ lc_lacks() {
   [[ "$output" == *"phase Plan is listed twice"* ]]
 }
 
+@test "mutation: landing loop, install pair, hero word" {
+  local f ph="$WEB/phases.txt"
+  f="$(fresh "$WEB/index.html")"
+  holds check_loop "$ph" "$TEMPLATE" "$f"
+  holds check_install_pair "$README" "$f"
+  holds check_hero_word "$f"
+  edit "$f" 'branch … analyze' 'branch … commit'
+  breaks 'phase build: svg steps-label' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<li id="phase-build"><details open>' '<li id="phase-build"><details>'
+  breaks 'phase build: list open' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<ol start="8">' '<ol start="9">'
+  breaks 'phase build: list start' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" $'<li>review</li>\n<li>redmr</li>' $'<li>redmr</li>\n<li>review</li>'
+  breaks 'phase verify: list steps' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<a href="#phase-ship"><g data-phase="ship"' '<a href="#phase-ship"><g data-phase="shipx"'
+  breaks 'phase ship: svg row' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" 'devagent@devagent' 'devagent@devagnet'
+  breaks 'differs from README' check_install_pair "$README" "$f"
+  f="$(fresh "$WEB/index.html")"
+  plant "$f" '<p><code>claude plugin install superpowers@claude-plugins-official</code></p>'
+  breaks 'lacks' check_install_pair "$README" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" 'starting from written requirements.' 'starting from a written plan.'
+  breaks 'hero' check_hero_word "$f"
+  # A page without the loop section is broken, not "cannot run".
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<section id="loop"' '<section id="loopx"'
+  breaks 'id=loop' check_loop "$ph" "$TEMPLATE" "$f"
+}
+
 @test "mutation: backend verbs" {
   local f
   f="$(fresh "$CONFIG_DOC")"
@@ -537,7 +586,7 @@ lc_lacks() {
 
 @test "mutation: permanent step ID claim" {
   local f re='permanent(ly)?[ -]+numbered|permanent (step )?ids?'
-  f="$(fresh "$WEB/index.md")"
+  f="$(fresh "$WEB/index.html")"
   holds check_absent -iE "$re" "$f"
   plant "$f" 'Steps keep permanent step IDs.'
   breaks 'permanent' check_absent -iE "$re" "$f"

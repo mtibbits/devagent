@@ -1,0 +1,66 @@
+/* docs-site/assets/landing.css — the landing page's own rules (#998).
+   Every selector begins .landing, so nothing here reaches the top bar, the
+   footer or another page. Colours are family tokens only (family.css);
+   nothing is hidden and nothing moves, so the page reads the same with
+   scripts off and with motion off. */
+
+.landing h2 { margin-top: 2.2rem; }
+.landing section { scroll-margin-top: 1rem; }
+
+/* Hero */
+.landing-hero { text-align: left; }
+.landing-hero img { display: block; width: 100%; max-width: 30rem; height: auto; margin: 0 0 1rem; border: 1px solid var(--family-line); border-radius: 6px; }
+.landing-hero h1 { margin-bottom: 0.4rem; }
+.landing-promise { font-size: 1.15rem; color: var(--family-ink-soft); margin: 0 0 1rem; }
+
+/* Install */
+.landing-command { display: flex; align-items: stretch; gap: 0.5rem; margin: 0.6rem 0; }
+.landing-command pre { flex: 1 1 auto; min-width: 0; margin: 0; overflow-x: auto; }
+.landing-copy, .landing-all {
+  font: inherit;
+  font-size: var(--family-size-small);
+  color: var(--family-accent-ink);
+  background: var(--family-ground);
+  border: 1px solid var(--family-accent);
+  border-radius: 4px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+}
+.landing-copy:disabled, .landing-all:disabled { color: var(--family-ink-soft); border-color: var(--family-line); cursor: default; }
+.landing-copy:focus-visible, .landing-all:focus-visible { outline: 2px solid var(--family-accent); outline-offset: 2px; }
+.landing-second { color: var(--family-ink-soft); }
+
+/* The loop */
+.landing-loop-svg { display: block; width: 100%; max-width: 26rem; height: auto; margin: 1rem auto; color: var(--family-ink); }
+.landing-loop-ring { fill: none; stroke: var(--family-line); stroke-width: 2; }
+.landing-loop-arrow { fill: var(--family-accent); }
+.landing-loop-hub { fill: var(--family-ink-soft); font-size: 14px; text-anchor: middle; }
+.landing-loop-node rect { fill: var(--family-ground); stroke: var(--family-accent); stroke-width: 2; }
+.landing-loop-node text { fill: currentColor; text-anchor: middle; }
+.landing-loop-node .loop-name { font-size: 18px; font-weight: 700; }
+.landing-loop-node .loop-steps { font-size: 13px; fill: var(--family-ink-soft); }
+.landing-loop a:hover .landing-loop-node rect, .landing-loop a:focus-visible .landing-loop-node rect { stroke-width: 3; }
+.landing .landing-phases { list-style: none; padding-left: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.6rem; }
+.landing .landing-phases > li { margin: 0; border: 1px solid var(--family-line); border-radius: 6px; padding: 0.5rem 0.7rem; }
+.landing .landing-phases summary { font-weight: 700; cursor: pointer; }
+.landing .landing-phases ol { margin: 0.4rem 0 0; padding-left: 1.8rem; font-family: var(--family-mono); font-size: var(--family-size-small); }
+.landing .landing-phases ol li { margin: 0.1rem 0; }
+.landing-loop-more { display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem; }
+
+/* Why, start small, family, next */
+.landing-why li { margin: 0.6rem 0; }
+.landing-req-count { color: var(--family-accent-ink); }
+.landing .landing-rungs { list-style: none; padding-left: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+.landing .landing-rungs > li { margin: 0; padding: 0.6rem 0.7rem; border: 1px solid var(--family-line); border-top: 3px solid var(--family-accent); border-radius: 4px; }
+.landing .landing-family { padding-left: 1.2rem; }
+
+@media (max-width: 760px) {
+  .landing .landing-rungs { grid-template-columns: 1fr 1fr; }
+  .landing .landing-phases { grid-template-columns: 1fr 1fr; }
+  .landing-command { flex-direction: column; }
+  .landing-copy { align-self: flex-start; }
+}
+
+@media (max-width: 420px) {
+  .landing .landing-rungs { grid-template-columns: 1fr; }
+}
