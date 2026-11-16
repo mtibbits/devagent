@@ -41,6 +41,8 @@ REQUIRED_PATHS = {
     "tests/lib/family-js-test.js",
     # #997: tests/build-docs-site.bats loads the site check library.
     "tests/lib/docs-site-checks.bash",
+    # #998: the site check library runs the landing page's HTML reader.
+    "tests/lib/landing-check.py",
     ".github/workflows/publish-docs-site.yml",
     # #996: a count placeholder's source file is a build input
     # (docs-site/live.txt's `count` lines; pinned below).

@@ -2,8 +2,11 @@
 
 This directory holds the devAgent onboarding site: its content pages,
 `moved.txt` (old page names and their new homes), `live.txt` (which family
-sites are live, and the counts pages may show) and, when one exists, an
-`assets/` folder. The content pages are the index plus the pages its own list
+sites are live, and the counts pages may show), `phases.txt` (the loop's five
+phases and the checklist steps each holds) and the `assets/` folder (the
+landing page's `landing.css`, `landing.js` and its placeholder still,
+`drafting-table.svg`). The index is the hand-written landing page,
+`index.html`. The content pages are the index plus the pages its own list
 names (the one page list; see "Nav source" below), as Markdown `*.md` or
 hand-written `*.html`, which the build also accepts. Nothing generated is
 committed.
@@ -36,9 +39,18 @@ never originates it.
 
 Counts and versions are restated minimally, with the sources' exact tokens:
 
-- the slash-command count phrase — `index.md` is an enrolled home of the sweep
-  in `tests/cmd_wrappers.bats`, alongside README, both plugin manifests, the
-  CHANGELOG, and the spec.
+- the slash-command count phrase — no page carries it today. The sweep in
+  `tests/cmd_wrappers.bats` still reads `docs-site/`, so a page that writes the
+  phrase is enrolled automatically, alongside README, both plugin manifests,
+  the CHANGELOG, and the spec. (The landing page dropped it.)
+- the requirement count — the landing page shows it only as
+  `{{count:requirements}}`, filled at build time by `live.txt`'s
+  `count requirements` rule. `tests/test_own_requirements.py` pins that rule to
+  its own requirements reader, so the page, the filler and the reader agree.
+- the steps of each phase — `phases.txt` is the one record; the landing page's
+  loop is checked against it, and it against `templates/checklist-standard.md`.
+  Step numbers are shown only through `<ol start="N">`, never written beside a
+  step name.
 - "25-step workflow" — the site-wide headline number; `workflow.md`'s
   Numbering section carries the reconciling sentence for the optional steps.
 - the mandatory/optional step split — spec §6.3 is the authority, but the
@@ -70,11 +82,11 @@ site and derives expectations from the markdown: each page's code-fence count
 and `workflow.md`'s table rows must survive rendering, the two
 `claude plugin …` lines in `install.md` must appear verbatim in the HTML,
 `install.md`'s H1 is pinned as a page title, and the site's navigation order
-is the one page list, `index.md`'s own top-level bullet list — which must stay
-a top-level `- [Title](./page.md)` list. Its
+is the one page list, the index's own list (`index.html`'s one-line
+`<li><a href="page.html">` entries). Its
 real-site legs also read `live.txt`: the expected top bar and footer are
-rendered from it, so flipping a site live moves them with the file. If no bullet
-is in that form the build refuses (exit 4); if a single bullet drifts, that
+rendered from it, so flipping a site live moves them with the file. If no entry
+is in that form the build refuses (exit 4); if a single entry drifts, that
 page silently moves to the end of the nav and the nav-order assertion in
 `tests/build-docs-site.bats` reddens instead. That suite needs pandoc: the
 `test suite` workflow installs it and runs the file un-skipped, and the
@@ -126,11 +138,16 @@ alphabetical (`LC_ALL=C`) order of base name across both kinds.
 The same list is the site's **page list**: `tests/docs-site.bats` holds the
 directory's content pages equal to the index plus the pages it names. The build
 alone would append an unlisted page to the nav; the test fails it instead, so a
-new page is added by adding its bullet.
+new page is added by adding its entry to `index.html`'s "Where to go next" list.
+Only that list's lines may begin `<li><a href="page.html">`: an earlier one would
+reorder the nav.
 
 **Asset folders.** `docs-site/assets/` is copied to `assets/` and
 `scripts/docs-site/static/` (the template's own files) to `static/`, byte for
-byte. `assets/` may be absent; `static/` is required, because it holds the four
+byte. Any number in a hand-written asset must stay clear of the
+`x.y.zzz` shape: the Claude Code version sweep in `tests/docs-site.bats` reads
+all of `docs-site/` (write SVG coordinates with at most two decimals and
+spaces between them). `assets/` may be absent; `static/` is required, because it holds the four
 family files (`family.css`, `family.js`, `family-topbar.html`,
 `family-footer.html`), and a build missing one exits 4. A Markdown page may
 show an image from `./assets/<path>`; any other image target fails the build (exit 5). Every
@@ -173,6 +190,10 @@ of each kind, which the tests run.
   `publish-docs-site.yml`'s `paths:` and to `REQUIRED_PATHS` in
   `tests/test_publish_docs_site_workflow.py` (a test checks every `count`
   line against them).
+- Site keys: `live.txt` also carries keys only this site's pages read (the
+  landing page's start-small rungs, `rung-*`, and `blazeahead`). No partial uses
+  them, so adding one is not a family version change. Flip a rung or the family
+  strip live by changing its line to `yes` with the URL it should link.
 - In a Markdown table cell, write `\|` for the `|` inside a placeholder.
 - There is no escape: a placeholder is filled anywhere in a page, code
   included.

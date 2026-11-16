@@ -13,8 +13,9 @@
 # shows the unbroken copy passes (the control), breaks the fact, proves the edit
 # took, and expects the SAME function to return exactly 1 with a reason.
 #
-# The page set is read, never listed here: the ONE page list is index.md's own
-# top-level list (the build's nav source; docs-site/README.md). The content
+# The page set is read, never listed here: the ONE page list is the index's own
+# top-level list (index.html's <li><a href> lines; the build's nav source;
+# docs-site/README.md). The content
 # pages are the directory's *.md/*.html minus README.*, and check_page_set
 # holds them equal to index plus that list.
 #
@@ -94,11 +95,25 @@ temp_root() {
   printf '%s\n' "$t"
 }
 
+# filled_index [<source>] — a fresh copy of <source> (default: the landing
+# page) with its placeholders filled by the real filler from docs-site/live.txt
+# (no pandoc needed); prints its path. The landing page is filled once per file.
+filled_index() {
+  local src="${1:-$WEB/index.html}" f="$BATS_TEST_TMPDIR/filled.$RANDOM$RANDOM.html"
+  local once="$BATS_FILE_TMPDIR/filled-index.html"
+  if [ -z "${1:-}" ] && [ -f "$once" ]; then cp "$once" "$f"; printf '%s\n' "$f"; return; fi
+  cp "$src" "$f" || return 1
+  python3 -I -X utf8 "$FILLER_PY" --settings "$WEB/live.txt" "$f" >/dev/null \
+    || { echo "filled_index: the filler refused $f" >&2; return 1; }
+  [ -n "${1:-}" ] || cp "$f" "$once"
+  printf '%s\n' "$f"
+}
+
 # ---------------------------------------------------------------------------
 # Facts
 # ---------------------------------------------------------------------------
 
-@test "docs-site: the content pages are exactly index plus index.md's list, and README is present" {
+@test "docs-site: the content pages are exactly index plus the index's list, and README is present" {
   holds check_page_set "$WEB"
 }
 
@@ -129,11 +144,63 @@ temp_root() {
 
 @test "docs-site: the headline step count is derived from the template, in README and the index" {
   holds check_step_headline "$TEMPLATE" "$README"
-  holds check_step_headline "$TEMPLATE" "$WEB/index.md"
+  holds check_step_headline "$TEMPLATE" "$WEB/index.html"
 }
 
 @test "docs-site: the workflow table derives from the checklist template steps" {
   holds check_step_table "$TEMPLATE" "$WEB/workflow.md"
+}
+
+@test "docs-site: the phase-split file covers each checklist-template step once, in order" {
+  holds check_phase_split "$TEMPLATE" "$WEB/phases.txt"
+}
+
+@test "docs-site: the landing loop matches the phase-split file" {
+  holds check_loop "$WEB/phases.txt" "$TEMPLATE" "$WEB/index.html"
+}
+
+@test "docs-site: the landing install commands are README's two, and only those" {
+  holds check_install_pair "$README" "$WEB/index.html"
+}
+
+@test "docs-site: the nav list is exactly the landing page's 'Where to go next' links" {
+  holds check_nav_section "$WEB"
+}
+
+@test "docs-site: 'requirements' appears in the landing hero" {
+  holds check_hero_word "$WEB/index.html"
+}
+
+@test "docs-site: the filled landing page shows no issue number in its visible text" {
+  local f
+  f="$(filled_index)"
+  holds check_no_issue_numbers "$f"
+}
+
+@test "docs-site: with scripts off the filled landing page shows every phase, step and install command" {
+  local f cmds=()
+  f="$(filled_index)"
+  mapfile -t cmds < <(landing_cmds "$WEB/index.html")
+  [ "${#cmds[@]}" -ge 1 ]
+  holds check_scripts_off "$WEB/phases.txt" "$f" "${cmds[@]}"
+}
+
+@test "docs-site: every landing live item renders from live.txt, coming without a link, live with one" {
+  local f
+  f="$(filled_index)"
+  holds check_live_items "$WEB/live.txt" "$WEB/index.html" "$f"
+}
+
+@test "docs-site: the landing requirement count is the placeholder, filled with the filler's count" {
+  local f
+  f="$(filled_index)"
+  holds check_req_count "$WEB/live.txt" "$WEB/index.html" "$f"
+}
+
+@test "docs-site: the landing page carries no install detail beyond the commands, and links the install page" {
+  local f
+  f="$(filled_index)"
+  holds check_install_only "$f"
 }
 
 @test "docs-site: the configuration reference names every backend verb" {
@@ -153,7 +220,8 @@ temp_root() {
   mapfile -t pages < <(content_pages; reference_docs)
   [ "$(content_pages | grep -c .)" -ge 1 ]
   holds check_absent -iE 'permanent(ly)?[ -]+numbered|permanent (step )?ids?' "${pages[@]}" "$README"
-  for f in "$WEB/index.md" "$WEB/workflow.md" "$README"; do
+  # The landing page shows the numbers through <ol start>, not the sentence.
+  for f in "$WEB/workflow.md" "$README"; do
     holds check_numbering_claim "$TEMPLATE" "$f"
   done
 }
@@ -212,14 +280,140 @@ temp_root() {
   run site_pages "$d"
   [ "$status" -eq 0 ]
   [ "$output" = $'a\nc-d' ]       # fenced b and e unlisted; a once; index and nested n skipped
-  rm "$d/index.md"; printf '<ul><li><a href="a.html">A</a></li></ul>\n' >"$d/index.html"
+  rm "$d/index.md"
+  # The index.html list: one-line <li><a href="page.html"> entries outside
+  # comments and <pre>/<code>/<script>/<style>/<template>/<textarea>.
+  printf '%s\n' '<h1>T</h1>' '<!-- <li><a href="x.html">X</a></li> -->' '<pre>' \
+    '<li><a href="y.html">Y</a></li>' '</pre>' '<ul>' '<li><a href="a.html">A</a></li>' \
+    '<li class="k"><a class="m" href="./c-d.html">C</a></li>' '<li><a href="a.html">A again</a></li>' \
+    '<li><a href="index.html">Home</a></li>' '<li><strong>No</strong> <a href="z.html">Z</a></li>' \
+    '</ul>' >"$d/index.html"
+  run site_pages "$d"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'a\nc-d' ]       # commented x, <pre> y, index and the non-entry z skipped; a once
+  printf '%s\n' '<ul>' '<li>' '' '  <a href="b.html">B</a></li>' '</ul>' >"$d/index.html"
   run site_pages "$d"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"#998"* ]]
+  [[ "$output" == *"index.html:2: <li> and its <a href> must share a line"* ]]
   rm "$d/index.html"
   run site_pages "$d"
   [ "$status" -eq 2 ]
   [[ "$output" == *"no index.md"* ]]
+}
+
+# lc_page <html-fragment> — write a fixture page; prints its path.
+lc_page() {
+  local f="$BATS_TEST_TMPDIR/lc.$RANDOM$RANDOM.html"
+  printf '%s\n' "$1" >"$f"
+  printf '%s\n' "$f"
+}
+
+# lc_has <line> — $output holds the exact line. lc_lacks <text> — $output
+# does not hold the text (grep's status pinned to 1, so an error is not "absent").
+lc_has() { grep -qxF -- "$1" <<<"$output" || { echo "no line '$1' in: $output" >&2; return 1; }; }
+lc_lacks() {
+  local rc=0
+  grep -qF -- "$1" <<<"$output" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "'$1' read (status $rc) in: $output" >&2; return 1; }
+}
+
+@test "mutation: landing-check text reads text nodes, never attributes or styles" {
+  local f
+  f="$(lc_page '<html><head><style>p{color:#112233}</style></head><body>
+<p>see #12</p><svg><text>#7</text><rect fill="#123456"/></svg>
+<p style="color:#123">x</p><!-- #12 --><script>var a="#12"</script>
+<a href="#1x">y</a><p>caf&eacute; &amp; more</p></body></html>')"
+  run landing_py text "$f"
+  [ "$status" -eq 0 ]
+  lc_has 'see #12'
+  lc_has '#7'
+  lc_has 'x'
+  lc_has 'y'
+  lc_has 'café & more'
+  [ "$(grep -c '#' <<<"$output")" -eq 2 ]     # only the two text-node marks
+  lc_lacks '#123'
+  lc_lacks '#112233'
+  lc_lacks 'var a'
+  lc_lacks '#1x'
+}
+
+@test "mutation: landing-check text --scripts-off and --no-svg" {
+  local f
+  f="$(lc_page '<details><summary>S</summary><p>in</p></details>')"
+  run landing_py text --scripts-off "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = S ]
+  run landing_py text "$f"
+  [ "$output" = $'S\nin' ]
+  f="$(lc_page '<details open><summary>S</summary><p>in</p></details>')"
+  run landing_py text --scripts-off "$f"
+  [ "$output" = $'S\nin' ]
+  f="$(lc_page '<p hidden>h</p><p style="display: none">d</p><p style="visibility:hidden">v</p><template><p>t</p></template><p>shown</p>')"
+  run landing_py text --scripts-off "$f"
+  [ "$output" = shown ]
+  f="$(lc_page '<p>a</p><svg><title>T</title><text>svgtext</text></svg>')"
+  run landing_py text --no-svg "$f"
+  [ "$output" = a ]
+  run landing_py text "$f"
+  lc_has svgtext
+  # --within: a void <img> inside the section does not swallow its siblings,
+  # and the read stops at </section>.
+  f="$(lc_page '<section id="hero"><img src="a.svg" alt="pic"><h1>Title</h1><br><p>under</p></section><p>after</p>')"
+  run landing_py text --within hero "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'Title\nunder' ]
+  run landing_py text --within absent "$f"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no element id=absent"* ]]
+  # --article: the first <article>, or the whole document without one.
+  f="$(lc_page '<nav>top</nav><article><p>body</p></article><footer>foot</footer>')"
+  run landing_py text --article "$f"
+  [ "$output" = body ]
+  f="$(lc_page '<p>whole</p>')"
+  run landing_py text --article "$f"
+  [ "$output" = whole ]
+  run landing_py text "$BATS_TEST_TMPDIR/absent.html"
+  [ "$status" -eq 2 ]
+}
+
+@test "mutation: landing-check codes, links and loop" {
+  local f
+  f="$(lc_page '<pre><code id="a">claude a &amp; b</code></pre><p>x <code>two</code></p>')"
+  run landing_py codes "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'claude a & b\ntwo' ]
+  f="$(lc_page '<section id="install"><a href="install.html">I</a><a name="n">no href</a></section><a href="out.html">o</a>')"
+  run landing_py links --within install "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = install.html ]
+  f="$(lc_page '<section id="loop"><svg>
+<a href="#phase-plan"><g data-phase="plan"><rect/><text class="loop-name">Plan</text><text class="loop-steps">pull … draft</text></g></a>
+<a href="#phase-ship"><g data-phase="ship"><text class="loop-name">Ship</text><text class="loop-steps">ship</text></g></a>
+</svg><ol class="landing-phases">
+<li id="phase-plan"><details open><summary>Plan</summary><ol><li>pull</li><li>draft</li></ol></details></li>
+<li id="phase-ship"><details><summary>Ship</summary><ol start="18"><li>ship</li></ol></details></li>
+</ol></section>')"
+  run landing_py loop "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'svg\tplan\tPlan\tpull … draft\nsvg\tship\tShip\tship\nlist\tplan\tyes\t1\tPlan\tpull draft\nlist\tship\tno\t18\tShip\tship')" ]
+  f="$(lc_page '<section id="other"></section>')"
+  run landing_py loop "$f"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no element id=loop"* ]]
+  run landing_py nope "$f"
+  [ "$status" -eq 2 ]
+  f="$(lc_page '<p><a href="x"><span class="family-coming">G <small>coming</small></span></a> <span class="family-coming">B <small>coming</small></span></p>')"
+  run landing_py linked-coming "$f"
+  [ "$status" -eq 0 ]
+  [ "$output" = 'G coming' ]
+}
+
+@test "mutation: nav section" {
+  local d="$BATS_TEST_TMPDIR/web"
+  cp -r "$WEB" "$d"
+  holds check_nav_section "$d"
+  edit "$d/index.html" $'<ul>\n<li><strong>Requirements first.' $'<ul>\n<li><a href="workflow.html">Steps</a> first.</li>\n<li><strong>Requirements first.'
+  breaks "is not the #next section's page links" check_nav_section "$d"
 }
 
 @test "mutation: page set" {
@@ -366,6 +560,136 @@ temp_root() {
   breaks "step $num" check_step_table "$TEMPLATE" "$f"
 }
 
+@test "mutation: phase split" {
+  local f n
+  f="$(fresh "$WEB/phases.txt")"
+  holds check_phase_split "$TEMPLATE" "$f"
+  edit "$f" ' impact ' ' '
+  breaks 'impact of' check_phase_split "$TEMPLATE" "$f"
+  breaks 'in no phase' check_phase_split "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" 'Ship: ship' 'Ship: review ship'
+  breaks 'step review appears in more than one place' check_phase_split "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" ' redmr ' ' redmrx '
+  breaks 'step redmrx is not a step of' check_phase_split "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" 'review redmr' 'redmr review'
+  breaks 'out of template order' check_phase_split "$TEMPLATE" "$f"
+  # The grammar: a line without its colon, and a phase named twice, cannot run.
+  f="$(fresh "$WEB/phases.txt")"
+  edit "$f" 'Plan: pull' 'Plan pull'
+  n="$(grep -n '^Plan pull' "$f" | cut -d: -f1)"
+  [ -n "$n" ]
+  run phase_split "$f"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"$f:$n: expected '<Name>: <step> <step>...'"* ]]
+  run check_phase_split "$TEMPLATE" "$f"
+  [ "$status" -eq 2 ]
+  f="$(fresh "$WEB/phases.txt")"
+  plant "$f" 'Plan: pull'
+  run phase_split "$f"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"phase Plan is listed twice"* ]]
+}
+
+@test "mutation: landing loop, install pair, hero word" {
+  local f ph="$WEB/phases.txt"
+  f="$(fresh "$WEB/index.html")"
+  holds check_loop "$ph" "$TEMPLATE" "$f"
+  holds check_install_pair "$README" "$f"
+  holds check_hero_word "$f"
+  edit "$f" 'branch … analyze' 'branch … commit'
+  breaks 'phase build: svg steps-label' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<li id="phase-build"><details open>' '<li id="phase-build"><details>'
+  breaks 'phase build: list open' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<ol start="8">' '<ol start="9">'
+  breaks 'phase build: list start' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" $'<li>review</li>\n<li>redmr</li>' $'<li>redmr</li>\n<li>review</li>'
+  breaks 'phase verify: list steps' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<a href="#phase-ship"><g data-phase="ship"' '<a href="#phase-ship"><g data-phase="shipx"'
+  breaks 'phase ship: svg row' check_loop "$ph" "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" 'devagent@devagent' 'devagent@devagnet'
+  breaks 'differs from README' check_install_pair "$README" "$f"
+  f="$(fresh "$WEB/index.html")"
+  plant "$f" '<p><code>claude plugin install superpowers@claude-plugins-official</code></p>'
+  breaks 'lacks' check_install_pair "$README" "$f"
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" 'starting from written requirements.' 'starting from a written plan.'
+  breaks 'hero' check_hero_word "$f"
+  # A page without the loop section is broken, not "cannot run".
+  f="$(fresh "$WEB/index.html")"
+  edit "$f" '<section id="loop"' '<section id="loopx"'
+  breaks 'id=loop' check_loop "$ph" "$TEMPLATE" "$f"
+}
+
+@test "mutation: landing issue numbers, scripts off, live items, count, install detail" {
+  local f g n cmds=() src live="$WEB/live.txt" ph="$WEB/phases.txt"
+  mapfile -t cmds < <(landing_cmds "$WEB/index.html")
+  [ "${#cmds[@]}" -ge 1 ]
+  # issue numbers: a text node reddens; an SVG colour value does not.
+  f="$(filled_index)"
+  holds check_no_issue_numbers "$f"
+  edit "$f" '<circle class="landing-loop-ring"' '<rect fill="#123456"/><circle class="landing-loop-ring"'
+  holds check_no_issue_numbers "$f"
+  plant "$f" '<p>Fixed in #12</p>'
+  breaks '#12' check_no_issue_numbers "$f"
+  # scripts off: a closed <details>, and a step moved into a <template>.
+  f="$(filled_index)"
+  holds check_scripts_off "$ph" "$f" "${cmds[@]}"
+  edit "$f" '<li id="phase-build"><details open>' '<li id="phase-build"><details>'
+  breaks 'branch is not visible with scripts off' check_scripts_off "$ph" "$f" "${cmds[@]}"
+  f="$(filled_index)"
+  edit "$f" '<li>branch</li>' '<template><li>branch</li></template>'
+  breaks 'branch is not visible with scripts off' check_scripts_off "$ph" "$f" "${cmds[@]}"
+  f="$(filled_index)"
+  breaks 'claude plugin nope' check_scripts_off "$ph" "$f" "${cmds[@]}" 'claude plugin nope'
+  # live items: a not-live item that links, and a hand-written "coming".
+  f="$(filled_index)"
+  holds check_live_items "$live" "$WEB/index.html" "$f"
+  edit "$f" '<span class="family-coming">Gantry <small>coming</small></span>' '<a href="x">Gantry</a>'
+  breaks 'gantry' check_live_items "$live" "$WEB/index.html" "$f"
+  f="$(filled_index)"
+  edit "$f" '<span class="family-coming">Gantry <small>coming</small></span>' '<a href="x"><span class="family-coming">Gantry <small>coming</small></span></a>'
+  breaks 'inside a link: Gantry coming' check_live_items "$live" "$WEB/index.html" "$f"
+  f="$(filled_index)"
+  plant "$f" '<p>More <small>coming</small></p>'
+  breaks 'coming' check_live_items "$live" "$WEB/index.html" "$f"
+  # a live item whose link is gone
+  f="$(filled_index)"
+  edit "$f" '<a href="https://github.com/mtibbits/devagent/blob/master/README.md#concurrent-sessions">Several projects</a>' 'Several projects'
+  breaks 'rung-projects' check_live_items "$live" "$WEB/index.html" "$f"
+  # a rung holding two placeholders
+  src="$(fresh "$WEB/index.html")"
+  edit "$src" '<li>{{live:rung-shared|Shared queues}}</li>' '<li>{{live:rung-shared|Shared queues}} {{live:gantry|Gantry}}</li>'
+  f="$(filled_index "$src")"
+  breaks 'exactly one' check_live_items "$live" "$src" "$f"
+  # the count: a filled number off by one, and a literal in the source.
+  f="$(filled_index)"
+  holds check_req_count "$live" "$WEB/index.html" "$f"
+  n="$(grep -oE 'class="landing-req-count">[0-9]+<' "$f" | grep -oE '[0-9]+')"
+  [ -n "$n" ]
+  edit "$f" "class=\"landing-req-count\">$n<" "class=\"landing-req-count\">$((n + 1))<"
+  breaks 'landing-req-count' check_req_count "$live" "$WEB/index.html" "$f"
+  src="$(fresh "$WEB/index.html")"
+  edit "$src" '{{count:requirements}}' "$n"
+  f="$(filled_index)"
+  breaks 'literal' check_req_count "$live" "$src" "$f"
+  # install detail on the landing page
+  f="$(filled_index)"
+  holds check_install_only "$f"
+  plant "$f" '<p>Install superpowers too</p>'
+  breaks 'superpowers' check_install_only "$f"
+  f="$(filled_index)"
+  edit "$f" '<p><a href="install.html">Full install guide</a></p>' '<p>Full install guide</p>'
+  breaks 'install.html' check_install_only "$f"
+}
+
 @test "mutation: backend verbs" {
   local f
   f="$(fresh "$CONFIG_DOC")"
@@ -391,7 +715,7 @@ temp_root() {
 
 @test "mutation: permanent step ID claim" {
   local f re='permanent(ly)?[ -]+numbered|permanent (step )?ids?'
-  f="$(fresh "$WEB/index.md")"
+  f="$(fresh "$WEB/index.html")"
   holds check_absent -iE "$re" "$f"
   plant "$f" 'Steps keep permanent step IDs.'
   breaks 'permanent' check_absent -iE "$re" "$f"

@@ -277,10 +277,12 @@ _check_user_invocable() {
     printf '%s' "$stale" >&2
     return 1
   fi
-  # Floor: the six homes known at #461 (README x2 lines, CHANGELOG, both
-  # manifests, spec, docs-site/index.md). A path typo that empties the sweep
-  # would otherwise pass vacuously.
-  [ "$homes" -ge 7 ]
+  # Floor: the homes known today (README x2 lines, CHANGELOG, both manifests,
+  # spec). docs-site/index.md was a home until #998 retired it: the landing page
+  # does not carry the count. The docs-site root stays in the sweep, so a page
+  # that writes the phrase is enrolled automatically. A path typo that empties
+  # the sweep would otherwise pass vacuously.
+  [ "$homes" -ge 6 ]
   # Assert the SPLIT, not just the sum: a 4th command->skill conversion keeps
   # the sum and would slip through a sum-only check while falsifying README's
   # and the spec's explicit split claims (#452, #535 redmr).

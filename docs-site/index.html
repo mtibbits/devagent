@@ -1,0 +1,155 @@
+<!-- derived-from: README.md templates/checklist-standard.md docs/requirements.md docs-site/phases.txt docs-site/live.txt docs/checking-dispatch-contract.md scripts/preship-evidence.sh -->
+<!-- nav-label: Home -->
+<div class="landing">
+<link rel="stylesheet" href="assets/landing.css">
+
+<section id="hero" class="landing-hero">
+<img src="assets/drafting-table.svg" alt="A drafting table with a sheet of plans pinned to it, a T-square and a lamp" width="480" height="300">
+<h1>Turn prompts into productized software</h1>
+<p class="landing-promise">Plan it, build it, test it, and keep the record, starting from written requirements.</p>
+</section>
+
+<section id="install" class="landing-install">
+<h2>Install</h2>
+<p>devAgent is a Claude Code plugin. Add its marketplace, then install it:</p>
+<div class="landing-command">
+<pre><code id="cmd-add">claude plugin marketplace add mtibbits/devagent</code></pre>
+<button type="button" class="landing-copy" data-copy="cmd-add" disabled>Copy</button>
+</div>
+<div class="landing-command">
+<pre><code id="cmd-install">claude plugin install devagent@devagent</code></pre>
+<button type="button" class="landing-copy" data-copy="cmd-install" disabled>Copy</button>
+</div>
+<p><a href="install.html">Full install guide</a></p>
+<p class="landing-second">New to agentic development? {{live:learn|Start lesson 0}}</p>
+</section>
+
+<section id="loop" class="landing-loop">
+<h2>The loop</h2>
+<p>Five phases carry every issue through devAgent's 25-step workflow. Pick a phase to see its steps.</p>
+<svg class="landing-loop-svg" role="group" aria-labelledby="loop-title" viewBox="0 0 420 360" xmlns="http://www.w3.org/2000/svg">
+<title id="loop-title">The loop: Plan, Build, Verify, Ship, Learn, then back to Plan</title>
+<circle class="landing-loop-ring" cx="210" cy="195" r="135"/>
+<polygon class="landing-loop-arrow" points="-7,-6 7,0 -7,6" transform="translate(289.4 85.8) rotate(36)"/>
+<polygon class="landing-loop-arrow" points="-7,-6 7,0 -7,6" transform="translate(338.4 236.7) rotate(108)"/>
+<polygon class="landing-loop-arrow" points="-7,-6 7,0 -7,6" transform="translate(210 330) rotate(180)"/>
+<polygon class="landing-loop-arrow" points="-7,-6 7,0 -7,6" transform="translate(81.6 236.7) rotate(252)"/>
+<polygon class="landing-loop-arrow" points="-7,-6 7,0 -7,6" transform="translate(130.6 85.8) rotate(324)"/>
+<text class="landing-loop-hub" x="210" y="190">every issue</text>
+<text class="landing-loop-hub" x="210" y="210">runs the loop</text>
+<a href="#phase-plan"><g data-phase="plan" class="landing-loop-node">
+<rect x="138" y="31" width="144" height="58" rx="8"/>
+<text class="loop-name" x="210" y="55">Plan</text>
+<text class="loop-steps" x="210" y="76">pull … tighten</text>
+</g></a>
+<a href="#phase-build"><g data-phase="build" class="landing-loop-node">
+<rect x="266" y="124" width="144" height="58" rx="8"/>
+<text class="loop-name" x="338" y="148">Build</text>
+<text class="loop-steps" x="338" y="169">branch … analyze</text>
+</g></a>
+<a href="#phase-verify"><g data-phase="verify" class="landing-loop-node">
+<rect x="217" y="275" width="144" height="58" rx="8"/>
+<text class="loop-name" x="289" y="299">Verify</text>
+<text class="loop-steps" x="289" y="320">draftmr … preship</text>
+</g></a>
+<a href="#phase-ship"><g data-phase="ship" class="landing-loop-node">
+<rect x="59" y="275" width="144" height="58" rx="8"/>
+<text class="loop-name" x="131" y="299">Ship</text>
+<text class="loop-steps" x="131" y="320">ship … mergemr</text>
+</g></a>
+<a href="#phase-learn"><g data-phase="learn" class="landing-loop-node">
+<rect x="10" y="124" width="144" height="58" rx="8"/>
+<text class="loop-name" x="82" y="148">Learn</text>
+<text class="loop-steps" x="82" y="169">updatewbs … cleanup</text>
+</g></a>
+</svg>
+<ol class="landing-phases">
+<li id="phase-plan"><details open><summary>Plan</summary>
+<ol start="0">
+<li>pull</li>
+<li>research</li>
+<li>draft</li>
+<li>spike</li>
+<li>scope</li>
+<li>improve</li>
+<li>prune</li>
+<li>tighten</li>
+</ol>
+</details></li>
+<li id="phase-build"><details open><summary>Build</summary>
+<ol start="8">
+<li>branch</li>
+<li>implement</li>
+<li>quality</li>
+<li>document</li>
+<li>commit</li>
+<li>analyze</li>
+</ol>
+</details></li>
+<li id="phase-verify"><details open><summary>Verify</summary>
+<ol start="14">
+<li>draftmr</li>
+<li>review</li>
+<li>redmr</li>
+<li>preship</li>
+</ol>
+</details></li>
+<li id="phase-ship"><details open><summary>Ship</summary>
+<ol start="18">
+<li>ship</li>
+<li>mergetoall</li>
+<li>mergemr</li>
+</ol>
+</details></li>
+<li id="phase-learn"><details open><summary>Learn</summary>
+<ol start="21">
+<li>updatewbs</li>
+<li>impact</li>
+<li>lessonslearned</li>
+<li>cleanup</li>
+</ol>
+</details></li>
+</ol>
+<p class="landing-loop-more"><button type="button" class="landing-all" data-loop-all disabled>Show me every step</button> <a href="workflow.html">What each step does</a></p>
+</section>
+
+<section id="why" class="landing-why">
+<h2>Why it's different</h2>
+<ul>
+<li><strong>Requirements first.</strong> devAgent's own behaviour is written down as <strong class="landing-req-count">{{count:requirements}}</strong> requirements in one file, from business rules down to functional ones, and its tests keep that file in shape. <a href="https://github.com/mtibbits/devagent/blob/master/docs/requirements.md">Read them</a>.</li>
+<li><strong>Fresh eyes before it ships.</strong> By default, reviewers started in a fresh context, which never saw the drafting, red-team the merge request and verify the branch against the issue's acceptance criteria. <a href="https://github.com/mtibbits/devagent/blob/master/docs/checking-dispatch-contract.md">How the checks are dispatched</a>.</li>
+<li><strong>Shipping on evidence.</strong> The test evidence a merge request records is checked against the recorded test-suite run for the exact commit being shipped, not taken on a claim that the tests pass. <a href="https://github.com/mtibbits/devagent/blob/master/README.md#running-the-test-suite">How evidence is recorded</a>.</li>
+<li><strong>The record on disk.</strong> Every issue keeps a folder of plain files: its checklist, plan, reviews and merge-request body. Any session, today's or next week's, picks it up where the last one stopped. <a href="workflow.html">The checklist and its steps</a>.</li>
+</ul>
+</section>
+
+<section id="start-small" class="landing-start">
+<h2>Start small, grow into it</h2>
+<ol class="landing-rungs">
+<li>{{live:rung-disk|Issues kept on disk, with starter mode}}</li>
+<li>{{live:rung-queue|One GitHub queue}}</li>
+<li>{{live:rung-projects|Several projects}}</li>
+<li>{{live:rung-shared|Shared queues}}</li>
+</ol>
+</section>
+
+<section id="family" class="landing-familyband">
+<h2>The family</h2>
+<ul class="landing-family">
+<li>{{live:gantry|Gantry}} plans the work across all of your projects.</li>
+<li>{{live:blazeahead|blazeAhead}} watches a shared queue and starts the next issue on its own.</li>
+</ul>
+</section>
+
+<section id="next" class="landing-next">
+<h2>Where to go next</h2>
+<ul>
+<li><a href="install.html">Install</a>: every install option, in full.</li>
+<li><a href="quickstart.html">Quickstart</a>: from an empty config to a merge-ready MR.</li>
+<li><a href="workflow.html">Workflow reference</a>: every step, the checklist glyphs and the revision loop.</li>
+<li><a href="reference.html">Reference</a>: configuration, several projects, the design spec and the requirements.</li>
+</ul>
+</section>
+
+<script src="assets/landing.js" defer></script>
+</div>

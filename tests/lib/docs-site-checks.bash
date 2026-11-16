@@ -12,19 +12,13 @@
 # (2) can never pass for "broken". The functions never rely on errexit (bats
 # `run` clears it): every failure is an explicit return.
 #
-# The ONE page list is index.md's own top-level list, the list the build reads
-# for its nav (scripts/build-docs-site.sh nav_entries). site_pages reads it;
-# check_page_set holds the directory to it. Children 4-8 add a page by adding
-# one bullet there.
+# The ONE page list is the index's own top-level list (index.html's one-line
+# <li><a href> entries), the list the build reads for its nav
+# (scripts/build-docs-site.sh nav_entries). site_pages reads it; check_page_set
+# holds the directory to it. Later children add a page by adding one entry there.
 #
 # PAGE PINS — owned by later children. These facts can only be checked through
 # a sentence today; the child that rewrites the page owns the pin:
-#   #998 (landing, index.md -> index.html): site_pages reads index.md only and
-#        returns 2 naming #998 on an index.html; check_step_headline and
-#        check_numbering_claim read the index; a check_install_block home if the
-#        landing shows the commands; README.md's docs-site/index.md pointer; the
-#        comment in tests/skills-no-bang-exec.bats naming docs-site/index.md; the
-#        permanent-ID mutation leg, which edits a copy of index.md.
 #   #999 (install): check_platform_tokens; the bash-floor presence; the "You
 #        need:" .. "- Contributors additionally" region, which #999 moves to
 #        CONTRIBUTING.md and which two checks read: check_prereqs_trace (the region,
@@ -37,7 +31,11 @@
 #        the arity mutation leg, which edits a copy of quickstart.md.
 #   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
 #        /devagent:mergemr and WAITING (#885); the 21-step mutation leg, which
-#        edits a copy of workflow.md.
+#        edits a copy of workflow.md. Reuse docs-site/phases.txt unchanged;
+#        check_phase_split and check_loop are the readers. The workflow page's
+#        Phase column and README's step-group bullets ("The 25-step workflow":
+#        Plan / Implement / Ship / Integrate & close) still use the 1.0 four-phase
+#        split; move both to phases.txt's five phases, read from that file.
 #   #1002: none beyond its bullet in the one list.
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
@@ -61,6 +59,23 @@ REFERENCE_LINKS=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-de
 # The forge home of a repo file: the build's own default --blob-base, read from
 # scripts/build-docs-site.sh so the two cannot drift.
 BLOB_BASE="$(sed -n 's/^blob_base="\(.*\)"$/\1/p' "$(dirname "${BASH_SOURCE[0]}")/../../scripts/build-docs-site.sh")"
+
+# The landing page's HTML reader (stdlib html.parser), next to this library.
+LANDING_CHECK="$(dirname "${BASH_SOURCE[0]}")/landing-check.py"
+
+# landing_py <subcommand> <arg>... — run landing-check.py (0 ok, 1 a structural
+# absence, 2 usage or an unreadable file; diagnostics on stderr).
+landing_py() { python3 -I -X utf8 "$LANDING_CHECK" "$@"; }
+
+# landing_cmds [--article] <page> — the page's install commands (its <code>
+# lines beginning "claude plugin "); 2 when the page cannot be read.
+landing_cmds() {
+  local c
+  c="$(landing_py codes "$@")" || return 2
+  grep '^claude plugin ' <<<"$c"
+}
+# The docs-site placeholder filler, the one count rule a page may show.
+FILLER_PY="$(dirname "${BASH_SOURCE[0]}")/../../scripts/docs-site/fill-placeholders.py"
 
 # _blob_base_ok — return 2 (naming the scrape) unless BLOB_BASE read as a URL.
 _blob_base_ok() {
@@ -100,11 +115,18 @@ moved_pairs() {
   awk '!/^[ \t]*(#|$)/ { print $1, $2 }' "$1/moved.txt"
 }
 
-# site_pages <site-dir> — the names index.md's top-level list links, in list
-# order, deduplicated, index itself excluded. The fence rule and the bullet
-# regex are copied from scripts/build-docs-site.sh nav_entries (Markdown
-# branch); tests/build-docs-site.bats compares this reader to the built nav, so
-# the two copies must agree on the real site.
+# The build's non-content region reader (comments, <pre>, <code>, <script>,
+# <style>, <template>, <textarea>), read from scripts/build-docs-site.sh so
+# site_pages's index.html branch skips exactly what the build skips.
+_NC_AWK="$(sed -n "/^nc_awk='\$/,/^'\$/p" "$(dirname "${BASH_SOURCE[0]}")/../../scripts/build-docs-site.sh" | sed '1d;$d')"
+
+# site_pages <site-dir> — the names the index's own top-level list links, in
+# list order, deduplicated, index itself excluded. Copied from
+# scripts/build-docs-site.sh nav_entries: for index.md its fence rule and bullet
+# regex; for index.html its one-line '<li><a href="page.html">' entry regex
+# over the build's own nc_awk (a lone <li> whose next non-blank line opens such
+# an <a> returns 2, as the build exits 4). tests/build-docs-site.bats compares
+# this reader to the built nav, so the copies must agree on the real site.
 site_pages() {
   local dir="$1"
   if [ -f "$dir/index.md" ]; then
@@ -115,8 +137,25 @@ site_pages() {
            if (s != "index" && !seen[s]++) print s
          }' "$dir/index.md" || { echo "site_pages: cannot read $dir/index.md" >&2; return 2; }
   elif [ -f "$dir/index.html" ]; then
-    echo "site_pages: $dir/index.html: the test reader reads index.md only; #998 extends it" >&2
-    return 2
+    [ -n "$_NC_AWK" ] || { echo "site_pages: cannot read nc_awk from scripts/build-docs-site.sh" >&2; return 2; }
+    awk -v f="$dir/index.html" "$_NC_AWK"'
+         { s = nc($0); l = tolower(s) }
+         lone {
+           if (l ~ /^[ \t]*$/) next
+           if (l ~ /^[ \t]*<a([ \t][^>]*)?[ \t]href="(\.\/)?[a-z0-9_-]+\.html"/) {
+             printf "site_pages: %s:%d: <li> and its <a href> must share a line\n", f, lone > "/dev/stderr"
+             rc = 2; exit
+           }
+           lone = 0
+         }
+         match(l, /^[ \t]*<li([ \t][^>]*)?>[ \t]*<a([ \t][^>]*)?[ \t]href="(\.\/)?[a-z0-9_-]+\.html"/) {
+           m = substr(s, RSTART, RLENGTH)
+           sub(/\.[Hh][Tt][Mm][Ll]"$/, "", m); sub(/^.*"/, "", m); sub(/^\.\//, "", m)
+           if (m != "index" && !seen[m]++) print m
+           next
+         }
+         l ~ /^[ \t]*<li([ \t][^>]*)?>[ \t]*$/ { lone = NR }
+         END { exit rc }' "$dir/index.html" || return 2
   else
     echo "site_pages: no index.md or index.html in $dir" >&2
     return 2
@@ -124,7 +163,7 @@ site_pages() {
 }
 
 # check_page_set <site-dir> — the content pages (*.md and *.html other than
-# README.*) are exactly index plus the pages index.md's list names, and the
+# README.*) are exactly index plus the pages the index's list names, and the
 # directory's README.md policy file is present. The build tolerates an
 # unlisted page (it appends it to the nav); this check does not.
 check_page_set() {
@@ -137,10 +176,10 @@ check_page_set() {
     b="${f##*/}"; have[${b%.*}]=1
   done < <(site_content "$dir")
   for p in "${!have[@]}"; do
-    [ -n "${want[$p]:-}" ] || { echo "$dir: page $p is not in index.md's list (the one page list)" >&2; bad=1; }
+    [ -n "${want[$p]:-}" ] || { echo "$dir: page $p is not in the index's list (the one page list)" >&2; bad=1; }
   done
   for p in "${!want[@]}"; do
-    [ -n "${have[$p]:-}" ] || { echo "$dir: index.md lists $p but there is no $p.md or $p.html" >&2; bad=1; }
+    [ -n "${have[$p]:-}" ] || { echo "$dir: the index's list names $p but there is no $p.md or $p.html" >&2; bad=1; }
   done
   [ -f "$dir/README.md" ] || { echo "$dir: no README.md (the drift policy)" >&2; bad=1; }
   return "$bad"
@@ -257,6 +296,276 @@ _step_n() {
   steps="$(template_steps "$1")" || return 2
   [ -n "$steps" ] || { echo "$1: no step lines" >&2; return 2; }
   grep -c . <<<"$steps"
+}
+
+# phase_split <phases-file> — docs-site/phases.txt's data lines as
+# "<Name> <step>..." (colon dropped), one per line. Comment and blank lines are
+# skipped; any other line that is not "<Name>: <step> <step>..." returns 2
+# naming it, and so does a Name given twice.
+phase_split() {
+  _need "$1" || return 2
+  awk -v f="$1" '
+    /^[ \t]*(#|$)/ { next }
+    !/^[A-Z][a-z]+: [a-z]+( [a-z]+)*$/ {
+      printf "%s:%d: expected '\''<Name>: <step> <step>...'\''\n", f, NR > "/dev/stderr"; rc = 2; exit
+    }
+    {
+      n = $1; sub(/:$/, "", n)
+      if (seen[n]++) { printf "%s:%d: phase %s is listed twice\n", f, NR, n > "/dev/stderr"; rc = 2; exit }
+      sub(/:/, ""); print
+    }
+    END { exit rc }' "$1"
+}
+
+# check_phase_split <template> <phases-file> — the phases hold every template
+# step exactly once, in template order, and nothing else. Subject floor: the
+# template yields STEP_COUNT steps.
+check_phase_split() {
+  local tmpl="$1" ph="$2" n split steps num cmd s i=0 last=-1
+  local -a flat=()
+  local -A pos=() seen=()
+  _need "$tmpl" "$ph" || return 2
+  n="$(_step_n "$tmpl")" || return 2
+  [ "$n" -eq "$STEP_COUNT" ] || { echo "$tmpl: $n steps, want $STEP_COUNT" >&2; return 1; }
+  split="$(phase_split "$ph")" || return 2
+  steps="$(template_steps "$tmpl")" || return 2
+  while read -r num cmd; do pos[$cmd]=$i; i=$((i + 1)); done <<<"$steps"
+  # shellcheck disable=SC2086  # word-split each phase line into its steps
+  while read -r _ cmd; do flat+=($cmd); done <<<"$split"
+  for s in "${flat[@]}"; do
+    [ -n "${pos[$s]+x}" ] || { echo "$ph: step $s is not a step of $tmpl" >&2; return 1; }
+    [ -z "${seen[$s]+x}" ] || { echo "$ph: step $s appears in more than one place" >&2; return 1; }
+    [ "${pos[$s]}" -gt "$last" ] || { echo "$ph: step $s is out of template order" >&2; return 1; }
+    seen[$s]=1; last="${pos[$s]}"
+  done
+  while read -r num cmd; do
+    [ -n "${seen[$cmd]+x}" ] || { echo "$ph: step $cmd of $tmpl is in no phase" >&2; return 1; }
+  done <<<"$steps"
+}
+
+# check_loop <phases-file> <template> <page> — the landing page's loop (the
+# element id=loop) shows the phases of the phase-split file, in its order, once
+# in the SVG and once as lists: each svg group's name is the phase Name and its
+# steps label is "<first> … <last>" (or <first> alone); each list item is an
+# open <details> whose <summary> is the Name, whose <ol start> is the template
+# number of the phase's first step, and whose steps are the phase's, in order.
+check_loop() {
+  local ph="$1" tmpl="$2" page="$3" split steps rows n c i np pid
+  local id name label open start summ lsteps first last want
+  local -a names=() stepsof=() svgrows=() listrows=()
+  local -A num=()
+  _need "$ph" "$tmpl" "$page" || return 2
+  split="$(phase_split "$ph")" || return 2
+  steps="$(template_steps "$tmpl")" || return 2
+  [ -n "$split" ] || { echo "$ph: no phases read" >&2; return 2; }
+  rows="$(landing_py loop "$page")" || return $?
+  while read -r n c; do num[$c]=$n; done <<<"$steps"
+  while read -r name c; do names+=("$name"); stepsof+=("$c"); done <<<"$split"
+  np="${#names[@]}"
+  mapfile -t svgrows < <(grep $'^svg\t' <<<"$rows")
+  mapfile -t listrows < <(grep $'^list\t' <<<"$rows")
+  [ "${#svgrows[@]}" -eq "$np" ] || { echo "$page: ${#svgrows[@]} svg phase groups, want $np" >&2; return 1; }
+  [ "${#listrows[@]}" -eq "$np" ] || { echo "$page: ${#listrows[@]} phase lists, want $np" >&2; return 1; }
+  for ((i = 0; i < np; i++)); do
+    first="${stepsof[i]%% *}"; last="${stepsof[i]##* }"
+    want="$first"; [ "$first" = "$last" ] || want="$first … $last"
+    pid="${names[i],,}"
+    IFS=$'\t' read -r _ id name label <<<"${svgrows[i]}"
+    [ "$id" = "$pid" ] || { echo "phase $pid: svg row $((i + 1)) is phase '$id'" >&2; return 1; }
+    [ "$name" = "${names[i]}" ] || { echo "phase $id: svg name '$name', want '${names[i]}'" >&2; return 1; }
+    [ "$label" = "$want" ] || { echo "phase $id: svg steps-label '$label', want '$want'" >&2; return 1; }
+    IFS=$'\t' read -r _ id open start summ lsteps <<<"${listrows[i]}"
+    [ "$id" = "$pid" ] || { echo "phase $pid: list row $((i + 1)) is phase '$id'" >&2; return 1; }
+    [ "$open" = yes ] || { echo "phase $id: list open=$open, want yes (nothing hidden without scripts)" >&2; return 1; }
+    [ "$summ" = "${names[i]}" ] || { echo "phase $id: list summary '$summ', want '${names[i]}'" >&2; return 1; }
+    [ "$lsteps" = "${stepsof[i]}" ] || { echo "phase $id: list steps '$lsteps', want '${stepsof[i]}'" >&2; return 1; }
+    [ "$start" = "${num[$first]}" ] || { echo "phase $id: list start $start, want ${num[$first]} (the template number of $first)" >&2; return 1; }
+  done
+}
+
+# check_install_pair <readme> <page> — the page's install commands (its <code>
+# lines beginning "claude plugin ") are exactly the "claude plugin " lines of
+# README's first fence after "## Install", in order, and nothing else.
+check_install_pair() {
+  local readme="$1" page="$2" r p cmd rc=0
+  _need "$readme" "$page" || return 2
+  r="$(awk '/^## Install$/ { s = 1; next }
+            s && !f && /^## / { exit }
+            s && !f && /^```/ { f = 1; next }
+            f && /^```$/ { exit }
+            f' "$readme" | grep '^claude plugin ')" || true
+  [ -n "$r" ] || { echo "$readme: no 'claude plugin ' line in the first fence after ## Install" >&2; return 2; }
+  p="$(landing_cmds "$page")" || rc=$?
+  [ "$rc" -le 1 ] || return 2
+  while IFS= read -r cmd; do
+    grep -qxF -- "$cmd" <<<"$p" || { echo "$page: install command differs from README: $cmd" >&2; return 1; }
+  done <<<"$r"
+  while IFS= read -r cmd; do
+    [ -z "$cmd" ] || grep -qxF -- "$cmd" <<<"$r" \
+      || { echo "$page: carries an install command README's install block lacks: $cmd" >&2; return 1; }
+  done <<<"$p"
+  [ "$p" = "$r" ] || { echo "$page: the install commands are not README's, once each and in order" >&2; return 1; }
+}
+
+# check_hero_word <page> — the word "requirements" is visible text inside the
+# element id=hero.
+check_hero_word() {
+  local t
+  _need "$1" || return 2
+  t="$(landing_py text --within hero "$1")" || return $?
+  grep -qiw requirements <<<"$t" || { echo "$1: no 'requirements' in the hero section" >&2; return 1; }
+}
+
+# _article <html> — the lines between <article> and </article> of a built page;
+# the whole file for a page with no <article> line (a filled source copy). The
+# top bar and the footer sit outside the article, so they are never counted.
+_article() {
+  if grep -qx '<article>' "$1"; then
+    awk '/^<\/article>$/ { f = 0 } f { print } /^<article>$/ { f = 1 }' "$1"
+  else
+    cat "$1"
+  fi
+}
+
+# check_no_issue_numbers <page> — no visible text node holds '#' and a digit.
+# Attributes, styles, scripts, comments and SVG colour values are not text.
+check_no_issue_numbers() {
+  local t hits rc=0
+  _need "$1" || return 2
+  t="$(landing_py text "$1")" || return 2
+  [ -n "$t" ] || { echo "$1: no visible text read" >&2; return 1; }
+  hits="$(grep -E '#[0-9]' <<<"$t")" || rc=$?
+  case "$rc" in
+    1) return 0 ;;
+    0) echo "$1: an issue number in visible text: $(tr '\n' ' ' <<<"$hits")" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+# check_scripts_off <phases-file> <page> <cmd>... — as a reader with scripts off
+# sees the page (no <svg>, no closed <details> body, nothing hidden), every
+# phase Name, every step and every given command is a whole line of visible
+# text. Subject floor: the names and steps number STEP_COUNT plus the phases.
+check_scripts_off() {
+  local ph="$1" page="$2" split t name steps s n=0 np=0; shift 2
+  [ "$#" -gt 0 ] || { echo "check_scripts_off: no commands" >&2; return 2; }
+  _need "$ph" "$page" || return 2
+  split="$(phase_split "$ph")" || return 2
+  t="$(landing_py text --scripts-off --no-svg "$page")" || return 2
+  while read -r name steps; do
+    np=$((np + 1))
+    # shellcheck disable=SC2086  # the steps are one word each
+    for s in "$name" $steps; do
+      n=$((n + 1))
+      grep -qxF -- "$s" <<<"$t" || { echo "$page: $s is not visible with scripts off" >&2; return 1; }
+    done
+  done <<<"$split"
+  [ "$n" -eq $((STEP_COUNT + np)) ] || { echo "$ph: $n names and steps, want $((STEP_COUNT + np))" >&2; return 1; }
+  for s in "$@"; do
+    grep -qxF -- "$s" <<<"$t" || { echo "$page: $s is not visible with scripts off" >&2; return 1; }
+  done
+}
+
+# check_live_items <live.txt> <source> <filled> — every {{live:K|L}} of the
+# source page renders in the filled page's article as live.txt says, read
+# from live.txt itself (never from the filler): not live, the coming span and
+# no link; live, a link to its URL. The coming labels number exactly the
+# not-live placeholders (none is hand-written). Each strip item (.landing-rungs,
+# .landing-family) holds exactly one placeholder. Floors: 7 placeholders, at
+# least one live and one not.
+check_live_items() {
+  local live="$1" src="$2" filled="$3" art ph k l state url yes=0 no=0 n=0 coming list items li linked
+  _need "$live" "$src" "$filled" || return 2
+  art="$(_article "$filled")" || return 2
+  for list in landing-rungs landing-family; do
+    items="$(awk -v c="class=\"$list\"" 'index($0, c) { f = 1; next } f && /^<\/(ol|ul)>/ { exit } f && /^<li>/' "$src")"
+    [ -n "$items" ] || { echo "$src: no <li> items in .$list" >&2; return 1; }
+    while IFS= read -r li; do
+      [ "$(grep -o '{{live:' <<<"$li" | wc -l)" -eq 1 ] \
+        || { echo "$src: a .$list item does not hold exactly one live placeholder: $li" >&2; return 1; }
+    done <<<"$items"
+  done
+  while IFS= read -r ph; do
+    [ -n "$ph" ] || continue
+    n=$((n + 1))
+    k="${ph#\{\{live:}"; k="${k%%|*}"
+    l="${ph#*|}"; l="${l%\}\}}"
+    read -r state url < <(awk -v k="$k" '$1 == "live" && $2 == k { print $3, $4 }' "$live")
+    case "$state" in
+      no)
+        no=$((no + 1))
+        grep -qF -- "<span class=\"family-coming\">$l <small>coming</small></span>" <<<"$art" \
+          || { echo "$filled: live item $k ($l) is not live, but its coming label is not there" >&2; return 1; }
+        ! grep -qF -- ">$l</a>" <<<"$art" \
+          || { echo "$filled: live item $k ($l) is not live, but it links" >&2; return 1; } ;;
+      yes)
+        yes=$((yes + 1))
+        grep -qF -- "<a href=\"${url//&/&amp;}\">$l</a>" <<<"$art" \
+          || { echo "$filled: live item $k ($l) is live, but there is no link to $url" >&2; return 1; } ;;
+      *) echo "$live: no live line for $k (used by $src)" >&2; return 1 ;;
+    esac
+  done < <(grep -oE '\{\{live:[a-z0-9-]+\|[^{}|<>"]+\}\}' "$src")
+  coming="$(grep -o '<small>coming</small>' <<<"$art" | wc -l)"
+  [ "$coming" -eq "$no" ] || { echo "$filled: $coming coming labels, but $no not-live placeholders" >&2; return 1; }
+  linked="$(landing_py linked-coming --article "$filled")" || return 2
+  [ -z "$linked" ] || { echo "$filled: a not-live item sits inside a link: ${linked//$'\n'/, }" >&2; return 1; }
+  [ "$n" -ge 7 ] || { echo "$src: $n live placeholders, want >= 7" >&2; return 1; }
+  [ "$yes" -ge 1 ] && [ "$no" -ge 1 ] || { echo "$src: want at least one live and one not-live item ($yes live, $no not)" >&2; return 1; }
+}
+
+# check_req_count <live.txt> <source> <filled> — the source shows the
+# requirement count only through the placeholder (a literal would go stale),
+# and the filled page shows the number the filler counts with live.txt's rule
+# (tests/test_own_requirements.py pins that rule to the requirements reader).
+check_req_count() {
+  local live="$1" src="$2" filled="$3" got want probe
+  _need "$live" "$src" "$filled" "$FILLER_PY" || return 2
+  [ "$(grep -o 'class="landing-req-count">{{count:requirements}}<' "$src" | wc -l)" -eq 1 ] \
+    || { echo "$src: the requirement count is not exactly one {{count:requirements}} placeholder (a literal goes stale)" >&2; return 1; }
+  got="$(_article "$filled" | grep -oE 'class="landing-req-count">[0-9]+<' | grep -oE '[0-9]+')"
+  [ -n "$got" ] && [[ "$got" != *$'\n'* ]] \
+    || { echo "$filled: not exactly one filled landing-req-count: '$got'" >&2; return 1; }
+  probe="$(mktemp)" || return 2
+  printf 'n={{count:requirements}}\n' >"$probe"
+  python3 -I -X utf8 "$FILLER_PY" --settings "$live" "$probe" >/dev/null || { rm -f "$probe"; return 2; }
+  want="$(sed -n 's/^n=\([0-9][0-9]*\)$/\1/p' "$probe")"; rm -f "$probe"
+  [ -n "$want" ] || return 2
+  [ "$got" = "$want" ] || { echo "$filled: landing-req-count $got, but the filler counts $want" >&2; return 1; }
+}
+
+# check_install_only <page> — the landing page's visible text names no install
+# detail beyond the commands (superpowers, userConfig, the official marketplace,
+# prerequisites stay on the install page), and its install section links the
+# install page.
+check_install_only() {
+  local page="$1" t hits links rc=0
+  _need "$page" || return 2
+  t="$(landing_py text --article "$page")" || return 2
+  [ -n "$t" ] || { echo "$page: no visible text read" >&2; return 1; }
+  hits="$(grep -oiE 'superpowers|userConfig|claude-plugins-official|prerequisite' <<<"$t")" || rc=$?
+  case "$rc" in
+    1) ;;
+    0) echo "$page: install detail on the landing page: $(sort -u <<<"$hits" | tr '\n' ' ')" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  links="$(landing_py links --within install "$page")" || return $?
+  grep -qxE '(\./)?install\.html' <<<"$links" || { echo "$page: the install section does not link install.html" >&2; return 1; }
+}
+
+# check_nav_section <site-dir> — the index's page list (site_pages, the build's
+# nav) is exactly the page links of its id=next section, in order: a page link
+# opening an <li> line anywhere earlier on the index would reorder the nav.
+check_nav_section() {
+  local dir="$1" want got
+  _need "$dir/index.html" || return 2
+  want="$(site_pages "$dir")" || return 2
+  got="$(landing_py links --within next "$dir/index.html")" || return $?
+  got="$(sed -nE 's#^(\./)?([a-z0-9_-]+)\.html$#\2#p' <<<"$got" | awk '$0 != "index" && !seen[$0]++')"
+  [ -n "$want" ] || { echo "$dir/index.html: no page list read" >&2; return 2; }
+  [ "$got" = "$want" ] || {
+    echo "$dir/index.html: the nav list ($(tr '\n' ' ' <<<"$want")) is not the #next section's page links ($(tr '\n' ' ' <<<"$got"))" >&2
+    return 1
+  }
 }
 
 # check_step_headline <template> <file> — "<N>-step workflow", N derived.

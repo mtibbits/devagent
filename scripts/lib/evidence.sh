@@ -66,10 +66,11 @@ evidence_platform_check() {
 #                  a MEASURED zero rather than an absent framework: a false green
 #                  (#572 redmr MINOR-5).
 # One representation, both sides — mirrored in templates/mr_template.md,
-# skills/core-draft-mr/SKILL.md and agents/preship-verifier.md, which move in the same
-# commit. An (error) artifact contributes no parts entry, so the line still reconstructs
-# from whatever else is present and the checker reports the suite-line verdict ALONGSIDE
-# the (error) verdict rather than instead of it.
+# skills/core-draft-mr/SKILL.md, agents/preship-verifier.md and the RE_EV* parser in
+# scripts/claims-check.sh (#1122), which move in the same commit. An (error) artifact
+# contributes no parts entry, so the line still reconstructs from whatever else is present
+# and the checker reports the suite-line verdict ALONGSIDE the (error) verdict rather than
+# instead of it.
 evidence_suite_resolve() {
   local artifact="$1" unparseable p joined=""
   local -a parts=()
@@ -152,11 +153,15 @@ evidence_files_count() {
 # stamp to bind to. Refusing it would fail an idempotent caller whose environments
 # happen to coincide, so it is warned about and ignored (the rule the #580 sibling's
 # rungs copy).
+# #1122: EVIDENCE_ABSENT_ATTEST (setter-global, reset to 0 here) counts the fails[] entries
+# this rung added because NO --attest-tree was supplied (the absent-here arm with an empty
+# attestation). preship-evidence.sh --attestable-exit reads it; a refuted attestation is
+# never counted.
 evidence_tree_rung() {
   local caller="$1" artifact="$2" a_head="$3" work_dir="$4" attest_tree="$5"
   local a_tree attest_used=false attest_re att_head att_dirty att_path n_fails
   a_tree="$(sed -n 's/^tree:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
-  EVIDENCE_TREE_VERDICT="unstamped"
+  EVIDENCE_TREE_VERDICT="unstamped"; EVIDENCE_ABSENT_ATTEST=0
   if [ -z "$a_tree" ]; then
     :
   elif [ -d "$a_tree" ]; then
@@ -166,6 +171,7 @@ evidence_tree_rung() {
       fails+=("artifact was produced from tree '$a_tree' but this check resolves '$work_dir' — re-run run-suite in the tree being shipped (#571)")
     fi
   elif [ -z "$attest_tree" ]; then
+    EVIDENCE_ABSENT_ATTEST=$((EVIDENCE_ABSENT_ATTEST + 1))
     fails+=("$tree_unattested — the artifact records tree '$a_tree', which does not exist in THIS environment, so this check cannot tell which checkout produced the evidence (#571/#655). Either re-run run-suite in the tree being shipped, from an environment that can run the suite; or, when the artifact came from another environment (the sanctioned WSL flow), verify that tree THERE (git -C '<tree>' rev-parse HEAD must print the artifact's head:, and git -C '<tree>' status --porcelain must print nothing) and re-run this check adding --attest-tree 'head=<the sha it printed> dirty=no path=<that tree>'. The rung is then attested by you, not checked here, and the PASS line records your claim; an attestation binds to this artifact's head: and tree:, so every new artifact needs a new one.")
   else
     attest_used=true

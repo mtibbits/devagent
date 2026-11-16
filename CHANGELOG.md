@@ -25,6 +25,38 @@ the README's "Versioning & releases" section has the release procedure.
   a named condition otherwise. Step 20 merges such a head only on green CI, and
   rule 14 now names the conflicted paths, and this remedy when it applies.
   `/devagent:doctor` reports a bad table.
+
+- **Changed: the landing page (#998).** The site's front page is now a
+  hand-written `docs-site/index.html` in place of `index.md`: the promise,
+  README's two install commands with copy buttons, a lesson-0 path for
+  newcomers, the five-phase loop as a diagram with every step listed, why
+  devAgent is different (with the requirement count, filled at build time),
+  and the start-small and family strips, each item's "coming" or live state
+  read from `live.txt`. The tab title is the page's promise and the nav label
+  is "Home". `docs-site/phases.txt` records which checklist steps each phase
+  holds. `live.txt` gains site-only keys for the strips, and its requirement
+  count now uses `tests/test_own_requirements.py`'s rule. The landing page
+  drops the slash-command count, so that sweep's floor is now 6 homes.
+
+- **Changed: preship checks evidence and MR-body claims before the verifier
+  (#1122).** `/devagent:preship` now runs a main-session preflight before the
+  head pin. `scripts/preship-evidence.sh --attestable-exit` (a new opt-in
+  flag: exit 4 when every failure is an attestation not supplied) stops the
+  step `[!]` before any dispatch on any other failure, and moves an older
+  `preship.md` aside. The new read-only `scripts/claims-check.sh <project>
+  <Issue-N>` reports `mr.md` claims that differ from the branch (bats and
+  pytest per-file counts, suite totals, commit and file counts, cited
+  commits, the sign-off box), and the session may now edit `mr.md` before the
+  verifier reads it: it corrects, names the commit, or leaves a line as
+  written, and logs each, every call through the new
+  `scripts/preship-preflight.sh`. Each pytest collection the check runs is
+  bounded by `DEVAGENT_COLLECT_TIMEOUT` seconds (default 30). The verifier and
+  its dispatch contract are unchanged. `log_append` now writes a message byte for byte: a backslash in a
+  logged line is no longer an escape. `core-draft-mr` states the count forms and how to derive them;
+  `run-suite.sh`'s child env list moved to `SUITE_CHILD_UNSET` in
+  `scripts/lib/config.sh`; `scripts/lib/baseline.sh` gains the no-fetch
+  `baseline_ref_name`.
+
 - **Changed: the configuration and concurrency pages moved to `docs/` (#997).**
   `docs-site/configuration.md` and `docs-site/concurrency.md` are now
   `docs/configuration.md` and `docs/concurrency.md`, rendered by GitHub next to
@@ -34,6 +66,7 @@ the README's "Versioning & releases" section has the release procedure.
   facts rather than page wording: its checks live in
   `tests/lib/docs-site-checks.bash`, every check has a mutation leg, and the page
   set is the index's own list.
+
 - **Added: the local code backend (#1016).** `code_source.backend = "local"`
   ships without a forge: nothing is pushed and `push_mr` is not asked; ship
   prints its plan and records a local MR under the source repo's git dir,

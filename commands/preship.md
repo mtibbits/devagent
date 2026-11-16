@@ -27,6 +27,50 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    prerequisite whose producing step is absent is **N/A**, and the review
    report alone is the findings input. Do not halt on the absent step;
    DO halt when the step is present but its artifact is missing.
+
+**Preflight (between 2 and 2a) (#1122).** The Zero-diff section below is applied
+first; an empty diff never reaches this preflight. In order, each its own Bash call:
+**evidence check, claims check, head pin, dispatch**. Nothing from the preflight
+enters the dispatch prompt, and
+**neither `run-suite.sh` nor `evidence-stamp.sh`** runs here. It also runs on a
+re-run after ship, where a correction changes `mr.md` only. Every preflight call is
+`scripts/preship-preflight.sh` (its header is the reference); below, `… <sub> [args]`
+stands for `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh" <sub> <project> <Issue-N> "$ISSUE_DIR" [args]`.
+Script stderr and `mr.md` text hold backticks, `$` and quotes: never type them into a
+command; the script reads them from files, and a reason from a file you write.
+
+- **Evidence check:**
+  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh" evidence <project> <Issue-N> "$ISSUE_DIR"`
+  runs `preship-evidence.sh` with `--attestable-exit` and exits with its code.
+  Exit 0 or 4: continue (on 4 only attestations are absent, and the verifier
+  attests). Exit 9, 10 or 11: the quarantine rule above. Anything else:
+  **STOP before any dispatch**. The script has marked the step `[!]` with
+  `preship: evidence preflight: <first failure line>` and moved an existing
+  `preship.md` to `analysis/<date>-<HHMMSS>-preship-superseded.md` (logged), so no
+  older verdict sits beside the `[!]`; write **no preship.md**.
+- **Claims check:**
+  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh" claims <project> <Issue-N> "$ISSUE_DIR"`,
+  one read-only run of `claims-check.sh`. Exit 0: continue. Exit 9, 10 or 11: the
+  quarantine rule. Any other exit but 3: the check **could not run**; log it
+  (`… log could-not-run`), then dispatch anyway.
+- Exit 3: each report is **a prompt to look, not an instruction**.
+  Before acting on a report, run `… prior <L>`: exit 0 means line `<L>` was already
+  left as written with this exact text; keep that decision and log nothing new.
+  Do not revisit a line left as written. Otherwise: (a) the claim is about the branch
+  now and the found value is right: **correct the line**; (b) it is right for an
+  earlier or partial run: **keep the value**, and
+  **name the commit** as `` at `<sha>` `` (the form the check reads) if the log or
+  git establishes it; (c) otherwise wrong: **leave the line as written**.
+  **Never edit the `## Evidence` block.** Run `… save <L>` before an edit, then
+  `… log corrected <L>` or `… log named-commit <L>`; log a line left as written by
+  writing the reason, one line, to `$ISSUE_DIR/.preflight-reason` with the Write
+  tool, then running `… log left-as-written <L>` (it reads and removes the file;
+  never a heredoc, which is a multi-line command outside the grant).
+- Re-run the check only after a run that edited `mr.md`, **at most three runs** (the
+  script refuses a fourth). Edit nothing after the last run: a line still reported
+  then, and not left as written, is logged **unresolved** (`… log unresolved <L>`),
+  and **the verifier is still dispatched**. Last, `… log preflight`.
+
 2a. **Pin the head (#885)**, as its own Bash call; halt on non-zero:
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-verified-head.sh" pin <project>`.
    It persists HEAD as `preship_pin_head` and prints its SHA; paste that SHA
@@ -89,7 +133,9 @@ mergemr (step 20) merges only at `verified_head`; a head that moved after ship
 stops it `[!]` until a fresh preship passes. After a **fix push** (rule 15):
 re-run `scripts/run-suite.sh` and `scripts/evidence-stamp.sh` (`commands/review.md`
 6a), push, then preship. After a **merge-forward** (rule 14): run
-`scripts/rebaseline.sh` first, then the same pair, push, then preship.
+`scripts/rebaseline.sh` first, then the same pair, push, then preship. The
+preflight runs on this re-run too; its evidence stop is a failed post-ship preship,
+and a claims correction changes `mr.md` only, never the posted MR body.
 
 A passing `record` clears a mergemr stop of rule 10, 11, 14, 15 or forward's 17,
 or a `preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, logged
@@ -123,6 +169,21 @@ machine.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" preship "Preship: A/B ACs pass, F findings located, push-preview MATCH|MISMATCH; note: $NOTE"
+```
+
+The preflight logs each outcome in exactly one spelling (Issue-586), through
+`scripts/preship-preflight.sh`; `<old>`, `<new>` and `<text>` are the whole `mr.md` line, truncated
+to 200 characters plus `…`. An evidence stop's reason is its STUCK line,
+`preship: evidence preflight: <first failure line>`.
+
+```
+claims: mr.md:<L> corrected: '<old>' -> '<new>'
+claims: mr.md:<L> named commit: '<old>' -> '<new>'
+claims: mr.md:<L> left as written: '<text>' — <reason>
+claims: mr.md:<L> unresolved after run <n>: '<text>'
+claims: could not run (exit <rc>): <first stderr line>; verifier dispatched
+preflight: moved preship.md to analysis/<date>-<HHMMSS>-preship-superseded.md
+preflight: evidence exit <rc>; claims runs <n>, last exit <rc>; <the last claims summary line, or (none)>
 ```
 
 ## Completion handoff

@@ -55,7 +55,7 @@ Rows in execution order.
 | 14 | `draftmr` | Ship | Draft the merge-request body |
 | 15 | `review` | Ship | Run code review on the branch |
 | 16 | `redmr` | Ship | Red-team adversarial review of the MR before shipping |
-| 17 | `preship` | Ship | Fresh-context verification that the committed branch satisfies the acceptance criteria |
+| 17 | `preship` | Ship | Fresh-context verification that the committed branch satisfies the acceptance criteria, after a main-session preflight checks the suite evidence and the MR body's claims |
 | 18 | `ship` | Ship | Push the branch and open the MR |
 | 19 | `mergetoall` | Integrate & close | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR |
 | 20 | `mergemr` | Integrate & close | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged |
@@ -83,4 +83,4 @@ State key: [ ] pending  [x] done  [-] skipped  [!] stuck  [~] in-progress  [?] b
 - `/devagent:where` and `/devagent:catchup` rehydrate an issue's state at
   any point — the current step, the artifacts so far, and what comes next.
 
-[← devAgent onboarding](./index.md)
+[← devAgent onboarding](./index.html)
