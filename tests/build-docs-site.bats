@@ -372,14 +372,14 @@ real_stubs() {
     grep -qF "<a href=\"$p.html\" aria-current=\"page\">" "$html"
     [ "$(nav_of "$html" | grep -c '<a href=')" -eq "${#content[@]}" ]
   done
-  # nav order is the one page list (index.md's list, read by site_pages), not
+  # nav order is the one page list (the index's list, read by site_pages), not
   # the alphabetical glob. tests/docs-site.bats holds every page to that list,
   # so no unlisted page is appended after it.
   local navorder expected
   navorder="$(nav_hrefs "$REAL_OUT/index.html")"
   expected="href=\"index.html\" $(site_pages "$SITE" | sed 's/.*/href="&.html"/' | tr '\n' ' ')"
   echo "nav order rendered: $navorder" >&2
-  echo "nav order expected: $expected(index, then index.md's list — see docs-site/README.md)" >&2
+  echo "nav order expected: $expected(index, then the index's list — see docs-site/README.md)" >&2
   [ "$navorder" = "$expected" ]
 }
 
@@ -2587,6 +2587,64 @@ expect_region() {
   for k in "${keys[@]}"; do
     grep -qE "^$k=[1-9][0-9]*\$" "$d/probe.html" || { echo "count $k: $(grep "^$k=" "$d/probe.html")" >&2; return 1; }
   done
+}
+
+# ---------------------------------------------------------- landing page (#998)
+# The landing page's facts, held on the built page; tests/docs-site.bats holds
+# the same checks on a filled copy of the source, with their mutation legs.
+
+@test "build-docs-site: real site — the landing page carries the install commands verbatim and no other install detail" {
+  need_pandoc
+  local src built
+  src="$(landing_py codes "$SITE/index.html" | grep '^claude plugin ')"
+  built="$(landing_py codes --article "$REAL_OUT/index.html" | grep '^claude plugin ')"
+  [ "$(grep -c . <<<"$src")" -ge 1 ]
+  [ "$built" = "$src" ] || { echo "built: $built / source: $src" >&2; return 1; }
+  run check_install_only "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — the landing requirement count is the filler's count" {
+  need_pandoc
+  run check_req_count "$LIVE_TXT" "$SITE/index.html" "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — every landing live item renders both ways from live.txt" {
+  need_pandoc
+  run check_live_items "$LIVE_TXT" "$SITE/index.html" "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — with scripts off the landing page shows every phase, every step and the install commands" {
+  need_pandoc
+  local cmds=()
+  mapfile -t cmds < <(landing_py codes "$SITE/index.html" | grep '^claude plugin ')
+  [ "${#cmds[@]}" -ge 1 ]
+  run check_scripts_off "$SITE/phases.txt" "$REAL_OUT/index.html" "${cmds[@]}"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — no issue number in the landing page's visible text" {
+  need_pandoc
+  run check_no_issue_numbers "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — landing.css rules stay inside the landing page" {
+  need_pandoc
+  local css="$REAL_OUT/assets/landing.css"
+  [ -f "$css" ]
+  run fc literals "$FAMILY_STATIC/family.css" "$css"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count literals
+  [ "$fc_n" -ge 1 ]
+  run fc scope "$css" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count scope
+  [ "$fc_n" -ge 1 ]
+  run grep -nE '#[0-9A-Fa-f]{3,8}\b|rgba?\(' "$css"
+  [ "$status" -eq 1 ] || { echo "a colour literal in landing.css: $output" >&2; return 1; }
 }
 
 @test "build-docs-site: real site — the family files publish byte-identical under static/" {

@@ -1,4 +1,4 @@
-/* docs-site/assets/landing.css — the landing page's own rules (#998).
+/* docs-site/assets/landing.css — the landing page's own rules.
    Every selector begins .landing, so nothing here reaches the top bar, the
    footer or another page. Colours are family tokens only (family.css);
    nothing is hidden and nothing moves, so the page reads the same with

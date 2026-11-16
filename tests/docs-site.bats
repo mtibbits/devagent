@@ -95,6 +95,19 @@ temp_root() {
   printf '%s\n' "$t"
 }
 
+# filled_index — a copy of the landing page with its placeholders filled by the
+# real filler from docs-site/live.txt (no pandoc needed); prints its path.
+filled_index() {
+  local f="$BATS_TEST_TMPDIR/filled.$RANDOM$RANDOM.html"
+  cp "$WEB/index.html" "$f" || return 1
+  python3 -I -X utf8 "$PLUGIN_ROOT/scripts/docs-site/fill-placeholders.py" \
+    --settings "$WEB/live.txt" "$f" >/dev/null || { echo "filled_index: the filler refused $f" >&2; return 1; }
+  printf '%s\n' "$f"
+}
+
+# landing_cmds <page> — the page's install commands (its "claude plugin " code lines).
+landing_cmds() { landing_py codes "$1" | grep '^claude plugin '; }
+
 # ---------------------------------------------------------------------------
 # Facts
 # ---------------------------------------------------------------------------
@@ -151,6 +164,38 @@ temp_root() {
 
 @test "docs-site: 'requirements' appears in the landing hero" {
   holds check_hero_word "$WEB/index.html"
+}
+
+@test "docs-site: the filled landing page shows no issue number in its visible text" {
+  local f
+  f="$(filled_index)"
+  holds check_no_issue_numbers "$f"
+}
+
+@test "docs-site: with scripts off the filled landing page shows every phase, step and install command" {
+  local f cmds=()
+  f="$(filled_index)"
+  mapfile -t cmds < <(landing_cmds "$WEB/index.html")
+  [ "${#cmds[@]}" -ge 1 ]
+  holds check_scripts_off "$WEB/phases.txt" "$f" "${cmds[@]}"
+}
+
+@test "docs-site: every landing live item renders from live.txt, coming without a link, live with one" {
+  local f
+  f="$(filled_index)"
+  holds check_live_items "$WEB/live.txt" "$WEB/index.html" "$f"
+}
+
+@test "docs-site: the landing requirement count is the placeholder, filled with the filler's count" {
+  local f
+  f="$(filled_index)"
+  holds check_req_count "$WEB/live.txt" "$WEB/index.html" "$f"
+}
+
+@test "docs-site: the landing page carries no install detail beyond the commands, and links the install page" {
+  local f
+  f="$(filled_index)"
+  holds check_install_only "$f"
 }
 
 @test "docs-site: the configuration reference names every backend verb" {
@@ -559,6 +604,66 @@ lc_lacks() {
   f="$(fresh "$WEB/index.html")"
   edit "$f" '<section id="loop"' '<section id="loopx"'
   breaks 'id=loop' check_loop "$ph" "$TEMPLATE" "$f"
+}
+
+@test "mutation: landing issue numbers, scripts off, live items, count, install detail" {
+  local f g n cmds=() src live="$WEB/live.txt" ph="$WEB/phases.txt"
+  mapfile -t cmds < <(landing_cmds "$WEB/index.html")
+  [ "${#cmds[@]}" -ge 1 ]
+  # issue numbers: a text node reddens; an SVG colour value does not.
+  f="$(filled_index)"
+  holds check_no_issue_numbers "$f"
+  edit "$f" '<circle class="landing-loop-ring"' '<rect fill="#123456"/><circle class="landing-loop-ring"'
+  holds check_no_issue_numbers "$f"
+  plant "$f" '<p>Fixed in #12</p>'
+  breaks '#12' check_no_issue_numbers "$f"
+  # scripts off: a closed <details>, and a step moved into a <template>.
+  f="$(filled_index)"
+  holds check_scripts_off "$ph" "$f" "${cmds[@]}"
+  edit "$f" '<li id="phase-build"><details open>' '<li id="phase-build"><details>'
+  breaks 'branch is not visible with scripts off' check_scripts_off "$ph" "$f" "${cmds[@]}"
+  f="$(filled_index)"
+  edit "$f" '<li>branch</li>' '<template><li>branch</li></template>'
+  breaks 'branch is not visible with scripts off' check_scripts_off "$ph" "$f" "${cmds[@]}"
+  f="$(filled_index)"
+  breaks 'claude plugin nope' check_scripts_off "$ph" "$f" "${cmds[@]}" 'claude plugin nope'
+  # live items: a not-live item that links, and a hand-written "coming".
+  f="$(filled_index)"
+  holds check_live_items "$live" "$WEB/index.html" "$f"
+  edit "$f" '<span class="family-coming">Gantry <small>coming</small></span>' '<a href="x">Gantry</a>'
+  breaks 'gantry' check_live_items "$live" "$WEB/index.html" "$f"
+  f="$(filled_index)"
+  plant "$f" '<p>More <small>coming</small></p>'
+  breaks 'coming' check_live_items "$live" "$WEB/index.html" "$f"
+  # a live item whose link is gone
+  f="$(filled_index)"
+  edit "$f" '<a href="https://github.com/mtibbits/devagent/blob/master/README.md#concurrent-sessions">Several projects</a>' 'Several projects'
+  breaks 'rung-projects' check_live_items "$live" "$WEB/index.html" "$f"
+  # a rung holding two placeholders
+  src="$(fresh "$WEB/index.html")"
+  edit "$src" '<li>{{live:rung-shared|Shared queues}}</li>' '<li>{{live:rung-shared|Shared queues}} {{live:gantry|Gantry}}</li>'
+  f="$BATS_TEST_TMPDIR/two.html"; cp "$src" "$f"
+  python3 -I -X utf8 "$PLUGIN_ROOT/scripts/docs-site/fill-placeholders.py" --settings "$live" "$f" >/dev/null
+  breaks 'exactly one' check_live_items "$live" "$src" "$f"
+  # the count: a filled number off by one, and a literal in the source.
+  f="$(filled_index)"
+  holds check_req_count "$live" "$WEB/index.html" "$f"
+  n="$(grep -oE 'class="landing-req-count">[0-9]+<' "$f" | grep -oE '[0-9]+')"
+  [ -n "$n" ]
+  edit "$f" "class=\"landing-req-count\">$n<" "class=\"landing-req-count\">$((n + 1))<"
+  breaks 'landing-req-count' check_req_count "$live" "$WEB/index.html" "$f"
+  src="$(fresh "$WEB/index.html")"
+  edit "$src" '{{count:requirements}}' "$n"
+  f="$(filled_index)"
+  breaks 'literal' check_req_count "$live" "$src" "$f"
+  # install detail on the landing page
+  f="$(filled_index)"
+  holds check_install_only "$f"
+  plant "$f" '<p>Install superpowers too</p>'
+  breaks 'superpowers' check_install_only "$f"
+  f="$(filled_index)"
+  edit "$f" '<p><a href="install.html">Full install guide</a></p>' '<p>Full install guide</p>'
+  breaks 'install.html' check_install_only "$f"
 }
 
 @test "mutation: backend verbs" {

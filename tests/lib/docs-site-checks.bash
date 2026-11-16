@@ -63,6 +63,8 @@ LANDING_CHECK="$(dirname "${BASH_SOURCE[0]}")/landing-check.py"
 # landing_py <subcommand> <arg>... — run landing-check.py (0 ok, 1 a structural
 # absence, 2 usage or an unreadable file; diagnostics on stderr).
 landing_py() { python3 -I -X utf8 "$LANDING_CHECK" "$@"; }
+# The docs-site placeholder filler, the one count rule a page may show.
+FILLER_PY="$(dirname "${BASH_SOURCE[0]}")/../../scripts/docs-site/fill-placeholders.py"
 
 # _blob_base_ok — return 2 (naming the scrape) unless BLOB_BASE read as a URL.
 _blob_base_ok() {
@@ -415,6 +417,140 @@ check_hero_word() {
     *) return 2 ;;
   esac
   grep -qiw requirements <<<"$t" || { echo "$1: no 'requirements' in the hero section" >&2; return 1; }
+}
+
+# _article <html> — the lines between <article> and </article> of a built page;
+# the whole file for a page with no <article> line (a filled source copy). The
+# top bar and the footer sit outside the article, so they are never counted.
+_article() {
+  if grep -qx '<article>' "$1"; then
+    awk '/^<\/article>$/ { f = 0 } f { print } /^<article>$/ { f = 1 }' "$1"
+  else
+    cat "$1"
+  fi
+}
+
+# check_no_issue_numbers <page> — no visible text node holds '#' and a digit.
+# Attributes, styles, scripts, comments and SVG colour values are not text.
+check_no_issue_numbers() {
+  local t hits rc=0
+  _need "$1" || return 2
+  t="$(landing_py text "$1")" || return 2
+  [ -n "$t" ] || { echo "$1: no visible text read" >&2; return 1; }
+  hits="$(grep -E '#[0-9]' <<<"$t")" || rc=$?
+  case "$rc" in
+    1) return 0 ;;
+    0) echo "$1: an issue number in visible text: $(tr '\n' ' ' <<<"$hits")" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+# check_scripts_off <phases-file> <page> <cmd>... — as a reader with scripts off
+# sees the page (no <svg>, no closed <details> body, nothing hidden), every
+# phase Name, every step and every given command is a whole line of visible
+# text. Subject floor: the names and steps number STEP_COUNT plus the phases.
+check_scripts_off() {
+  local ph="$1" page="$2" split t name steps s n=0 np=0; shift 2
+  [ "$#" -gt 0 ] || { echo "check_scripts_off: no commands" >&2; return 2; }
+  _need "$ph" "$page" || return 2
+  split="$(phase_split "$ph")" || return 2
+  t="$(landing_py text --scripts-off --no-svg "$page")" || return 2
+  while read -r name steps; do
+    np=$((np + 1))
+    # shellcheck disable=SC2086  # the steps are one word each
+    for s in "$name" $steps; do
+      n=$((n + 1))
+      grep -qxF -- "$s" <<<"$t" || { echo "$page: $s is not visible with scripts off" >&2; return 1; }
+    done
+  done <<<"$split"
+  [ "$n" -eq $((STEP_COUNT + np)) ] || { echo "$ph: $n names and steps, want $((STEP_COUNT + np))" >&2; return 1; }
+  for s in "$@"; do
+    grep -qxF -- "$s" <<<"$t" || { echo "$page: $s is not visible with scripts off" >&2; return 1; }
+  done
+}
+
+# check_live_items <live.txt> <source> <filled> — every {{live:K|L}} of the
+# source page renders in the filled page's article as live.txt says, read
+# from live.txt itself (never from the filler): not live, the coming span and
+# no link; live, a link to its URL. The coming labels number exactly the
+# not-live placeholders (none is hand-written). Each strip item (.landing-rungs,
+# .landing-family) holds exactly one placeholder. Floors: 7 placeholders, at
+# least one live and one not.
+check_live_items() {
+  local live="$1" src="$2" filled="$3" art ph k l state url yes=0 no=0 n=0 coming list items li
+  _need "$live" "$src" "$filled" || return 2
+  art="$(_article "$filled")" || return 2
+  for list in landing-rungs landing-family; do
+    items="$(awk -v c="class=\"$list\"" 'index($0, c) { f = 1; next } f && /^<\/(ol|ul)>/ { exit } f && /^<li>/' "$src")"
+    [ -n "$items" ] || { echo "$src: no <li> items in .$list" >&2; return 1; }
+    while IFS= read -r li; do
+      [ "$(grep -o '{{live:' <<<"$li" | wc -l)" -eq 1 ] \
+        || { echo "$src: a .$list item does not hold exactly one live placeholder: $li" >&2; return 1; }
+    done <<<"$items"
+  done
+  while IFS= read -r ph; do
+    [ -n "$ph" ] || continue
+    n=$((n + 1))
+    k="${ph#\{\{live:}"; k="${k%%|*}"
+    l="${ph#*|}"; l="${l%\}\}}"
+    read -r state url < <(awk -v k="$k" '$1 == "live" && $2 == k { print $3, $4 }' "$live")
+    case "$state" in
+      no)
+        no=$((no + 1))
+        grep -qF -- "<span class=\"family-coming\">$l <small>coming</small></span>" <<<"$art" \
+          || { echo "$filled: live item $k ($l) is not live, but its coming label is not there" >&2; return 1; }
+        ! grep -qF -- ">$l</a>" <<<"$art" \
+          || { echo "$filled: live item $k ($l) is not live, but it links" >&2; return 1; } ;;
+      yes)
+        yes=$((yes + 1))
+        grep -qF -- "<a href=\"${url//&/&amp;}\">$l</a>" <<<"$art" \
+          || { echo "$filled: live item $k ($l) is live, but there is no link to $url" >&2; return 1; } ;;
+      *) echo "$live: no live line for $k (used by $src)" >&2; return 1 ;;
+    esac
+  done < <(grep -oE '\{\{live:[a-z0-9-]+\|[^{}|<>"]+\}\}' "$src")
+  coming="$(grep -o '<small>coming</small>' <<<"$art" | wc -l)"
+  [ "$coming" -eq "$no" ] || { echo "$filled: $coming coming labels, but $no not-live placeholders" >&2; return 1; }
+  [ "$n" -ge 7 ] || { echo "$src: $n live placeholders, want >= 7" >&2; return 1; }
+  [ "$yes" -ge 1 ] && [ "$no" -ge 1 ] || { echo "$src: want at least one live and one not-live item ($yes live, $no not)" >&2; return 1; }
+}
+
+# check_req_count <live.txt> <source> <filled> — the source shows the
+# requirement count only through the placeholder (a literal would go stale),
+# and the filled page shows the number the filler counts with live.txt's rule
+# (tests/test_own_requirements.py pins that rule to the requirements reader).
+check_req_count() {
+  local live="$1" src="$2" filled="$3" got want probe
+  _need "$live" "$src" "$filled" "$FILLER_PY" || return 2
+  [ "$(grep -o 'class="landing-req-count">{{count:requirements}}<' "$src" | wc -l)" -eq 1 ] \
+    || { echo "$src: the requirement count is not exactly one {{count:requirements}} placeholder (a literal goes stale)" >&2; return 1; }
+  got="$(_article "$filled" | grep -oE 'class="landing-req-count">[0-9]+<' | grep -oE '[0-9]+')"
+  [ -n "$got" ] && [[ "$got" != *$'\n'* ]] \
+    || { echo "$filled: not exactly one filled landing-req-count: '$got'" >&2; return 1; }
+  probe="$(mktemp)" || return 2
+  printf 'n={{count:requirements}}\n' >"$probe"
+  python3 -I -X utf8 "$FILLER_PY" --settings "$live" "$probe" >/dev/null || { rm -f "$probe"; return 2; }
+  want="$(sed -n 's/^n=\([0-9][0-9]*\)$/\1/p' "$probe")"; rm -f "$probe"
+  [ -n "$want" ] || return 2
+  [ "$got" = "$want" ] || { echo "$filled: landing-req-count $got, but the filler counts $want" >&2; return 1; }
+}
+
+# check_install_only <page> — the landing page's visible text names no install
+# detail beyond the commands (superpowers, userConfig, the official marketplace,
+# prerequisites stay on the install page), and its install section links the
+# install page.
+check_install_only() {
+  local page="$1" t hits links rc=0
+  _need "$page" || return 2
+  t="$(landing_py text --article "$page")" || return 2
+  [ -n "$t" ] || { echo "$page: no visible text read" >&2; return 1; }
+  hits="$(grep -oiE 'superpowers|userConfig|claude-plugins-official|prerequisite' <<<"$t")" || rc=$?
+  case "$rc" in
+    1) ;;
+    0) echo "$page: install detail on the landing page: $(sort -u <<<"$hits" | tr '\n' ' ')" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  links="$(landing_py links --within install "$page")" || { echo "$page: no install section (id=install)" >&2; return 1; }
+  grep -qxE '(\./)?install\.html' <<<"$links" || { echo "$page: the install section does not link install.html" >&2; return 1; }
 }
 
 # check_step_headline <template> <file> — "<N>-step workflow", N derived.

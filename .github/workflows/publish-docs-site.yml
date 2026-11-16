@@ -37,6 +37,7 @@ on:
       - 'tests/lib/family-check.py'
       - 'tests/lib/family-js-test.js'
       - 'tests/lib/docs-site-checks.bash'
+      - 'tests/lib/landing-check.py'
       - '.github/workflows/publish-docs-site.yml'
       # a count placeholder's source (docs-site/live.txt's count lines, #996)
       - 'docs/requirements.md'
@@ -49,6 +50,7 @@ on:
       - 'tests/lib/family-check.py'
       - 'tests/lib/family-js-test.js'
       - 'tests/lib/docs-site-checks.bash'
+      - 'tests/lib/landing-check.py'
       - '.github/workflows/publish-docs-site.yml'
       # a count placeholder's source (docs-site/live.txt's count lines, #996)
       - 'docs/requirements.md'
