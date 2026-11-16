@@ -69,6 +69,9 @@ devAgent/
 │   ├── concurrency.md               # #997: several projects and sessions on one machine (moved from docs-site/)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy;
+│                            #   index.html, #998: the hand-written landing page;
+│                            #   phases.txt, #998: the loop's phases and their steps;
+│                            #   assets/, #998: landing.css, landing.js, the placeholder still;
 │                            #   live.txt, #996: live family sites and count sources;
 │                            #   reference.md links the docs/ reference, #997);
 │                            #   rendered by scripts/build-docs-site.sh, published by

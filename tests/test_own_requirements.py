@@ -504,3 +504,58 @@ PLANTED_USE_CASES = """\
 def test_planted_use_case_needs():
     problems = needs_problems(PLANTED_USE_CASES)
     assert sorted(p.split(":")[0] for p in problems) == ["UC-1", "UC-2", "UC-3", "UC-9"], problems
+
+
+# --- the site's count rule (#998) ------------------------------------------------
+# The landing page shows {{count:requirements}}, which the docs-site filler
+# (scripts/docs-site/fill-placeholders.py) counts with the regex on
+# docs-site/live.txt's `count requirements` line. These tests hold that rule to
+# this file's reader, through the filler's own Settings class.
+
+LIVE_TXT = DOC.parent.parent / "docs-site" / "live.txt"
+FILLER = DOC.parent.parent / "scripts" / "docs-site" / "fill-placeholders.py"
+
+
+@functools.cache
+def _filler():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fill_placeholders", FILLER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # the file has a __main__ guard
+    return mod
+
+
+@functools.cache
+def _site_count_regex():
+    return _filler().Settings(str(LIVE_TXT)).counts["requirements"][1].pattern
+
+
+def test_site_requirement_count_uses_this_rule():
+    settings = _filler().Settings(str(LIVE_TXT))
+    assert settings.count("requirements") == len(requirements(own_text()))
+    codes = re.search(r"\(\?:([A-Za-z|]+)\)", _site_count_regex())
+    assert codes, "live.txt's count regex has no (?:CODE|...) alternation"
+    assert set(codes.group(1).split("|")) == set(LAYER_CODES)
+
+
+SHAPE_ROWS = [
+    "- FR-1: x", "* FR-2: x", "+\tUC-3: x", "  - FR-4: x", "- XX-5: x", "1. FR-6: x",
+    "- **FR-7**: x", "- FR-08: x", "- FR-9 : x", "- dev:FR-10: x", "- FRx-11: x",
+    "- FR-12a: x", "-  SR-13: x", "- BRule-14: x", "- FR-1234567890: x",
+]
+
+
+@pytest.mark.parametrize("row", SHAPE_ROWS)
+def test_site_count_rule_agrees_on_item_shapes(row, tmp_path):
+    fp = _filler()
+    (tmp_path / "req.md").write_bytes((row + "\n").encode("utf-8"))
+    (tmp_path / "live.txt").write_bytes(
+        ("live devagent yes index.html\n"
+         "live gantry no https://example.org/\n"
+         "live learn no https://example.org/\n"
+         f"count r req.md {_site_count_regex()}\n").encode("utf-8"))
+    try:
+        n = fp.Settings(str(tmp_path / "live.txt")).count("r")
+    except fp.Refusal:
+        n = 0  # the filler refuses a zero count
+    assert n == len(requirements(row)), row

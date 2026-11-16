@@ -44,8 +44,8 @@
 #
 # COUPLING: the REAL tests derive their expectations from docs-site/ (fence
 # and table-row counts, the install command lines, install.md's H1, the page
-# set and moved.txt, and nav order from the one page list: index.md's own
-# top-level list, read by tests/lib/docs-site-checks.bash site_pages; see
+# set and moved.txt, and nav order from the one page list: the index's own
+# list (index.html), read by tests/lib/docs-site-checks.bash site_pages; see
 # docs-site/README.md).
 # docs-site/README.md announces this to page editors; a failure here after a
 # page edit usually means the expectation moves with the page, not that the
@@ -372,14 +372,14 @@ real_stubs() {
     grep -qF "<a href=\"$p.html\" aria-current=\"page\">" "$html"
     [ "$(nav_of "$html" | grep -c '<a href=')" -eq "${#content[@]}" ]
   done
-  # nav order is the one page list (index.md's list, read by site_pages), not
+  # nav order is the one page list (the index's list, read by site_pages), not
   # the alphabetical glob. tests/docs-site.bats holds every page to that list,
   # so no unlisted page is appended after it.
   local navorder expected
   navorder="$(nav_hrefs "$REAL_OUT/index.html")"
   expected="href=\"index.html\" $(site_pages "$SITE" | sed 's/.*/href="&.html"/' | tr '\n' ' ')"
   echo "nav order rendered: $navorder" >&2
-  echo "nav order expected: $expected(index, then index.md's list — see docs-site/README.md)" >&2
+  echo "nav order expected: $expected(index, then the index's list — see docs-site/README.md)" >&2
   [ "$navorder" = "$expected" ]
 }
 
@@ -2461,8 +2461,19 @@ region_of() {
   awk -v f="$first" -v n="$n" 'c == 0 && !done && $0 == f { c = n } c > 0 { print; c--; if (c == 0) done = 1 }' "$1"
 }
 
+# partial_live_lines <partial>... — live.txt's live lines whose key one of the
+# given partials uses. Site keys (the landing page's rung-* and blazeahead) are
+# no partial's business, and their URLs may carry a # fragment.
+partial_live_lines() {
+  local line k
+  while IFS= read -r line; do
+    read -r _ k _ <<<"$line"
+    if grep -qF "{{live:$k|" "$@"; then printf '%s\n' "$line"; fi
+  done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+}
+
 # expect_region <partial> — the partial's lines 2 to its end, each live
-# placeholder rendered from docs-site/live.txt.
+# placeholder rendered from docs-site/live.txt (the keys the partial uses).
 expect_region() {
   local sedargs=() k state url
   while read -r _ k state url; do
@@ -2471,7 +2482,7 @@ expect_region() {
     else
       sedargs+=(-e "s#{{live:$k|\\([^}]*\\)}}#<span class=\"family-coming\">\\1 <small>coming</small></span>#g")
     fi
-  done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+  done < <(partial_live_lines "$1")
   [ "${#sedargs[@]}" -gt 0 ] || return 1
   sed -n '2,$p' "$1" | sed "${sedargs[@]}"
 }
@@ -2507,8 +2518,11 @@ expect_region() {
   # today's settings (child 11 flips these when the sites go live)
   grep -qE '^live gantry no ' "$LIVE_TXT"
   grep -qE '^live learn no ' "$LIVE_TXT"
-  local content=() p k state url label li yes=0 no=0 region
+  local content=() p k state url label li yes=0 no=0 region keys
   mapfile -t content < <(real_content)
+  # the keys the top bar uses (site keys render in their own pages' tests)
+  keys="$(partial_live_lines "$FAMILY_STATIC/family-topbar.html")"
+  [ "$(grep -c . <<<"$keys")" -ge 3 ]
   for p in "${content[@]}"; do
     region="$(region_of "$REAL_OUT/$p.html" "$FAMILY_STATIC/family-topbar.html")"
     while read -r _ k state url; do
@@ -2525,7 +2539,7 @@ expect_region() {
         [[ $li == *"href=\"$url\""* ]] || { echo "$p.html: $k is live but its <li> lacks href=\"$url\": $li" >&2; return 1; }
         yes=$((yes + 1))
       fi
-    done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+    done <<<"$keys"
   done
   [ "$yes" -ge "${#content[@]}" ]
   [ "$no" -ge "${#content[@]}" ]
@@ -2573,6 +2587,64 @@ expect_region() {
   for k in "${keys[@]}"; do
     grep -qE "^$k=[1-9][0-9]*\$" "$d/probe.html" || { echo "count $k: $(grep "^$k=" "$d/probe.html")" >&2; return 1; }
   done
+}
+
+# ---------------------------------------------------------- landing page (#998)
+# The landing page's facts, held on the built page; tests/docs-site.bats holds
+# the same checks on a filled copy of the source, with their mutation legs.
+
+@test "build-docs-site: real site — the landing page carries the install commands verbatim and no other install detail" {
+  need_pandoc
+  local src built
+  src="$(landing_cmds "$SITE/index.html")"
+  built="$(landing_cmds --article "$REAL_OUT/index.html")"
+  [ "$(grep -c . <<<"$src")" -ge 1 ]
+  [ "$built" = "$src" ] || { echo "built: $built / source: $src" >&2; return 1; }
+  run check_install_only "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — the landing requirement count is the filler's count" {
+  need_pandoc
+  run check_req_count "$LIVE_TXT" "$SITE/index.html" "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — every landing live item renders both ways from live.txt" {
+  need_pandoc
+  run check_live_items "$LIVE_TXT" "$SITE/index.html" "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — with scripts off the landing page shows every phase, every step and the install commands" {
+  need_pandoc
+  local cmds=()
+  mapfile -t cmds < <(landing_cmds "$SITE/index.html")
+  [ "${#cmds[@]}" -ge 1 ]
+  run check_scripts_off "$SITE/phases.txt" "$REAL_OUT/index.html" "${cmds[@]}"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — no issue number in the landing page's visible text" {
+  need_pandoc
+  run check_no_issue_numbers "$REAL_OUT/index.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "build-docs-site: real site — landing.css rules stay inside the landing page" {
+  need_pandoc
+  local css="$REAL_OUT/assets/landing.css"
+  [ -f "$css" ]
+  run fc literals "$FAMILY_STATIC/family.css" "$css"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count literals
+  [ "$fc_n" -ge 1 ]
+  run fc scope "$css" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count scope
+  [ "$fc_n" -ge 1 ]
+  run grep -nE '#[0-9A-Fa-f]{3,8}\b|rgba?\(' "$css"
+  [ "$status" -eq 1 ] || { echo "a colour literal in landing.css: $output" >&2; return 1; }
 }
 
 @test "build-docs-site: real site — the family files publish byte-identical under static/" {

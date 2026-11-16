@@ -55,7 +55,8 @@
 # a USER-INVOCABLE one also reddens @test 1 here and, in tests/cmd_wrappers.bats,
 # the `capture next ship` set pin and the derived-totals test, which names every
 # doc home whose "<N> slash commands" claim no longer matches the tree (README,
-# CHANGELOG, both .claude-plugin manifests, the design spec, docs-site/index.md).
+# CHANGELOG, both .claude-plugin manifests, the design spec, and any docs-site/
+# page that writes the phrase).
 # Since #579 the totals are derived, so the update is the doc homes it names, not
 # the guard itself.
 # Adding a COMMAND that carries a bang-exec line reddens @test 7 (#596); the

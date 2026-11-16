@@ -98,4 +98,4 @@ occasionally retype a command in a form that misses the literal prefix match (e.
 different drive-letter case) — that falls back to a one-off prompt, never to a wider
 grant. Never widen to bare `Bash`.
 
-[← devAgent onboarding](./index.md)
+[← devAgent onboarding](./index.html)

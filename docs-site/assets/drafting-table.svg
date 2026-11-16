@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="480" height="300" role="img" aria-labelledby="t">
+<title id="t">A drafting table with a sheet of plans pinned to it, a T-square and a lamp</title>
+<style>
+.wall { fill: #eef1f4; }
+.floor { fill: #dfe4ea; }
+.wood { fill: #b98a5a; }
+.wood-dark { fill: #8a6440; }
+.board { fill: #f8f6f0; stroke: #8a6440; stroke-width: 3; }
+.sheet { fill: #ffffff; stroke: #9aa7b4; stroke-width: 1; }
+.grid { stroke: #c9d6e3; stroke-width: 1; }
+.plan { fill: none; stroke: #2f5d8a; stroke-width: 2; }
+.square { fill: #3d4a57; }
+.lamp { fill: none; stroke: #3d4a57; stroke-width: 4; stroke-linecap: round; }
+.shade { fill: #c8553d; }
+.glow { fill: #ffd98a; opacity: 0.35; }
+@media (prefers-color-scheme: dark) {
+  .wall { fill: #1b2129; }
+  .floor { fill: #151a20; }
+  .wood { fill: #7a5a3a; }
+  .wood-dark { fill: #5c4229; }
+  .board { fill: #2a3139; stroke: #5c4229; }
+  .sheet { fill: #222a33; stroke: #56636f; }
+  .grid { stroke: #34404c; }
+  .plan { stroke: #8ab8e6; }
+  .square { fill: #c3ccd5; }
+  .lamp { stroke: #c3ccd5; }
+  .shade { fill: #e07a5f; }
+  .glow { fill: #ffd98a; opacity: 0.18; }
+}
+</style>
+<rect class="wall" x="0" y="0" width="480" height="300"/>
+<rect class="floor" x="0" y="250" width="480" height="50"/>
+<polygon class="glow" points="330,70 250,230 420,230"/>
+<rect class="wood-dark" x="128" y="190" width="10" height="80"/>
+<rect class="wood-dark" x="322" y="190" width="10" height="80"/>
+<rect class="wood" x="110" y="262" width="240" height="8" rx="2"/>
+<g transform="rotate(-8 230 150)">
+<rect class="board" x="90" y="80" width="280" height="150" rx="4"/>
+<rect class="sheet" x="112" y="96" width="200" height="118"/>
+<line class="grid" x1="112" y1="116" x2="312" y2="116"/>
+<line class="grid" x1="112" y1="136" x2="312" y2="136"/>
+<line class="grid" x1="112" y1="156" x2="312" y2="156"/>
+<line class="grid" x1="112" y1="176" x2="312" y2="176"/>
+<line class="grid" x1="112" y1="196" x2="312" y2="196"/>
+<line class="grid" x1="152" y1="96" x2="152" y2="214"/>
+<line class="grid" x1="192" y1="96" x2="192" y2="214"/>
+<line class="grid" x1="232" y1="96" x2="232" y2="214"/>
+<line class="grid" x1="272" y1="96" x2="272" y2="214"/>
+<rect class="plan" x="132" y="112" width="70" height="44"/>
+<rect class="plan" x="212" y="112" width="80" height="80"/>
+<line class="plan" x1="132" y1="176" x2="202" y2="176"/>
+<line class="plan" x1="132" y1="192" x2="182" y2="192"/>
+<rect class="square" x="84" y="218" width="292" height="8" rx="2"/>
+<rect class="square" x="84" y="200" width="12" height="34" rx="2"/>
+</g>
+<polyline class="lamp" points="420,262 420,150 370,90 335,70"/>
+<polygon class="shade" points="318,56 352,64 336,92 306,80"/>
+<rect class="wood-dark" x="400" y="258" width="40" height="8" rx="2"/>
+</svg>
