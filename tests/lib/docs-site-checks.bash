@@ -12,10 +12,10 @@
 # (2) can never pass for "broken". The functions never rely on errexit (bats
 # `run` clears it): every failure is an explicit return.
 #
-# The ONE page list is index.md's own top-level list, the list the build reads
-# for its nav (scripts/build-docs-site.sh nav_entries). site_pages reads it;
-# check_page_set holds the directory to it. Children 4-8 add a page by adding
-# one bullet there.
+# The ONE page list is the index's own top-level list (index.html's one-line
+# <li><a href> entries), the list the build reads for its nav
+# (scripts/build-docs-site.sh nav_entries). site_pages reads it; check_page_set
+# holds the directory to it. Later children add a page by adding one entry there.
 #
 # PAGE PINS — owned by later children. These facts can only be checked through
 # a sentence today; the child that rewrites the page owns the pin:
@@ -107,11 +107,18 @@ moved_pairs() {
   awk '!/^[ \t]*(#|$)/ { print $1, $2 }' "$1/moved.txt"
 }
 
-# site_pages <site-dir> — the names index.md's top-level list links, in list
-# order, deduplicated, index itself excluded. The fence rule and the bullet
-# regex are copied from scripts/build-docs-site.sh nav_entries (Markdown
-# branch); tests/build-docs-site.bats compares this reader to the built nav, so
-# the two copies must agree on the real site.
+# The build's non-content region reader (comments, <pre>, <code>, <script>,
+# <style>, <template>, <textarea>), read from scripts/build-docs-site.sh so
+# site_pages's index.html branch skips exactly what the build skips.
+_NC_AWK="$(sed -n "/^nc_awk='\$/,/^'\$/p" "$(dirname "${BASH_SOURCE[0]}")/../../scripts/build-docs-site.sh" | sed '1d;$d')"
+
+# site_pages <site-dir> — the names the index's own top-level list links, in
+# list order, deduplicated, index itself excluded. Copied from
+# scripts/build-docs-site.sh nav_entries: for index.md its fence rule and bullet
+# regex; for index.html its one-line '<li><a href="page.html">' entry regex
+# over the build's own nc_awk (a lone <li> whose next non-blank line opens such
+# an <a> returns 2, as the build exits 4). tests/build-docs-site.bats compares
+# this reader to the built nav, so the copies must agree on the real site.
 site_pages() {
   local dir="$1"
   if [ -f "$dir/index.md" ]; then
@@ -122,8 +129,25 @@ site_pages() {
            if (s != "index" && !seen[s]++) print s
          }' "$dir/index.md" || { echo "site_pages: cannot read $dir/index.md" >&2; return 2; }
   elif [ -f "$dir/index.html" ]; then
-    echo "site_pages: $dir/index.html: the test reader reads index.md only; #998 extends it" >&2
-    return 2
+    [ -n "$_NC_AWK" ] || { echo "site_pages: cannot read nc_awk from scripts/build-docs-site.sh" >&2; return 2; }
+    awk -v f="$dir/index.html" "$_NC_AWK"'
+         { s = nc($0); l = tolower(s) }
+         lone {
+           if (l ~ /^[ \t]*$/) next
+           if (l ~ /^[ \t]*<a([ \t][^>]*)?[ \t]href="(\.\/)?[a-z0-9_-]+\.html"/) {
+             printf "site_pages: %s:%d: <li> and its <a href> must share a line\n", f, lone > "/dev/stderr"
+             rc = 2; exit
+           }
+           lone = 0
+         }
+         match(l, /^[ \t]*<li([ \t][^>]*)?>[ \t]*<a([ \t][^>]*)?[ \t]href="(\.\/)?[a-z0-9_-]+\.html"/) {
+           m = substr(s, RSTART, RLENGTH)
+           sub(/\.[Hh][Tt][Mm][Ll]"$/, "", m); sub(/^.*"/, "", m); sub(/^\.\//, "", m)
+           if (m != "index" && !seen[m]++) print m
+           next
+         }
+         l ~ /^[ \t]*<li([ \t][^>]*)?>[ \t]*$/ { lone = NR }
+         END { exit rc }' "$dir/index.html" || return 2
   else
     echo "site_pages: no index.md or index.html in $dir" >&2
     return 2
@@ -131,7 +155,7 @@ site_pages() {
 }
 
 # check_page_set <site-dir> — the content pages (*.md and *.html other than
-# README.*) are exactly index plus the pages index.md's list names, and the
+# README.*) are exactly index plus the pages the index's list names, and the
 # directory's README.md policy file is present. The build tolerates an
 # unlisted page (it appends it to the nav); this check does not.
 check_page_set() {
@@ -144,10 +168,10 @@ check_page_set() {
     b="${f##*/}"; have[${b%.*}]=1
   done < <(site_content "$dir")
   for p in "${!have[@]}"; do
-    [ -n "${want[$p]:-}" ] || { echo "$dir: page $p is not in index.md's list (the one page list)" >&2; bad=1; }
+    [ -n "${want[$p]:-}" ] || { echo "$dir: page $p is not in the index's list (the one page list)" >&2; bad=1; }
   done
   for p in "${!want[@]}"; do
-    [ -n "${have[$p]:-}" ] || { echo "$dir: index.md lists $p but there is no $p.md or $p.html" >&2; bad=1; }
+    [ -n "${have[$p]:-}" ] || { echo "$dir: the index's list names $p but there is no $p.md or $p.html" >&2; bad=1; }
   done
   [ -f "$dir/README.md" ] || { echo "$dir: no README.md (the drift policy)" >&2; bad=1; }
   return "$bad"

@@ -211,10 +211,21 @@ temp_root() {
   run site_pages "$d"
   [ "$status" -eq 0 ]
   [ "$output" = $'a\nc-d' ]       # fenced b and e unlisted; a once; index and nested n skipped
-  rm "$d/index.md"; printf '<ul><li><a href="a.html">A</a></li></ul>\n' >"$d/index.html"
+  rm "$d/index.md"
+  # The index.html list: one-line <li><a href="page.html"> entries outside
+  # comments and <pre>/<code>/<script>/<style>/<template>/<textarea>.
+  printf '%s\n' '<h1>T</h1>' '<!-- <li><a href="x.html">X</a></li> -->' '<pre>' \
+    '<li><a href="y.html">Y</a></li>' '</pre>' '<ul>' '<li><a href="a.html">A</a></li>' \
+    '<li class="k"><a class="m" href="./c-d.html">C</a></li>' '<li><a href="a.html">A again</a></li>' \
+    '<li><a href="index.html">Home</a></li>' '<li><strong>No</strong> <a href="z.html">Z</a></li>' \
+    '</ul>' >"$d/index.html"
+  run site_pages "$d"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'a\nc-d' ]       # commented x, <pre> y, index and the non-entry z skipped; a once
+  printf '%s\n' '<ul>' '<li>' '' '  <a href="b.html">B</a></li>' '</ul>' >"$d/index.html"
   run site_pages "$d"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"#998"* ]]
+  [[ "$output" == *"index.html:2: <li> and its <a href> must share a line"* ]]
   rm "$d/index.html"
   run site_pages "$d"
   [ "$status" -eq 2 ]
