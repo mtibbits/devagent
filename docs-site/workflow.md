@@ -82,4 +82,4 @@ State key: [ ] pending  [x] done  [-] skipped  [!] stuck  [~] in-progress  [?] b
 - `/devagent:where` and `/devagent:catchup` rehydrate an issue's state at
   any point — the current step, the artifacts so far, and what comes next.
 
-[← devAgent onboarding](./index.md)
+[← devAgent onboarding](./index.html)

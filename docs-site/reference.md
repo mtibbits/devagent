@@ -13,4 +13,4 @@ The detail behind the site lives on GitHub, next to the code.
 - [Requirements](../docs/requirements.md) — what devAgent must do, each
   requirement with its own ID.
 
-[← devAgent onboarding](./index.md)
+[← devAgent onboarding](./index.html)

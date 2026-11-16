@@ -16,6 +16,17 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: the landing page (#998).** The site's front page is now a
+  hand-written `docs-site/index.html` in place of `index.md`: the promise,
+  README's two install commands with copy buttons, a lesson-0 path for
+  newcomers, the five-phase loop as a diagram with every step listed, why
+  devAgent is different (with the requirement count, filled at build time),
+  and the start-small and family strips, each item's "coming" or live state
+  read from `live.txt`. The tab title is the page's promise and the nav label
+  is "Home". `docs-site/phases.txt` records which checklist steps each phase
+  holds. `live.txt` gains site-only keys for the strips, and its requirement
+  count now uses `tests/test_own_requirements.py`'s rule. The landing page
+  drops the slash-command count, so that sweep's floor is now 6 homes.
 - **Changed: the configuration and concurrency pages moved to `docs/` (#997).**
   `docs-site/configuration.md` and `docs-site/concurrency.md` are now
   `docs/configuration.md` and `docs/concurrency.md`, rendered by GitHub next to

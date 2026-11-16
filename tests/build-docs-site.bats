@@ -44,8 +44,8 @@
 #
 # COUPLING: the REAL tests derive their expectations from docs-site/ (fence
 # and table-row counts, the install command lines, install.md's H1, the page
-# set and moved.txt, and nav order from the one page list: index.md's own
-# top-level list, read by tests/lib/docs-site-checks.bash site_pages; see
+# set and moved.txt, and nav order from the one page list: the index's own
+# list (index.html), read by tests/lib/docs-site-checks.bash site_pages; see
 # docs-site/README.md).
 # docs-site/README.md announces this to page editors; a failure here after a
 # page edit usually means the expectation moves with the page, not that the
