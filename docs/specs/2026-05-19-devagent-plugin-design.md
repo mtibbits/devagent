@@ -1741,17 +1741,23 @@ is moved to `analysis/<date>-<HHMMSS>-preship-superseded.md`). Then the read-onl
 kinds and exits (0 none, 3 mismatches, 2 usage, 1 could not run, 11 quarantine). It reads
 seven kinds of `mr.md` claim (per-file bats and pytest counts, suite totals, commit and
 file counts, cited commits, the sign-off box) and compares each with git, the tree's
-`@test` blocks, a bounded pytest collection or `mr.md`'s own Evidence `suite:` line. The
+`@test` blocks, a pytest collection bounded by `DEVAGENT_COLLECT_TIMEOUT` seconds (default
+30; an invalid value is could-not-run, exit 1) or `mr.md`'s own Evidence `suite:` line. The
 session treats each report as a prompt to look: it corrects a line about the branch now,
 keeps an earlier run's figure and names its commit, or leaves the line as written, never
 edits the `## Evidence` block, re-runs at most three times, and logs every outcome in one
 spelling. The preflight never passes the step: a check it cannot run is logged and the
 verifier is dispatched anyway. Every preflight call is `scripts/preship-preflight.sh`
-(`evidence`, `claims`, `prior`, `save`, `log`), so each is a plain script call inside the
-plugin's `allowed-tools` grant, and script stderr and `mr.md` text never enter a
-command line; it holds the evidence stop, the three-run cap and the log spellings. Blind spot: claims the grammar does not recognise, tokens
-that resolve to no single local commit, and a pytest count measured with an interpreter
-other than the suite run's are NOT CHECKED, and stay with verification 3.
+(`evidence`, `claims`, `prior`, `save`, `log`), written as single-line script calls that
+match the plugin's `allowed-tools` grant (a "left as written" reason travels in a file the
+session writes, not a heredoc); none had yet run under the grant when #1122 shipped.
+Script stderr and `mr.md` text never enter a command line; the script holds the evidence
+stop, the three-run cap and the log spellings. Blind spot: claims the grammar does not
+recognise, tokens that resolve to no single local commit, a pytest count measured with an
+interpreter other than the suite run's, and any count in a sentence holding a non-commit
+`at <word>` (read as an earlier run) are NOT CHECKED, and stay with verification 3. A
+pytest count is compared with the collected ids, so a true pass count on a file with skips
+is reported, with a basis that names that reading.
 
 Interpreter resolution is single-sourced in `scripts/lib/python-interp.sh`
 (`python_interp_resolve <primary_tree> [<fallback_tree>]`, a setter-global). All three pytest-invoking scripts use it: `run-suite.sh`, `born-red.sh` and

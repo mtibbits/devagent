@@ -67,10 +67,13 @@ re-typed.
      form), `N/N bats`, `N pytest`, `N commits`, `N files changed`. Derive
      each count at HEAD with a command, never from memory: for a bats file,
      `grep -cE '^[[:blank:]]*@test[[:blank:]]' <file>` (the checker's own
-     predicate). Name the commit for a figure from an earlier or partial
-     run (`` 14/14 at `<sha>` ``). Write new-test counts as `(N new)`,
-     never `— N tests`, which reads as the file's total. Keep current totals
-     out of code spans: a quoted total is not checked.
+     predicate); for a pytest file, the checker compares the collected ids
+     (`<python> -m pytest --collect-only -q <file>`), so write that size, or
+     give a pass count together with its skips. Name the commit for a figure
+     from an earlier or partial run (`` 14/14 at `<sha>` ``). Write new-test
+     counts as `(N new)`, never `— N tests`, which reads as the file's
+     total. Keep current totals out of code spans: a quoted total is not
+     checked.
 5. **Fill Checklist section** (DCO, surgical-diff confirmation, etc.)
    from the template. Pre-check items that are verifiable from
    artifacts; leave others unchecked.
