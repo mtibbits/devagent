@@ -32,10 +32,10 @@ SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
 }
 
 @test "configuration.md names the on_draft_start label as the in-progress signal (#710)" {
-  grep -qF 'the in-progress signal is the label `issue_workflow.on_draft_start`' "$PLUGIN_ROOT/docs-site/configuration.md"
-  run grep -F 'github_labels.in_progress' "$PLUGIN_ROOT/docs-site/configuration.md"
+  grep -qF 'the in-progress signal is the label `issue_workflow.on_draft_start`' "$PLUGIN_ROOT/docs/configuration.md"
+  run grep -F 'github_labels.in_progress' "$PLUGIN_ROOT/docs/configuration.md"
   [ "$status" -eq 1 ]
-  grep -qF 'every tracker transition (draft, ship, sync) writes only when true' "$PLUGIN_ROOT/docs-site/configuration.md"
+  grep -qF 'every tracker transition (draft, ship, sync) writes only when true' "$PLUGIN_ROOT/docs/configuration.md"
 }
 
 @test "the config skeleton's transition_issue comment covers every transition (#710)" {

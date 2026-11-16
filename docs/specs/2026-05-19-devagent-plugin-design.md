@@ -65,9 +65,12 @@ devAgent/
 │   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
 │   ├── disk-issues.md               # #1008: the disk issue file format (<N>.md), its writer rules, JSON fields, exit codes
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
+│   ├── configuration.md             # #997: config.toml, the backend verb contract, the template registry (moved from docs-site/)
+│   ├── concurrency.md               # #997: several projects and sessions on one machine (moved from docs-site/)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy;
-│                            #   live.txt, #996: live family sites and count sources);
+│                            #   live.txt, #996: live family sites and count sources;
+│                            #   reference.md links the docs/ reference, #997);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),

@@ -984,7 +984,8 @@ _rs659_bare() { LC_ALL=C grep -vE "$RS659_OK" || true; }   # stdin: invocation l
     [ "$(printf '%s\n' "$bad" | grep -c .)" -eq 1 ]                   # only the bare one trips
     [[ "$bad" == *'<project>   # x'* ]]
     local roots=(README.md CONTRIBUTING.md .github templates skills commands agents hooks
-                 docs-site docs/specs scripts tests/locale-registration.bats)
+                 docs-site docs/configuration.md docs/concurrency.md docs/specs scripts
+                 tests/locale-registration.bats)
     for r in "${roots[@]}"; do [ -e "$DEVAGENT_ROOT/$r" ] || { echo "missing root: $r"; return 1; }; done
     inv="$(cd "$DEVAGENT_ROOT" && _rs659_inv "${roots[@]}")" || { echo "grep failed over the roots"; return 1; }
     bad="$(printf '%s\n' "$inv" | _rs659_bare)"

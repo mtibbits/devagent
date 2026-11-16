@@ -49,6 +49,7 @@ NEW = {'pull': 0, 'research': 1, 'draft': 2, 'spike': 3, 'scope': 4, 'improve': 
 # CHANGELOG (historical entries + the #558 upgrade note, which must quote the
 # old numbers to be useful), and **/fixtures (deliberately old-scheme corpora).
 SCAN = ['commands', 'skills', 'agents', 'scripts', 'templates', 'docs-site',
+        'docs/configuration.md', 'docs/concurrency.md',
         'hooks', '.claude-plugin', 'docs/specs', 'README.md']
 SKIP_DIRS = ('__pycache__', os.sep + 'plans', os.sep + 'fixtures')
 

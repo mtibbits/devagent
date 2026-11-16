@@ -17,6 +17,6 @@
 - [ ] Suite passes: `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` (or `bash scripts/run-suite.sh <project> <Issue-N>` if you run devAgent on this repo)
 - [ ] A behaviour change ships with a test that was red first
 - [ ] `shellcheck -x -s bash` is clean over touched files under `scripts/` and `hooks/`
-- [ ] Docs updated in the same PR (README, `docs-site/`, the command body) where behaviour changed
+- [ ] Docs updated in the same PR (README, `docs-site/`, `docs/configuration.md`, `docs/concurrency.md`, the command body) where behaviour changed
 - [ ] PR does one thing, with no unrelated changes mixed in
 - [ ] No tool grant was widened beyond the quoted `${CLAUDE_PLUGIN_ROOT}/scripts/*` form

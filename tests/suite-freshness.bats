@@ -654,6 +654,7 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
     # planted control: the normaliser must join a wrapped tag
     [ "$(printf 'x ISSUE\n   UNSTATED y\n' | tr -s '[:space:]' ' ' | grep -c 'ISSUE UNSTATED')" -eq 1 ]
     for f in "$DEVAGENT_ROOT"/README.md "$DEVAGENT_ROOT"/docs/specs/*.md "$DEVAGENT_ROOT"/docs-site/*.md \
+             "$DEVAGENT_ROOT"/docs/configuration.md "$DEVAGENT_ROOT"/docs/concurrency.md \
              "$DEVAGENT_ROOT"/skills/*/SKILL.md "$DEVAGENT_ROOT"/skills/*/references/*.md \
              "$DEVAGENT_ROOT"/agents/*.md; do
         t="$(tr -s '[:space:]' ' ' < "$f")"
@@ -669,7 +670,7 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
         fi
     done
     # Census at 953ac78 (floors, so a new home joins without a re-pin): ISSUE UNSTATED in
-    # README, the spec, docs-site/concurrency.md, skills/next/references/concurrency.md;
+    # README, the spec, docs/concurrency.md (docs-site/ until #997), skills/next/references/concurrency.md;
     # TREE UNATTESTED in README, the spec, agents/preship-verifier.md.
     [ "$n_run" -ge 4 ]
     [ "$n_up" -ge 3 ]
