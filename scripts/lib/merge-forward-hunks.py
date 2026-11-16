@@ -1,6 +1,7 @@
 """#1125: the append-only hunk checker for `preship-verified-head.sh forward`.
 
 Usage: python3 -I merge-forward-hunks.py <merged> <head> <vh40> <T40>
+       python3 -I merge-forward-hunks.py --parse-only <merged> <vh40> <T40>
 
 <merged> is git's own merge of <vh40> and <T40> for one file
 (`git -c merge.conflictStyle=diff3 merge-tree --write-tree`, conflict markers
@@ -12,6 +13,10 @@ hunks, and every hunk was resolved by keeping both sides: an empty base
 section, and HEAD's non-blank lines in the hunk's slot equal to ours' then
 theirs' non-blank lines, or theirs' then ours'. When HEAD's first `## ` line
 is `## [Unreleased]`, the branch's (ours') lines must stay under it.
+
+--parse-only (mergemr rule 14, before HEAD exists) checks <merged> alone: its
+markers parse, it has a hunk, and every base section is empty. A refusal there
+is one the full check would make whatever the resolution.
 
 Refuses with exit 3 and one reason line on stdout. Exit 2 is a usage or I/O
 error, or any uncaught exception; a caller accepts ONLY on exit 0.
@@ -90,16 +95,21 @@ def _leading_blanks(lines):
     return n
 
 
-def check(merged_bytes, head_bytes, vh, t):
-    merged = merged_bytes.split(b"\n")
-    head = head_bytes.split(b"\n")
-    parts = parse(merged, vh, t)
+def parse_insertions(merged_bytes, vh, t):
+    """parse(), plus: at least one hunk, and every base section empty."""
+    parts = parse(merged_bytes.split(b"\n"), vh, t)
     hunks = parts[1::2]
     if not hunks:
         raise Refuse("no conflict hunk found")
     for n, (_ours, base, _theirs) in enumerate(hunks, 1):
         if base:
             raise Refuse(f"hunk {n} has a non-empty base section")
+    return parts
+
+
+def check(merged_bytes, head_bytes, vh, t):
+    head = head_bytes.split(b"\n")
+    parts = parse_insertions(merged_bytes, vh, t)
 
     pos = 0                 # index into head
     from_ours = []          # HEAD indices whose line came from ours, per hunk
@@ -150,8 +160,13 @@ def check(merged_bytes, head_bytes, vh, t):
 
 def main(argv):
     try:
+        if argv[:1] == ["--parse-only"] and len(argv) == 4:
+            with open(argv[1], "rb") as f:
+                parse_insertions(f.read(), argv[2].encode(), argv[3].encode())
+            return 0
         if len(argv) != 4:
-            print("usage: merge-forward-hunks.py <merged> <head> <vh40> <T40>",
+            print("usage: merge-forward-hunks.py <merged> <head> <vh40> <T40>\n"
+                  "       merge-forward-hunks.py --parse-only <merged> <vh40> <T40>",
                   file=sys.stderr)
             return 2
         with open(argv[0], "rb") as f:

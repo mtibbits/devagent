@@ -242,6 +242,7 @@ if [ "$verb" = forward ]; then
     case "$mt_rc" in
         2) refuse merge "git merge-tree exited $MF_MERGE_RC on $m7" ;;
         3) refuse merge "a conflicted path contains a newline" ;;
+        4) refuse merge "git reports a conflict in its merge of $m7 but names no conflicted path" ;;
     esac
 
     # A merge driver (merge=union, …) would hide a conflict from this comparison.
@@ -250,7 +251,7 @@ if [ "$verb" = forward ]; then
     case "$dr_rc" in
         1) refuse merge "$MF_DRIVER_PATH has merge=$MF_DRIVER_VALUE (git check-attr); a merge driver hides conflicts from git's merge" ;;
         2) die "preship-verified-head: $MF_DRIVER_WHY in $tree" ;;
-        3) refuse merge "$MF_DRIVER_WHY" ;;
+        3|4) refuse merge "$MF_DRIVER_WHY" ;;
     esac
 
     # Each conflicted path must be a listed append-only file git merged as text.

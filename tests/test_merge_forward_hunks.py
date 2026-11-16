@@ -251,3 +251,35 @@ def test_uncaught_exception_exits_2(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))
+
+
+def parse_only(tmp_path, merged, vh, t):
+    m = tmp_path / "merged"
+    m.write_bytes(merged)
+    r = subprocess.run(
+        ["python3", "-I", str(HELPER), "--parse-only", str(m), vh, t],
+        capture_output=True,
+    )
+    return r.returncode, r.stdout.decode("utf-8", "replace").strip()
+
+
+def test_parse_only_pure_insertions_accepts(tmp_path):
+    merged, vh, t, rc = merge(tmp_path, BASE, OURS, THEIRS)
+    assert rc == 1
+    assert parse_only(tmp_path, merged, vh, t) == (0, "")
+
+
+def test_parse_only_nonempty_base_refuses(tmp_path):
+    base = "# Changelog\n\n## [Unreleased]\n- prev\n\n## [1.0.0]\n- old\n"
+    ours = "# Changelog\n\n## [Unreleased]\n- prev\n- ours a\n\n## [1.0.0]\n- old\n"
+    theirs = "# Changelog\n\n## [Unreleased]\n- prev, fixed\n- theirs\n\n## [1.0.0]\n- old\n"
+    merged, vh, t, rc = merge(tmp_path, base, ours, theirs)
+    assert rc == 1
+    assert parse_only(tmp_path, merged, vh, t) == (3, "hunk 1 has a non-empty base section")
+
+
+def test_parse_only_crlf_refuses_no_hunk(tmp_path):
+    crlf = lambda s: s.replace("\n", "\r\n").encode()  # noqa: E731
+    merged, vh, t, rc = merge(tmp_path, crlf(BASE), crlf(OURS), crlf(THEIRS))
+    assert rc == 1
+    assert parse_only(tmp_path, merged, vh, t) == (3, "no conflict hunk found")

@@ -94,6 +94,14 @@ _merge_forward() {
     ( cd "$SOURCE_DIR" && git fetch -q origin && git merge -q --no-edit origin/main )
 }
 
+# _merge_forward_as_is: merge origin/main and commit whatever git leaves, conflicted or
+# not (forward refuses before it compares trees).
+_merge_forward_as_is() {
+    ( cd "$SOURCE_DIR" && git fetch -q origin \
+      && { git merge -q --no-edit origin/main >/dev/null 2>&1 || true; } \
+      && git add -A && git commit -q --no-edit )
+}
+
 # _merge_forward_keep_both [order]: merge origin/main, resolve every conflicted
 # file's hunks by keeping both sides (ours first, or theirs first), commit.
 _merge_forward_keep_both() {
@@ -778,4 +786,52 @@ _fwd_leaves() {
     _rebaseline; _snapshot
     _fwd
     _refused merge "s differs from git's merge of ${VH:0:7} and ${t:0:7}"
+}
+
+@test "#1125 a subdirectory issue tree still sees a merge driver outside it" {
+    # ls-tree and check-attr run at the tree's top level: from <repo>/sub they would
+    # list only sub/, and a driver on other/ would hide its conflict (review I3).
+    _mf_config '"ci"' '["CHANGELOG.md"]'
+    ( cd "$UPWC" && mkdir sub other && echo x > sub/in.txt && printf 'a\nb\nc\n' > other/code.txt \
+      && echo 'other/code.txt merge=union' > .gitattributes && git add -A && git commit -q -m seed \
+      && git push -q origin main )
+    ( cd "$SOURCE_DIR" && git fetch -q origin && git merge -q --no-edit origin/main \
+      && printf 'a\nB-branch\nc\n' > other/code.txt && git commit -q -am br )
+    VH="$(_head)"; devagent_state_set "$STATE" verified_head "$VH"
+    ( cd "$UPWC" && printf 'a\nB-base\nc\n' > other/code.txt && git commit -q -am base && git push -q origin main )
+    _merge_forward                              # union: both lines kept, no conflict
+    devagent_state_set "$STATE" worktree_path "$SOURCE_DIR/sub"
+    _rebaseline; _snapshot
+    _fwd
+    _refused merge "other/code.txt has merge=union (git check-attr); a merge driver hides conflicts from git's merge"
+}
+
+@test "#1125 a configured driver named text refuses" {
+    # merge.text.driver replaces git's built-in text merge for every path, and
+    # check-attr still reads `unspecified` (review minor 1).
+    _mf_config '"ci"' '[]'
+    git -C "$SOURCE_DIR" config merge.text.driver true
+    ( cd "$UPWC" && sed -i 's/^- old$/- old BASE/' CHANGELOG.md && git commit -q -am base && git push -q origin main )
+    ( cd "$SOURCE_DIR" && sed -i 's/^- old$/- old BRANCH/' CHANGELOG.md && git commit -q -am br )
+    VH="$(_head)"; devagent_state_set "$STATE" verified_head "$VH"
+    _merge_forward_as_is; _rebaseline; _snapshot
+    _fwd
+    _refused merge "merge.text.driver is configured; a driver named text or binary replaces git's built-in merge"
+}
+
+@test "#1125 a conflict git reports without a conflicted path refuses" {
+    # A directory rename split: merge-tree exits 1 with no `<mode> <oid> <stage>`
+    # record (review I1: this crashed with a bash subscript error).
+    _mf_config '"ci"' '["CHANGELOG.md"]'
+    ( cd "$UPWC" && mkdir a && for i in 1 2 3 4; do echo "file $i content line" > "a/f$i"; done \
+      && git add a && git commit -q -m dir && git push -q origin main )
+    ( cd "$SOURCE_DIR" && git fetch -q origin && git merge -q --no-edit origin/main \
+      && mkdir b c && git mv a/f1 b/f1 && git mv a/f2 b/f2 && git mv a/f3 c/f3 && git mv a/f4 c/f4 \
+      && git commit -q -m split )
+    VH="$(_head)"; devagent_state_set "$STATE" verified_head "$VH"
+    local t; t="$( cd "$UPWC" && echo new > a/new && git add a/new && git commit -q -m new \
+      && git push -q origin main && git rev-parse HEAD )"
+    _merge_forward_as_is; _rebaseline; _snapshot
+    _fwd
+    _refused merge "git reports a conflict in its merge of ${VH:0:7} and ${t:0:7} but names no conflicted path"
 }

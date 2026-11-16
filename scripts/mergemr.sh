@@ -14,7 +14,9 @@
 #                                      differs from the last `mergemr:` log line
 #   [!] a stop                         exit 1; STUCK through checklist-stuck.sh --name
 #                                      mergemr, reason `mergemr rule <N>: <text>` (preship's
-#                                      record clears rules 10, 11, 14 and 15 by that prefix)
+#                                      record clears rules 10, 11, 14 and 15 and forward's
+#                                      rule 17 by that prefix; forward clears rule 14, and
+#                                      rule 11 when it names forward's head)
 # next.sh reads the glyph after exit 0. The decision order (first match wins) and every
 # message are in commands/mergemr.md.
 #
@@ -337,8 +339,9 @@ fi
 # rule 14 (#1125 names the paths): git's own merge of verified_head and the base tip,
 # asked in the issue tree after one bounded fetch of the base. The light remedy
 # (preship-verified-head.sh forward) only when forward could accept it: verify = "ci",
-# every conflicted path in append_only and merged by git as text, no merge gate in
-# mr.md, and no merge driver on any path of git's merged tree.
+# every conflicted path in append_only, merged by git as text, and only insertions on
+# both sides (the hunk checker's --parse-only), no merge gate in mr.md, and no merge
+# driver on any path of git's merged tree.
 _r14() {
     local today="merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
     local why="" out rc=0 base_ref tip p joined light=1
@@ -364,7 +367,8 @@ _r14() {
             0) _stop 14 "conflict with $MV_BASE (git finds no conflict between ${verified_head:0:7} and ${tip:0:7}); $today" ;;
             1) : ;;
             2) why="git merge-tree exited $MF_MERGE_RC" ;;
-            *) why="a conflicted path contains a newline" ;;
+            3) why="a conflicted path contains a newline" ;;
+            *) why="git reports a conflict but names no conflicted path" ;;
         esac
     fi
     [ -z "$why" ] || _stop 14 "conflict with $MV_BASE (conflicted paths unknown: $why); $today"
@@ -384,6 +388,11 @@ _r14() {
     fi
     if [ "$light" = 1 ]; then
         merge_forward_drivers "$tree" "$MF_MTREE" || light=0
+    fi
+    if [ "$light" = 1 ]; then
+        for p in "${MF_CONFLICTED[@]}"; do
+            merge_forward_insertions "$tree" "$p" || { light=0; break; }
+        done
     fi
     if [ "$light" = 1 ]; then
         _stop 14 "conflict only in $joined; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward"

@@ -776,6 +776,40 @@ _mf() {   # _mf <verify-literal|-> <append_only-literal|->
     _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
 }
 
+@test "#1125 R14: a hunk with a non-empty base section gives today's remedy" {
+    # The base also rewrote the heading next to both insertions, so the hunk carries
+    # a base line: forward always refuses that, so rule 14 must not offer it (review I2).
+    _r14_origin
+    ( cd "$UPWC" && sed -i 's/^## \[Unreleased\]$/## [Unreleased] (next)/' CHANGELOG.md \
+      && git commit -q -am heading && git push -q origin main )
+    _mf '"ci"' '["CHANGELOG.md"]'
+    _run
+    _stop_is 14 "conflict with main in CHANGELOG.md; $R14_TODAY"
+}
+
+@test "#1125 R14: a conflict git reports without a conflicted path says the paths are unknown" {
+    # A directory rename split: merge-tree exits 1 with no conflicted-file record
+    # (review I1: this crashed rule 14 with a bash subscript error).
+    ORIGIN="$DEVAGENT_TMP/origin.git" UPWC="$DEVAGENT_TMP/upwc"
+    git -c init.defaultBranch=main init -q --bare "$ORIGIN"
+    ( cd "$SOURCE_DIR" && git checkout -q main \
+      && mkdir a && for i in 1 2 3 4; do echo "file $i content line" > "a/f$i"; done \
+      && git add a && git commit -q -m dir \
+      && git remote add origin "$ORIGIN" && git push -q origin main && git fetch -q origin \
+      && git checkout -q feat/1-x && git rebase -q main \
+      && mkdir b c && git mv a/f1 b/f1 && git mv a/f2 b/f2 && git mv a/f3 c/f3 && git mv a/f4 c/f4 \
+      && git commit -q -m split )
+    PR_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    devagent_state_set "$STATE" verified_head "$PR_HEAD"
+    git clone -q -b main "$ORIGIN" "$UPWC"
+    ( cd "$UPWC" && git config user.email u@example.com && git config user.name U \
+      && echo new > a/new && git add a/new && git commit -q -m new && git push -q origin main )
+    printf '# Issue-1 MR\n\nA change.\n' > "$ISSUE_DIR/mr.md"
+    _view head="$PR_HEAD" mergeable=CONFLICTING mergestate=DIRTY
+    _run
+    _stop_is 14 "conflict with main (conflicted paths unknown: git reports a conflict but names no conflicted path); $R14_TODAY"
+}
+
 @test "#1125 R14: a merge driver on any path of the tree withholds the light remedy" {
     # forward refuses a driver on any path of git's merged tree, so rule 14 must not
     # offer it there either (final review I1).
