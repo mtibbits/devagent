@@ -1,5 +1,5 @@
 ---
-description: "Step 20: merge the issue's PR at the preship-verified head when permissions.merge_mr = true; otherwise mark the step waiting [?] until the PR is merged."
+description: "Step 20: merge the issue's PR at the verified head (preship's, or one preship-verified-head.sh forward re-recorded, on green CI) when permissions.merge_mr = true; otherwise mark the step waiting [?] until the PR is merged."
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [issue]"
 ---
@@ -15,7 +15,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/mergemr.sh" <project> [issue]
 The step after mergetoall and before updatewbs (#885). It reads the PR that
 ship recorded (`mr_url`) and decides at once; nothing waits. It merges only
 when `permissions.merge_mr` is exactly `true`, and only at the head the last
-passing `/devagent:preship` recorded as `verified_head`. It never uses the
+passing `/devagent:preship` recorded as `verified_head`, or that
+`preship-verified-head.sh forward` re-recorded after a merge-forward git made
+itself (#1125; merged only on green CI, rule 17). It never uses the
 permission gate, so `DA_YES=1` and an interactive terminal cannot open it.
 With `merge_mr` false or unset it never merges by any route: it marks `[?]`
 until the PR is merged elsewhere.
@@ -57,16 +59,19 @@ merge.
 | 11 | PR head is not `verified_head` | `[!]` `PR head <sha7> was not verified; run /devagent:preship on it (or push the verified head <verified sha7>)`. With auto-merge on, it first disables it and adds ` (auto-merge disabled)`, or ` (could not disable auto-merge: <error>; disable it on the forge)` |
 | 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`; no second merge call |
 | 13 | `mergeable` or `mergeStateStatus` is `UNKNOWN` | `[?]` `mergeability not computed yet` |
-| 14 | `CONFLICTING` | `[!]` `conflict with <base>; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
+| 14 | `CONFLICTING` | `[!]`, naming git's own conflicted paths (`git merge-tree` of `verified_head` and the base tip, after one bounded fetch of `default_baseline`; `<paths>` sorted, joined `, `). With `merge_forward` `verify = "ci"`, every path in `append_only` with no merge driver, and no merge gate in `mr.md`: `conflict only in <paths>; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward`. Otherwise `conflict with <base> in <paths>; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. When the paths cannot be known: `conflict with <base> (conflicted paths unknown: <why>); <the same remedy>`, `<why>` one of `could not fetch '<remote>' (<reason>)`, `cannot resolve <base_ref>`, `git merge-tree exited <rc>`, `cannot resolve the issue tree: <reason>`, `a conflicted path contains a newline`. When git finds none: `conflict with <base> (git finds no conflict between <verified sha7> and <tip sha7>); <the same remedy>` |
 | 15 | CI red (red wins over pending) | `[!]` `<CI FAILED line>; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
 | 16 | CI pending or unknown, or no checks inside the grace | `[?]` the `CI …:` line; no checks yet: `checks not reported yet (grace <n>s)` |
-| 17 | no checks after the grace | `merge_checks = "required"`: `[!]` `no CI checks on head commit; set merge_checks = "if-present" to merge without CI, then run /devagent:unstuck`; `"if-present"`: continue |
+| 17 | a head recorded by `forward` (#1125) that is not green, or no checks after the grace | `verified_by` is `forward` (or unreadable, or neither `preship` nor empty) and CI is not green: `[!]` `head <sha7> was recorded by forward and merges only on green CI (<CI result>); to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. Otherwise no checks after the grace: `merge_checks = "required"`: `[!]` `no CI checks on head commit; set merge_checks = "if-present" to merge without CI, then run /devagent:unstuck`; `"if-present"`: continue |
 | 18 | `mergeStateStatus` not `CLEAN` or `HAS_HOOKS` (e.g. `BLOCKED`, `BEHIND`) | `[!]` `blocked by a forge rule (<status>); resolve it on the forge, then run /devagent:unstuck` |
 | 19 | merge | see below |
 
 A `/devagent:preship` pass after ship records the new head and clears a rule
-10, 11, 14 or 15 stop by itself (and a stop left by a failing post-ship
-preship). Every other stop names `/devagent:unstuck`.
+10, 11, 14 or 15 stop by itself, forward's rule-17 stop, and a stop left by a
+failing post-ship preship. A successful `preship-verified-head.sh forward`
+(#1125) clears a rule-14 stop, and a rule-11 stop that names HEAD's short SHA;
+never rule 10, 15, a `preship:` stop or its own rule 17. Every other stop names
+`/devagent:unstuck`.
 
 ## Dependencies (rule 7)
 
@@ -156,6 +161,19 @@ read PR <url>: <error>`.
 - `DEVAGENT_MERGEMR_MERGE_SECS` (30): the bound on the merge call and on the
   auto-merge disable.
 - `DEVAGENT_CI_GRACE_SECS` (120): #782's grace before "no checks" counts.
+- `DEVAGENT_MERGEMR_FETCH_SECS` (20): the bound on rule 14's fetch of
+  `default_baseline`'s branch. Rule 14 also runs a local `git merge-tree`, which
+  writes loose objects into the issue tree.
+- `[project.<name>.merge_forward]` (#1125; per project, no `[defaults]` layer):
+  `verify = "ci"` turns on the cheap remedy for a merge-forward that only
+  re-applies git's own merge of the base, `preship-verified-head.sh forward`;
+  `append_only = ["CHANGELOG.md"]` lists the exact files whose conflict may be
+  resolved by keeping both sides. Absent, or `verify = "preship"`: today's
+  behaviour. Validated at the start of every run whatever `merge_mr` says: a bad
+  value dies naming the key, e.g. `merge_forward.verify must be "ci" or
+  "preship" (got '<v>'); fix [project.<name>.merge_forward] verify`. "On the
+  base" means `default_baseline`'s ref: a project whose `default_baseline` does
+  not track the PR's base should not set `verify = "ci"`.
 
 The step also dies, with nothing marked, on `mergemr: no mergemr row in
 <checklist>` (a checklist without the row; migrate it with

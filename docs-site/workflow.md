@@ -22,7 +22,8 @@ every call (config `phase_breaks`; `--no-breaks` skips it for one chain).
 
 Step 20, `/devagent:mergemr`, merges the PR only when the project sets
 `permissions.merge_mr = true`, and only at the head the last passing preship
-verified (`verified_head`); otherwise it marks its row `[?]` until the PR is
+verified (`verified_head`), or, after a merge-forward git made itself, the head
+`preship-verified-head.sh forward` re-recorded, on green CI only; otherwise it marks its row `[?]` until the PR is
 merged elsewhere. `/devagent:next` re-checks a `[?]` mergemr row on every run;
 while the PR is still open it prints `WAITING at step 20 (mergemr): the PR is
 not merged yet; …` and stops with exit 0. Nothing polls: run `/devagent:next`
@@ -57,7 +58,7 @@ Rows in execution order.
 | 17 | `preship` | Ship | Fresh-context verification that the committed branch satisfies the acceptance criteria |
 | 18 | `ship` | Ship | Push the branch and open the MR |
 | 19 | `mergetoall` | Integrate & close | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR |
-| 20 | `mergemr` | Integrate & close | Merge the PR at the preship-verified head when `merge_mr = true`; otherwise wait `[?]` until it is merged |
+| 20 | `mergemr` | Integrate & close | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged |
 | 21 | `updatewbs` | Integrate & close | Update the work-breakdown structure |
 | 22 | `impact` | Integrate & close | Measure and record the real-world impact of the merged change |
 | 23 | `lessonslearned` | Integrate & close | Extract reusable lessons from the completed issue |

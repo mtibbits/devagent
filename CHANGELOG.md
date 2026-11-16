@@ -16,6 +16,15 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: accept a merge-forward that leaves the branch diff unchanged (#1125).**
+  A project that sets `[project.<name>.merge_forward] verify = "ci"` can re-record
+  `verified_head` after a merge-forward with `scripts/preship-verified-head.sh
+  forward <project>` instead of a full `/devagent:preship`. It accepts only git's
+  own merge of the base (`git merge-tree`), plus keeping both sides of a conflict
+  in a file listed in `append_only` (for example `CHANGELOG.md`), and refuses with
+  a named condition otherwise. Step 20 merges such a head only on green CI, and
+  rule 14 now names the conflicted paths, and this remedy when it applies.
+  `/devagent:doctor` reports a bad table.
 - **Changed: the configuration and concurrency pages moved to `docs/` (#997).**
   `docs-site/configuration.md` and `docs-site/concurrency.md` are now
   `docs/configuration.md` and `docs/concurrency.md`, rendered by GitHub next to

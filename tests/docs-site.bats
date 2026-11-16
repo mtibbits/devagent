@@ -195,6 +195,11 @@ temp_root() {
     "$PLUGIN_ROOT/CHANGELOG.md" "$WEB/workflow.md"
 }
 
+@test "#1125 docs: merge_forward is documented in the skeleton, configuration page and mergemr.md" {
+  holds check_merge_forward_docs "$PLUGIN_ROOT/templates/config.toml.skel" "$CONFIG_DOC" \
+    "$PLUGIN_ROOT/commands/mergemr.md"
+}
+
 # ---------------------------------------------------------------------------
 # Mutation legs: control 0, then each break returns exactly 1.
 # ---------------------------------------------------------------------------
@@ -498,4 +503,21 @@ temp_root() {
   w="$(fresh "$WEB/workflow.md")"; skel="$(fresh "$skel")"
   drop "$skel" '# merge_checks = "required"'
   breaks 'merge_checks default' check_merge_keys "$skel" "$c" "$cl" "$w"
+}
+
+@test "mutation: merge_forward docs" {
+  local skel c m
+  skel="$(fresh "$PLUGIN_ROOT/templates/config.toml.skel")"; c="$(fresh "$CONFIG_DOC")"
+  m="$(fresh "$PLUGIN_ROOT/commands/mergemr.md")"
+  holds check_merge_forward_docs "$skel" "$c" "$m"
+  edit "$m" 'preship-verified-head.sh forward' 'preship-verified-head.sh record'
+  breaks 'preship-verified-head.sh forward' check_merge_forward_docs "$skel" "$c" "$m"
+  m="$(fresh "$PLUGIN_ROOT/commands/mergemr.md")"
+  edit "$c" 'append_only' 'append_list'
+  breaks 'append_only' check_merge_forward_docs "$skel" "$c" "$m"
+  # The skeleton half: the block moved above the first project header.
+  c="$(fresh "$CONFIG_DOC")"
+  drop "$skel" '# [project.{{PROJECT}}.merge_forward]'
+  printf '# [project.{{PROJECT}}.merge_forward]\n%s\n' "$(cat "$skel")" > "$skel"
+  breaks 'precedes' check_merge_forward_docs "$skel" "$c" "$m"
 }

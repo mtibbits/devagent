@@ -91,11 +91,26 @@ re-run `scripts/run-suite.sh` and `scripts/evidence-stamp.sh` (`commands/review.
 6a), push, then preship. After a **merge-forward** (rule 14): run
 `scripts/rebaseline.sh` first, then the same pair, push, then preship.
 
-A passing `record` clears a mergemr stop of rule 10, 11, 14 or 15, or a
-`preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, logged
-`preship: cleared mergemr stop (…)`). Nothing else: rule 9 and every other
-stop, and a failed post-ship preship that marked mergetoall `[!]`, need
-`/devagent:unstuck`.
+A passing `record` clears a mergemr stop of rule 10, 11, 14 or 15, forward's
+rule-17 stop, or a `preship: …` stop on the mergemr row (row back to `[ ]`,
+STUCK removed, logged `preship: cleared mergemr stop (…)`). Nothing else: rule
+9 and every other stop, and a failed post-ship preship that marked mergetoall
+`[!]`, need `/devagent:unstuck`. `record` marks the head `verified_by = preship`.
+
+**The forward path (#1125).** A project with `[project.<name>.merge_forward]
+verify = "ci"` may skip the full preship after a merge-forward that only
+re-applies git's own merge of the base: run `scripts/rebaseline.sh`, push, then
+`scripts/preship-verified-head.sh forward <project>`. It re-records
+`verified_head` (marked `verified_by = forward`) only when HEAD's first-parent
+path from `verified_head` is two-parent merges of commits on the base,
+`baseline_sha` is the base commit the last merge brought in, no merge driver is
+set, `mr.md` names no merge gate, and HEAD's tree equals git's own merge
+(`git merge-tree`) at every path, except that a conflict in an `append_only`
+file may be resolved by keeping both sides' lines as two runs. Any other case
+refuses, names its condition, writes nothing, and sends you to the full recipe
+above. mergemr merges a forwarded head only on green CI. A successful `forward`
+clears a mergemr rule-14 stop, and a rule-11 stop that names HEAD's short SHA,
+logged `forward: cleared mergemr stop (…)`.
 
 ## Zero-diff (artifact-only) issues
 

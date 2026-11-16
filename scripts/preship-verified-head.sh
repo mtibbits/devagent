@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/preship-verified-head.sh — record the head a passing preship verified
-# (#885). Usage: preship-verified-head.sh (pin|record) <project> [issue]
+# (#885). Usage: preship-verified-head.sh (pin|record|forward) <project> [issue]
 #
 # mergemr (step 20) merges only at `verified_head`: the commit the last PASSING
 # preship actually read. preship's verifier runs in its own model turn, and no
@@ -11,20 +11,36 @@
 #   record  (after all five verifications PASS) reads the pin back and compares
 #           it with HEAD: no pin refuses; a moved HEAD refuses and records
 #           nothing (the verifier read a different commit than HEAD is now);
-#           else writes `verified_head`, clears the pin, logs
-#           `preship: verified_head <sha40>`.
-# Both verbs refuse unless the tree's HEAD is the issue branch (register
+#           else writes `verified_head` and `verified_by = preship`, clears the
+#           pin, logs `preship: verified_head <sha40>`.
+#   forward (#1125; [project.<p>.merge_forward] verify = "ci") re-records
+#           `verified_head` (`verified_by = forward`) after a merge-forward that
+#           only re-applies git's own merge of the base: HEAD's first-parent path
+#           from verified_head is two-parent merges of base commits, baseline_sha
+#           is the base commit T the last one brought in, no merge driver is set,
+#           mr.md names no merge gate, and HEAD's tree equals `git merge-tree` of
+#           verified_head and T at every path, except keep-both of a conflict in an
+#           append_only file (lib/merge-forward-hunks.py). Every refusal is
+#           `forward refused (<condition>): <detail>`, exit 1, nothing written.
+#           Success logs `forward: verified_head <sha40> from <old7> (git's merge
+#           of <T7>; no conflict | both sides kept in <paths>)`. mergemr merges a
+#           forwarded head only on green CI (rule 17).
+# All three verbs refuse unless the tree's HEAD is the issue branch (register
 # Issue-69): a head on another branch verifies nothing about the PR.
 #
-# Clearing a stop. A post-ship preship is the remedy mergemr's rules 10 (no
-# verified head), 11 (head not verified), 14 (conflict, merged forward) and 15
-# (red CI, fixed) name, and the remedy for a FAILED post-ship preship that
-# stopped the mergemr row. `record` clears that stop — and only that one — when
-# ALL hold: ship is [x] (in the active revision block), the mergemr row is [!],
-# STUCK's `Step:` names mergemr, its `Reason:` starts `mergemr rule 10|11|14|15: `
-# or `preship: `, and the [!] row checklist-unstuck.sh will flip (it is
+# Clearing a stop (clear_mergemr_stop). A post-ship preship is the remedy
+# mergemr's rules 10 (no verified head), 11 (head not verified), 14 (conflict,
+# merged forward), 15 (red CI, fixed) and forward's rule 17 name, and the remedy
+# for a FAILED post-ship preship that stopped the mergemr row; `forward` is the
+# remedy rule 14 names when it applies, and for a rule 11 naming this head. Each
+# clears that stop — and only that one — when ALL hold: ship is [x] (in the
+# active revision block), the mergemr row is [!], STUCK's `Step:` names mergemr,
+# its `Reason:` matches the verb's prefix (record: `mergemr rule 10|11|14|15: `,
+# `mergemr rule 17: head <sha7> was recorded by forward ` or `preship: `;
+# forward: `mergemr rule 14: ` or `mergemr rule 11: PR head <HEAD7> was not
+# verified; `), and the [!] row checklist-unstuck.sh will flip (it is
 # line-based, Issue-587: the active block's first [!]) IS mergemr. It then runs
-# `checklist-unstuck.sh --pending` and logs `preship: cleared mergemr stop
+# `checklist-unstuck.sh --pending` and logs `<verb tag>: cleared mergemr stop
 # (<reason, up to 60 chars>)`. Every other [!] (rule 9, a mergetoall stop, …)
 # stays for /devagent:unstuck.
 #
