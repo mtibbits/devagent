@@ -190,17 +190,98 @@ if [ "$verb" = forward ]; then
     [ "$mt_rc" -le 1 ] || refuse merge "git merge-tree exited $mt_rc on ${vh40:0:7} and ${T:0:7}"
     mapfile -d '' mt <"$tmp/mt"
     mtree="${mt[0]}"
-    kept=()
+    m7="${vh40:0:7} and ${T:0:7}"
+
+    # A merge driver (merge=union, …) would hide a conflict from this comparison.
+    # merge-tree reads the WORKTREE's attributes, so check-attr in the same tree is the
+    # exact predicate (U2). Every path of git's merged tree is asked.
+    lt_rc=0
+    g ls-tree -r -z --name-only "$mtree" >"$tmp/names" 2>/dev/null || lt_rc=$?
+    [ "$lt_rc" -eq 0 ] || die "preship-verified-head: git ls-tree exited $lt_rc in $tree"
+    ca_rc=0
+    g check-attr -z --stdin merge <"$tmp/names" >"$tmp/attrs" 2>/dev/null || ca_rc=$?
+    [ "$ca_rc" -eq 0 ] || die "preship-verified-head: git check-attr exited $ca_rc in $tree"
+    mapfile -d '' names <"$tmp/names"
+    mapfile -d '' attrs <"$tmp/attrs"
+    [ $(( ${#attrs[@]} % 3 )) -eq 0 ] && [ $(( ${#attrs[@]} / 3 )) -eq "${#names[@]}" ] \
+        || refuse merge "git check-attr returned $(( ${#attrs[@]} / 3 )) records for ${#names[@]} paths"
+    for (( i = 0; i < ${#attrs[@]}; i += 3 )); do
+        if merge_forward_driver "${attrs[i+2]}"; then
+            refuse merge "${attrs[i]} has merge=${attrs[i+2]} (git check-attr); a merge driver hides conflicts from git's merge"
+        fi
+    done
+
+    # Conflicted paths (merge-tree exit 1): `<mode> <oid> <stage>\t<path>` records up
+    # to the first empty field. Each must be a listed append-only text file.
+    declare -A cstage=() cmode_bad=()
+    conflicted=()
     if [ "$mt_rc" -eq 1 ]; then
-        refuse merge "git's merge of ${vh40:0:7} and ${T:0:7} conflicts"
+        for (( i = 1; i < ${#mt[@]}; i++ )); do
+            rec="${mt[i]}"
+            [ -n "$rec" ] || break
+            info="${rec%%$'\t'*}" cpath="${rec#*$'\t'}"
+            read -r cm _ cs <<<"$info"
+            [ -n "${cstage[$cpath]+x}" ] || conflicted+=("$cpath")
+            cstage[$cpath]+="$cs"
+            case "$cm" in 100644|100755) : ;; *) cmode_bad[$cpath]=1 ;; esac
+        done
+        for cpath in "${conflicted[@]}"; do
+            [[ "$cpath" != *$'\n'* ]] || refuse merge "a conflicted path contains a newline"
+        done
+        mapfile -t conflicted < <(printf '%s\n' "${conflicted[@]}" | LC_ALL=C sort)
+        for cpath in "${conflicted[@]}"; do
+            merge_forward_listed "$cpath" \
+                || refuse merge "$cpath conflicts in git's merge and is not in merge_forward.append_only"
+            [[ "${cstage[$cpath]}" == *2* && "${cstage[$cpath]}" == *3* && -z "${cmode_bad[$cpath]+x}" ]] \
+                || refuse merge "$cpath has a conflict git did not merge as text"
+        done
     fi
+
+    # HEAD's tree must equal git's merge at every path but the conflicted ones.
+    declare -A is_conflicted=()
+    for cpath in "${conflicted[@]}"; do is_conflicted[$cpath]=1; done
     dt_rc=0
     g diff-tree -r -z --no-renames --raw "$mtree" HEAD >"$tmp/dt" 2>/dev/null || dt_rc=$?
     [ "$dt_rc" -eq 0 ] || die "preship-verified-head: git diff-tree exited $dt_rc in $tree"
     mapfile -d '' dt <"$tmp/dt"
-    if [ "${#dt[@]}" -ge 2 ]; then
-        refuse merge "${dt[1]} differs from git's merge of ${vh40:0:7} and ${T:0:7}"
-    fi
+    for (( i = 0; i + 1 < ${#dt[@]}; i += 2 )); do
+        meta="${dt[i]#:}" dpath="${dt[i+1]}"
+        read -r srcm dstm _ <<<"$meta"
+        if [ -z "${is_conflicted[$dpath]+x}" ] || [ "$dstm" = 000000 ]; then
+            refuse merge "$dpath differs from git's merge of $m7"
+        fi
+        [ "$srcm" = "$dstm" ] || refuse merge "$dpath changes mode"
+    done
+
+    # Each conflicted path: the append-only hunk checker on git's merged blob and HEAD's.
+    hunks="${DEVAGENT_MF_HUNKS:-$DEVAGENT_ROOT/scripts/lib/merge-forward-hunks.py}"
+    kept=()
+    n=0
+    for cpath in "${conflicted[@]}"; do
+        n=$(( n + 1 ))
+        g cat-file blob "$mtree:$cpath" >"$tmp/merged.$n" 2>/dev/null \
+            || die "preship-verified-head: cannot read $cpath from git's merge in $tree"
+        g cat-file blob "HEAD:$cpath" >"$tmp/head.$n" 2>/dev/null \
+            || die "preship-verified-head: cannot read $cpath at HEAD in $tree"
+        h_rc=0
+        python3 -I "$hunks" "$tmp/merged.$n" "$tmp/head.$n" "$vh40" "$T" >"$tmp/reason.$n" 2>/dev/null || h_rc=$?
+        reason=""
+        IFS= read -r reason <"$tmp/reason.$n" || true
+        case "$h_rc:${reason:+set}" in
+            0:*)   kept+=("$cpath") ;;
+            3:set) refuse append-only "$cpath: $reason" ;;
+            *)     refuse append-only "$cpath: checker failed (exit $h_rc)" ;;
+        esac
+    done
+
+    # (f) a merge gate in mr.md is head-tied evidence: forward cannot carry it.
+    gate_rc=0
+    merge_forward_gate "$issue_dir" || gate_rc=$?
+    case "$gate_rc" in
+        0) refuse "merge gate" "$issue_dir/mr.md line $MF_GATE_LINE mentions a merge gate; head-tied evidence needs /devagent:preship" ;;
+        1) : ;;
+        *) refuse "merge gate" "cannot read $issue_dir/mr.md; cannot tell whether the MR carries a merge gate" ;;
+    esac
 
     # Success: one transaction, one log line.
     if [ "${#kept[@]}" -eq 0 ]; then
