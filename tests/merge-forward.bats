@@ -638,3 +638,112 @@ _cl() { printf '# Changelog\n\n## [Unreleased]\n'; printf '%s\n' "$@"; printf '\
     _fwd
     _refused merge "CHANGELOG.md has a conflict git did not merge as text"
 }
+
+# ---- clearing mergemr stops (Task 6) -------------------------------------------
+
+# _postship_checklist: a shipped issue whose mergemr row is pending.
+_postship_checklist() {
+    cat > "$CL" <<'MD'
+# Issue-1 — Workflow checklist
+
+Template: standard
+Created: 2026-05-19 14:00
+Active revision: 1
+
+## Revision 1
+
+- [x]  0. pull
+- [x]  2. draft
+- [x]  9. implement
+- [x] 12. commit
+- [x] 16. redmr
+- [x] 17. preship
+- [x] 18. ship
+- [x] 19. mergetoall
+- [ ] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
+
+## Log
+- 2026-05-19 14:00  pull: fixture seed
+MD
+}
+
+# _mergemr_stop <reason>: the [!] + STUCK pair exactly as checklist-stuck.sh writes it.
+_mergemr_stop() {
+    run "$DEVAGENT_ROOT/scripts/checklist-stuck.sh" --name mergemr "$ISSUE_DIR" "$1"
+    [ "$status" -eq 0 ]
+    [ -f "$ISSUE_DIR/STUCK" ]
+}
+
+# _forwardable: a clean merge-forward forward will accept.
+_forwardable() {
+    _mf_config '"ci"' '["CHANGELOG.md"]'
+    _upstream_commit u1 >/dev/null
+    _merge_forward; _rebaseline
+}
+
+# _fwd_clears <reason>: forward clears the mergemr stop carrying <reason>.
+_fwd_clears() {
+    local reason="$1"
+    _postship_checklist
+    _mergemr_stop "$reason"
+    _fwd
+    [ "$status" -eq 0 ]
+    [ "$(_key verified_head)" = "$(_head)" ]
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -f "$ISSUE_DIR/STUCK" ]
+    grep -qF "  forward: cleared mergemr stop (${reason:0:60})" "$CL"
+    [[ "$output" == *"forward: cleared mergemr stop (${reason:0:60})"* ]]
+}
+
+# _fwd_leaves <reason>: forward writes verified_head but leaves this stop alone.
+_fwd_leaves() {
+    _postship_checklist
+    _mergemr_stop "$1"
+    cp "$ISSUE_DIR/STUCK" "$DEVAGENT_TMP/STUCK.before"
+    _fwd
+    [ "$status" -eq 0 ]
+    [ "$(_key verified_head)" = "$(_head)" ]
+    assert_step "$CL" 20 '!' mergemr
+    cmp -s "$ISSUE_DIR/STUCK" "$DEVAGENT_TMP/STUCK.before"
+    run grep -q 'cleared mergemr stop' "$CL"
+    [ "$status" -eq 1 ]
+}
+
+@test "#1125 forward clears a rule-14 stop" {
+    _forwardable
+    _fwd_clears "mergemr rule 14: conflict only in CHANGELOG.md; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward"
+}
+
+@test "#1125 forward clears a rule-11 stop naming HEAD's short SHA" {
+    _forwardable
+    _fwd_clears "mergemr rule 11: PR head $(_head | cut -c1-7) was not verified; run /devagent:preship on it (auto-merge disabled)"
+}
+
+@test "#1125 forward leaves a rule-11 stop naming another SHA" {
+    _forwardable
+    _fwd_leaves "mergemr rule 11: PR head abc1234 was not verified; run /devagent:preship on it (auto-merge disabled)"
+}
+
+@test "#1125 forward leaves rule 10" {
+    _forwardable
+    _fwd_leaves "mergemr rule 10: no verified head for this PR; run /devagent:preship"
+}
+
+@test "#1125 forward leaves rule 15" {
+    _forwardable
+    _fwd_leaves "mergemr rule 15: ci: red (1 failed: test); fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+}
+
+@test "#1125 forward leaves a preship: stop" {
+    _forwardable
+    _fwd_leaves "preship: AC 3 not met"
+}
+
+@test "#1125 forward leaves the forward rule-17 stop" {
+    _forwardable
+    _fwd_leaves "mergemr rule 17: head abc1234 was recorded by forward and merges only on green CI (none); to verify it in full, $RECIPE"
+}

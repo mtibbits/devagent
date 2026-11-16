@@ -105,6 +105,44 @@ if [ "$verb" = pin ]; then
     exit 0
 fi
 
+# ---- clearing a mergemr stop the run just remedied -----------------------------
+# clear_mergemr_stop <tag> <regex>: record and forward (#1125) each clear the mergemr
+# stop whose STUCK `Reason:` matches <regex>, and only when ALL hold: ship is [x], the
+# mergemr row is [!], STUCK's `Step:` names mergemr, and the [!] row
+# checklist-unstuck.sh will flip (line-based, Issue-587: the active block's first [!])
+# IS mergemr. Logs `<tag>: cleared mergemr stop (<reason, up to 60 chars>)`.
+clear_mergemr_stop() {
+    local tag="$1" clear_re="$2" cl="$issue_dir/checklist.md" stuck="$issue_dir/STUCK"
+    local ship_g mm_g stuck_step reason found row at msg
+    [ -f "$cl" ] && [ -f "$stuck" ] || return 0
+    ship_g="$(checklist_step_state_by_name "$cl" ship 2>/dev/null || true)"
+    mm_g="$(checklist_step_state_by_name "$cl" mergemr 2>/dev/null || true)"
+    [ "$ship_g" = x ] && [ "$mm_g" = '!' ] || return 0
+
+    stuck_step="$(sed -n 's/^Step:[[:space:]]*//p' "$stuck" | head -n 1)"
+    stuck_step="${stuck_step//$'\r'/}"
+    reason="$(sed -n 's/^Reason:[[:space:]]*//p' "$stuck" | head -n 1)"
+    reason="${reason//$'\r'/}"
+    [ "${stuck_step##* }" = mergemr ] || return 0
+    [[ "$reason" =~ $clear_re ]] || return 0
+
+    # checklist-unstuck.sh flips the active block's FIRST [!] by line (#587); clear
+    # only when that row is mergemr, so no other stop is flipped in its place.
+    found="$(checklist_find_glyph_line "$cl" '!')"
+    row="${found%%:*}"
+    at=""
+    [ -n "$row" ] && at="$(checklist_step_name_at_line "$cl" "$row" 2>/dev/null || true)"
+    if [ "$at" != mergemr ]; then
+        warn "preship-verified-head: the first [!] row is '${at:-?}', not mergemr; the mergemr stop is left for /devagent:unstuck"
+        return 0
+    fi
+
+    bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$issue_dir"
+    msg="cleared mergemr stop (${reason:0:60})"
+    log_append "$issue_dir" "$tag" "$msg"
+    echo "$tag: $msg"
+}
+
 # ---- forward (#1125) ------------------------------------------------------------
 if [ "$verb" = forward ]; then
     recipe='re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship'
@@ -294,6 +332,9 @@ if [ "$verb" = forward ]; then
     state_ctx_set_many "$project" "$issue_arg" str verified_head "$head" str verified_by forward
     log_append "$issue_dir" forward "$msg"
     echo "forward: $msg"
+    # Clears rule 14 (merged forward: this is its light remedy) and rule 11 only when
+    # it names this head; never 10, 15, a preship: stop or forward's own rule 17.
+    clear_mergemr_stop forward "^(mergemr rule 14: |mergemr rule 11: PR head ${head:0:7} was not verified; )"
     exit 0
 fi
 
@@ -309,34 +350,4 @@ state_ctx_set_many "$project" "$issue_arg" str verified_head "$head" str preship
 log_append "$issue_dir" preship "verified_head $head"
 echo "preship-verified-head: verified_head $head"
 
-# ---- clearing a mergemr stop a fresh preship remedies --------------------------
-cl="$issue_dir/checklist.md"
-stuck="$issue_dir/STUCK"
-[ -f "$cl" ] && [ -f "$stuck" ] || exit 0
-ship_g="$(checklist_step_state_by_name "$cl" ship 2>/dev/null || true)"
-mm_g="$(checklist_step_state_by_name "$cl" mergemr 2>/dev/null || true)"
-[ "$ship_g" = x ] && [ "$mm_g" = '!' ] || exit 0
-
-stuck_step="$(sed -n 's/^Step:[[:space:]]*//p' "$stuck" | head -n 1)"
-stuck_step="${stuck_step//$'\r'/}"
-reason="$(sed -n 's/^Reason:[[:space:]]*//p' "$stuck" | head -n 1)"
-reason="${reason//$'\r'/}"
-[ "${stuck_step##* }" = mergemr ] || exit 0
-clear_re='^(mergemr rule (10|11|14|15): |preship: )'
-[[ "$reason" =~ $clear_re ]] || exit 0
-
-# checklist-unstuck.sh flips the active block's FIRST [!] by line (#587); clear
-# only when that row is mergemr, so no other stop is flipped in its place.
-found="$(checklist_find_glyph_line "$cl" '!')"
-row="${found%%:*}"
-at=""
-[ -n "$row" ] && at="$(checklist_step_name_at_line "$cl" "$row" 2>/dev/null || true)"
-if [ "$at" != mergemr ]; then
-    warn "preship-verified-head: the first [!] row is '${at:-?}', not mergemr; the mergemr stop is left for /devagent:unstuck"
-    exit 0
-fi
-
-bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$issue_dir"
-msg="cleared mergemr stop (${reason:0:60})"
-log_append "$issue_dir" preship "$msg"
-echo "preship: $msg"
+clear_mergemr_stop preship '^(mergemr rule (10|11|14|15): |mergemr rule 17: head [0-9a-f]{7} was recorded by forward |preship: )'
