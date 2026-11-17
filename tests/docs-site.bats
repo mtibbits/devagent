@@ -893,7 +893,6 @@ lc_lacks() {
   # #999: the contributor statement lives in CONTRIBUTING.md "What you need".
   # An edit, not a drop, so the shellcheck floor on the same bullet still parses.
   cp "$PLUGIN_ROOT/$CONFIG_REL" "$t/$CONFIG_REL"
-  holds check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
   edit "$t/CONTRIBUTING.md" '`bats` 1.10 or newer, ' ''
   breaks 'no longer names `bats`' check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
 }

@@ -630,18 +630,27 @@ check_absent() {
 # newcomer's first run needs. The list may name more; each must be in README.
 PAGE_PREREQ_TOOLS=(bash python3 jq git gh shellcheck timeout)
 
-# _readme_prereqs <readme> — README's "**Prerequisites.**" paragraph, to its
-# first blank line. The one reader of that region (check_prereqs_trace and
-# check_shellcheck_homes both use it).
-_readme_prereqs() {
-  awk '/^\*\*Prerequisites\.\*\*/{f=1} f && /^$/{exit} f' "$1"
+# _bold_para <file> <label> [normalise 0|1] — the paragraph that opens with the
+# literal <label> (e.g. "**Prerequisites.**"), to its first blank line. With
+# normalise=1 it is one line, whitespace runs squeezed (so a reflow or CRLF bytes
+# compare equal) and edge-trimmed. Empty when the file has no such paragraph.
+_bold_para() {
+  awk -v l="$2" -v n="${3:-0}" '
+    index($0, l) == 1 { f = 1 }
+    f && /^$/ { exit }
+    f { if (n) s = s " " $0; else print }
+    END { if (n && s != "") { gsub(/[[:space:]]+/, " ", s); gsub(/^ | $/, "", s); print s } }' "$1"
 }
+
+# _readme_prereqs <readme> — README's "**Prerequisites.**" paragraph. The one
+# reader of that region (check_prereqs_trace and check_shellcheck_homes).
+_readme_prereqs() { _bold_para "$1" '**Prerequisites.**'; }
 
 # _prereq_list <page> — the bullets (with their two-space continuation lines,
 # so a reflow cannot drop a tool) inside the page's "## Prerequisites" section
 # only. Prose there (the platform paragraph) and every later section are out.
 _prereq_list() {
-  awk '/^## /{s = /^## Prerequisites/; b = 0; next}
+  awk '/^## /{s = /^## Prerequisites$/; b = 0; next}
        s && /^- /{b = 1; print; next}
        s && b && /^  [^ ]/{print; next}
        {b = 0}' "$1"
@@ -660,10 +669,9 @@ check_prereqs_trace() {
   [ -n "$rp" ] || { echo "$readme: no **Prerequisites.** paragraph" >&2; return 2; }
   tools="$(grep -oE '`[a-z][a-z0-9]*`' <<<"$list" | tr -d '`' | sort -u)"
   for t in "${PAGE_PREREQ_TOOLS[@]}"; do
-    grep -qx -- "$t" <<<"$tools" || { echo "$page: page list is missing \`$t\`" >&2; return 1; }
+    [[ $'\n'"$tools"$'\n' == *$'\n'"$t"$'\n'* ]] || { echo "$page: page list is missing \`$t\`" >&2; return 1; }
   done
   while IFS= read -r t; do
-    [ -n "$t" ] || continue
     [[ "$rp" == *"\`$t\`"* ]] || { echo "$page: not in README Prerequisites: \`$t\`" >&2; return 1; }
   done <<<"$tools"
   for f in "$page" "$readme"; do
@@ -676,22 +684,23 @@ check_prereqs_trace() {
   done
 }
 
-# check_platform_tokens <file> — the #579 platform posture tokens.
+# The #579 platform posture claims: README carries each (check_platform_tokens),
+# and the install page's copied platform paragraph keeps each
+# (check_platform_sentence). One list, so the two cannot drift.
+PLATFORM_CLAIMS=('developed and tested on **Linux**' 'WSL' 'Git Bash' 'macOS is currently untested' 'readlink -f')
+
+# check_platform_tokens <file> — the file names every PLATFORM_CLAIMS entry.
 check_platform_tokens() {
-  local f="$1"
+  local f="$1" text c
   _need "$f" || return 2
-  _has "$f" 'developed and tested on **Linux**' 'no Linux posture token' || return 1
-  _has "$f" 'macOS is currently untested' 'no macOS posture token' || return 1
-  _has "$f" 'readlink -f' 'no readlink -f token' || return 1
+  text="$(<"$f")"
+  for c in "${PLATFORM_CLAIMS[@]}"; do
+    [[ "$text" == *"$c"* ]] || { echo "$f: no platform posture token: $c" >&2; return 1; }
+  done
 }
 
-# _platform_para <file> — the "**Supported platforms.**" paragraph, to its first
-# blank line, whitespace-normalised (so a reflow or CRLF bytes compare equal)
-# and edge-trimmed; empty when the file has none.
-_platform_para() {
-  awk '/^\*\*Supported platforms\.\*\*/{f=1} f && /^$/{exit} f' "$1" \
-    | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'
-}
+# _platform_para <file> — the "**Supported platforms.**" paragraph, normalised.
+_platform_para() { _bold_para "$1" '**Supported platforms.**' 1; }
 
 # check_platform_sentence <page> <readme> — #999: the page's platform paragraph
 # is README's, word for word, or README's cut at a sentence boundary (the page
@@ -711,7 +720,7 @@ check_platform_sentence() {
       return 1
     }
   fi
-  for claim in '**Linux**' 'WSL' 'Git Bash' 'macOS is currently untested'; do
+  for claim in "${PLATFORM_CLAIMS[@]}"; do
     [[ "$p" == *"$claim"* ]] || { echo "$page: platform paragraph drops the claim: $claim" >&2; return 1; }
   done
 }
@@ -871,11 +880,12 @@ check_shellcheck_homes() {
     [ "${count[$h]}" -eq 1 ] || { echo "$h: ${count[$h]} live version tokens, want 1" >&2; return 1; }
   done
 
-  # The user statements, scoped to their regions: a deleted user statement reddens
-  # even with the contributor statements in the same file intact.
   # The contributor statement (#999 moved it off the install page): the
   # CONTRIBUTING.md "What you need" region names the test runner.
   [[ "$need" == *'`bats`'* ]] || { echo "CONTRIBUTING.md 'What you need' no longer names \`bats\`" >&2; return 1; }
+
+  # The user statements, scoped to their regions: a deleted user statement reddens
+  # even with the contributor statements in the same file intact.
   for region in \
       "$(_readme_prereqs "$root/README.md")" \
       "$(_prereq_list "$root/$install")"; do
@@ -903,12 +913,11 @@ check_shellcheck_homes() {
   [[ "$text" == *"$msg"* ]] || { echo "commands/analyze.md: no '$msg'" >&2; return 1; }
   [[ "$text" == *unattested* ]] || { echo "commands/analyze.md: no 'unattested'" >&2; return 1; }
 
-  # Floor: 9 tokens at 4e3ca74 (README 1, CONTRIBUTING 1, install.md 1,
-  # pre-push 3, shellcheck.yml 3) plus one per user statement (README, install
-  # page, config.toml.skel, configuration page, commands/analyze.md). The pins
+  # Floor: 8 contributor tokens (README 1, CONTRIBUTING 1, pre-push 3,
+  # the shellcheck.yml workflow 3) plus one per user statement (README, install page,
+  # config.toml.skel, configuration page, commands/analyze.md) = 13. The pins
   # above catch a deleted user statement; this bound is the only guard on the
-  # contributor tokens. #999: 13 — the install page's contributor token left it
-  # (CONTRIBUTING.md, already counted, is that statement's home).
+  # contributor tokens.
   [ "$live" -ge 13 ] || { echo "only $live live shellcheck version tokens, want >= 13" >&2; return 1; }
 }
 
