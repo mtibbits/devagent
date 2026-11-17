@@ -16,6 +16,19 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the WBS estimate contract (#737).** The template note and spec
+  §13.1 now say what `est` measures: agent time, in `h`, `d` and `w` units of
+  1, 8 and 40 agent hours. A new `tok` key holds the token estimate, in
+  cost-report's input-token equivalents with a `k` or `M` suffix, and is a
+  known key (no longer listed in `meta_unknown_keys`). Either key takes a
+  `low-high` range with one trailing unit (`est: 2-4d`, `tok: 1-3M`). Each
+  value falls in one class per key: absent, placeholder, time, non-time or
+  unparseable for `est`, and absent, placeholder, tokens or unparseable for
+  `tok`. `classify_estimate` in `scripts/lib/wbs-parser.py` is the one
+  classifier. The portfolio now classifies through it, so a range reads
+  `time` with two bounds instead of `unparseable`, and it reports an
+  unparseable `tok` as `tok_unparseable`. The template's example estimate
+  `0w` is now the placeholder `?w`.
 - **Changed: the landing page (#998).** The site's front page is now a
   hand-written `docs-site/index.html` in place of `index.md`: the promise,
   README's two install commands with copy buttons, a lesson-0 path for

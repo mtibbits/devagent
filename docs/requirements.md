@@ -730,9 +730,10 @@ Partly delivered. A requirement here that is not built yet starts with
   checklists, the tracker and MRs. {refines: SR-19}
 - FR-112: (Planned.) devagent publishes per-issue actuals as a source the portfolio
   document reads. {refines: SR-19}
-- FR-113: devagent's work-breakdown key contract classifies every estimate
-  value as absent, placeholder, time, non-time or unparseable, and (planned)
-  defines an agent-time estimate, a token estimate and a range form.
+- FR-113: devagent's work-breakdown key contract classifies every `est`
+  value as absent, placeholder, time, non-time or unparseable and every `tok`
+  value as absent, placeholder, tokens or unparseable, and defines an
+  agent-time estimate, a token estimate and a range form.
   {refines: SR-19}
 - FR-114: (Planned.) devagent records a structured estimate at the scope step, confirms
   it at the tighten step, copies it onto the issue's leaf, and compares it
