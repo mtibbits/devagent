@@ -1015,9 +1015,11 @@ Partly delivered. A requirement here that is not built yet starts with
 - EI-21: Issue-body workflow flags and labels: devagent reads the tier,
   research, spike and model-steering keys from an issue body's
   `## Workflow flags` block, and model steering from the issue's labels.
-- EI-22: The launcher notifications file and unattended marker (planned):
-  devagent reads the marker a launcher sets, and appends hold, notice and
-  stuck lines for the launcher to read.
+- EI-22: The launcher notifications file and unattended marker: devagent
+  delivers the version-1 line format, its one locked appender, the rotation
+  under that lock, and the function that reads the marker a launcher sets;
+  the writers that append hold, notice, answered and stuck lines for the
+  launcher to read are planned.
 - EI-23: The ticket screen and signing keys (planned): devagent passes staged
   ticket text to an isolated model process and parses its verdict against a
   strict grammar, and verifies security-key signatures posted on the tracker.

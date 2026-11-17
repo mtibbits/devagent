@@ -737,3 +737,12 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   cmp "$BATS_TEST_TMPDIR/seed" "$NF"
   [ ! -e "$DA_HOME/state/old.jsonl" ]
 }
+
+# ---- Task 7: documentation ---------------------------------------------------
+
+@test "spec 7.3 states that only answered lines are merged" {
+  local spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md" text
+  text="$(awk '/^### 7\.3 /{on=1; print; next} on && /^### /{exit} on{print}' "$spec" | tr '\n' ' ')"
+  [ -n "$text" ]
+  [[ "$text" =~ Only\ \`answered\`\ lines\ are\ merged[^.]*project[^.]*issue\ or\ capture[^.]*\`question\`\ path ]]
+}
