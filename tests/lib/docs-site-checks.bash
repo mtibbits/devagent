@@ -19,13 +19,11 @@
 #
 # PAGE PINS — owned by later children. These facts can only be checked through
 # a sentence today; the child that rewrites the page owns the pin:
-#   #999 (install): check_platform_tokens; the bash-floor presence; the "You
-#        need:" .. "- Contributors additionally" region, which #999 moves to
-#        CONTRIBUTING.md and which two checks read: check_prereqs_trace (the region,
-#        through the contributors bullet's wrapped lines, names all ten
-#        PREREQ_TOOLS) and the shellcheck user statement in check_shellcheck_homes;
-#        the install-block, userConfig, grant and version homes; the comment in
-#        tests/generic-templates.bats naming docs-site/install.md's tool list.
+#   #999 (install, rewritten): its "## Prerequisites" bullet list (_prereq_list;
+#        read by check_prereqs_trace and the shellcheck user statement in
+#        check_shellcheck_homes); its "**Supported platforms.**" paragraph label
+#        (check_platform_sentence); the bash-floor form "`bash` ≥ X.Y"
+#        (check_bash_floor); the install-block, userConfig and version homes.
 #   #1000 (replaces Quickstart): check_quickstart_forms; a moved.txt line for
 #        quickstart; check_command_arity's subject floor (>= 1 /devagent: line);
 #        the arity mutation leg, which edits a copy of quickstart.md.
@@ -427,14 +425,15 @@ _article() {
   fi
 }
 
-# check_no_issue_numbers <page> — no visible text node holds '#' and a digit.
-# Attributes, styles, scripts, comments and SVG colour values are not text.
+# check_no_issue_numbers <page> — no visible text node holds an issue number:
+# '#' and a digit, or the "Issue-" form and a digit. Attributes, styles,
+# scripts, comments and SVG colour values are not text.
 check_no_issue_numbers() {
   local t hits rc=0
   _need "$1" || return 2
   t="$(landing_py text "$1")" || return 2
   [ -n "$t" ] || { echo "$1: no visible text read" >&2; return 1; }
-  hits="$(grep -E '#[0-9]' <<<"$t")" || rc=$?
+  hits="$(grep -E '#[0-9]|Issue-[0-9]' <<<"$t")" || rc=$?
   case "$rc" in
     1) return 0 ;;
     0) echo "$1: an issue number in visible text: $(tr '\n' ' ' <<<"$hits")" >&2; return 1 ;;
@@ -627,39 +626,53 @@ check_absent() {
   esac
 }
 
-# The prerequisite tools README names (#579). The install page's own list is
-# derived from its "You need:" region; every tool there must be in README.
-PREREQ_TOOLS=(bash python3 jq git gh glab curl tomli bats shellcheck)
+# The floor of the install page's Prerequisites list (#999): the tools the
+# page must list. The list may name more; each must be in README.
+PAGE_PREREQ_TOOLS=(bash python3 jq git gh shellcheck timeout)
 
-# _you_need_region <page> <with-contributors 0|1> — the install page's
-# "You need:" list, optionally through its "- Contributors additionally" bullet
-# (with its wrapped lines, so a reflow cannot drop a tool).
-_you_need_region() {
-  awk -v c="$2" '
-    /You need:$/ { f = 1; next }
-    /^- Contributors additionally/ { if (!f || !c) exit; print; g = 1; next }
-    g { if (/^$/ || /^- /) exit; print; next }
-    f' "$1"
+# _bold_para <file> <label> [normalise 0|1] — the paragraph that opens with the
+# literal <label> (e.g. "**Prerequisites.**"), to its first blank line. With
+# normalise=1 it is one line, whitespace runs squeezed (so a reflow or CRLF bytes
+# compare equal) and edge-trimmed. Empty when the file has no such paragraph.
+_bold_para() {
+  awk -v l="$2" -v n="${3:-0}" '
+    index($0, l) == 1 { f = 1 }
+    f && /^$/ { exit }
+    f { if (n) s = s " " $0; else print }
+    END { if (n && s != "") { gsub(/[[:space:]]+/, " ", s); gsub(/^ | $/, "", s); print s } }' "$1"
 }
 
-# check_prereqs_trace <page> <readme> — the page's toolchain (the backticked
-# single words in its "You need:" region, through the contributors line) names
-# every PREREQ_TOOLS entry, README names each, every page tool is in README, and
-# neither side claims the repo is private.
+# _readme_prereqs <readme> — README's "**Prerequisites.**" paragraph. The one
+# reader of that region (check_prereqs_trace and check_shellcheck_homes).
+_readme_prereqs() { _bold_para "$1" '**Prerequisites.**'; }
+
+# _prereq_list <page> — the bullets (with their two-space continuation lines,
+# so a reflow cannot drop a tool) inside the page's "## Prerequisites" section
+# only. Prose there (the platform paragraph) and every later section are out.
+_prereq_list() {
+  awk '/^## /{s = /^## Prerequisites$/; b = 0; next}
+       s && /^- /{b = 1; print; next}
+       s && b && /^  [^ ]/{print; next}
+       {b = 0}' "$1"
+}
+
+# check_prereqs_trace <page> <readme> — one way (#999): the page's
+# Prerequisites list (its backticked single words) names every
+# PAGE_PREREQ_TOOLS entry, every tool it names is backticked in README's
+# Prerequisites paragraph, and neither side claims the repo is private.
 check_prereqs_trace() {
-  local page="$1" readme="$2" region tools t f rc
+  local page="$1" readme="$2" list rp tools t f rc
   _need "$page" "$readme" || return 2
-  region="$(_you_need_region "$page" 1)"
-  [ -n "$region" ] || { echo "$page: no 'You need:' region" >&2; return 1; }
-  tools="$(grep -oE '`[a-z][a-z0-9]*`' <<<"$region" | tr -d '`' | sort -u)"
-  for t in "${PREREQ_TOOLS[@]}"; do
-    grep -qx -- "$t" <<<"$tools" || { echo "$page: the toolchain list does not name \`$t\`" >&2; return 1; }
+  list="$(_prereq_list "$page")"
+  [ -n "$list" ] || { echo "$page: no Prerequisites list" >&2; return 1; }
+  rp="$(_readme_prereqs "$readme")"
+  [ -n "$rp" ] || { echo "$readme: no **Prerequisites.** paragraph" >&2; return 2; }
+  tools="$(grep -oE '`[a-z][a-z0-9]*`' <<<"$list" | tr -d '`' | sort -u)"
+  for t in "${PAGE_PREREQ_TOOLS[@]}"; do
+    [[ $'\n'"$tools"$'\n' == *$'\n'"$t"$'\n'* ]] || { echo "$page: page list is missing \`$t\`" >&2; return 1; }
   done
   while IFS= read -r t; do
-    # RECORDED EXEMPTION: `tomllib` is the stdlib module the `tomli` fallback
-    # stands in for, named to explain the fallback; it is not something to install.
-    case "$t" in ''|tomllib) continue ;; esac
-    _has "$readme" "\`$t\`" "does not name \`$t\`, which $page lists as a prerequisite" || return 1
+    [[ "$rp" == *"\`$t\`"* ]] || { echo "$page: not in README Prerequisites: \`$t\`" >&2; return 1; }
   done <<<"$tools"
   for f in "$page" "$readme"; do
     rc=0; grep -qiE 'repo(sitory)? is private|private-repo access' "$f" || rc=$?
@@ -671,13 +684,45 @@ check_prereqs_trace() {
   done
 }
 
-# check_platform_tokens <file> — the #579 platform posture tokens.
+# The #579 platform posture claims: README carries each (check_platform_tokens),
+# and the install page's copied platform paragraph keeps each
+# (check_platform_sentence). One list, so the two cannot drift.
+PLATFORM_CLAIMS=('developed and tested on **Linux**' 'WSL' 'Git Bash' 'macOS is currently untested' 'readlink -f')
+
+# check_platform_tokens <file> — the file names every PLATFORM_CLAIMS entry.
 check_platform_tokens() {
-  local f="$1"
+  local f="$1" text c
   _need "$f" || return 2
-  _has "$f" 'developed and tested on **Linux**' 'no Linux posture token' || return 1
-  _has "$f" 'macOS is currently untested' 'no macOS posture token' || return 1
-  _has "$f" 'readlink -f' 'no readlink -f token' || return 1
+  text="$(<"$f")"
+  for c in "${PLATFORM_CLAIMS[@]}"; do
+    [[ "$text" == *"$c"* ]] || { echo "$f: no platform posture token: $c" >&2; return 1; }
+  done
+}
+
+# _platform_para <file> — the "**Supported platforms.**" paragraph, normalised.
+_platform_para() { _bold_para "$1" '**Supported platforms.**' 1; }
+
+# check_platform_sentence <page> <readme> — #999: the page's platform paragraph
+# is README's, word for word, or README's cut at a sentence boundary (the page
+# keeps the user-facing claims; README goes on to the CI detail), and it keeps
+# each user-facing claim. LIMIT: only the page's span is compared, so a README
+# edit AFTER the page's cut point stays green.
+check_platform_sentence() {
+  local page="$1" readme="$2" r p claim
+  _need "$page" "$readme" || return 2
+  r="$(_platform_para "$readme")"
+  [ -n "$r" ] || { echo "$readme: no **Supported platforms.** paragraph" >&2; return 2; }
+  p="$(_platform_para "$page")"
+  [ -n "$p" ] || { echo "$page: no **Supported platforms.** paragraph" >&2; return 1; }
+  if [ "$p" != "$r" ]; then
+    [[ "$p" == *. && "$r" == "$p "* ]] || {
+      echo "$page: the platform paragraph is not README's, word for word, cut at a sentence end" >&2
+      return 1
+    }
+  fi
+  for claim in "${PLATFORM_CLAIMS[@]}"; do
+    [[ "$p" == *"$claim"* ]] || { echo "$page: platform paragraph drops the claim: $claim" >&2; return 1; }
+  done
 }
 
 # check_command_arity <page>... — no line is a bare /devagent:(init|pull|file|
@@ -737,8 +782,10 @@ check_bash_floor() {
 # verified-against pin. A line carrying a historical measurement marker
 # ("measured at/on", "unmeasured", "re-verified on") is exempt: it states what was
 # observed on a named past version. CHANGELOG, docs/specs, evals/ and tests/ are
-# history or floor claims and are never passed as roots. Floor: 5 live tokens
-# (README x2, install.md x2, the bug-report placeholder).
+# history or floor claims and are never passed as roots. Floor: 5 live tokens,
+# the measured census after #999 (README x3, install.md x1, the bug-report
+# placeholder x1). #999 asked the floor to drop by the token leaving the page,
+# assuming floor = count; the count before it was 6, so the floor stays 5.
 check_cc_version_homes() {
   local root="$1" pin hits rc=0 hit text v live=0 stale=""; shift
   [ "$#" -gt 0 ] || { echo "check_cc_version_homes: no roots" >&2; return 2; }
@@ -785,7 +832,7 @@ _mz_live() {
 # check_shellcheck_homes <root> <install-page> <config-page> — #678: the
 # version every shellcheck home names is the one CONTRIBUTING.md "What you need"
 # names. The page arguments are root-relative. Homes: the user homes (README
-# Prerequisites, the install page's "You need:" list, config.toml.skel, the
+# Prerequisites, the install page's Prerequisites list, config.toml.skel, the
 # configuration page), commands/analyze.md (the one home of the detail) and the
 # contributor homes. Major zero isolates the shellcheck version from the Claude
 # Code and bash versions in the same files. The user floor equals the
@@ -793,12 +840,12 @@ _mz_live() {
 # RECORDED EXEMPTION: a token in the stamp form `analyzer: shellcheck <version>`
 # is an example of a measured value, not a claim, and is not counted.
 check_shellcheck_homes() {
-  local root="$1" install="$2" config="$3" floor vals v h live=0 stale="" region text msg n
+  local root="$1" install="$2" config="$3" floor vals v h live=0 stale="" region text msg need
   local -a homes
   local -A count=()
   _need "$root/CONTRIBUTING.md" || return 2
-  floor="$(awk '/^## What you need$/{f=1; next} f && /^## /{exit} f' "$root/CONTRIBUTING.md" \
-            | tr -s '[:space:]' ' ' \
+  need="$(awk '/^## What you need$/{f=1; next} f && /^## /{exit} f' "$root/CONTRIBUTING.md")"
+  floor="$(tr -s '[:space:]' ' ' <<<"$need" \
             | grep -oE '`shellcheck` [0-9]+\.[0-9]+\.[0-9]+ or newer' \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
   [ -n "$floor" ] || { echo "CONTRIBUTING.md 'What you need' no longer says \`shellcheck\` X.Y.Z or newer" >&2; return 1; }
@@ -833,13 +880,15 @@ check_shellcheck_homes() {
     [ "${count[$h]}" -eq 1 ] || { echo "$h: ${count[$h]} live version tokens, want 1" >&2; return 1; }
   done
 
+  # The contributor statement (#999 moved it off the install page): the
+  # CONTRIBUTING.md "What you need" region names the test runner.
+  [[ "$need" == *'`bats`'* ]] || { echo "CONTRIBUTING.md 'What you need' no longer names \`bats\`" >&2; return 1; }
+
   # The user statements, scoped to their regions: a deleted user statement reddens
   # even with the contributor statements in the same file intact.
-  n="$(grep -c '^- Contributors additionally' "$root/$install" || true)"
-  [ "$n" -eq 1 ] || { echo "$install: $n '- Contributors additionally' lines, want 1" >&2; return 1; }
   for region in \
-      "$(awk '/^\*\*Prerequisites\.\*\*/{f=1} f && /^$/{exit} f' "$root/README.md")" \
-      "$(_you_need_region "$root/$install" 0)"; do
+      "$(_readme_prereqs "$root/README.md")" \
+      "$(_prereq_list "$root/$install")"; do
     [ -n "$region" ] || { echo "a user statement region is empty" >&2; return 1; }
     vals="$(_mz_live <<<"$region")" || return 2
     [ "$(grep -c . <<<"$vals" || true)" -eq 1 ] || {
@@ -864,12 +913,12 @@ check_shellcheck_homes() {
   [[ "$text" == *"$msg"* ]] || { echo "commands/analyze.md: no '$msg'" >&2; return 1; }
   [[ "$text" == *unattested* ]] || { echo "commands/analyze.md: no 'unattested'" >&2; return 1; }
 
-  # Floor: 9 tokens at 4e3ca74 (README 1, CONTRIBUTING 1, install.md 1,
-  # pre-push 3, shellcheck.yml 3) plus one per user statement (README, install
-  # page, config.toml.skel, configuration page, commands/analyze.md). The pins
+  # Floor: 8 contributor tokens (README 1, CONTRIBUTING 1, pre-push 3,
+  # the shellcheck.yml workflow 3) plus one per user statement (README, install page,
+  # config.toml.skel, configuration page, commands/analyze.md) = 13. The pins
   # above catch a deleted user statement; this bound is the only guard on the
   # contributor tokens.
-  [ "$live" -ge 14 ] || { echo "only $live live shellcheck version tokens, want >= 14" >&2; return 1; }
+  [ "$live" -ge 13 ] || { echo "only $live live shellcheck version tokens, want >= 13" >&2; return 1; }
 }
 
 # check_merge_keys <skel> <config-page> <changelog> <workflow-page> — #885: the
