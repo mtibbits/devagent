@@ -77,27 +77,14 @@ phase_break_at() {
 # merged_closeout <checklist> — true when the active revision's PR is done: its
 # mergemr row is [x], or mergemr and ship are both [-] (zero-diff, no PR; mergemr
 # rule 1). No mergemr row (pre-#899), a pending mergemr, or [-] after a real ship
-# (abandoned PR) is false.
+# (abandoned PR) is false. Rows are read from the active revision block only
+# (#1029's strict read): the file-wide fallback would let an older revision's
+# merge pass a block that has no mergemr row of its own.
 merged_closeout() {
   local mm
-  mm="$(active_block_state "$1" mergemr)"
-  [[ "$mm" == x ]] || [[ "$mm" == - && "$(active_block_state "$1" ship)" == - ]]
-}
-
-# active_block_state <checklist> <name> — the glyph of the first row named <name>
-# in the active (last) revision block, or the whole file when it has no revision
-# headings; empty when that block has no such row. Strict on purpose: the lib's
-# by-name read falls back file-wide, which would let an older revision's merge
-# pass a block that has no mergemr row of its own.
-active_block_state() {
-  awk -v t="$2" '
-    /^## Revision / { g = ""; next }
-    g == "" && match($0, /^- \[.\][ \t]+[0-9]+\.[ \t]+[A-Za-z][A-Za-z0-9_-]*/) {
-      seg = substr($0, RSTART, RLENGTH)
-      sub(/^- \[.\][ \t]+[0-9]+\.[ \t]+/, "", seg)
-      if (seg == t) g = substr($0, 4, 1)
-    }
-    END { print g }' "$1"
+  mm="$(checklist_active_step_state_by_name "$1" mergemr 2>/dev/null || true)"
+  [[ "$mm" == x ]] || [[ "$mm" == - && \
+    "$(checklist_active_step_state_by_name "$1" ship 2>/dev/null || true)" == - ]]
 }
 
 # #812: scripts that carry a workflow step's NAME but are helpers its slash
