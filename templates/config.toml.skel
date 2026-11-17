@@ -17,9 +17,15 @@ ship_as_draft = false
 # phase_breaks: an --auto/--through chain stops before each named step with a
 # PHASE BREAK line, so the next phase starts in a fresh session (/clear, then the
 # printed Resume command). A single session re-reads its whole history on every
-# call; fresh sessions at these three steps cut Issue-660's main-session cost
-# ~56%. Space-separated step names; "" disables; `--no-breaks` skips one chain.
-# A [project.<name>] phase_breaks wins over this value.
+# call; fresh sessions at implement, quality and updatewbs cut Issue-660's
+# main-session cost ~56%. Unset, the default breaks before implement and quality,
+# and before updatewbs unless the checklist's mergemr row is [x], or [-] because
+# ship was [-] (no PR), so a merged chain runs on through cleanup. No mergemr row
+# (older than #899) or an abandoned PR (mergemr [-] after a real ship) keeps that
+# break. Space-separated step names; "" disables; `--no-breaks` skips one chain.
+# A value you set is honoured as written: the line below keeps the break before
+# updatewbs. A [project.<name>] phase_breaks (above its first subtable) wins
+# over this value.
 # phase_breaks = "implement quality updatewbs"
 # session_rehydrate (#456): print the active issue and its next step at session
 # start, so a fresh session resumes without /devagent:catchup. Pairs with

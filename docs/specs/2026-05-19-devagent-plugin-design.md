@@ -1085,14 +1085,24 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
 - Run past a **phase break**. A continued chain (a `CHAIN:` hop, which
   next.sh marks `--chained`, or a script step already dispatched in the
   same `next.sh` process) stops before each step named in
-  `phase_breaks` (default `implement quality updatewbs`; `""` disables;
-  `--no-breaks` opts one chain out) and prints `PHASE BREAK` with a Resume
-  command. The operator runs `/clear` and the Resume command, whose first
-  hop is not `--chained`, so the boundary step runs. Reason: a session
-  re-reads its whole history on every call. Issue-660's single session
-  grew 49K→845K tokens over 386 calls; replaying it with fresh sessions at
-  these steps cut its main-session cost ~56%. `session_rehydrate` (#456)
-  pairs with it.
+  `phase_breaks` (`""` disables; `--no-breaks` opts one chain out) and
+  prints `PHASE BREAK` with a Resume command. The built-in default breaks
+  before `implement` and `quality`, and before `updatewbs` unless the active
+  revision's mergemr row is `[x]`, or `[-]` because ship was `[-]` (no PR)
+  (#933). A checklist with no mergemr row (older than #899), or an abandoned
+  PR (mergemr `[-]` after a real ship), keeps the break before updatewbs. A
+  `phase_breaks` value in `[project.<name>]` or `[defaults]` is honoured as
+  written, so `"implement quality updatewbs"` keeps that break. The
+  operator runs `/clear` and the Resume command, whose first hop is not
+  `--chained`, so the boundary step runs. Reason: a session re-reads its
+  whole history on every call. Issue-660's single session grew 49K→845K
+  tokens over 386 calls; replaying it with fresh sessions at the three
+  breaks of the time (implement, quality, updatewbs) cut its main-session
+  cost ~56%. The close-out, steps 21-24 (updatewbs, impact, lessonslearned,
+  cleanup), now runs in the mergemr session: #670 measured it at 5.0M
+  input-token equivalents for Issue-660 (13% of the issue), the cost of
+  not stalling an unattended chain after the merge. `session_rehydrate`
+  (#456) pairs with it.
 
 After ship, the MR's CI status is reported, never waited for (#782):
 

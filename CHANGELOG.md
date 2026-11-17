@@ -16,6 +16,18 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: no phase break after a merged PR (#933).** The built-in
+  `phase_breaks` default no longer breaks before updatewbs once the
+  checklist's mergemr row is `[x]` (or `[-]` because ship was `[-]`), so
+  `--auto` runs steps 21-24 (updatewbs, impact, lessonslearned, cleanup) in
+  the mergemr session. A checklist with no mergemr row (older than #899), a
+  mergemr not yet done, or an abandoned PR keeps the break. An explicit
+  `phase_breaks` in a project or `[defaults]`, including a copied
+  `"implement quality updatewbs"`, keeps the break as before; `""` and
+  `--no-breaks` still disable all breaks. Cost: one session now carries its
+  history through the close-out; #670 measured steps 21-24 of Issue-660 at
+  5.0M input-token equivalents.
+
 ## [3.2.0] — 2026-11-17
 
 A minor release: new options and features, with no change that breaks an
