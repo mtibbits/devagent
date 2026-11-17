@@ -28,6 +28,32 @@ the README's "Versioning & releases" section has the release procedure.
   and the page shows no issue number. The shellcheck token floor is 13 (was
   14); the Claude Code token floor stays at 5, the measured count.
 
+## [3.2.0] — 2026-11-17
+
+A minor release: new options and features, with no change that breaks an
+existing project's `config.toml`, devdoc layout or command contract. Added:
+the local code backend, capture-time model-tier proposals, the WBS estimate
+contract (`est` units and ranges, the `tok` key), and accepting a
+merge-forward that leaves the branch diff unchanged. `/devagent:preship` now
+runs an evidence and MR-claims preflight before the verifier, and the docs
+site moved to the shared family template with a new landing page. `local` is
+now a built-in code backend name, so a custom backend saved as
+`scripts/code/local.sh` should be renamed.
+
+- **Added: the WBS estimate contract (#737).** The template note and spec
+  §13.1 now say what `est` measures: agent time, in `h`, `d` and `w` units of
+  1, 8 and 40 agent hours. A new `tok` key holds the token estimate, in
+  cost-report's input-token equivalents with a `k` or `M` suffix, and is a
+  known key (no longer listed in `meta_unknown_keys`). Either key takes a
+  `low-high` range with one trailing unit (`est: 2-4d`, `tok: 1-3M`). Each
+  value falls in one class per key: absent, placeholder, time, non-time or
+  unparseable for `est`, and absent, placeholder, tokens or unparseable for
+  `tok`. `classify_estimate` in `scripts/lib/wbs-parser.py` is the one
+  classifier. The portfolio now classifies through it, so a range reads
+  `time` with two bounds instead of `unparseable`, and it reports an
+  unparseable `tok` as `tok_unparseable`. The template's example estimate
+  `0w` is now the placeholder `?w`.
+
 - **Added: accept a merge-forward that leaves the branch diff unchanged (#1125).**
   A project that sets `[project.<name>.merge_forward] verify = "ci"` can re-record
   `verified_head` after a merge-forward with `scripts/preship-verified-head.sh

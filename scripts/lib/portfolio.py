@@ -61,13 +61,6 @@ USAGE = "usage: portfolio.py build --out PATH | portfolio.py ready"
 
 # --- per-node derivations ------------------------------------------------------
 
-# Interim estimate classifier (D16), built from #737's drafted table. The
-# factors are WORKING-time hours and provisional: #737's helper replaces this
-# classifier when it lands. Every match is a fullmatch on the value as written.
-HOUR_FACTORS: dict[str, int] = {"h": 1, "d": 8, "w": 40}
-PLACEHOLDER_RE = re.compile(r"\?[A-Za-z]*")
-# Digit caps keep every number finite and small: no inf or huge-int path.
-QUANTITY_RE = re.compile(r"(?P<q>[0-9]{1,9}(?:\.[0-9]{1,6})?)(?P<u>[A-Za-z]+)")
 EST_SRC_VALUES = ("confirmed", "derived")
 # Keys this producer consumes. `satisfies` and `h` are parser-known keys
 # (#888), so they never reach `meta_unknown_keys`; `est_src` is not, and the
@@ -75,28 +68,12 @@ EST_SRC_VALUES = ("confirmed", "derived")
 PRODUCER_KEYS: frozenset[str] = frozenset({"est_src", "satisfies", "h", "thinking", "checking"})
 
 
-def _num(d: Decimal) -> int | float:
-    """An exact decimal as JSON wants it: an int when integral (D14)."""
-    return int(d) if d == d.to_integral_value() else float(d)
-
-
-def classify_est(raw) -> dict:
-    """`meta.est` as the schema's Est fields (without `src`)."""
-    out = {"raw": raw, "class": "unparseable", "low_hours": None,
-           "high_hours": None, "quantity": None, "unit": None}
-    if raw is None:
-        out["class"] = "absent"
-    elif isinstance(raw, str):
-        if PLACEHOLDER_RE.fullmatch(raw):
-            out["class"] = "placeholder"
-        elif m := QUANTITY_RE.fullmatch(raw):
-            q, unit = Decimal(m.group("q")), m.group("u")
-            if unit in HOUR_FACTORS:
-                hours = _num(q * HOUR_FACTORS[unit])
-                out.update({"class": "time", "low_hours": hours, "high_hours": hours})
-            else:
-                out.update({"class": "non-time", "quantity": _num(q), "unit": unit})
-    return out
+def est_fields(raw) -> dict:
+    """`meta.est` as the schema's Est fields (without `src`), classified by the
+    WBS key contract's `classify_estimate` (#737; spec §13.1)."""
+    c = wbs_parser.classify_estimate("est", raw)
+    return {"raw": c["raw"], "class": c["class"], "low_hours": c["low"],
+            "high_hours": c["high"], "quantity": c["quantity"], "unit": c["unit"]}
 
 
 def est_src(meta: dict) -> tuple[str | None, bool]:
@@ -271,8 +248,9 @@ def rollup(nodes: list[dict]) -> dict:
         elif est["class"] == "non-time":
             non_time[est["unit"]] = non_time.get(est["unit"], Decimal(0)) + _dec(est["quantity"])
     remaining.update({
-        "low_hours": _num(low), "high_hours": _num(high),
-        "non_time": {u: _num(q) for u, q in non_time.items()},
+        # D14: exact decimals as JSON wants them, by the parser's one rule
+        "low_hours": wbs_parser.est_num(low), "high_hours": wbs_parser.est_num(high),
+        "non_time": {u: wbs_parser.est_num(q) for u, q in non_time.items()},
     })
     return {"by_state": by_state, "remaining": remaining}
 
@@ -838,6 +816,7 @@ KINDS: tuple[str, ...] = (
     "parent_done_leaf_pending",
     "duplicate_issue",
     "est_unparseable",
+    "tok_unparseable",
     "est_src_invalid",
     "h_malformed",
     "bad_model",
@@ -998,7 +977,7 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
         issue, issue_bad = node_issue(meta)
         src, src_bad = est_src(meta)
         h, h_bad = read_h(meta)
-        est = classify_est(meta.get("est"))
+        est = est_fields(meta.get("est"))
         est["src"] = src
         leaf = not raw["children"]
         node = {
@@ -1031,6 +1010,9 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
         if est["class"] == "unparseable":
             report(ln, "est_unparseable",
                    f"est {_show(est['raw'])} is not a time, non-time or placeholder estimate")
+        if wbs_parser.classify_estimate("tok", meta.get("tok"))["class"] == "unparseable":
+            report(ln, "tok_unparseable",
+                   f"tok {_show(meta['tok'])} is not a token estimate or placeholder")
         if src_bad:
             report(ln, "est_src_invalid",
                    f"est_src {_show(meta['est_src'])} is not confirmed or derived; est.src reads as null")

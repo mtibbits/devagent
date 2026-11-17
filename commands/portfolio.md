@@ -140,14 +140,17 @@ read (<status>); its leaves are not listed`, so "nothing is ready" and "could
 not read" differ. `--ready` writes nothing (no document, no devdoc file) and
 refuses `--out` (exit 2). To read the parse report, run without `--ready`.
 
-## Estimates (interim classifier)
+## Estimates
 
-Until #737 ships its classifier, `est` is classified here. Units must match
-exactly, and the hour factors are **provisional** working-time hours:
-`h` = 1, `d` = 8, `w` = 40. A placeholder such as `?w` is `placeholder`; a
-number with another unit, such as `48pr`, is `non-time`; a range, a bare
-number or free text is `unparseable` and is reported. #737's helper replaces
-this classifier and its factors when it lands.
+`est` is classified by the WBS key contract's `classify_estimate`
+(`scripts/lib/wbs-parser.py`; spec §13.1), which this command calls rather
+than parsing the value itself. Units match exactly, in agent hours: `h` = 1,
+`d` = 8, `w` = 40. A range such as `2-4d` is `time` with a low and a high bound
+(16 and 32 hours). A placeholder such as `?w` is `placeholder`; a number with
+another unit, such as `48pr`, is `non-time`; a bare number, a reversed range
+(`4-2d`) or free text is `unparseable` and is reported as `est_unparseable`.
+`tok`, the token estimate, is carried in the node's `meta`, not as a typed
+field (#941); an unparseable `tok` is reported as `tok_unparseable`.
 
 ## Exit status
 

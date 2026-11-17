@@ -1,5 +1,6 @@
 """Tests for scripts/lib/wbs-parser.py."""
 import ast
+import decimal
 import importlib.util
 import json
 import os
@@ -7,6 +8,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -900,21 +902,29 @@ def _template_keys(text):
     return set(line[len(prefix):].strip().split(", "))
 
 
+TEMPLATE = REPO / "templates" / "wbs_template.md"
+SPEC = REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
+
+
+def _spec_131(text):
+    return text[text.index("### 13.1 "):text.index("### 13.2 ")]
+
+
 def _spec_keys(text):
     """The backticked key set spec §13.1 claims, between `Recognized keys
     (v1):` and `Unrecognized keys`."""
-    s131 = text[text.index("### 13.1 "):text.index("### 13.2 ")]
+    s131 = _spec_131(text)
     claim = s131[s131.index("Recognized keys (v1):"):s131.index("Unrecognized keys")]
     return set(re.findall(r"`([^`]+)`", claim))
 
 
 def test_documented_key_lists_match_known_meta_keys():
     # #888: derived from the claim, not hand-copied.
-    template = (REPO / "templates" / "wbs_template.md").read_text(encoding="utf-8")
-    spec = (REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
-            ).read_text(encoding="utf-8")
+    template = TEMPLATE.read_text(encoding="utf-8")
+    spec = SPEC.read_text(encoding="utf-8")
     t_keys, s_keys = _template_keys(template), _spec_keys(spec)
-    assert len(t_keys) == len(s_keys) == 16
+    assert len(t_keys) == len(s_keys) == 17
+    assert "tok" in t_keys
     assert t_keys == wbs_parser.KNOWN_META_KEYS
     assert s_keys == wbs_parser.KNOWN_META_KEYS
     # planted control: the same extractor sees a missing key
@@ -1559,3 +1569,298 @@ def test_inserted_only_has_one_home():
     hits = {p.name: _defs_named(p.read_text(encoding="utf-8"), "inserted_only")
             for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
     assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
+
+
+# --- the estimate contract (#737) ------------------------------------------------
+
+def _r(key, raw, cls, low=None, high=None, quantity=None, unit=None):
+    want = {"key": key, "raw": raw, "class": cls, "low": low, "high": high,
+            "quantity": quantity, "unit": unit}
+    return pytest.param(key, raw, want, id=f"{key}-{raw!r}")
+
+
+FREE_TEXT = "1d (actual ~14h wall-clock + 2h hands-on)"
+
+ESTIMATE_ROWS = [
+    _r("est", None, "absent"),
+    _r("est", "?w", "placeholder"),
+    _r("est", "?", "placeholder"),
+    _r("est", "?pr", "placeholder"),
+    _r("est", "1w", "time", 40, 40),
+    _r("est", "3d", "time", 24, 24),
+    _r("est", "1.5d", "time", 12, 12),
+    _r("est", "6h", "time", 6, 6),
+    _r("est", "0w", "time", 0, 0),
+    _r("est", "2-4d", "time", 16, 32),
+    _r("est", "0.5-1.5h", "time", 0.5, 1.5),
+    _r("est", "2-2d", "time", 16, 16),
+    _r("est", "20pr", "non-time", quantity=20, unit="pr"),
+    _r("est", "2.5pr", "non-time", quantity=2.5, unit="pr"),
+    _r("est", "1W", "non-time", quantity=1, unit="W"),       # exact units
+    _r("est", "500k", "non-time", quantity=500, unit="k"),
+    _r("est", "4-2d", "unparseable"),                         # low <= high
+    _r("est", "2-4pr", "unparseable"),                        # no non-time range
+    _r("est", "2d-4d", "unparseable"),                        # one trailing unit
+    _r("est", "2..4d", "unparseable"),
+    _r("est", "2 - 4d", "unparseable"),
+    _r("est", " 1w", "unparseable"),                          # no strip
+    _r("est", "?3d", "unparseable"),
+    _r("est", "?-4d", "unparseable"),
+    _r("est", "5", "unparseable"),                            # suffix only
+    _r("est", "", "unparseable"),                             # absent only for None
+    _r("est", "9999999999h", "unparseable"),                  # digit caps
+    _r("est", ["1w", "2w"], "unparseable"),
+    _r("est", 5, "unparseable"),
+    _r("est", FREE_TEXT, "unparseable"),
+    _r("tok", None, "absent"),
+    _r("tok", "?", "placeholder"),
+    _r("tok", "?M", "placeholder"),
+    _r("tok", "?w", "placeholder"),
+    _r("tok", "500k", "tokens", 500000, 500000),
+    _r("tok", "2M", "tokens", 2000000, 2000000),
+    _r("tok", "1.5M", "tokens", 1500000, 1500000),
+    _r("tok", "1.5k", "tokens", 1500, 1500),
+    _r("tok", "0k", "tokens", 0, 0),
+    _r("tok", "1-3M", "tokens", 1000000, 3000000),
+    _r("tok", "250-750k", "tokens", 250000, 750000),
+    _r("tok", "3-1M", "unparseable"),                         # low <= high
+    _r("tok", "500000", "unparseable"),                       # suffix only
+    _r("tok", "500K", "unparseable"),                         # exact units
+    _r("tok", "2m", "unparseable"),
+    _r("tok", "2d", "unparseable"),
+    _r("tok", "48pr", "unparseable"),
+    _r("tok", "500k-2M", "unparseable"),
+    _r("tok", "0.0005k", "unparseable"),                      # whole tokens
+    _r("tok", "0.5-1.0005k", "unparseable"),
+    _r("tok", "0.0005-1k", "unparseable"),                    # whole low bound too
+    _r("tok", ["1M", "2M"], "unparseable"),
+]
+
+
+@pytest.mark.parametrize("key,raw,want", ESTIMATE_ROWS)
+def test_classify_estimate_rows(key, raw, want):
+    got = wbs_parser.classify_estimate(key, raw)
+    assert got == want
+    assert got["raw"] is raw
+    for field in ("low", "high", "quantity"):
+        v = got[field]
+        assert v is None or type(v) in (int, float), (field, v)   # never a Decimal
+        if v is not None and float(v).is_integer():
+            assert type(v) is int, (field, v)
+
+
+def test_estimate_tables_pinned():
+    # AC3: the conversions, and the class vocabularies, as literals.
+    assert wbs_parser.HOUR_FACTORS == {"h": 1, "d": 8, "w": 40}
+    assert wbs_parser.TOKEN_FACTORS == {"k": 1000, "M": 1000000}
+    assert wbs_parser.ESTIMATE_KEYS == ("est", "tok")
+    assert wbs_parser.EST_CLASSES == ("absent", "placeholder", "time", "non-time", "unparseable")
+    assert wbs_parser.TOK_CLASSES == ("absent", "placeholder", "tokens", "unparseable")
+    got = [wbs_parser.classify_estimate("est", v) for v in ("1h", "1d", "1w")]
+    assert [(c["low"], c["high"]) for c in got] == [(1, 1), (8, 8), (40, 40)]
+
+
+def test_classify_estimate_ignores_the_ambient_decimal_context():
+    # #737 red-team: bounds do not depend on the caller's decimal context.
+    with decimal.localcontext() as ctx:
+        ctx.prec = 3
+        ctx.traps[decimal.Inexact] = True
+        tok = wbs_parser.classify_estimate("tok", "123456.789M")
+        est = wbs_parser.classify_estimate("est", "123456.5h")
+    assert (tok["class"], tok["low"], tok["high"]) == ("tokens", 123456789000, 123456789000)
+    assert (est["class"], est["low"], est["high"]) == ("time", 123456.5, 123456.5)
+
+
+@pytest.mark.parametrize("key", ["cost", "EST", ""])
+def test_classify_estimate_refuses_other_keys(key):
+    with pytest.raises(ValueError) as err:
+        wbs_parser.classify_estimate(key, "1w")
+    assert str(err.value) == wbs_parser.ESTIMATE_KEY_ERROR.format(key)
+
+
+def _by_marker(nodes, marker):
+    hits = [n for n in nodes if marker in n["text"].split()]
+    assert len(hits) == 1, (marker, hits)
+    return hits[0]
+
+
+EST_FORMS = {  # marker -> (est class, low, high, quantity, unit)
+    "f-parent-time": ("time", 320, 320, None, None),
+    "f-week": ("time", 40, 40, None, None),
+    "f-days": ("time", 24, 24, None, None),
+    "f-decimal-days": ("time", 12, 12, None, None),
+    "f-parent-pr": ("non-time", None, None, 48, "pr"),
+    "f-placeholder": ("placeholder", None, None, None, None),
+    "f-pr": ("non-time", None, None, 20, "pr"),
+    "f-decimal-pr": ("non-time", None, None, 2.5, "pr"),
+    "f-free-text": ("unparseable", None, None, None, None),
+    "f-bad-placeholder": ("unparseable", None, None, None, None),
+    "f-range": ("time", 16, 32, None, None),
+    "f-tok-point": ("placeholder", None, None, None, None),
+    "f-absent": ("absent", None, None, None, None),
+}
+TOK_FORMS = {"f-range": (1000000, 3000000), "f-tok-point": (500000, 500000)}
+
+
+def test_est_forms_fixture():
+    # AC2: every measured form through parse_file, then the helper.
+    tree = wbs_parser.parse_file(FIX / "est-forms.md")
+    nodes = list(_walk(tree))
+    assert len(nodes) == 13
+    leaf_ids = {id(n) for n in wbs_parser.leaves(tree)}
+    assert len(leaf_ids) == 11
+    assert set(EST_FORMS) == {m for n in nodes for m in n["text"].split() if m.startswith("f-")}
+    for marker, (cls, low, high, quantity, unit) in EST_FORMS.items():
+        node = _by_marker(nodes, marker)
+        got = wbs_parser.classify_estimate("est", node["meta"].get("est"))
+        assert (got["class"], got["low"], got["high"], got["quantity"], got["unit"]) == \
+            (cls, low, high, quantity, unit), marker
+        tok = wbs_parser.classify_estimate("tok", node["meta"].get("tok"))
+        if marker in TOK_FORMS:
+            assert (tok["class"], tok["low"], tok["high"]) == ("tokens", *TOK_FORMS[marker])
+        else:
+            assert tok["class"] == "absent", marker
+    assert _by_marker(nodes, "f-free-text")["meta"]["est"] == FREE_TEXT
+    # a leaf reader never meets a parent's est
+    for marker in ("f-parent-time", "f-parent-pr"):
+        parent = _by_marker(nodes, marker)
+        assert parent["children"]
+        assert id(parent) not in leaf_ids
+
+
+def test_estimate_value_needs_no_wbs_context():
+    # AC2's plan-line row: a value read from a plan line, not a WBS node.
+    text = (FIX / "est-forms-plan.md").read_text(encoding="utf-8")
+    lines = re.findall(r"^- (est|tok): (.+)$", text, re.M)
+    assert lines == [("est", "3-5h"), ("tok", "400-600k")]
+    est, tok = (wbs_parser.classify_estimate(k, v) for k, v in lines)
+    assert (est["class"], est["low"], est["high"]) == ("time", 3, 5)
+    assert (tok["class"], tok["low"], tok["high"]) == ("tokens", 400000, 600000)
+
+
+HOSTILE = ["9" * 200000 + "h", "?" + "a" * 200000 + "1",
+           "1-" * 100000 + "d", "1." + "0" * 200000 + "k"]
+
+
+@pytest.mark.parametrize("key", ["est", "tok"])
+def test_classify_estimate_hostile_values(key):
+    for value in HOSTILE:
+        start = time.monotonic()
+        got = wbs_parser.classify_estimate(key, value)
+        assert time.monotonic() - start < 2, value[:12]
+        assert got["class"] == "unparseable", value[:12]
+
+
+ESTIMATE_API = ("classify_estimate", "ESTIMATE_KEYS", "HOUR_FACTORS", "TOKEN_FACTORS",
+                "EST_CLASSES", "TOK_CLASSES", "est_num", "ESTIMATE_PLACEHOLDER_RE",
+                "ESTIMATE_VALUE_RE", "ESTIMATE_KEY_ERROR")
+
+
+def test_module_docstring_names_estimate_api():
+    doc = wbs_parser.__doc__
+    assert [n for n in ESTIMATE_API if f"`{n}`" not in doc] == []
+
+
+def test_tok_is_a_known_key():
+    # #737: `tok` joins KNOWN_META_KEYS; a range stays one string in meta.
+    node = wbs_parser.parse_text("- [ ] a {est: 2-4d, tok: 1-3M, zz: 1}\n")["children"][0]
+    assert node["meta"] == {"est": "2-4d", "tok": "1-3M", "zz": "1"}
+    assert node["meta_unknown_keys"] == ["zz"]
+    assert node["parse_warnings"] == []
+    nodes = list(_walk(wbs_parser.parse_file(FIX / "est-forms.md")))
+    assert len(nodes) == 13
+    assert [n["meta_unknown_keys"] for n in nodes] == [[]] * 13
+
+
+CONTRACT_PROSE = ("agent time", "agent hours", "cost-report", "input-token equivalents",
+                  "one trailing unit", "single value", "roll-up", "never summed",
+                  "not an actual")
+NODE_LINE = re.compile(r"^\s*- \[")
+
+
+def _contract_text(text):
+    """The prose of a contract home: node lines dropped (an example row must
+    not supply a claim), `> ` markers removed, whitespace collapsed."""
+    kept = [re.sub(r"^\s*>\s?", "", ln) for ln in text.splitlines()
+            if not NODE_LINE.match(ln)]
+    return " ".join(" ".join(kept).split())
+
+
+def _factor_re(unit, factor):
+    # bounded: `w = 40` inside `low = 40`, `h = 1` inside `high = 16` and
+    # `k = 1000` inside `k = 1000000` do not count
+    return re.compile(rf"(?<![\w`])`?{re.escape(unit)}`? = {factor}(?![\d])")
+
+
+FACTORS = {**wbs_parser.HOUR_FACTORS, **wbs_parser.TOKEN_FACTORS}
+CLASS_NAMES = tuple(dict.fromkeys(wbs_parser.EST_CLASSES + wbs_parser.TOK_CLASSES))
+
+
+def _missing_contract_claims(text):
+    flat = _contract_text(text)
+    missing = [c for c in CONTRACT_PROSE if c not in flat]
+    missing += [f"{u} = {f}" for u, f in FACTORS.items() if not _factor_re(u, f).search(flat)]
+    missing += [f"`{c}`" for c in CLASS_NAMES if f"`{c}`" not in flat]
+    return missing
+
+
+def _template_without_estimate_note(text):
+    """The template with its estimate note lines removed: the lines between
+    the `> thinking, checking:` line and `> Unrecognized keys`."""
+    lines = text.splitlines(keepends=True)
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("> thinking, checking:"))
+    end = next(i for i, ln in enumerate(lines) if ln.startswith("> Unrecognized keys"))
+    assert end - start > 1, "no estimate note lines between the anchors"
+    return "".join(lines[:start + 1] + lines[end:])
+
+
+def test_contract_homes_state_the_estimate_contract():
+    # AC1 (#737): both homes state every claim; the test pins tokens built
+    # from the constants, not sentences.
+    template = TEMPLATE.read_text(encoding="utf-8")
+    spec = _spec_131(SPEC.read_text(encoding="utf-8"))
+    assert _missing_contract_claims(template) == []
+    assert _missing_contract_claims(spec) == []
+    # planted controls, one per claim kind, on each home's flattened prose
+    for home in (template, spec):
+        flat = _contract_text(home)
+        assert _missing_contract_claims(flat.replace("one trailing unit", "")) == \
+            ["one trailing unit"]
+        for u, f in FACTORS.items():
+            bumped = _factor_re(u, f).sub(lambda m, f=f: m.group(0)[:-len(str(f))] + str(f + 1), flat)
+            assert _missing_contract_claims(bumped) == [f"{u} = {f}"], u
+        assert _missing_contract_claims(flat.replace("`non-time`", "non-time")) == ["`non-time`"]
+    # the example rows (a range in each key) cannot supply the range claims
+    bare = _missing_contract_claims(_template_without_estimate_note(template))
+    assert {"one trailing unit", "single value"} <= set(bare)
+    assert re.search(r"est: 2-4d, tok: 1-3M", _template_without_estimate_note(template))
+
+
+def test_template_example_rows_are_not_zero_estimates():
+    nodes = list(_walk(wbs_parser.parse_text(TEMPLATE.read_text(encoding="utf-8"))))
+    assert len(nodes) >= 3
+    est = [wbs_parser.classify_estimate("est", n["meta"].get("est")) for n in nodes]
+    assert not [e for e in est if e["class"] == "time" and e["high"] == 0]
+    assert {"placeholder", "time"} <= {e["class"] for e in est}
+    tok = [wbs_parser.classify_estimate("tok", n["meta"].get("tok"))["class"] for n in nodes]
+    assert tok.count("tokens") == 1
+
+
+ESTIMATE_RULE_NAMES = ("HOUR_FACTORS", "TOKEN_FACTORS", "ESTIMATE_VALUE_RE",
+                       "ESTIMATE_PLACEHOLDER_RE")
+
+
+def test_estimate_rule_has_one_home():
+    # #737: the estimate tables and classify_estimate live in wbs-parser.py
+    # alone; portfolio.py's interim classifier is gone. Planted controls first.
+    assert _assigns_named("HOUR" + "_FACTORS: dict = {}\n", "HOUR_FACTORS") == 1
+    assert _defs_named("def classify" + "_estimate(k, v):\n    pass\n", "classify_estimate") == 1
+    hits = {}
+    for p in sorted((REPO / "scripts" / "lib").glob("*.py")):
+        src = p.read_text(encoding="utf-8")
+        counts = {n: _assigns_named(src, n) for n in ESTIMATE_RULE_NAMES}
+        counts["classify_estimate"] = _defs_named(src, "classify_estimate")
+        if any(counts.values()):
+            hits[p.name] = counts
+    assert hits == {"wbs-parser.py": {**{n: 1 for n in ESTIMATE_RULE_NAMES},
+                                      "classify_estimate": 1}}

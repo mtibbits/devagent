@@ -209,6 +209,7 @@ PF='bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh"'
   grep -qF 'stay with verification 3' "$spec"                          # the stated blind spot
   grep -qF -- '- FR-142: Before dispatching the preship verifier, devagent stops on evidence the verifier would fail and reports MR-body claims that differ from the branch' "$req"
   grep -E '^  \{needs: \[FR-1, ' "$req" | head -1 | grep -qF 'FR-142'
-  local unrel; unrel="$(sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' "$root/CHANGELOG.md")"
+  # From [Unreleased] to the end: a release cut moves the entry under a dated section.
+  local unrel; unrel="$(sed -n '/^## \[Unreleased\]/,$p' "$root/CHANGELOG.md")"
   [[ "$unrel" == *'scripts/claims-check.sh'* ]] && [[ "$unrel" == *'--attestable-exit'* ]] && [[ "$unrel" == *'(#1122)'* ]]
 }
