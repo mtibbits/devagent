@@ -2806,8 +2806,9 @@ issue, not operator time and not calendar time. Its units are `h` = 1,
 `d` = 8 and `w` = 40 agent hours, matched exactly and case-sensitively: `d`
 and `w` are fixed multiples of agent hours, not calendar days. Any other unit
 (`30m`, `2hrs`, `1W`, or `500k` under `est`) is `non-time`: not an estimate,
-and the portfolio lists it under `rollup.non_time`. `tok` is the token
-estimate, in the unit the actuals ledger records: cost-report's price-weighted
+and the portfolio totals it, for remaining leaves only, under
+`rollup.remaining.non_time`. `tok` is the token estimate, in cost-report's
+unit, the unit the planned actuals ledger (#729) will record: price-weighted
 input-token equivalents, written with `k` = 1000 or `M` = 1000000 (`tok: 500k`,
 `tok: 2M`); a bare integer is not a value. Either key takes a single value or
 a range, `low-high` with one trailing unit (`est: 2-4d`, `tok: 1-3M`), low not
@@ -2828,8 +2829,8 @@ Every value falls in exactly one class, per key:
 Only `time` and `tokens` count as estimates. `est` or `tok` on a parent node is
 the operator's own roll-up: readers of leaf estimates ignore it, and it is
 never summed. `cost` is operator-defined and uninterpreted: devagent preserves
-it and reads it nowhere. It is not an actual; actuals live in the ledger, never
-in `WBS.md`.
+it and reads it nowhere. It is not an actual; actuals belong in the planned
+actuals ledger (#729), never in `WBS.md`.
 
 Legacy values: nothing in `WBS.md` dates a value, and the classifier returns no
 legacy marker, so the reader decides. The one provenance signal is `est_src`
@@ -2843,8 +2844,9 @@ returns `{key, raw, class, low, high, quantity, unit}`: `low` and `high` for
 `time` (agent hours) and `tokens` (token counts), `quantity` and `unit` for
 `non-time`, and null otherwise. It does not strip or normalise, so a caller
 reading values outside `WBS.md` (#738's plan lines, say) strips whitespace and
-CR first; `WBS.md` values arrive stripped. Nothing is checked at parse: `est`
-and `tok` stay strings in `meta` and draw no parse warning, and the portfolio
+CR first; unquoted `WBS.md` values arrive stripped, and a quoted value keeps
+its inner whitespace. Nothing is checked at parse: `est` and `tok` stay in
+`meta` as parsed (a string, or a list for `[a, b]`) and draw no parse warning, and the portfolio
 reports a bad value as `est_unparseable` or `tok_unparseable`. No value on disk
 is rewritten, and `wbs update` still writes `est: ?w` for a newly added leaf
 (`scripts/wbs-update.sh`).

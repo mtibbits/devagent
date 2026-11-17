@@ -1,5 +1,6 @@
 """Tests for scripts/lib/wbs-parser.py."""
 import ast
+import decimal
 import importlib.util
 import json
 import os
@@ -1631,6 +1632,7 @@ ESTIMATE_ROWS = [
     _r("tok", "500k-2M", "unparseable"),
     _r("tok", "0.0005k", "unparseable"),                      # whole tokens
     _r("tok", "0.5-1.0005k", "unparseable"),
+    _r("tok", "0.0005-1k", "unparseable"),                    # whole low bound too
     _r("tok", ["1M", "2M"], "unparseable"),
 ]
 
@@ -1642,6 +1644,7 @@ def test_classify_estimate_rows(key, raw, want):
     assert got["raw"] is raw
     for field in ("low", "high", "quantity"):
         v = got[field]
+        assert v is None or type(v) in (int, float), (field, v)   # never a Decimal
         if v is not None and float(v).is_integer():
             assert type(v) is int, (field, v)
 
@@ -1655,6 +1658,17 @@ def test_estimate_tables_pinned():
     assert wbs_parser.TOK_CLASSES == ("absent", "placeholder", "tokens", "unparseable")
     got = [wbs_parser.classify_estimate("est", v) for v in ("1h", "1d", "1w")]
     assert [(c["low"], c["high"]) for c in got] == [(1, 1), (8, 8), (40, 40)]
+
+
+def test_classify_estimate_ignores_the_ambient_decimal_context():
+    # #737 red-team: bounds do not depend on the caller's decimal context.
+    with decimal.localcontext() as ctx:
+        ctx.prec = 3
+        ctx.traps[decimal.Inexact] = True
+        tok = wbs_parser.classify_estimate("tok", "123456.789M")
+        est = wbs_parser.classify_estimate("est", "123456.5h")
+    assert (tok["class"], tok["low"], tok["high"]) == ("tokens", 123456789000, 123456789000)
+    assert (est["class"], est["low"], est["high"]) == ("time", 123456.5, 123456.5)
 
 
 @pytest.mark.parametrize("key", ["cost", "EST", ""])

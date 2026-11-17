@@ -1119,7 +1119,7 @@ def test_range_and_tok_through_the_producer(tmp_path):
 
 
 TOK_ROWS = [("tbad-int", "500000"), ("tbad-case", "500K"), ("tbad-unit", "2m"),
-            ("tgood", "2M")]
+            ("tgood", "2M"), ("tplaceholder", "?")]
 
 
 def _tok_doc(root):
@@ -1724,22 +1724,35 @@ def test_command_doc_defines_ready():
                for para in paragraphs), "order sentence"
 
 
+def _doc_section(text, heading):
+    """The lines from `heading` up to the next heading of the same or a higher level."""
+    level = len(heading) - len(heading.lstrip("#"))
+    lines = text.splitlines()
+    start = lines.index(heading)
+    end = next((i for i in range(start + 1, len(lines))
+                if re.match(rf"#{{1,{level}}} ", lines[i])), len(lines))
+    return "\n".join(lines[start:end])
+
+
 def test_command_doc_names_contract_factors():
-    # #737: the command doc names the contract's factors and its classifier,
-    # and the interim wording is gone.
-    text = COMMAND_DOC.read_text(encoding="utf-8")
+    # #737: the command doc's Estimates section names the contract's factors
+    # and its classifier, and the interim wording is gone from it.
+    est = _doc_section(COMMAND_DOC.read_text(encoding="utf-8"), "## Estimates")
     assert [f"`{u}` = {h}" for u, h in pf.wbs_parser.HOUR_FACTORS.items()
-            if f"`{u}` = {h}" not in text] == []
-    assert "classify_estimate" in text
-    assert [w for w in ("provisional", "interim") if w in text.lower()] == []
+            if f"`{u}` = {h}" not in est] == []
+    assert "classify_estimate" in est
+    assert [w for w in ("provisional", "interim") if w in est.lower()] == []
 
 
 def test_schema_doc_drops_provisional_notes():
+    # #737: the est writer row and the Deferred section drop the interim notes;
+    # the two retired references are gone from the whole page.
     text = SCHEMA_DOC.read_text(encoding="utf-8")
-    assert "classify_estimate" in text and "tok_src" in text
-    assert [w for w in ("interim", "provisional", "issuecomment-6670452997", "tokens_src")
-            if w in text] == []
+    assert [w for w in ("issuecomment-6670452997", "tokens_src") if w in text] == []
     (row,) = [ln for ln in text.splitlines() if ln.startswith("| `est.class`, `est.low_hours`")]
+    deferred = _doc_section(text, "## Deferred")
+    assert [w for w in ("interim", "provisional") if w in (row + deferred).lower()] == []
+    assert "#941" in deferred
     assert "classify_estimate" in row
     assert [f for f in ("`d` = 8", "`w` = 40") if f in row] == []
 

@@ -71,7 +71,8 @@ estimate, in units of TOKEN_FACTORS (`k`, `M`); either takes a single value or
 a `low-high` range with one trailing unit. `classify_estimate(key, value)`
 gives each value one class, EST_CLASSES for `est` and TOK_CLASSES for `tok`,
 with its bounds. The parser never classifies at parse: `est` and `tok` stay
-strings in `meta`, and no value draws a parse warning.
+in `meta` as parsed (a string, or a list for `[a, b]`), and no value draws a
+parse warning.
 
 Every WBS.md write goes through `write_document` (an atomic temp + replace
 with a bounded retry on a sharing violation, #749): `write_markdown` is
@@ -121,7 +122,7 @@ import sys
 import time
 from collections import Counter
 from collections.abc import Callable
-from decimal import Decimal
+from decimal import Context, Decimal
 from pathlib import Path
 
 STATE_GLYPHS: dict[str, str] = {
@@ -236,7 +237,7 @@ def model_value(meta: dict, key: str) -> tuple[str | None, str | None]:
 ESTIMATE_KEYS: tuple[str, ...] = ("est", "tok")
 # est: agent hours; `d` and `w` are fixed multiples of agent hours, not calendar days.
 HOUR_FACTORS: dict[str, int] = {"h": 1, "d": 8, "w": 40}
-# tok: token counts in the ledger's unit (price-weighted input-token equivalents).
+# tok: token counts in cost-report's unit (price-weighted input-token equivalents).
 TOKEN_FACTORS: dict[str, int] = {"k": 1000, "M": 1000000}
 EST_CLASSES: tuple[str, ...] = ("absent", "placeholder", "time", "non-time", "unparseable")
 TOK_CLASSES: tuple[str, ...] = ("absent", "placeholder", "tokens", "unparseable")
@@ -246,6 +247,9 @@ ESTIMATE_PLACEHOLDER_RE = re.compile(r"\?[A-Za-z]*")
 ESTIMATE_VALUE_RE = re.compile(
     r"(?P<lo>[0-9]{1,9}(?:\.[0-9]{1,6})?)(?:-(?P<hi>[0-9]{1,9}(?:\.[0-9]{1,6})?))?(?P<u>[A-Za-z]+)")
 ESTIMATE_KEY_ERROR = "classify_estimate: key '{}' is not est or tok"
+# Bounds are multiplied under this context, never the caller's: 28 digits hold
+# every product the regex admits (15 significant digits times at most 10**6).
+_ESTIMATE_CONTEXT = Context(prec=28)
 
 
 def est_num(d: Decimal) -> int | float:
@@ -262,7 +266,7 @@ def classify_estimate(key: str, value) -> dict:
     absent (`value` is None); placeholder (`?` or `?<unit>`); time (`est`: a
     number or `low-high` range in an HOUR_FACTORS unit; low/high in agent
     hours); tokens (`tok`: the same in a TOKEN_FACTORS unit, whole tokens;
-    low/high are int token counts in the ledger's unit); non-time (`est`: a
+    low/high are int token counts in cost-report's unit); non-time (`est`: a
     single number in any other unit; quantity and unit as written);
     unparseable (anything else, including a non-str value). Units match
     exactly. Nothing is stripped or case-folded: callers reading values
@@ -290,7 +294,8 @@ def classify_estimate(key: str, value) -> dict:
     unit = m.group("u")
     factors = HOUR_FACTORS if key == "est" else TOKEN_FACTORS
     if unit in factors:
-        low, high = lo * factors[unit], hi * factors[unit]
+        low = _ESTIMATE_CONTEXT.multiply(lo, factors[unit])
+        high = _ESTIMATE_CONTEXT.multiply(hi, factors[unit])
         if key == "est":
             out.update({"class": "time", "low": est_num(low), "high": est_num(high)})
         elif low == low.to_integral_value() and high == high.to_integral_value():

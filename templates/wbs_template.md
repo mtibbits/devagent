@@ -14,9 +14,10 @@
 > `M` = 1000000 (tok: 500k); a bare number is not a value. Either key takes a single value or a range low-high with
 > one trailing unit (est: 2-4d, tok: 1-3M), low not above high. Zero is a legal estimate.
 > est classes: `absent` (no key), `placeholder` (? or ?w), `time` (h, d or w), `non-time` (any other unit, as in
-> 48pr: not an estimate), `unparseable` (anything else). tok classes: `absent`, `placeholder`, `tokens`, `unparseable`.
+> 48pr: not an estimate), `unparseable` (anything else). tok classes: `absent` (no key), `placeholder` (? or ?M),
+> `tokens` (k or M, whole tokens), `unparseable` (anything else, a bare number included).
 > On a parent node, est or tok is the operator's own roll-up: leaf readers ignore it, and it is never summed.
-> cost: operator-defined and uninterpreted. It is not an actual; actuals live in the ledger, never in WBS.md.
+> cost: operator-defined and uninterpreted. It is not an actual; actuals belong in the planned actuals ledger (#729), never in WBS.md.
 > Unrecognized keys are preserved verbatim.
 > `wbs update` sets a leaf's glyph from its issue's tracker state, linked MRs, else its
 > checklist, records which in `status_src`, and writes `mr` (open, draft or merged) for an
