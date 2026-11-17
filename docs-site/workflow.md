@@ -1,70 +1,55 @@
-<!-- derived-from: README.md docs/specs/2026-05-19-devagent-plugin-design.md templates/checklist-standard.md -->
-# Workflow reference
+<!-- derived-from: README.md docs/specs/2026-05-19-devagent-plugin-design.md templates/checklist-standard.md docs-site/phases.txt -->
+# How it works
 
-## Numbering
+devAgent plans before it builds, has fresh eyes check the plan and the finished
+change, and keeps a written record of each step. The record lives in plain
+files, so any session can pick up an issue where the last one stopped.
 
-Steps are numbered 0–24 in execution order — 25 numbered step commands in
-all, and the checklist reads top-to-bottom. Some are optional and off by
-default: `1 research` and `3 spike` opt in per issue via the
-`## Workflow flags` block, and `19 mergetoall` opts in per project by
-configuring `all_prs_branch`. A normal issue runs the 22 mandatory steps and
-its checklist shows the optional rows pre-marked `[-]` (skipped). Reduced
-checklist tiers show a monotonic subset with larger gaps.
+## Five phases
 
-Run steps one at a time with `/devagent:next` (which advances to the next
-unmarked step), chain them with `/devagent:next --auto`, or invoke any step
-command directly.
+Every issue moves through the same checklist of steps, in five phases:
 
-An `--auto` chain stops with a `PHASE BREAK` before `implement`, `quality` and
-`updatewbs`: run `/clear`, then the printed Resume command. Each phase then
-starts in a fresh session instead of re-reading the whole issue's history on
-every call (config `phase_breaks`; `--no-breaks` skips it for one chain).
+- **Plan** — `pull` · `research` · `draft` · `spike` · `scope` · `improve` · `prune` · `tighten`. Write down what to build, and have the plan checked before any code exists.
+- **Build** — `branch` · `implement` · `quality` · `document` · `commit` · `analyze`. Make the change on its own branch, tidy it, and record what was built.
+- **Verify** — `draftmr` · `review` · `redmr` · `preship`. Describe the change, then let fresh readers try to break it.
+- **Ship** — `ship` · `mergetoall` · `mergemr`. Open the merge request, and merge it at the version that was checked.
+- **Learn** — `updatewbs` · `impact` · `lessonslearned` · `cleanup`. Update the plan of work, measure what changed, and keep the lessons.
 
-Step 20, `/devagent:mergemr`, merges the PR only when the project sets
-`permissions.merge_mr = true`, and only at the head the last passing preship
-verified (`verified_head`), or, after a merge-forward git made itself, the head
-`preship-verified-head.sh forward` re-recorded, on green CI only; otherwise it
-marks its row `[?]` until the PR is merged elsewhere. `/devagent:next` re-checks a `[?]` mergemr row on every run;
-while the PR is still open it prints `WAITING at step 20 (mergemr): the PR is
-not merged yet; …` and stops with exit 0. Nothing polls: run `/devagent:next`
-again later. mergetoall (19) holds on pending CI before mergemr runs, so an
-`--auto` chain reaches mergemr only with mergetoall `[-]` or CI green. Cleanup
-waits for the mergemr row; `/devagent:park` or marking the row `[-]` are the
-escapes for a PR that stays open (see `commands/mergemr.md`).
+Three steps are optional and off unless you turn them on: research, spike and
+mergetoall. Run the steps one at a time with `/devagent:next`, or chain them
+with `/devagent:next --auto`.
 
-## Step table
+## The steps
 
 Rows in execution order.
 
-| #  | Command | Phase | Purpose |
-|----|---------|-------|---------|
-| 0  | `pull` | Plan | Fetch the issue and scaffold its workflow directory |
-| 1  | `research` | Plan | _(optional, off by default)_ Measure code/docs/upstream before drafting; record cited findings and open unknowns |
-| 2  | `draft` | Plan | Draft the implementation plan |
-| 3  | `spike` | Plan | _(optional, off by default)_ Run the plan's load-bearing bets in a throwaway worktree; record verdicts |
-| 4  | `scope` | Plan | Structured scope evaluation appended to the plan |
-| 5  | `improve` | Plan | Fresh-context check for latent bugs, side effects, and ambiguities |
-| 6  | `prune` | Plan | Move non-load-bearing items to the future-enhancements file |
-| 7  | `tighten` | Plan | Final pre-implementation review: lock ordering, paths, and test plan |
-| 8  | `branch` | Implement | Create the issue branch from the configured baseline |
-| 9  | `implement` | Implement | Execute the plan task-by-task |
-| 10 | `quality` | Implement | Review and tighten code quality on the branch |
-| 11 | `document` | Implement | Record what was actually built versus planned |
-| 12 | `commit` | Implement | Commit with DCO sign-off using the commit template |
-| 13 | `analyze` | Implement | Run the project's analyzer family against the changed lines |
-| 14 | `draftmr` | Ship | Draft the merge-request body |
-| 15 | `review` | Ship | Run code review on the branch |
-| 16 | `redmr` | Ship | Red-team adversarial review of the MR before shipping |
-| 17 | `preship` | Ship | Fresh-context verification that the committed branch satisfies the acceptance criteria, after a main-session preflight checks the suite evidence and the MR body's claims |
-| 18 | `ship` | Ship | Push the branch and open the MR |
-| 19 | `mergetoall` | Integrate & close | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR |
-| 20 | `mergemr` | Integrate & close | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged |
-| 21 | `updatewbs` | Integrate & close | Update the work-breakdown structure |
-| 22 | `impact` | Integrate & close | Measure and record the real-world impact of the merged change |
-| 23 | `lessonslearned` | Integrate & close | Extract reusable lessons from the completed issue |
-| 24 | `cleanup` | Integrate & close | Restore the tree, commit the devdoc, clear the active issue |
-
-## Checklist glyphs
+| #  | Command | Phase | Purpose | Why |
+|----|---------|-------|---------|-----|
+| 0  | `pull` | Plan | Fetch the issue and scaffold its workflow directory | Every issue starts from the tracker's own words, saved on disk, so every later check compares against what was asked. |
+| 1  | `research` | Plan | _(optional, off by default)_ Measure code/docs/upstream before drafting; record cited findings and open unknowns | Measuring the code before planning keeps the plan from resting on guesses. |
+| 2  | `draft` | Plan | Draft the implementation plan | A written plan is cheaper to fix than code, and it gives every later check something to check against. |
+| 3  | `spike` | Plan | _(optional, off by default)_ Run the plan's load-bearing bets in a throwaway worktree; record verdicts | A quick throwaway test of the plan's riskiest guess shows whether the plan stands before anything is built on it. |
+| 4  | `scope` | Plan | Structured scope evaluation appended to the plan | Asking whether the plan does too much or too little catches scope creep before any work is done. |
+| 5  | `improve` | Plan | Fresh-context check for latent bugs, side effects, and ambiguities | A fresh reader with none of the author's assumptions looks for bugs in the plan, where they are cheapest to fix. |
+| 6  | `prune` | Plan | Move non-load-bearing items to the future-enhancements file | Moving the nice-to-haves out of the plan keeps the change small enough to review well. |
+| 7  | `tighten` | Plan | Final pre-implementation review: lock ordering, paths, and test plan | Locking the order, the files and the tests means the build follows a fixed plan, not a moving one. |
+| 8  | `branch` | Build | Create the issue branch from the configured baseline | Its own branch keeps each issue's change apart from everything else. |
+| 9  | `implement` | Build | Execute the plan task-by-task | The plan is carried out one task at a time, tests first, so each piece is checked as it lands. |
+| 10 | `quality` | Build | Review and tighten code quality on the branch | A second pass over working code catches the mess that passing tests let through. |
+| 11 | `document` | Build | Record what was actually built versus planned | Writing down what was built, and where it differs from the plan, keeps the record honest. |
+| 12 | `commit` | Build | Commit with DCO sign-off using the commit template | A signed commit in a fixed format ties the change to its issue and its author. |
+| 13 | `analyze` | Build | Run the project's analyzer family against the changed lines | Static checks on the changed lines catch mistakes that people and tests miss. |
+| 14 | `draftmr` | Verify | Draft the merge-request body | The merge request says what changed and why, so reviewers do not have to rebuild the story. |
+| 15 | `review` | Verify | Run code review on the branch | A code review reads the whole change against the plan before anyone else has to. |
+| 16 | `redmr` | Verify | Red-team adversarial review of the MR before shipping | A hostile reader tries to break the change before a real reviewer or user does. |
+| 17 | `preship` | Verify | Fresh-context verification that the committed branch satisfies the acceptance criteria, after a main-session preflight checks the suite evidence and the MR body's claims | A fresh reader checks the committed branch against the issue's goals, so nothing ships on the author's word alone. |
+| 18 | `ship` | Ship | Push the branch and open the MR | The merge request opens only after every check has passed, so reviewers see finished work. |
+| 19 | `mergetoall` | Ship | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR | Merging every open change into one local branch shows early whether they work together. |
+| 20 | `mergemr` | Ship | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged | The change merges only at the exact version that was checked, so nothing unchecked slips in. |
+| 21 | `updatewbs` | Learn | Update the work-breakdown structure | Updating the plan of work keeps the list of what is left true after each merge. |
+| 22 | `impact` | Learn | Measure and record the real-world impact of the merged change | Measuring what the merged change really did shows whether it solved the problem. |
+| 23 | `lessonslearned` | Learn | Extract reusable lessons from the completed issue | Writing down what went wrong feeds the next plan, so the same mistake is not made twice. |
+| 24 | `cleanup` | Learn | Restore the tree, commit the devdoc, clear the active issue | Restoring the tree and saving the record gives the next issue a clean start. |
 
 Every issue's `checklist.md` tracks step state with this key:
 
@@ -72,15 +57,79 @@ Every issue's `checklist.md` tracks step state with this key:
 State key: [ ] pending  [x] done  [-] skipped  [!] stuck  [~] in-progress  [?] blocked-external  [P] parked
 ```
 
+## When it stops
+
+A chain of steps can stop in a few ways, and each asks something different of
+you.
+
+**Waiting `[?]`.** Something outside devAgent has to happen first. The row is
+marked `[?]`; the glyph key calls this state `blocked-external`, and the two
+names mean the same thing. The common case is the merge step, which waits for
+the pull request to be merged. `/devagent:next` re-checks that row each time
+you run it. While the pull request is still open, it prints a line that starts
+with `WAITING` and stops. Nothing polls in the background, so run
+`/devagent:next` again later. For any other `[?]` row, `/devagent:next` stops
+and suggests parking the issue with `/devagent:park <project>` until the
+outside work is done.
+
+**Stuck `[!]`.** When a step fails, the chain stops. Usually that is all: the
+row stays as it was, so fix the cause and run `/devagent:next` again to retry
+the step. Some steps, and you with `/devagent:stuck <project> "<reason>"`, mark
+the row `[!]` and write the reason to a `STUCK` file in the issue's folder.
+Then `/devagent:next` refuses to go on until you read it, fix the cause and run
+`/devagent:unstuck <project>`.
+
+**Phase breaks and `--through`.** A chain started with `/devagent:next --auto`
+stops at each phase break and prints `PHASE BREAK` with a resume command. Run
+`/clear`, then the printed command. The next stretch of work starts in a fresh
+session instead of re-reading the whole issue's history on every call. By
+default the breaks fall before `implement`, `quality` and `updatewbs`. These are
+not the borders between the five phases: they fall where a fresh session helps
+most. To stop a chain early on purpose, give it an end:
+`/devagent:next --through <step>` runs up to and including that step, then
+stops. It still stops at any phase break on the way.
+`/devagent:next --auto --no-breaks` runs a chain without them.
+
 ## The revision loop
 
-- Run `/devagent:comments` first to fetch reviewer feedback, then
-  `/devagent:revise` opens a new revision pass that re-runs the workflow from
-  the draft step — the revision's first pending step. `revise` does not fetch
-  comments itself and stops with a pointer to `comments` if they are missing.
-- `/devagent:stuck` marks the current step stuck with a reason;
-  `/devagent:unstuck` clears it and resumes.
-- `/devagent:where` and `/devagent:catchup` rehydrate an issue's state at
-  any point — the current step, the artifacts so far, and what comes next.
+When reviewers comment on the merge request, run `/devagent:comments` to fetch
+their comments, then `/devagent:revise` to open a new revision pass. The pass
+re-runs the workflow from the `draft` step. `revise` does not fetch comments
+itself: if they are missing, it stops and points you to `comments`. At any
+point, `/devagent:where <project>` and `/devagent:catchup <project>` show where
+an issue stands: the current step, the work so far, and what comes next.
+
+## Details
+
+**Numbering.** Steps are numbered 0–24 in execution order — 25 numbered step
+commands in all, and the checklist reads top-to-bottom. Some are optional and
+off by default: `1 research` and `3 spike` opt in per issue via the
+`## Workflow flags` block, and `19 mergetoall` opts in per project by
+configuring `all_prs_branch`. A normal issue runs the 22 mandatory steps and
+its checklist shows the optional rows pre-marked `[-]` (skipped). Reduced
+checklist tiers show a monotonic subset with larger gaps.
+
+**Phase breaks.** The phase breaks described under When it stops come from
+config `phase_breaks`; see the
+[configuration reference](../docs/configuration.md).
+
+**Merging.** Step 20, `/devagent:mergemr`, merges the PR only when the project
+sets `permissions.merge_mr = true`, and only at the head the last passing
+preship verified (`verified_head`), or, after a merge-forward git made itself,
+the head `preship-verified-head.sh forward` re-recorded, on green CI only;
+otherwise it marks its row `[?]` until the PR is merged elsewhere.
+`/devagent:next` re-checks a `[?]` mergemr row on every run; while the PR is
+still open it prints
+`WAITING at step 20 (mergemr): the PR is not merged yet; …`
+and stops with exit 0. Nothing polls: run `/devagent:next` again later.
+mergetoall (19) holds on pending CI before mergemr runs, so an `--auto` chain
+reaches mergemr only with mergetoall `[-]` or CI green. Cleanup waits for the
+mergemr row; `/devagent:park <project>` or marking the row `[-]` are the
+escapes for a PR that stays open (see `commands/mergemr.md`).
+
+**Other stops.** A chain can also stop while CI is still running on the merge
+request, and at a permission gate you decline, such as `ship` asking before it
+pushes; the [design spec](../docs/specs/2026-05-19-devagent-plugin-design.md)
+(section 7, Chaining) has the full rules.
 
 [← devAgent onboarding](./index.html)
