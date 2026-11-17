@@ -7,6 +7,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -1559,3 +1560,183 @@ def test_inserted_only_has_one_home():
     hits = {p.name: _defs_named(p.read_text(encoding="utf-8"), "inserted_only")
             for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
     assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
+
+
+# --- the estimate contract (#737) ------------------------------------------------
+
+def _r(key, raw, cls, low=None, high=None, quantity=None, unit=None):
+    want = {"key": key, "raw": raw, "class": cls, "low": low, "high": high,
+            "quantity": quantity, "unit": unit}
+    return pytest.param(key, raw, want, id=f"{key}-{raw!r}")
+
+
+FREE_TEXT = "1d (actual ~14h wall-clock + 2h hands-on)"
+
+ESTIMATE_ROWS = [
+    _r("est", None, "absent"),
+    _r("est", "?w", "placeholder"),
+    _r("est", "?", "placeholder"),
+    _r("est", "?pr", "placeholder"),
+    _r("est", "1w", "time", 40, 40),
+    _r("est", "3d", "time", 24, 24),
+    _r("est", "1.5d", "time", 12, 12),
+    _r("est", "6h", "time", 6, 6),
+    _r("est", "0w", "time", 0, 0),
+    _r("est", "2-4d", "time", 16, 32),
+    _r("est", "0.5-1.5h", "time", 0.5, 1.5),
+    _r("est", "2-2d", "time", 16, 16),
+    _r("est", "20pr", "non-time", quantity=20, unit="pr"),
+    _r("est", "2.5pr", "non-time", quantity=2.5, unit="pr"),
+    _r("est", "1W", "non-time", quantity=1, unit="W"),       # exact units
+    _r("est", "500k", "non-time", quantity=500, unit="k"),
+    _r("est", "4-2d", "unparseable"),                         # low <= high
+    _r("est", "2-4pr", "unparseable"),                        # no non-time range
+    _r("est", "2d-4d", "unparseable"),                        # one trailing unit
+    _r("est", "2..4d", "unparseable"),
+    _r("est", "2 - 4d", "unparseable"),
+    _r("est", " 1w", "unparseable"),                          # no strip
+    _r("est", "?3d", "unparseable"),
+    _r("est", "?-4d", "unparseable"),
+    _r("est", "5", "unparseable"),                            # suffix only
+    _r("est", "", "unparseable"),                             # absent only for None
+    _r("est", "9999999999h", "unparseable"),                  # digit caps
+    _r("est", ["1w", "2w"], "unparseable"),
+    _r("est", 5, "unparseable"),
+    _r("est", FREE_TEXT, "unparseable"),
+    _r("tok", None, "absent"),
+    _r("tok", "?", "placeholder"),
+    _r("tok", "?M", "placeholder"),
+    _r("tok", "?w", "placeholder"),
+    _r("tok", "500k", "tokens", 500000, 500000),
+    _r("tok", "2M", "tokens", 2000000, 2000000),
+    _r("tok", "1.5M", "tokens", 1500000, 1500000),
+    _r("tok", "1.5k", "tokens", 1500, 1500),
+    _r("tok", "0k", "tokens", 0, 0),
+    _r("tok", "1-3M", "tokens", 1000000, 3000000),
+    _r("tok", "250-750k", "tokens", 250000, 750000),
+    _r("tok", "3-1M", "unparseable"),                         # low <= high
+    _r("tok", "500000", "unparseable"),                       # suffix only
+    _r("tok", "500K", "unparseable"),                         # exact units
+    _r("tok", "2m", "unparseable"),
+    _r("tok", "2d", "unparseable"),
+    _r("tok", "48pr", "unparseable"),
+    _r("tok", "500k-2M", "unparseable"),
+    _r("tok", "0.0005k", "unparseable"),                      # whole tokens
+    _r("tok", "0.5-1.0005k", "unparseable"),
+    _r("tok", ["1M", "2M"], "unparseable"),
+]
+
+
+@pytest.mark.parametrize("key,raw,want", ESTIMATE_ROWS)
+def test_classify_estimate_rows(key, raw, want):
+    got = wbs_parser.classify_estimate(key, raw)
+    assert got == want
+    assert got["raw"] is raw
+    for field in ("low", "high", "quantity"):
+        v = got[field]
+        if v is not None and float(v).is_integer():
+            assert type(v) is int, (field, v)
+    if got["class"] == "tokens":
+        assert type(got["low"]) is int and type(got["high"]) is int
+
+
+def test_estimate_tables_pinned():
+    # AC3: the conversions, and the class vocabularies, as literals.
+    assert wbs_parser.HOUR_FACTORS == {"h": 1, "d": 8, "w": 40}
+    assert wbs_parser.TOKEN_FACTORS == {"k": 1000, "M": 1000000}
+    assert wbs_parser.ESTIMATE_KEYS == ("est", "tok")
+    assert wbs_parser.EST_CLASSES == ("absent", "placeholder", "time", "non-time", "unparseable")
+    assert wbs_parser.TOK_CLASSES == ("absent", "placeholder", "tokens", "unparseable")
+    got = [(wbs_parser.classify_estimate("est", v)["low"],
+            wbs_parser.classify_estimate("est", v)["high"]) for v in ("1h", "1d", "1w")]
+    assert got == [(1, 1), (8, 8), (40, 40)]
+
+
+@pytest.mark.parametrize("key", ["cost", "EST", ""])
+def test_classify_estimate_refuses_other_keys(key):
+    with pytest.raises(ValueError) as err:
+        wbs_parser.classify_estimate(key, "1w")
+    assert str(err.value) == wbs_parser.ESTIMATE_KEY_ERROR.format(key)
+
+
+def _by_marker(nodes, marker):
+    hits = [n for n in nodes if marker in n["text"].split()]
+    assert len(hits) == 1, (marker, hits)
+    return hits[0]
+
+
+EST_FORMS = {  # marker -> (est class, low, high, quantity, unit)
+    "f-parent-time": ("time", 320, 320, None, None),
+    "f-week": ("time", 40, 40, None, None),
+    "f-days": ("time", 24, 24, None, None),
+    "f-decimal-days": ("time", 12, 12, None, None),
+    "f-parent-pr": ("non-time", None, None, 48, "pr"),
+    "f-placeholder": ("placeholder", None, None, None, None),
+    "f-pr": ("non-time", None, None, 20, "pr"),
+    "f-decimal-pr": ("non-time", None, None, 2.5, "pr"),
+    "f-free-text": ("unparseable", None, None, None, None),
+    "f-bad-placeholder": ("unparseable", None, None, None, None),
+    "f-range": ("time", 16, 32, None, None),
+    "f-tok-point": ("placeholder", None, None, None, None),
+    "f-absent": ("absent", None, None, None, None),
+}
+TOK_FORMS = {"f-range": (1000000, 3000000), "f-tok-point": (500000, 500000)}
+
+
+def test_est_forms_fixture():
+    # AC2: every measured form through parse_file, then the helper.
+    tree = wbs_parser.parse_file(FIX / "est-forms.md")
+    nodes = list(_walk(tree))
+    assert len(nodes) == 13
+    leaf_ids = {id(n) for n in wbs_parser.leaves(tree)}
+    assert len(leaf_ids) == 11
+    assert set(EST_FORMS) == {m for n in nodes for m in n["text"].split() if m.startswith("f-")}
+    for marker, (cls, low, high, quantity, unit) in EST_FORMS.items():
+        node = _by_marker(nodes, marker)
+        got = wbs_parser.classify_estimate("est", node["meta"].get("est"))
+        assert (got["class"], got["low"], got["high"], got["quantity"], got["unit"]) == \
+            (cls, low, high, quantity, unit), marker
+        tok = wbs_parser.classify_estimate("tok", node["meta"].get("tok"))
+        if marker in TOK_FORMS:
+            assert (tok["class"], tok["low"], tok["high"]) == ("tokens", *TOK_FORMS[marker])
+        else:
+            assert tok["class"] == "absent", marker
+    assert _by_marker(nodes, "f-free-text")["meta"]["est"] == FREE_TEXT
+    # a leaf reader never meets a parent's est
+    for marker in ("f-parent-time", "f-parent-pr"):
+        parent = _by_marker(nodes, marker)
+        assert parent["children"]
+        assert id(parent) not in leaf_ids
+
+
+def test_estimate_value_needs_no_wbs_context():
+    # AC2's plan-line row: a value read from a plan line, not a WBS node.
+    text = (FIX / "est-forms-plan.md").read_text(encoding="utf-8")
+    lines = re.findall(r"^- (est|tok): (.+)$", text, re.M)
+    assert lines == [("est", "3-5h"), ("tok", "400-600k")]
+    est, tok = (wbs_parser.classify_estimate(k, v) for k, v in lines)
+    assert (est["class"], est["low"], est["high"]) == ("time", 3, 5)
+    assert (tok["class"], tok["low"], tok["high"]) == ("tokens", 400000, 600000)
+
+
+HOSTILE = ["9" * 200000 + "h", "?" + "a" * 200000 + "1",
+           "1-" * 100000 + "d", "1." + "0" * 200000 + "k"]
+
+
+@pytest.mark.parametrize("key", ["est", "tok"])
+def test_classify_estimate_hostile_values(key):
+    for value in HOSTILE:
+        start = time.monotonic()
+        got = wbs_parser.classify_estimate(key, value)
+        assert time.monotonic() - start < 2, value[:12]
+        assert got["class"] == "unparseable", value[:12]
+
+
+ESTIMATE_API = ("classify_estimate", "ESTIMATE_KEYS", "HOUR_FACTORS", "TOKEN_FACTORS",
+                "EST_CLASSES", "TOK_CLASSES", "est_num", "ESTIMATE_PLACEHOLDER_RE",
+                "ESTIMATE_VALUE_RE", "ESTIMATE_KEY_ERROR")
+
+
+def test_module_docstring_names_estimate_api():
+    doc = wbs_parser.__doc__
+    assert [n for n in ESTIMATE_API if f"`{n}`" not in doc] == []

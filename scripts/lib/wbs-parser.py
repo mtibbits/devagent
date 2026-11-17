@@ -65,6 +65,14 @@ the portfolio's Dep minus `resolved`), `[]` with none. `parse_text` and
 prefix equal to it is local. Without it, every prefixed entry is foreign
 and a local entry's `project` is null. Hand-built nodes lack this field too.
 
+The estimate contract (#737; spec §13.1): `est` is agent time, in units of
+HOUR_FACTORS (`h` = 1, `d` = 8, `w` = 40 agent hours), and `tok` is the token
+estimate, in units of TOKEN_FACTORS (`k`, `M`); either takes a single value or
+a `low-high` range with one trailing unit. `classify_estimate(key, value)`
+gives each value one class, EST_CLASSES for `est` and TOK_CLASSES for `tok`,
+with its bounds. The parser never classifies at parse: `est` and `tok` stay
+strings in `meta`, and no value draws a parse warning.
+
 Every WBS.md write goes through `write_document` (an atomic temp + replace
 with a bounded retry on a sharing violation, #749): `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
@@ -88,8 +96,11 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
 also reads `_dep_ids`, `h_value` and `as_list`, #888, `split_dep`, #887, and
 `model_value`, `MODEL_TOKENS` and `MODEL_KEYS`, #890), `read_model_tokens` (#890),
-`priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888), and for
-the order pass
+`priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888),
+`classify_estimate` with `ESTIMATE_KEYS`, `HOUR_FACTORS`, `TOKEN_FACTORS`,
+`EST_CLASSES`, `TOK_CLASSES`, `est_num`, `ESTIMATE_PLACEHOLDER_RE`,
+`ESTIMATE_VALUE_RE` and `ESTIMATE_KEY_ERROR` (#737; portfolio.py reads them),
+and for the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
@@ -109,6 +120,7 @@ import sys
 import time
 from collections import Counter
 from collections.abc import Callable
+from decimal import Decimal
 from pathlib import Path
 
 STATE_GLYPHS: dict[str, str] = {
@@ -215,6 +227,77 @@ def model_value(meta: dict, key: str) -> tuple[str | None, str | None]:
     if isinstance(v, str) and v in MODEL_TOKENS:
         return v, None
     return None, MODEL_WARNING.format(key, _shown(v), MODEL_TOKEN_TEXT)
+
+
+# The one estimate rule (#737; spec §13.1): `est` is agent time and `tok` the
+# token estimate. portfolio.py's `est_fields` calls `classify_estimate`; neither
+# spells the rule again, and `parse_text` never calls it.
+ESTIMATE_KEYS: tuple[str, ...] = ("est", "tok")
+# est: agent hours; `d` and `w` are fixed multiples of agent hours, not calendar days.
+HOUR_FACTORS: dict[str, int] = {"h": 1, "d": 8, "w": 40}
+# tok: token counts in the ledger's unit (price-weighted input-token equivalents).
+TOKEN_FACTORS: dict[str, int] = {"k": 1000, "M": 1000000}
+EST_CLASSES: tuple[str, ...] = ("absent", "placeholder", "time", "non-time", "unparseable")
+TOK_CLASSES: tuple[str, ...] = ("absent", "placeholder", "tokens", "unparseable")
+ESTIMATE_PLACEHOLDER_RE = re.compile(r"\?[A-Za-z]*")
+# A number or a `low-high` range, then one trailing unit. Digit caps keep every
+# number finite and small: no inf or huge-int path.
+ESTIMATE_VALUE_RE = re.compile(
+    r"(?P<lo>[0-9]{1,9}(?:\.[0-9]{1,6})?)(?:-(?P<hi>[0-9]{1,9}(?:\.[0-9]{1,6})?))?(?P<u>[A-Za-z]+)")
+ESTIMATE_KEY_ERROR = "classify_estimate: key '{}' is not est or tok"
+
+
+def est_num(d: Decimal) -> int | float:
+    """An exact decimal as JSON wants it: an int when integral, else a float."""
+    return int(d) if d == d.to_integral_value() else float(d)
+
+
+def classify_estimate(key: str, value) -> dict:
+    """The class of an `est` or `tok` value, and its bounds (#737).
+
+    Returns {"key", "raw", "class", "low", "high", "quantity", "unit"}, every
+    field None unless the class names it. `raw` is `value` as passed. `est`
+    classes are EST_CLASSES and `tok` classes TOK_CLASSES:
+    absent (`value` is None); placeholder (`?` or `?<unit>`); time (`est`: a
+    number or `low-high` range in an HOUR_FACTORS unit; low/high in agent
+    hours); tokens (`tok`: the same in a TOKEN_FACTORS unit, whole tokens;
+    low/high are int token counts in the ledger's unit); non-time (`est`: a
+    single number in any other unit; quantity and unit as written);
+    unparseable (anything else, including a non-str value). Units match
+    exactly. Nothing is stripped or case-folded: callers reading values
+    outside WBS.md strip first. Pure; raises ValueError only for a key other
+    than `est` or `tok`."""
+    if key not in ESTIMATE_KEYS:
+        raise ValueError(ESTIMATE_KEY_ERROR.format(key))
+    out = {"key": key, "raw": value, "class": "unparseable", "low": None,
+           "high": None, "quantity": None, "unit": None}
+    if value is None:
+        out["class"] = "absent"
+        return out
+    if not isinstance(value, str):
+        return out
+    if ESTIMATE_PLACEHOLDER_RE.fullmatch(value):
+        out["class"] = "placeholder"
+        return out
+    m = ESTIMATE_VALUE_RE.fullmatch(value)
+    if m is None:
+        return out
+    lo = Decimal(m.group("lo"))
+    hi = lo if m.group("hi") is None else Decimal(m.group("hi"))
+    unit = m.group("u")
+    factors = HOUR_FACTORS if key == "est" else TOKEN_FACTORS
+    if unit in factors:
+        low, high = lo * factors[unit], hi * factors[unit]
+        if lo > hi:
+            return out
+        if key == "est":
+            out.update({"class": "time", "low": est_num(low), "high": est_num(high)})
+        elif low == low.to_integral_value() and high == high.to_integral_value():
+            out.update({"class": "tokens", "low": int(low), "high": int(high)})
+        return out
+    if key == "est" and m.group("hi") is None:
+        out.update({"class": "non-time", "quantity": est_num(lo), "unit": unit})
+    return out
 
 
 def as_list(v) -> list:
