@@ -13,6 +13,7 @@
 unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE DEVAGENT_SUITE_JOBS DEVAGENT_FETCH_TIMEOUT DEVAGENT_BC_MAX_PAGES BC_MAX_PAGES   # #240 session pins; #593 one-run jobs override; #660 one-run fetch bound; #774 paging cap
 unset DEVAGENT_COLLECT_TIMEOUT   # #1122: claims-check's one-run pytest collection bound
 unset DEVAGENT_DEVDOC_LOCK_DEADLINE   # #749: a run's shared lock deadline must not leak in from a calling cleanup
+unset DEVAGENT_UNATTENDED   # #961: a launcher's unattended marker; unset on EVERY source, so a test that needs it sets it after its fixtures
 # #731: cleanup runs the transcript archiver, which reads ${CLAUDE_CONFIG_DIR:-~/.claude}
 # and ${DA_HOME}/config.toml. An inherited DA_HOME would archive fixture transcripts
 # into the operator's real archive, an inherited CLAUDE_CONFIG_DIR the operator's

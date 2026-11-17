@@ -20,6 +20,13 @@ state_path() {
   echo "$(devagent_home)/state/${project}.toml"
 }
 
+# devagent_unattended: 0 iff DEVAGENT_UNATTENDED is set and non-empty (#961). The
+# ONE reader of the marker: every script asks through this, never its own test of
+# the variable. A launcher sets it in a session it starts with no person at the
+# keyboard; devagent never sets it, and does not read its value. Not a trust
+# boundary: any process in the session can unset it. Spec §7.3.
+devagent_unattended() { [[ -n "${DEVAGENT_UNATTENDED:-}" ]]; }
+
 secrets_dir() {
   echo "$(devagent_home)/secrets"
 }

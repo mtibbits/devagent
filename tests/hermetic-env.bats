@@ -22,7 +22,7 @@ REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 
 @test "hermetic-env neutralizes the #240 pins and hostile git config (#322)" {
   unset _DEVAGENT_HERMETIC_HOMES   # this test is the FIRST source of the guard in a fresh shell
-  export DEVAGENT_ACTIVE_PROJECT=volk DEVAGENT_ACTIVE_ISSUE=Issue-99 DEVAGENT_SUITE_JOBS=9 DEVAGENT_FETCH_TIMEOUT=9 DEVAGENT_BC_MAX_PAGES=2 BC_MAX_PAGES=2 CLAUDE_CONFIG_DIR=/x/claude DA_HOME=/x/da
+  export DEVAGENT_ACTIVE_PROJECT=volk DEVAGENT_ACTIVE_ISSUE=Issue-99 DEVAGENT_SUITE_JOBS=9 DEVAGENT_FETCH_TIMEOUT=9 DEVAGENT_BC_MAX_PAGES=2 BC_MAX_PAGES=2 CLAUDE_CONFIG_DIR=/x/claude DA_HOME=/x/da DEVAGENT_UNATTENDED=1
   . "$REPO/tests/lib/hermetic-env.bash"
   [ -z "${DEVAGENT_ACTIVE_PROJECT:-}" ]
   [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]
@@ -32,6 +32,7 @@ REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
   [ -z "${BC_MAX_PAGES:-}" ]
   [ -z "${CLAUDE_CONFIG_DIR:-}" ]   # #731: the operator's transcripts
   [ -z "${DA_HOME:-}" ]             # #731: the operator's archive config
+  [ -z "${DEVAGENT_UNATTENDED:-}" ] # #961: the launcher's unattended marker
   [ "$GIT_CONFIG_GLOBAL" = /dev/null ]
   [ "$GIT_CONFIG_SYSTEM" = /dev/null ]
 }

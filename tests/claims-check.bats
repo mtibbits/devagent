@@ -677,6 +677,13 @@ _real_pytest() {
     grep -qF -- '--collect-only -q ./tests/test_p.py|PDWB=1|PIN=unset' "$PYLOG"
 }
 
+@test "SUITE_CHILD_UNSET scrubs DEVAGENT_UNATTENDED" {
+    # #961: an unattended session's run-suite never hands the marker to a suite child.
+    run bash -c '. "$1/scripts/lib/paths.sh"; . "$1/scripts/lib/io.sh"; . "$1/scripts/lib/config.sh"; printf "%s " "${SUITE_CHILD_UNSET[@]}"' _ "$DEVAGENT_ROOT"
+    [ "$status" -eq 0 ]
+    [[ " $output" == *" -u DEVAGENT_UNATTENDED "* ]]
+}
+
 # ---- Task 7: suite totals (U1-U3) ------------------------------------------------------
 ART() { printf '%s\n' "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"; }
 # _evsuite <ok/plan | (none)> <pytest passed | (none)> [<head>] - SUITE: the canonical
