@@ -18,11 +18,19 @@
 # the skill is done. Both emissions carry the resolved project (#578).
 #
 # Phase breaks: a chain stops before each step named in `phase_breaks` (project
-# field, else [defaults], else "implement quality updatewbs"; "" disables) so the
-# next phase starts in a fresh session. One session per issue re-reads its whole
-# history on every call: Issue-660's main context grew 49K→845K tokens over 386
-# calls, and replaying it with fresh sessions at these three steps cut its cost
-# ~56%. A break fires only for a CONTINUED chain — a CHAIN: re-invocation
+# field, else [defaults]; "" disables) so the next phase starts in a fresh
+# session. An explicit value is honoured as written. The built-in default breaks
+# before implement and quality, and before updatewbs too unless the active
+# revision's mergemr row is [x], or [-] with ship [-] (no PR) (#933): a merged
+# chain then runs steps 21-24 (updatewbs, impact, lessonslearned, cleanup) in the
+# mergemr session. A checklist with no mergemr row predates #899 and keeps the
+# break before updatewbs, as does an abandoned PR (mergemr [-] after a real ship).
+# One session per issue re-reads its whole history on every call: Issue-660's
+# main context grew 49K→845K tokens over 386 calls, and fresh sessions at the
+# three-break default of the time (implement, quality, updatewbs) cut its cost
+# ~56%. The close-out now pays a share of that again (#670 measured Issue-660's
+# steps 21-24 at about 5.0M input-token equivalents, 13% of the issue).
+# A break fires only for a CONTINUED chain — a CHAIN: re-invocation
 # (--chained) or a script step already dispatched in this process — so the
 # operator's first command in the fresh session runs the boundary step.
 
@@ -50,17 +58,39 @@ source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
-# phase_breaks <project> — the step names a continued chain stops before, one
-# space-separated line. An empty value is a legal "no breaks".
-phase_breaks() {
-  local v
-  if v="$(config_get_project_field "$1" phase_breaks 2>/dev/null)"; then
-    printf '%s\n' "$v"
-  elif v="$(config_get_default phase_breaks 2>/dev/null)"; then
-    printf '%s\n' "$v"
+# phase_breaks_source <project> — where phase_breaks resolves from: `project`,
+# `defaults` or `builtin`. A set "" counts as set. The one resolution ladder:
+# phase_breaks reads its value through it (#933).
+phase_breaks_source() {
+  if config_get_project_field "$1" phase_breaks >/dev/null 2>&1; then
+    echo project
+  elif config_get_default phase_breaks >/dev/null 2>&1; then
+    echo defaults
   else
-    printf '%s\n' "implement quality updatewbs"
+    echo builtin
   fi
+}
+
+# phase_breaks <project> — the step names a continued chain stops before, one
+# space-separated line. An empty value is a legal "no breaks". The built-in
+# value's updatewbs entry is conditional on mergemr; the break check applies it.
+phase_breaks() {
+  case "$(phase_breaks_source "$1")" in
+    project)  config_get_project_field "$1" phase_breaks 2>/dev/null ;;
+    defaults) config_get_default phase_breaks 2>/dev/null ;;
+    *)        printf '%s\n' "implement quality updatewbs" ;;
+  esac
+}
+
+# merged_closeout <checklist> — true when the active revision's PR is done: its
+# mergemr row is [x], or mergemr and ship are both [-] (zero-diff, no PR; mergemr
+# rule 1). No mergemr row (pre-#899), a pending mergemr, or [-] after a real ship
+# (abandoned PR) is false. `|| true`: a no-row read returns 1 under errexit.
+merged_closeout() {
+  local mm sh
+  mm="$(checklist_step_state_by_name "$1" mergemr 2>/dev/null || true)"
+  sh="$(checklist_step_state_by_name "$1" ship 2>/dev/null || true)"
+  [[ "$mm" == x || ( "$mm" == - && "$sh" == - ) ]]
 }
 
 # #812: scripts that carry a workflow step's NAME but are helpers its slash
@@ -124,10 +154,13 @@ quarantine_guard "next" "$project"
   if (( auto == 1 )) && [[ -z "$through" ]]; then
     through="cleanup"
   fi
-  local chaining=0 breaks=""
+  local chaining=0 breaks="" breaks_src=""
   if (( auto == 1 )) || [[ -n "$through" ]]; then
     chaining=1
-    (( breaks_on == 1 )) && breaks=" $(phase_breaks "$project") "
+    if (( breaks_on == 1 )); then
+      breaks_src="$(phase_breaks_source "$project")"
+      breaks=" $(phase_breaks "$project") "
+    fi
   fi
 
   # Validate --through against the actual checklist (the authority).
@@ -250,7 +283,15 @@ quarantine_guard "next" "$project"
       fi
     fi
 
-    if (( chained == 1 )) && [[ "$breaks" == *" $name "* ]]; then
+    # #933: under the built-in default the updatewbs break is judged HERE, per
+    # iteration, because an in-process mergemr flips [ ] to [x] mid-loop.
+    local skip_break=0
+    if (( chained == 1 )) && [[ "$breaks" == *" $name "* \
+        && "$name" == updatewbs && "$breaks_src" == builtin ]] \
+        && merged_closeout "$checklist"; then
+      skip_break=1
+    fi
+    if (( chained == 1 && skip_break == 0 )) && [[ "$breaks" == *" $name "* ]]; then
       echo "PHASE BREAK before step $cur ($name): the chain stops so the next phase starts in a fresh session; state is on disk."
       echo "  Resume: run /clear, then /devagent:next $project$resume_flags"
       echo "  (or /devagent:next $project$resume_flags --no-breaks to keep going in this session)"
