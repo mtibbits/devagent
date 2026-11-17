@@ -313,6 +313,11 @@ not a key list, and readers must not treat it as one.
 producer would report n5's `h` (`h_malformed`) and n6's `est`
 (`est_unparseable`). The example is not wrong; do not "fix" it to match.
 
+**Estimate classes.** The WBS key contract owns range syntax and unit
+factors (spec §13.1, `classify_estimate`, #737); the schema carries the result
+and converts nothing. `low_hours` and `high_hours` are agent hours. A range
+such as `2-4d` is `time`, with `high_hours` its high bound.
+
 **Models** (#890). On each leaf, `models.thinking` and `models.checking` are
 the leaf's own key when it is one `model_token_allowlist` token (`source:
 wbs`); else the project's `step_models` class key, then `default` (`source:
@@ -328,7 +333,7 @@ dispatch is read.
 | Field or member | Writer |
 |---|---|
 | Every field, at generation time | #726 (the producer) |
-| `est.class`, `est.low_hours`, `est.high_hours`, `est.quantity`, `est.unit` | #726, through #737's classifier and its hour factors. Until #737 lands, #726 uses an interim classifier with provisional working-time factors (`h` = 1, `d` = 8, `w` = 40; exact units, ranges `unparseable`), which #737's helper replaces ([obligation on #737](https://github.com/mtibbits/devagent/issues/737#issuecomment-6670452997)) |
+| `est.class`, `est.low_hours`, `est.high_hours`, `est.quantity`, `est.unit` | #726, through the WBS key contract's `classify_estimate` (`scripts/lib/wbs-parser.py`, #737; units, factors and range syntax in spec §13.1); a range gives a low and a high bound |
 | `est.src` (`confirmed`, `derived`, null) | #726, from `meta.est_src` (#754). A value other than `confirmed`/`derived` reads as null; #726 also reports it in `parse_report` under a kind it names. |
 | `satisfies`, `h` | #726, from the known keys #888 adds |
 | `models` | #890, from the leaf's `thinking`/`checking` keys, else the project's `step_models` class then `default`, read by `portfolio.sh` through `config_get_project_field` |
@@ -416,6 +421,7 @@ they do not know. A project's status is not repeated in the report.
 | `parent_done_leaf_pending` | node | A node marked done with pending leaves under it; those leaves can still be ready. |
 | `duplicate_issue` | node | Each later node carrying an issue already seen in the project; the message names the first line. |
 | `est_unparseable` | node | The estimate class is `unparseable`. |
+| `tok_unparseable` | node | The `tok` value's class is `unparseable`. |
 | `est_src_invalid` | node | `est_src` is present but not `confirmed` or `derived` (`est.src` reads as null). |
 | `h_malformed` | node | `h` is present but not one digit 0–4 (`h` reads as null). |
 | `bad_model` | node or null | A model value that is not one `model_token_allowlist` token (#890). At a leaf's line: its `thinking` or `checking` key, once per class (the key counts as absent and the project rung applies); a parent's key is not reported. With a null line: a project `step_models` value a class resolves to, once per (project, class); that class is null, with no fall-through to `default`, and a bad `default` no class reaches is not reported. |
@@ -432,8 +438,7 @@ they do not know. A project's status is not repeated in the report.
 
 ## Deferred
 
-- **Token estimates.** #737 has not settled its token key's name. Its
-  classification and a `tokens_src` provenance key arrive in a later minor bump
-  when #737 lands (owner #737).
-- **Range syntax and unit factors** for `est` belong to #737; the schema
-  carries the result and converts nothing.
+- **Token estimates.** The key is `tok` (#737); `classify_estimate("tok", …)`
+  classifies the value a node's `meta` carries, and the producer reports an
+  unparseable one as `tok_unparseable`. A typed field and a `tok_src`
+  provenance key arrive in a later minor bump (owner #941).

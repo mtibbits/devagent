@@ -172,6 +172,14 @@ def test_state_and_glyph_enums_match_parser():
     assert set(inv[f"{NODE}.glyph"].enum) == set(wbs_parser.STATE_GLYPHS)
 
 
+def test_est_class_enum_matches_parser():
+    # #737: the closed est.class enum is the parser's EST_CLASSES; `tokens` is
+    # tok-only, so the enum (and the schema version) does not move.
+    inv = pc.inventory(pc.load_schema())
+    assert tuple(inv[f"{NODE}.est.class"].enum) == wbs_parser.EST_CLASSES
+    assert set(wbs_parser.TOK_CLASSES) - set(wbs_parser.EST_CLASSES) == {"tokens"}
+
+
 def test_schema_file_is_lf_utf8_without_bom():
     data = pc.SCHEMA_PATH.read_bytes()
     assert not data.startswith(b"\xef\xbb\xbf")

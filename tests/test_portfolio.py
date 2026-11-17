@@ -83,7 +83,9 @@ EST_ROWS = [
     ("1W", _est("non-time", quantity=1, unit="W")),
     ("?3d", _est("unparseable")),
     ("1d (actual ~14h)", _est("unparseable")),
-    ("2-3d", _est("unparseable")),
+    ("2-3d", _est("time", 16, 24)),
+    ("3-2d", _est("unparseable")),
+    ("2-4pr", _est("unparseable")),
     (["1w", "2w"], _est("unparseable")),
     ("5", _est("unparseable")),
     ("", _est("unparseable")),
@@ -92,8 +94,8 @@ EST_ROWS = [
 
 
 @pytest.mark.parametrize("raw,want", EST_ROWS, ids=[repr(r[0]) for r in EST_ROWS])
-def test_classify_est(raw, want):
-    got = pf.classify_est(raw)
+def test_est_fields(raw, want):
+    got = pf.est_fields(raw)
     assert got == {"raw": raw, **want}
     for k in ("low_hours", "high_hours", "quantity"):
         v = got[k]
@@ -101,8 +103,19 @@ def test_classify_est(raw, want):
             assert type(v) is int, (k, v)
 
 
-def test_hour_factors_pinned():
-    assert pf.HOUR_FACTORS == {"h": 1, "d": 8, "w": 40}
+def test_interim_classifier_is_gone():
+    # #737 replaced #726's interim classifier; the factors live in the parser.
+    assert [n for n in ("classify_est", "HOUR_FACTORS", "PLACEHOLDER_RE", "QUANTITY_RE")
+            if hasattr(pf, n)] == []
+
+
+def test_est_fields_delegates_to_parser(monkeypatch):
+    # #737: est_fields looks the parser's classify_estimate up at call time.
+    sentinel = {"key": "est", "raw": "1w", "class": "sentinel", "low": 7, "high": 9,
+                "quantity": 3, "unit": "zz"}
+    monkeypatch.setattr(pf.wbs_parser, "classify_estimate", lambda key, raw: sentinel)
+    assert pf.est_fields("1w") == {"raw": "1w", "class": "sentinel", "low_hours": 7,
+                                   "high_hours": 9, "quantity": 3, "unit": "zz"}
 
 
 def test_producer_keys_pinned():
@@ -824,9 +837,10 @@ def test_kinds_all_planted(tmp_path):
     _, doc = _build(tmp_path / "multi-build")
     ready = _ready_build(tmp_path / "ready-build")
     models = _models_build(tmp_path / "models-build")
-    kinds = {r["kind"] for d in (doc, ready, models) for r in d["parse_report"]}
+    _, tok = _tok_doc(tmp_path / "tok-build")  # #737: tests/fixtures/portfolio stays untouched
+    kinds = {r["kind"] for d in (doc, ready, models, tok) for r in d["parse_report"]}
     assert kinds == set(pf.KINDS)
-    assert len(pf.KINDS) == len(set(pf.KINDS)) == 20
+    assert len(pf.KINDS) == len(set(pf.KINDS)) == 21
 
 
 def _walk_lines(tree):
@@ -1071,11 +1085,59 @@ def test_bare_issue_in_other_project_does_not_resolve(ready_doc):
         in ready_doc["parse_report"]
 
 
+def _solo_doc(root, body):
+    devdoc = root / "solo"
+    devdoc.mkdir(parents=True)
+    text = "# solo\n\n" + body
+    (devdoc / "WBS.md").write_bytes(text.encode())
+    return text, pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
+
+
 def _one_leaf_doc(tmp_path, glyph):
-    devdoc = tmp_path / "solo"
-    devdoc.mkdir()
-    (devdoc / "WBS.md").write_bytes(f"# solo\n\n- [{glyph}] leaf {{issue: Issue-1}}\n".encode())
-    return pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
+    return _solo_doc(tmp_path, f"- [{glyph}] leaf {{issue: Issue-1}}\n")[1]
+
+
+def test_range_and_tok_through_the_producer(tmp_path):
+    # #737: a range is `time` with two bounds, `tok` is a known key carried in
+    # meta, and a reversed range is still reported.
+    text, doc = _solo_doc(tmp_path, "- [ ] ok {issue: Issue-1, est: 2-4d, tok: 1-3M}\n"
+                                    "- [ ] bad {issue: Issue-2, est: 4-2d}\n")
+    ok, bad = doc["projects"][0]["nodes"]
+    assert ok["est"] == {"raw": "2-4d", "class": "time", "low_hours": 16, "high_hours": 32,
+                         "quantity": None, "unit": None, "src": None}
+    assert ok["meta"]["tok"] == "1-3M"
+    assert ok["meta_unknown_keys"] == []
+    assert bad["est"]["class"] == "unparseable"
+    assert bad["source_line"] == _line_of(text, "bad {")
+    report = [(r["source_line"], r["kind"]) for r in doc["parse_report"]]
+    assert report == [(bad["source_line"], "est_unparseable")]
+    remaining = doc["projects"][0]["rollup"]["remaining"]
+    assert (remaining["estimated"], remaining["unestimated"],
+            remaining["low_hours"], remaining["high_hours"]) == (1, 1, 16, 32)
+    assert pf.pc.check(doc) == []
+    assert pf.invariant_violations(doc) == []
+
+
+TOK_ROWS = [("tbad-int", "500000"), ("tbad-case", "500K"), ("tbad-unit", "2m"),
+            ("tgood", "2M"), ("tplaceholder", "?")]
+
+
+def _tok_doc(root):
+    """(text, document) of a solo devdoc with one leaf per TOK_ROWS row."""
+    body = "".join(f"- [ ] {m} {{issue: Issue-{i}, tok: {v}}}\n"
+                   for i, (m, v) in enumerate(TOK_ROWS, start=1))
+    return _solo_doc(root, body)
+
+
+def test_tok_unparseable_reported(tmp_path):
+    # #737: an unparseable `tok` is reported, never read silently.
+    text, doc = _tok_doc(tmp_path)
+    got = [(r["source_line"], r["kind"], r["message"]) for r in doc["parse_report"]]
+    want = [(_line_of(text, f"{m} {{"), "tok_unparseable",
+             f'tok "{v}" is not a token estimate or placeholder')
+            for m, v in TOK_ROWS[:3]]
+    assert got == want
+    assert pf.pc.check(doc) == []
 
 
 @pytest.mark.parametrize("glyph,want", [("x", False), ("-", False), ("!", False),
@@ -1662,11 +1724,37 @@ def test_command_doc_defines_ready():
                for para in paragraphs), "order sentence"
 
 
-def test_command_doc_names_provisional_factors():
-    text = COMMAND_DOC.read_text(encoding="utf-8")
-    for unit, hours in pf.HOUR_FACTORS.items():
-        assert f"`{unit}` = {hours}" in text
-    assert "provisional" in text
+def _doc_section(text, heading):
+    """The lines from `heading` up to the next heading of the same or a higher level."""
+    level = len(heading) - len(heading.lstrip("#"))
+    lines = text.splitlines()
+    start = lines.index(heading)
+    end = next((i for i in range(start + 1, len(lines))
+                if re.match(rf"#{{1,{level}}} ", lines[i])), len(lines))
+    return "\n".join(lines[start:end])
+
+
+def test_command_doc_names_contract_factors():
+    # #737: the command doc's Estimates section names the contract's factors
+    # and its classifier, and the interim wording is gone from it.
+    est = _doc_section(COMMAND_DOC.read_text(encoding="utf-8"), "## Estimates")
+    assert [f"`{u}` = {h}" for u, h in pf.wbs_parser.HOUR_FACTORS.items()
+            if f"`{u}` = {h}" not in est] == []
+    assert "classify_estimate" in est
+    assert [w for w in ("provisional", "interim") if w in est.lower()] == []
+
+
+def test_schema_doc_drops_provisional_notes():
+    # #737: the est writer row and the Deferred section drop the interim notes;
+    # the two retired references are gone from the whole page.
+    text = SCHEMA_DOC.read_text(encoding="utf-8")
+    assert [w for w in ("issuecomment-6670452997", "tokens_src") if w in text] == []
+    (row,) = [ln for ln in text.splitlines() if ln.startswith("| `est.class`, `est.low_hours`")]
+    deferred = _doc_section(text, "## Deferred")
+    assert [w for w in ("interim", "provisional") if w in (row + deferred).lower()] == []
+    assert "#941" in deferred
+    assert "classify_estimate" in row
+    assert [f for f in ("`d` = 8", "`w` = 40") if f in row] == []
 
 
 # --- final-review fixes --------------------------------------------------------

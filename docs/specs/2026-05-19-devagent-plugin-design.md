@@ -2766,12 +2766,12 @@ without changing the operator-facing format.
 - [ ] Performance overhaul {est: 8w, milestone: M2, owner: @matt, cost: 0}
   - [x] Baseline measurement infrastructure {issue: Issue-Fork-12, est: 1w}
   - [~] Kernel fusion across hot path {issue: Issue-Fork-24, est: 4w, depends_on: Issue-Fork-12}
-  - [ ] Static analyzer integration {issue: Issue-676, est: 1w}
+  - [ ] Static analyzer integration {issue: Issue-676, est: 2-4d, tok: 1-3M}
 - [ ] Dispatch path test coverage {est: 3w, milestone: M3}
 ```
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
-Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
+Recognized keys (v1): `issue`, `est`, `tok`, `cost`, `owner`, `milestone`,
 `start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`, `thinking`, `checking`.
 Unrecognized keys are preserved verbatim for forward compatibility.
 `priority` (`P0` to `P4`, P0 the most urgent) ranks a node among its siblings (#803, #889; see Ordering below).
@@ -2822,6 +2822,57 @@ that names nothing, and a node parse warning that `wbs show` prints once
 (`wbs update` and `wbs order` neither check nor print it):
 
 - `line N: depends_on entry '<e>' holds ':' but is not <project>:<issue>; read as a local id`
+
+**Estimates (#737).** `est` is agent time: the agent wall time that
+`cost-report.sh --time` (`scripts/lib/cost-report.py`, #733) reports for the
+issue, not operator time and not calendar time. Its units are `h` = 1,
+`d` = 8 and `w` = 40 agent hours, matched exactly and case-sensitively: `d`
+and `w` are fixed multiples of agent hours, not calendar days. Any other unit
+(`30m`, `2hrs`, `1W`, or `500k` under `est`) is `non-time`: not an estimate,
+and the portfolio totals it, for remaining leaves only, under
+`rollup.remaining.non_time`. `tok` is the token estimate, in cost-report's
+unit, the unit the planned actuals ledger (#729) will record: price-weighted
+input-token equivalents, written with `k` = 1000 or `M` = 1000000 (`tok: 500k`,
+`tok: 2M`); a bare integer is not a value. Either key takes a single value or
+a range, `low-high` with one trailing unit (`est: 2-4d`, `tok: 1-3M`), low not
+above high. Zero is a legal estimate: the template avoids `0w` as an example
+only because it reads as a real zero estimate.
+
+Every value falls in exactly one class, per key:
+
+| Class | Key | Values |
+|---|---|---|
+| `absent` | both | the key is missing |
+| `placeholder` | both | `?` alone, or `?` and a unit (`?w`) |
+| `time` | `est` | a number or range in `h`, `d` or `w`; bounds in agent hours |
+| `tokens` | `tok` | a number or range in `k` or `M` that comes to whole tokens; bounds in tokens |
+| `non-time` | `est` | a single number in any other unit (`48pr`, a pull-request count) |
+| `unparseable` | both | anything else: `?3d`, `4-2d`, `2-4pr`, a bare number, free text |
+
+Only `time` and `tokens` count as estimates. `est` or `tok` on a parent node is
+the operator's own roll-up: readers of leaf estimates ignore it, and it is
+never summed. `cost` is operator-defined and uninterpreted: devagent preserves
+it and reads it nowhere. It is not an actual; actuals belong in the planned
+actuals ledger (#729), never in `WBS.md`.
+
+Legacy values: nothing in `WBS.md` dates a value, and the classifier returns no
+legacy marker, so the reader decides. The one provenance signal is `est_src`
+(the portfolio's `est.src`, which #754 writes): a value without it was typed by
+the operator and may predate this contract. Calibration pairs (#739) come from
+plan estimates (#738), not from `WBS.md` values.
+
+`classify_estimate(key, value)` (`scripts/lib/wbs-parser.py`) is the one
+classifier: every reader calls it rather than parsing a value itself. It
+returns `{key, raw, class, low, high, quantity, unit}`: `low` and `high` for
+`time` (agent hours) and `tokens` (token counts), `quantity` and `unit` for
+`non-time`, and null otherwise. It does not strip or normalise, so a caller
+reading values outside `WBS.md` (#738's plan lines, say) strips whitespace and
+CR first; unquoted `WBS.md` values arrive stripped, and a quoted value keeps
+its inner whitespace. Nothing is checked at parse: `est` and `tok` stay in
+`meta` as parsed (a string, or a list for `[a, b]`) and draw no parse warning, and the portfolio
+reports a bad value as `est_unparseable` or `tok_unparseable`. No value on disk
+is rewritten, and `wbs update` still writes `est: ?w` for a newly added leaf
+(`scripts/wbs-update.sh`).
 
 `wbs update` writes
 `status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came
