@@ -18,13 +18,16 @@
 # the skill is done. Both emissions carry the resolved project (#578).
 #
 # Phase breaks: a chain stops before each step named in `phase_breaks` (project
-# field, else [defaults], else "implement quality updatewbs"; "" disables) so the
-# next phase starts in a fresh session. One session per issue re-reads its whole
-# history on every call: Issue-660's main context grew 49K→845K tokens over 386
-# calls, and replaying it with fresh sessions at these three steps cut its cost
-# ~56%. A break fires only for a CONTINUED chain — a CHAIN: re-invocation
-# (--chained) or a script step already dispatched in this process — so the
-# operator's first command in the fresh session runs the boundary step.
+# field, else [defaults]; "" disables) so the next phase starts in a fresh
+# session. One session per issue re-reads its whole history on every call:
+# Issue-660's main context grew 49K→845K tokens over 386 calls, and fresh
+# sessions at implement, quality and updatewbs cut its cost ~56%. An explicit
+# value is honoured as written; the built-in default skips its updatewbs break
+# once the active revision's PR is done (merged_closeout, #933), so a merged
+# chain runs steps 21-24 in the mergemr session. A break fires only for a
+# CONTINUED chain — a CHAIN: re-invocation (--chained) or a script step already
+# dispatched in this process — so the operator's first command in the fresh
+# session runs the boundary step.
 
 set -euo pipefail
 
@@ -50,17 +53,38 @@ source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
-# phase_breaks <project> — the step names a continued chain stops before, one
-# space-separated line. An empty value is a legal "no breaks".
-phase_breaks() {
-  local v
-  if v="$(config_get_project_field "$1" phase_breaks 2>/dev/null)"; then
-    printf '%s\n' "$v"
-  elif v="$(config_get_default phase_breaks 2>/dev/null)"; then
-    printf '%s\n' "$v"
-  else
-    printf '%s\n' "implement quality updatewbs"
+# phase_breaks_resolve <project> — sets PHASE_BREAKS, the step names a continued
+# chain stops before (one space-separated line; "" is a legal "no breaks"), and
+# PHASE_BREAKS_BUILTIN=1 when neither the project nor [defaults] sets it.
+phase_breaks_resolve() {
+  PHASE_BREAKS_BUILTIN=0
+  if PHASE_BREAKS="$(config_get_project_field "$1" phase_breaks 2>/dev/null)"; then :
+  elif PHASE_BREAKS="$(config_get_default phase_breaks 2>/dev/null)"; then :
+  else PHASE_BREAKS="implement quality updatewbs"; PHASE_BREAKS_BUILTIN=1
   fi
+}
+
+# phase_break_at <breaks> <name> <checklist> — true when a continued chain stops
+# before <name>. Judged per iteration: an in-process mergemr flips its row
+# mid-loop, and only the built-in updatewbs break yields to it (#933).
+phase_break_at() {
+  [[ "$1" == *" $2 "* ]] || return 1
+  if [[ "$2" == updatewbs && "${PHASE_BREAKS_BUILTIN:-0}" == 1 ]] && merged_closeout "$3"; then
+    return 1
+  fi
+}
+
+# merged_closeout <checklist> — true when the active revision's PR is done: its
+# mergemr row is [x], or mergemr and ship are both [-] (zero-diff, no PR; mergemr
+# rule 1). No mergemr row (pre-#899), a pending mergemr, or [-] after a real ship
+# (abandoned PR) is false. Rows are read from the active revision block only
+# (#1029's strict read): the file-wide fallback would let an older revision's
+# merge pass a block that has no mergemr row of its own.
+merged_closeout() {
+  local mm
+  mm="$(checklist_active_step_state_by_name "$1" mergemr 2>/dev/null || true)"
+  [[ "$mm" == x ]] || [[ "$mm" == - && \
+    "$(checklist_active_step_state_by_name "$1" ship 2>/dev/null || true)" == - ]]
 }
 
 # #812: scripts that carry a workflow step's NAME but are helpers its slash
@@ -146,7 +170,10 @@ quarantine_guard "next" "$project"
   local chaining=0 breaks=""
   if (( auto == 1 )) || [[ -n "$through" ]]; then
     chaining=1
-    (( breaks_on == 1 )) && breaks=" $(phase_breaks "$project") "
+    if (( breaks_on == 1 )); then
+      phase_breaks_resolve "$project"
+      breaks=" $PHASE_BREAKS "
+    fi
   fi
 
   # #240: session view — an env-pinned session's bare `next` drives ITS issue.
@@ -257,7 +284,7 @@ quarantine_guard "next" "$project"
       fi
     fi
 
-    if (( chained == 1 )) && [[ "$breaks" == *" $name "* ]]; then
+    if (( chained == 1 )) && phase_break_at "$breaks" "$name" "$checklist"; then
       echo "PHASE BREAK before step $cur ($name): the chain stops so the next phase starts in a fresh session; state is on disk."
       echo "  Resume: run /clear, then /devagent:next $project$resume_flags"
       echo "  (or /devagent:next $project$resume_flags --no-breaks to keep going in this session)"

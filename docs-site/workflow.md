@@ -15,10 +15,17 @@ Run steps one at a time with `/devagent:next` (which advances to the next
 unmarked step), chain them with `/devagent:next --auto`, or invoke any step
 command directly.
 
-An `--auto` chain stops with a `PHASE BREAK` before `implement`, `quality` and
-`updatewbs`: run `/clear`, then the printed Resume command. Each phase then
-starts in a fresh session instead of re-reading the whole issue's history on
-every call (config `phase_breaks`; `--no-breaks` skips it for one chain).
+An `--auto` chain stops with a `PHASE BREAK` before `implement` and `quality`:
+run `/clear`, then the printed Resume command. Each phase then starts in a
+fresh session instead of re-reading the whole issue's history on every call
+(config `phase_breaks`; `--no-breaks` skips it for one chain). It breaks before
+`updatewbs` too unless the active revision's mergemr row is `[x]`, or `[-]`
+because ship was `[-]` (no PR), so an unattended chain runs from a merged PR
+through updatewbs, impact, lessonslearned and cleanup. A checklist with no
+mergemr row (older than #899), or an abandoned PR (mergemr `[-]` after a real
+ship), keeps that break, as does a `phase_breaks` you set that names
+`updatewbs`: a value in `[project.<name>]` or `[defaults]` is honoured as
+written.
 
 Step 20, `/devagent:mergemr`, merges the PR only when the project sets
 `permissions.merge_mr = true`, and only at the head the last passing preship
