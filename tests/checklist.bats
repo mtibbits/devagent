@@ -283,7 +283,7 @@ EOF
   run checklist_active_step_state_by_name "$f" cleanup
   [ "$status" -eq 0 ]
   [ "$output" = " " ]
-  sed -i 's/^- \[ \] 24\. cleanup/- [x] 24. cleanup/' "$f"
+  checklist_mark_by_name "$f" cleanup x
   run checklist_active_step_state_by_name "$f" cleanup
   [ "$status" -eq 0 ]
   [ "$output" = "x" ]

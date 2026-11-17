@@ -81,21 +81,17 @@ step_backing() {
   fi
 }
 
-# through_require_active <step> <checklist> <project>: die unless the chain
-# target names a row in the ACTIVE revision block of <checklist> (the whole file
-# when it has no revision heading), matched by exact name, never as a regex
-# (#1029). Two messages: a name in no row at all (a typo), and a name only in an
-# older revision block, whose glyph would stop the chain early or let it run past
-# the target. The --through validation and the chain-target guard both call this,
-# so their verdicts and wording cannot drift.
-through_require_active() {
+# through_target_state <step> <checklist> <project>: print the chain target's
+# glyph from its own row in the active revision block, by exact name (#1029):
+# an older block's glyph would stop the chain early or let it run past the
+# target. Dies on a name in no row (a typo) or only in an older block.
+through_target_state() {
   local step="$1" file="$2" proj="$3"
-  if ! checklist_step_state_by_name "$file" "$step" >/dev/null; then
-    die "unknown step '$step' (not present in $file)"
-  fi
-  if ! checklist_active_step_state_by_name "$file" "$step" >/dev/null; then
+  checklist_active_step_state_by_name "$file" "$step" && return 0
+  if checklist_step_state_by_name "$file" "$step" >/dev/null; then
     die "--through '$step': that step is only in an older revision block of $file, not the active one. Run /devagent:$step $proj directly, or choose a --through step from the active revision."
   fi
+  die "unknown step '$step' (not present in $file)"
 }
 
 main() {
@@ -147,19 +143,6 @@ quarantine_guard "next" "$project"
     (( breaks_on == 1 )) && breaks=" $(phase_breaks "$project") "
   fi
 
-  # Validate --through against the actual checklist (the authority).
-  if [[ -n "$through" ]]; then
-    local _ai _idir _cl
-    _ai="$(active_resolve_issue "$project" 2>/dev/null || true)"
-    if [[ -n "$_ai" && "$_ai" != "null" ]]; then
-      _idir="$(issue_context_dir "$project" 2>/dev/null || true)"
-      _cl="$_idir/checklist.md"
-      if [[ -f "$_cl" ]]; then
-        through_require_active "$through" "$_cl" "$project"
-      fi
-    fi
-  fi
-
   # #240: session view — an env-pinned session's bare `next` drives ITS issue.
   local active issue_dir
   if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
@@ -185,14 +168,12 @@ quarantine_guard "next" "$project"
     # skill marks itself [x], the model re-invokes next.sh and we must
     # not advance into the next step. Script-backed targets stop below
     # via the post-exec check, so this branch is mainly for skills.
-    # #1029: the target's state is its OWN row in the active revision block,
-    # found by name. Re-checked every iteration: a step that starts a new
-    # revision without the target ends the chain with the refusal instead of
-    # letting it run on (fail closed; an older block's glyph never decides).
+    # #1029: the first iteration is also the --through validation (nothing has
+    # dispatched yet). Later ones fail closed: a step that starts a revision
+    # without the target ends the chain with the refusal.
     if [[ -n "$through" ]]; then
-      through_require_active "$through" "$checklist" "$project"
       local _ts
-      _ts="$(checklist_active_step_state_by_name "$checklist" "$through")"
+      _ts="$(through_target_state "$through" "$checklist" "$project")"
       if [[ "$_ts" == "x" || "$_ts" == "-" ]]; then
         echo "Chain target '$through' is complete; stopping."
         return 0

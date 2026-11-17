@@ -985,13 +985,12 @@ _1029_root() {
   mkdir -p "$root/scripts"
   cp -r "$PLUGIN_ROOT/scripts/." "$root/scripts/"
   cp -r "$PLUGIN_ROOT/templates" "$root/"
-  local n
-  for n in $(sed -nE 's/^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+([a-z]+).*$/\1/p' \
-               "$PLUGIN_ROOT/templates/checklist-standard.md"); do
+  local _num n
+  while read -r _num n; do
     if [[ -x "$root/scripts/$n.sh" ]]; then
       printf '#!/usr/bin/env bash\necho STUB-%s\nexit 0\n' "$n" > "$root/scripts/$n.sh"
     fi
-  done
+  done < <(canonical_steps)
 }
 
 # Issue-9 shape: the older block numbers cleanup 23; the active block numbers it 24.
@@ -1074,11 +1073,10 @@ EOC
   cmp "$BATS_TEST_TMPDIR/before.md" "$DEVDOC/Issue-676/checklist.md"
 }
 
-@test "#1029 AC4: identically numbered blocks keep today's --through behaviour" {
-  _1029_root
-  local active
-  for active in x ' '; do
-    cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
+# Uniform shape: both blocks number cleanup 24; the older one is done.
+_1029_uniform() {
+  local active_cleanup="$1"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
 ## Revision 1
 
 - [x] 21. updatewbs
@@ -1091,18 +1089,26 @@ EOC
 - [x] 21. updatewbs
 - [x] 22. impact
 - [x] 23. lessonslearned
-- [$active] 24. cleanup
+- [$active_cleanup] 24. cleanup
 EOC
-    run bash "$root/scripts/next.sh" volk --auto
-    echo "case [$active]: $output"
-    if [[ "$active" == x ]]; then
-      [[ "$output" == *"Chain target 'cleanup' is complete; stopping."* ]]
-      [[ "$output" != *"dispatch:"* ]]
-    else
-      [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
-      [[ "$output" == *"STUB-cleanup"* ]]
-    fi
-  done
+}
+
+@test "#1029 AC4 case A: identically numbered blocks, done target stops as today" {
+  _1029_root
+  _1029_uniform x
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"Chain target 'cleanup' is complete; stopping."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029 AC4 case B: identically numbered blocks, pending target dispatches as today" {
+  _1029_root
+  _1029_uniform ' '
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
 }
 
 @test "#1029: --through a step only in an older block is refused with a remedy, nothing dispatched" {

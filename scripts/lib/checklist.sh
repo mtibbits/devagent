@@ -179,8 +179,25 @@ checklist_step_state() {
 # active revision block when the name is present there, else falls back
 # file-wide (legacy checklists / names unique to revision 1).
 checklist_step_state_by_name() {
-  local file="$1" target="$2" line ln=0 start
-  start="$(_checklist_scope_start_by_name "$file" "$target")"
+  local start
+  start="$(_checklist_scope_start_by_name "$1" "$2")"
+  _checklist_state_by_name_after "$1" "$start" "$2"
+}
+
+# checklist_active_step_state_by_name <file> <name>
+# Like checklist_step_state_by_name, minus the fallback to an older revision
+# block (#1029): a name absent from the active block returns 1. The sibling keeps
+# that fallback because the #149/#242 gates and the #589 mark guard rely on it.
+checklist_active_step_state_by_name() {
+  local start
+  start="$(_checklist_active_start "$1")"
+  _checklist_state_by_name_after "$1" "$start" "$2"
+}
+
+# _checklist_state_by_name_after <file> <start> <name>: the glyph of the first
+# row after line <start> named <name> (returns 0), else returns 1.
+_checklist_state_by_name_after() {
+  local file="$1" start="$2" target="$3" line ln=0
   while IFS= read -r line; do
     ln=$((ln + 1))
     (( ln > start )) || continue
@@ -192,24 +209,6 @@ checklist_step_state_by_name() {
     fi
   done < "$file"
   return 1
-}
-
-# checklist_active_step_state_by_name <file> <name>
-# Like checklist_step_state_by_name, but never falls back to an older revision
-# block (#1029): when the checklist has revision headings and <name> is absent
-# from the active block, returns 1 with no output. Otherwise (name present in the
-# active block, or no revision headings at all) prints exactly what
-# checklist_step_state_by_name prints and returns its status. For next's
-# --through chain target, where an older block's glyph would stop the chain
-# early or let it run past the target. The sibling keeps its file-wide fallback
-# because the #149/#242 gates and the #589 mark guard rely on it.
-checklist_active_step_state_by_name() {
-  local file="$1" target="$2"
-  if (( $(_checklist_active_start "$file") > 0 )) \
-     && (( $(_checklist_scope_start_by_name "$file" "$target") == 0 )); then
-    return 1
-  fi
-  checklist_step_state_by_name "$file" "$target"
 }
 
 # checklist_step_num_by_name <file> <name>
