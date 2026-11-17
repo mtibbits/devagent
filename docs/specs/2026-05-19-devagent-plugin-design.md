@@ -1269,16 +1269,17 @@ sourced:  notify_append <key>=<value>...  notify_check <key>=<value>...
 
 A writer passes `step` or `question` as null by leaving the key out; present
 but empty is refused. `notify.sh` refuses a value holding a newline or CR before
-anything else runs, converts `question` with `cygpath -m` on Git Bash, and
-hands the fields to `scripts/lib/_notify.py` on stdin, one `<key>=<value>` per
-line in UTF-8, never as arguments or environment values, which Git Bash
-rewrites. The helper refuses, in this order: a CR, input that is not UTF-8, a
-line without `=`, an unknown field, a duplicate key, an unknown `event`, a
-`project` that is not a configured project, both or neither of `issue` and
-`capture`, an `issue` outside `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, a `capture`
-that `devagent_validate_slug` refuses or that holds a space or a control
-character, a `step` outside `[A-Za-z][A-Za-z0-9_-]{0,63}`, a relative
-`question`, and an empty `detail`. `notify_check` and `notify.sh --check` run
+anything else runs, converts `question` with `cygpath -m` on Git Bash, refuses
+a `capture` that `devagent_validate_slug` refuses (in bash, so this check comes
+before the helper's ordered list), and hands the fields to
+`scripts/lib/_notify.py` on stdin, one `<key>=<value>` per line in UTF-8, never
+as arguments or environment values, which Git Bash rewrites. The helper
+refuses, in this order: a CR, input that is not UTF-8, a line without `=`, an
+unknown field, a duplicate key, an unknown `event`, a `project` that is not a
+configured project, both or neither of `issue` and `capture`, an `issue`
+outside `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, a `capture` that is empty or holds a
+space or a control character, a `step` outside `[A-Za-z][A-Za-z0-9_-]{0,63}`, a
+relative `question`, and an empty `detail`. An input with one fault gets one id. `notify_check` and `notify.sh --check` run
 the same checks and write nothing; a writer that appends last runs one first, so
 a line refused for its fields never follows work already done.
 

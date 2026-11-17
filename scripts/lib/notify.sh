@@ -125,6 +125,7 @@ _notify_main() {
     --rotate)
       [ "$#" -eq 2 ] || { _notify_refuse usage "$_NOTIFY_USAGE"; return 2; }
       case "$2" in
+        -*) _notify_refuse usage "$_NOTIFY_USAGE"; return 2 ;;
         *$'\n'*|*$'\r'*) _notify_refuse newline "the new name holds a newline or CR"; return 2 ;;
       esac
       _notify_helper rotate "$2"

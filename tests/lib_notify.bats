@@ -423,10 +423,13 @@ run_rows() {
 }
 
 @test "refused: usage errors exit 2" {
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
   local n=0 form
   local -a args
   for form in '' 'event=hold' '--rotate=x' '--check|--rotate|x' '--check|event=hold|--rotate|x' \
-              '--bogus' '--check' '--check|' '--rotate' '--rotate|a|b' 'event=hold|--check'; do
+              '--bogus' '--check' '--check|' '--rotate' '--rotate|a|b' 'event=hold|--check' \
+              '--rotate|--check' '--rotate|-x'; do
     if [ -z "$form" ]; then args=(); else IFS='|' read -r -a args <<< "$form|"; fi
     [ "$form" != '--check|' ] || args=(--check '')
     n=$((n + 1))
@@ -435,11 +438,12 @@ run_rows() {
     [[ "$stderr" == *'(usage)'* ]] || { echo "form <$form>: $stderr" >&2; return 1; }
     [ -z "$output" ]
   done
-  [ "$n" -eq 11 ]
+  [ "$n" -eq 13 ]
   run --separate-stderr bash "$NOTIFY" --rotate ''
   [ "$status" -eq 2 ]
   [[ "$stderr" == *'(rotate-name)'* ]]
-  [ ! -e "$NF" ]
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  [ "$(find "$DA_HOME/state" -name '-*' | wc -l)" -eq 0 ]
 }
 
 @test "refused: an unreadable helper is io, not 2" {
@@ -745,4 +749,11 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   text="$(awk '/^### 7\.3 /{on=1; print; next} on && /^### /{exit} on{print}' "$spec" | tr '\n' ' ')"
   [ -n "$text" ]
   [[ "$text" =~ Only\ \`answered\`\ lines\ are\ merged[^.]*project[^.]*issue\ or\ capture[^.]*\`question\`\ path ]]
+}
+
+@test "spec 7.3 says the capture slug check runs in bash before the helper's ordered checks" {
+  local spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md" text
+  text="$(awk '/^### 7\.3 /{on=1; print; next} on && /^### /{exit} on{print}' "$spec" | tr '\n' ' ')"
+  [[ "$text" =~ a\ \`capture\`\ that\ \`devagent_validate_slug\`\ refuses[^.]*before\ the\ helper ]]
+  [[ "$text" != *'or that holds a space or a control character, a `step`'* ]]
 }
