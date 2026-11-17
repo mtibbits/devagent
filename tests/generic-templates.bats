@@ -103,7 +103,7 @@ _class_assign() {
   # survives in _shared and the COMPOSED dimension count across the tier files is 16.
   grep -q '## The Sixteen Dimensions' "$REPO/templates/redteam_issue_shared.md"
   # Summed with awk, not `paste -sd+ | bc`: bc is NOT a documented prerequisite
-  # (docs-site/install.md lists bash, python3, jq, git + bats/shellcheck) and does
+  # (CONTRIBUTING.md's What you need lists bash, python3, jq, git + bats/shellcheck) and does
   # not ship with Git for Windows, so the bc form made this the one test that
   # could not run on a stock Windows checkout. awk is already required and used
   # throughout the suite.
