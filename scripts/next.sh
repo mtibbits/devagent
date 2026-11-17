@@ -85,12 +85,26 @@ phase_breaks() {
 # merged_closeout <checklist> — true when the active revision's PR is done: its
 # mergemr row is [x], or mergemr and ship are both [-] (zero-diff, no PR; mergemr
 # rule 1). No mergemr row (pre-#899), a pending mergemr, or [-] after a real ship
-# (abandoned PR) is false. `|| true`: a no-row read returns 1 under errexit.
+# (abandoned PR) is false. A row counts only when it is in the active revision
+# block: the by-name read falls back file-wide, which would let an older
+# revision's merge pass a block that has no mergemr row of its own.
 merged_closeout() {
   local mm sh
-  mm="$(checklist_step_state_by_name "$1" mergemr 2>/dev/null || true)"
-  sh="$(checklist_step_state_by_name "$1" ship 2>/dev/null || true)"
+  mm="$(active_block_state "$1" mergemr)"
+  sh="$(active_block_state "$1" ship)"
   [[ "$mm" == x || ( "$mm" == - && "$sh" == - ) ]]
+}
+
+# active_block_state <checklist> <name> — the glyph of the row named <name> in
+# the active revision block (the whole file when there are no revision blocks);
+# empty when the block has no such row. `|| true`: a no-row read returns 1.
+active_block_state() {
+  local start
+  start="$(_checklist_active_start "$1")"
+  if (( start > 0 )) && [[ "$(_checklist_scope_start_by_name "$1" "$2")" != "$start" ]]; then
+    return 0
+  fi
+  checklist_step_state_by_name "$1" "$2" 2>/dev/null || true
 }
 
 # #812: scripts that carry a workflow step's NAME but are helpers its slash

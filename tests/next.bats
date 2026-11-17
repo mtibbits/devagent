@@ -1169,3 +1169,40 @@ _guard_home() {
   [ "$planted" -eq 0 ]
   [ "$passed" -eq "${#homes[@]}" ]
 }
+
+@test "#933 guard: an active revision with no mergemr row keeps the break despite an older revision's [x]" {
+  _mm_window false
+  # A revision block from a pre-#899 template override has no mergemr row; the
+  # by-name read's file-wide fallback must not borrow revision 1's merge.
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+Active revision: 2
+
+## Revision 1
+
+- [x] 17. preship
+- [x] 18. ship
+- [-] 19. mergetoall
+- [x] 20. mergemr
+- [x] 21. updatewbs
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [x] 24. cleanup
+
+## Revision 2
+
+- [x] 17. preship
+- [x] 18. ship
+- [-] 19. mergetoall
+- [ ] 21. updatewbs
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
+
+## Log
+EOC
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+}
