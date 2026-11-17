@@ -137,11 +137,12 @@ re-run `scripts/run-suite.sh` and `scripts/evidence-stamp.sh` (`commands/review.
 preflight runs on this re-run too; its evidence stop is a failed post-ship preship,
 and a claims correction changes `mr.md` only, never the posted MR body.
 
-A passing `record` clears a mergemr stop of rule 10, 11, 14 or 15, or a
-`preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, logged
+A passing `record` clears a mergemr stop of rule 10, 11, 14, 15 or forward's 17,
+or a `preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, logged
 `preship: cleared mergemr stop (…)`). Nothing else: rule 9 and every other
 stop, and a failed post-ship preship that marked mergetoall `[!]`, need
-`/devagent:unstuck`.
+`/devagent:unstuck`. With `merge_forward` `verify = "ci"`, a merge-forward git
+made itself may use `preship-verified-head.sh forward` instead (#1125, see mergemr).
 
 ## Zero-diff (artifact-only) issues
 

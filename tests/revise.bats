@@ -364,7 +364,7 @@ _revise_state() {
     shift
     if [ "$1" = set ]; then
       state_ctx_set_many volk Issue-676 str verified_head 1111111111111111111111111111111111111111 \
-        str preship_pin_head 2222222222222222222222222222222222222222
+        str preship_pin_head 2222222222222222222222222222222222222222 str verified_by forward
     else
       state_ctx_get volk "$2" Issue-676
     fi
@@ -378,6 +378,7 @@ _revise_state() {
   [ "$status" -eq 0 ]
   [ -z "$(_revise_state get verified_head)" ]
   [ -z "$(_revise_state get preship_pin_head)" ]
+  [ -z "$(_revise_state get verified_by)" ]      # #1125: forward's mark goes too
   run grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
   [ "$status" -eq 1 ]
 }
@@ -388,6 +389,7 @@ _revise_state() {
   [ "$status" -eq 0 ]
   [ -z "$(_revise_state get verified_head)" ]
   [ -z "$(_revise_state get preship_pin_head)" ]
+  [ -z "$(_revise_state get verified_by)" ]      # #1125: forward's mark goes too
   run grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
   [ "$status" -eq 1 ]
 }

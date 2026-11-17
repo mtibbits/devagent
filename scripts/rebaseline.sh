@@ -80,28 +80,11 @@ base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || 
 base_ref="${base_ref//$'\r'/}"
 [ -n "$base_ref" ] || die "rebaseline: no default_baseline configured for '$project'"
 
-# Best-effort, bounded refresh of the base ref: only the one branch, into its
-# remote-tracking ref, no FETCH_HEAD (as upstream_branch_tip, #660). A base
-# whose prefix is not a configured remote is a local ref: nothing to fetch.
-case "$base_ref" in
-    */*)
-        remote="${base_ref%%/*}" rbranch="${base_ref#*/}"
-        if upstream_remote_configured "$tree" "$remote"; then
-            _ci_secs DEVAGENT_REBASELINE_FETCH_SECS 20
-            secs="$_CI_SECS"
-            if ! command -v timeout >/dev/null 2>&1; then
-                warn "rebaseline: could not fetch '$remote' (timeout(1) not on PATH, so the fetch cannot be bounded); using the last-known $base_ref"
-            else
-                f_rc=0
-                _upstream_bounded "$tree" "$secs" fetch --quiet --no-write-fetch-head \
-                    "$remote" "+refs/heads/$rbranch:refs/remotes/$remote/$rbranch" </dev/null >/dev/null || f_rc=$?
-                case "$f_rc" in
-                    0) : ;;
-                    124|137) warn "rebaseline: could not fetch '$remote' (timed out after ${secs}s); using the last-known $base_ref" ;;
-                    *)       warn "rebaseline: could not fetch '$remote' (git fetch exited $f_rc); using the last-known $base_ref" ;;
-                esac
-            fi
-        fi ;;
+# Best-effort, bounded refresh of the base ref (upstream_fetch_base, #1125).
+_ci_secs DEVAGENT_REBASELINE_FETCH_SECS 20
+upstream_fetch_base "$tree" "$base_ref" "$_CI_SECS"     # setter-globals; never $( … )
+case "$BASE_FETCH" in
+    failed|notimeout) warn "rebaseline: could not fetch '$BASE_FETCH_REMOTE' ($BASE_FETCH_WHY); using the last-known $base_ref" ;;
 esac
 
 g rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null \

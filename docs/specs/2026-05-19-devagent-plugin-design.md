@@ -99,7 +99,9 @@ devAgent/
 │   │                        #   portfolio.py — #726 portfolio producer,
 │   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
-│   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source)
+│   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
+│   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
+│   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh;
 │   │                        #   local.sh — #1016 git only, no forge (§9.2)
@@ -113,7 +115,7 @@ devAgent/
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
-│   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885),
+│   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885; forward: #1125),
 │   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
@@ -240,6 +242,23 @@ fallback, read by `mergemr.sh` (step 20) and validated on every run whatever
 (default: no CI checks on the head after #782's grace is a `[!]` stop) or `if-present` (a repo
 without CI merges without checks). `ci_gate` (§7.2) does not apply to step 20.
 
+`[project.<name>.merge_forward]` (#1125) is per project, with no `[defaults]` layer:
+`verify` is `"ci"` or `"preship"` (absent = `"preship"`, today's behaviour), and
+`append_only` is an array of exact repo-relative file paths (no leading `/`, drive
+letter, empty, `.` or `..` component, or `* ? [`). With `verify = "ci"`,
+`preship-verified-head.sh forward` re-records `verified_head` after a merge-forward that
+is git's own merge of `verified_head` and the base commit `T` the last merge brought in
+(`git merge-tree`, diff3), except that a conflict in an `append_only` file may be resolved
+by keeping both sides' lines as two contiguous runs (the branch's lines staying under
+`## [Unreleased]` when that is the file's first `## ` heading). It refuses on any other
+shape, a merge driver (`git check-attr merge`), a merge gate named in `mr.md` (any line
+containing `merge gate`, in any case; #911 replaces this predicate), or a `baseline_sha`
+other than `T`. "The base" is `default_baseline`'s ref, so a project whose
+`default_baseline` does not track the PR's base should not set `verify = "ci"`. A bad
+value dies naming the key in `mergemr.sh` (at start, whatever `merge_mr` says) and in
+`forward`; `doctor` reports it, and warns on an entry naming no tracked file and on
+`verify = "ci"` with `merge_checks = "if-present"`.
+
 ### 3.3 Per-project state (`~/.claude/devagent/state/<project>.toml`)
 
 Mutable. Out of git. One active issue per project.
@@ -277,8 +296,10 @@ Per-issue context (#98, #240): the keys `branch`, `baseline_sha`,
 project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Two #885 keys live only in
 `[context.<issue>]`, written by `scripts/preship-verified-head.sh`: `preship_pin_head` (the
 head preship's `pin` handed the verifier) and `verified_head` (that head, recorded by
-`record` after every verification passed; `mergemr.sh` merges only at it). `revise`
-clears both. Since #240 the
+`record` after every verification passed; `mergemr.sh` merges only at it). #1125 adds
+`verified_by` beside them, in the same transaction: `preship` from `record`, `forward`
+from `forward`, empty for a legacy record; mergemr reads any other value as `forward`.
+`revise` clears all three. Since #240 the
 **`[context.<issue>]` sub-table is the authoritative home** of these
 keys; the top-level copies are a compatibility **mirror**, maintained
 only while that issue is the shared `active_issue`. Per-key reads follow
@@ -879,7 +900,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149); main-session preflight (#1122): `preship-evidence.sh --attestable-exit` stops pre-dispatch; `claims-check.sh` reports stale `mr.md` claims for correction; never passes |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream. On the local code backend (#1016) it pushes nothing, asks no `push_mr`, prints its plan at every ship and writes a local MR record (§9.2) |
 | 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_to_all_prs` only (#885 retired the `merge_mr` fallback; `doctor` warns on `merge_mr` without it); squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
-| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head`; otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
+| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head` (a head `preship-verified-head.sh forward` re-recorded, #1125, only on green CI); otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
@@ -1126,7 +1147,9 @@ After ship, the MR's CI status is reported, never waited for (#782):
   runs, so an `--auto` chain reaches mergemr only with mergetoall `[-]` or
   CI green. Knobs: `DEVAGENT_MERGEMR_READ_SECS` (20 s, each PR or dependency
   read) and `DEVAGENT_MERGEMR_MERGE_SECS` (30 s, the merge call);
-  `DEVAGENT_REBASELINE_FETCH_SECS` (20 s) bounds `rebaseline.sh`'s base fetch.
+  `DEVAGENT_MERGEMR_FETCH_SECS` (20 s) bounds rule 14's base fetch (#1125);
+  `DEVAGENT_REBASELINE_FETCH_SECS` (20 s) bounds `rebaseline.sh`'s base fetch
+  and `preship-verified-head.sh forward`'s.
 
 ### 7.3 External chaining
 

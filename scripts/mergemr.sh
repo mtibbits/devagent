@@ -3,7 +3,9 @@
 # the project approves it (permissions.merge_mr is exactly true, read directly, never
 # permission_gate: DA_YES and a TTY cannot open it) and only at the head the last
 # passing preship recorded (verified_head). Never waits: every read is bounded and a
-# run decides at once.
+# run decides at once. Rule 14 (#1125) also makes one fetch of default_baseline's
+# branch, bounded by DEVAGENT_MERGEMR_FETCH_SECS, and runs a local `git merge-tree`
+# that writes loose objects into the issue tree, to name the conflicted paths.
 #
 # It marks its own row BY NAME and ends one of four ways:
 #   [x] merged, [-] ship was skipped   exit 0 (also writes last_step/last_step_name)
@@ -12,13 +14,16 @@
 #                                      differs from the last `mergemr:` log line
 #   [!] a stop                         exit 1; STUCK through checklist-stuck.sh --name
 #                                      mergemr, reason `mergemr rule <N>: <text>` (preship's
-#                                      record clears rules 10, 11, 14 and 15 by that prefix)
+#                                      record clears rules 10, 11, 14 and 15 and forward's
+#                                      rule 17 by that prefix; forward clears rule 14, and
+#                                      rule 11 when it names forward's head)
 # next.sh reads the glyph after exit 0. The decision order (first match wins) and every
 # message are in commands/mergemr.md.
 #
 # Knobs: DEVAGENT_MERGEMR_READ_SECS (20; the PR read, the re-read after a merge, each
 # dependency read), DEVAGENT_MERGEMR_MERGE_SECS (30; the merge call and the auto-merge
-# disable), DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace).
+# disable), DEVAGENT_MERGEMR_FETCH_SECS (20; rule 14's base fetch, #1125),
+# DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace).
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -33,6 +38,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
 . "$DEVAGENT_ROOT/scripts/lib/depends.sh"
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/merge-forward.sh"   # #1125: rule 14's light remedy, rule 17
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
@@ -50,6 +57,7 @@ config_is_project "$project" || die "unknown project '$project'"
 # turns merging on (fail closed, Issue-780). Both are setter-globals: call bare.
 merge_checks_resolve "$project"
 merge_method_resolve "$project"
+merge_forward_resolve "$project"     # #1125: MF_VERIFY, MF_APPEND_ONLY
 
 trust_entry_check "mergemr" "$project"
 quarantine_guard "mergemr" "$project" "${2:-}"
@@ -205,8 +213,9 @@ ci_report "$issue_dir"
 [ "$CI_RESULT" != closed ] || _stop 4 "$R4_TEXT"                                         # rule 4
 [ "$MV_DRAFT" != true ] || _wait 5 "draft PR"                                            # rule 5
 
-default_base="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-default_base="$(printf '%s' "${default_base//$'\r'/}" | sed 's|^[^/]*/||')"
+default_baseline_raw="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+default_baseline_raw="${default_baseline_raw//$'\r'/}"
+default_base="$(printf '%s' "$default_baseline_raw" | sed 's|^[^/]*/||')"
 [ -n "$default_base" ] || default_base=main
 [ "$MV_BASE" = "$default_base" ] || _wait 6 "stacked on $MV_BASE"                       # rule 6
 
@@ -319,16 +328,102 @@ if [ "$CI_HEAD" != "$verified_head" ]; then                                   # 
     _stop 11 "PR head ${CI_HEAD:0:7} was not verified; run /devagent:preship on it (or push the verified head ${verified_head:0:7})$_note"
 fi
 
+# verified_by (#1125) counts as forward unless it reads as preship or empty (a legacy
+# record): a read error or a garbled value fails closed. Rules 12 and 17 read it.
+vb_rc=0
+verified_by="$(state_ctx_get "$project" verified_by "$issue_arg" 2>/dev/null)" || vb_rc=$?
+verified_by="${verified_by//$'\r'/}"
+case "$vb_rc:$verified_by" in
+    0:preship|0:) vb_forward=0 ;;         # an absent key reads as empty: a legacy record
+    *) vb_forward=1 ;;
+esac
+fwd_text="head ${verified_head:0:7} was recorded by forward and merges only on green CI ($CI_RESULT)"
+
 # rule 12: the PR's live state, not the log — a queue that ejects it, or a cancelled
-# auto-merge, falls through to the rules below.
+# auto-merge, falls through to the rules below. A forwarded head is left to the forge
+# only on green CI (#1125): before that, auto-merge is turned off, as rule 11 does, and
+# rules 13-17 decide; a merge queue cannot be left from here, so it stops.
 if [ "$MV_AUTOMERGE" = on ] || [ "$MV_QUEUE" = true ]; then
-    _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"
+    if [ "$vb_forward" = 0 ] || [ "$CI_RESULT" = green ]; then
+        _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"
+    fi
+    if [ "$MV_QUEUE" = true ]; then
+        _stop 17 "$fwd_text, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck"
+    fi
+    _call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" merge-mr "$mr_url" --disable-auto
+    if [ "$_CALL_RC" -ne 0 ]; then
+        _stop 17 "$fwd_text; could not disable auto-merge: $_CALL_ERR; disable it on the forge, then run /devagent:unstuck"
+    fi
+    echo "mergemr: auto-merge disabled: $fwd_text"
+    log_append "$issue_dir" mergemr "auto-merge disabled: $fwd_text"
 fi
 if [ "$MV_MERGEABLE" = UNKNOWN ] || [ "$MV_MERGESTATE" = UNKNOWN ]; then      # rule 13
     _wait 13 "mergeability not computed yet"
 fi
-[ "$MV_MERGEABLE" != CONFLICTING ] \
-    || _stop 14 "conflict with $MV_BASE; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"   # rule 14
+# rule 14 (#1125 names the paths): git's own merge of verified_head and the base tip,
+# asked in the issue tree after one bounded fetch of the base. The light remedy
+# (preship-verified-head.sh forward) only when forward could accept it: verify = "ci",
+# every conflicted path in append_only, merged by git as text, and only insertions on
+# both sides (the hunk checker's --parse-only), no merge gate in mr.md, and no merge
+# driver on any path of git's merged tree.
+_r14() {
+    local today="merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    local why="" out rc=0 base_ref tip p joined light=1
+    if ! out="$( (active_tree_resolve "$project" "$issue_arg") 2>&1 >/dev/null)"; then
+        out="${out%%$'\n'*}"
+        _stop 14 "conflict with $MV_BASE (conflicted paths unknown: cannot resolve the issue tree: ${out#*: }); $today"
+    fi
+    active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )
+    local tree="$ACTIVE_TREE_DIR"
+    base_ref="$default_baseline_raw"
+    _ci_secs DEVAGENT_MERGEMR_FETCH_SECS 20
+    upstream_fetch_base "$tree" "$base_ref" "$_CI_SECS"
+    case "$BASE_FETCH" in
+        failed|notimeout) why="could not fetch '$BASE_FETCH_REMOTE' ($BASE_FETCH_WHY)" ;;
+    esac
+    if [ -z "$why" ]; then
+        tip="$("$DEVAGENT_GIT" -C "$tree" rev-parse --verify --quiet "${base_ref}^{commit}" 2>/dev/null)" \
+            || why="cannot resolve ${base_ref:-default_baseline}"
+    fi
+    if [ -z "$why" ]; then
+        merge_forward_merge "$tree" "$verified_head" "$tip" || rc=$?
+        case "$rc" in
+            0) _stop 14 "conflict with $MV_BASE (git finds no conflict between ${verified_head:0:7} and ${tip:0:7}); $today" ;;
+            1) : ;;
+            2) why="git merge-tree exited $MF_MERGE_RC" ;;
+            3) why="a conflicted path contains a newline" ;;
+            *) why="git reports a conflict but names no conflicted path" ;;
+        esac
+    fi
+    [ -z "$why" ] || _stop 14 "conflict with $MV_BASE (conflicted paths unknown: $why); $today"
+
+    joined="${MF_CONFLICTED[0]}"
+    for p in "${MF_CONFLICTED[@]:1}"; do joined+=", $p"; done
+
+    # Each check below mirrors a forward refusal (never a remedy forward always refuses);
+    # the cheap ones first.
+    [ "$MF_VERIFY" = ci ] || light=0
+    for p in "${MF_CONFLICTED[@]}"; do
+        merge_forward_listed "$p" && [ "${MF_CONFLICT[$p]}" = text ] || light=0
+    done
+    if [ "$light" = 1 ]; then
+        rc=0; merge_forward_gate "$issue_dir" || rc=$?
+        [ "$rc" -eq 1 ] || light=0
+    fi
+    if [ "$light" = 1 ]; then
+        merge_forward_drivers "$tree" "$MF_MTREE" || light=0
+    fi
+    if [ "$light" = 1 ]; then
+        for p in "${MF_CONFLICTED[@]}"; do
+            merge_forward_insertions "$tree" "$p" || { light=0; break; }
+        done
+    fi
+    if [ "$light" = 1 ]; then
+        _stop 14 "conflict only in $joined; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward"
+    fi
+    _stop 14 "conflict with $MV_BASE in $joined; $today"
+}
+[ "$MV_MERGEABLE" != CONFLICTING ] || _r14                                     # rule 14
 
 # rules 15-17: #782's verdict, unchanged. ci_gate does not apply here: merging is a
 # stronger act than reporting.
@@ -342,6 +437,11 @@ case "$CI_VERDICT" in
     proceed) ;;
     *) _wait 16 "unexpected CI verdict '$CI_VERDICT'" ;;
 esac
+# rule 17, a head recorded by forward (#1125): it merges only on green CI, whatever
+# merge_checks says (vb_forward, read before rule 12).
+if [ "$vb_forward" = 1 ] && [ "$CI_RESULT" != green ]; then
+    _stop 17 "$fwd_text; to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+fi
 if [ "$CI_RESULT" = none ] && [ "$MERGE_CHECKS" = required ]; then           # rule 17
     _stop 17 "no CI checks on head commit; set merge_checks = \"if-present\" to merge without CI, then run /devagent:unstuck"
 fi

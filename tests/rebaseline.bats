@@ -136,3 +136,36 @@ _untouched() { cmp -s "$STATE" "$DEVAGENT_TMP/state.before" && cmp -s "$CL" "$DE
     [[ "$output" == *"rebaseline: baseline_sha ${C0:0:7} → ${c1:0:7}"* ]]
     [ "$(_baseline)" = "$c1" ]
 }
+
+# #1125 (behaviour guard for the upstream_fetch_base extraction): the two fetch
+# branches the #885 tests do not reach.
+@test "#1125 rebaseline: a timed-out fetch warns and uses the last-known ref" {
+    local c1 shim="$DEVAGENT_TMP/gitshim"
+    c1="$(_upstream_commit u1)"
+    _merge_forward
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = fetch ] && exec sleep 30; done\nexec git "$@"\n' > "$shim"
+    chmod +x "$shim"
+    local t0=$SECONDS
+    DEVAGENT_GIT="$shim" DEVAGENT_REBASELINE_FETCH_SECS=1 run "$DEVAGENT_ROOT/scripts/rebaseline.sh" "$TEST_PROJECT"
+    echo "$output" >&2
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"rebaseline: could not fetch 'origin' (timed out after 1s); using the last-known origin/main"* ]]
+    [ "$(_baseline)" = "$c1" ]
+    [ $((SECONDS - t0)) -lt 10 ]
+}
+
+@test "#1125 rebaseline: no timeout(1) warns and does not fetch" {
+    load 'lib/doctor-harness'
+    local c1 c2
+    c1="$(_upstream_commit u1)"
+    _merge_forward
+    c2="$(_upstream_commit u2)"
+    curated_path_without timeout
+    if command -v timeout; then false; fi
+    run "$DEVAGENT_ROOT/scripts/rebaseline.sh" "$TEST_PROJECT"
+    echo "$output" >&2
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"rebaseline: could not fetch 'origin' (timeout(1) not on PATH, so the fetch cannot be bounded); using the last-known origin/main"* ]]
+    [ "$(git -C "$SOURCE_DIR" rev-parse origin/main)" = "$c1" ]    # no fetch: c2 not seen
+    [ "$(_baseline)" = "$c1" ]
+}

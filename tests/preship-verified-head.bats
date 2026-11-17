@@ -107,6 +107,19 @@ _pin_record() {
     grep -qE "^- [0-9-]+ [0-9:]+  preship: verified_head $h$" "$CL"
 }
 
+@test "#1125 preship-verified-head: record writes verified_by = preship" {
+    _pin_record
+    [ "$status" -eq 0 ]
+    [ "$(_key verified_by)" = preship ]
+}
+
+@test "#1125 preship-verified-head: record writes verified_by = preship over a prior forward" {
+    devagent_state_set "$STATE" verified_by forward
+    _pin_record
+    [ "$status" -eq 0 ]
+    [ "$(_key verified_by)" = preship ]
+}
+
 @test "#885 preship-verified-head: record without a pin refuses" {
     run bash "$PVH" record "$TEST_PROJECT" Issue-1
     echo "$output" >&2
@@ -183,6 +196,25 @@ _clears() {
 
 @test "#885 preship-verified-head: post-ship pass clears a failed post-ship preship stop" {
     _clears "preship: AC 3 not met"
+}
+
+@test "#1125 preship-verified-head: record clears a new-format rule-14 stop" {
+    _clears "mergemr rule 14: conflict only in CHANGELOG.md; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward"
+}
+
+@test "#1125 preship-verified-head: record clears the forward rule-17 stop" {
+    _clears "mergemr rule 17: head abc1234 was recorded by forward and merges only on green CI (none); to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+}
+
+@test "#1125 preship-verified-head: record leaves a rule-17 stop that is not forward's" {
+    local h
+    _postship_checklist
+    _stop mergemr "mergemr rule 17: merge failed; gh exited 1"
+    cp "$ISSUE_DIR/STUCK" "$DEVAGENT_TMP/STUCK.before"
+    _pin_record
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 '!' mergemr
+    cmp -s "$ISSUE_DIR/STUCK" "$DEVAGENT_TMP/STUCK.before"
 }
 
 @test "#885 preship-verified-head: a rule 9 stop is not cleared" {

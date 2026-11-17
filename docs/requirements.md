@@ -376,7 +376,10 @@ tracker.
   context that the committed branch meets every acceptance criterion,
   contains every blocking finding's fix, and carries a spec change for each
   spec-relevant surface it touches. A pass records the verified head; a
-  failure marks the step stuck. {refines: SR-15}
+  failure marks the step stuck. A project may opt in to re-recording the
+  head without a fresh check after a merge-forward that only re-applies
+  git's own merge of the base, plus keeping both sides of a conflict in a
+  declared append-only file. {refines: SR-15}
 - FR-142: Before dispatching the preship verifier, devagent stops on evidence the verifier would fail and reports MR-body claims that differ from the branch, so the session can correct them; the preflight never passes the step. {refines: SR-18}
 - FR-39: Preship fails evidence from a platform the operator did not
   declare, a suite that could not be run, and an evidence block whose lines
@@ -405,7 +408,10 @@ tracker.
   CI marks it stuck with the failing line.
   It does not close the PR. {refines: SR-1}
 - FR-44: The mergemr step merges the PR only when the project's merge gate
-  is exactly `true` and only at the head preship verified. Otherwise it marks
+  is exactly `true` and only at the head preship verified, or at a head
+  re-recorded after such a merge-forward, the latter only on green CI. When
+  the PR conflicts with its base, it names the conflicted paths and the
+  cheaper remedy when that remedy applies. Otherwise it marks
   its row waiting until the PR is merged elsewhere, decides from one read,
   never polls, and waits while a recorded dependency is unmerged.
   {refines: SR-1}
@@ -477,7 +483,8 @@ tracker.
 - FR-60: devagent's revise appends a new revision block that lists the
   re-run steps as pending and restarts at draft, keeps every earlier block
   and the shared log, refuses until the revision's comments are fetched, and
-  clears preship's verified head so a merge needs a fresh preship.
+  clears preship's verified head, and how it was recorded, so a merge needs
+  a fresh preship.
   {refines: SR-8}
 - FR-61: A re-draft reads the pending reviewer comments as feedback the new
   plan must address, then clears the pending pointer and keeps the comments.
