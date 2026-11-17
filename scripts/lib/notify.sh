@@ -17,7 +17,7 @@
 # the line format, the lock and the write.
 #
 # Exits: 0 written; 2 refused (`notify: refused (<id>): ...`); 3 lock timeout;
-# 4 I/O. The functions RETURN their status and never exit; diagnostics go to
+# 4 I/O; 5 `--rotate` found no file (`notify: nothing-to-rotate`). The functions RETURN their status and never exit; diagnostics go to
 # stderr and stdout stays empty. Sourcing changes no shell option and prints
 # nothing.
 # shellcheck shell=bash

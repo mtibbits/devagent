@@ -649,3 +649,91 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   run probe field "$NF" 2 detail
   [ "$output" = shared ]
 }
+
+# ---- Task 6: --rotate ------------------------------------------------------
+
+@test "rotate: --rotate renames the file in the same directory" {
+  notify_append event=hold project=toy issue=Issue-7 detail=one
+  notify_append event=hold project=toy issue=Issue-7 detail=two
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  run --separate-stderr bash "$NOTIFY" --rotate notifications-1.jsonl
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  cmp "$BATS_TEST_TMPDIR/seed" "$DA_HOME/state/notifications-1.jsonl"
+  [ ! -e "$NF" ]
+  notify_append event=hold project=toy issue=Issue-7 detail=three
+  [ "$(lines "$NF")" -eq 1 ]
+}
+
+@test "rotate: --rotate waits for the lock and a writer started during it writes one whole line" {
+  notify_append event=hold project=toy issue=Issue-7 detail=seed-1
+  notify_append event=hold project=toy issue=Issue-7 detail=seed-2
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  local target="$DA_HOME/state/rotated.jsonl" rot app
+  hold_lock t2
+  bash "$NOTIFY" --rotate rotated.jsonl 3>&- >"$BATS_TEST_TMPDIR/rot.out" 2>&1 &
+  rot=$!
+  ( notify_append event=hold project=toy issue=Issue-7 detail=during; echo $? > "$BATS_TEST_TMPDIR/app.rc" ) 3>&- >/dev/null 2>&1 &
+  app=$!
+  sleep 1
+  [ ! -e "$target" ]
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  release
+  wait "$rot" || { cat "$BATS_TEST_TMPDIR/rot.out" >&2; return 1; }
+  wait "$app"
+  [ "$(cat "$BATS_TEST_TMPDIR/app.rc")" = 0 ]
+  [ -e "$target" ]
+  cat "$target" > "$BATS_TEST_TMPDIR/both"
+  [ ! -e "$NF" ] || cat "$NF" >> "$BATS_TEST_TMPDIR/both"
+  run probe count "$BATS_TEST_TMPDIR/both"
+  [ "$status" -eq 0 ]
+  [ "$output" = 3 ]
+  run probe prefix-count "$BATS_TEST_TMPDIR/both" seed-
+  [ "$output" = 2 ]
+  run probe prefix-count "$BATS_TEST_TMPDIR/both" during
+  [ "$output" = 1 ]
+}
+
+@test "rotate: --rotate refuses a bad name or an existing target" {
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  local name n=0
+  for name in a/b 'a\b' a:b . .. ''; do
+    n=$((n + 1))
+    run --separate-stderr bash "$NOTIFY" --rotate "$name"
+    [ "$status" -eq 2 ] || { echo "name <$name>: $status $stderr" >&2; return 1; }
+    [[ "$stderr" == *'(rotate-name)'* ]] || { echo "name <$name>: $stderr" >&2; return 1; }
+  done
+  [ "$n" -eq 6 ]
+  printf 'kept\n' > "$DA_HOME/state/taken.jsonl"
+  run --separate-stderr bash "$NOTIFY" --rotate taken.jsonl
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(rotate-exists)'* ]]
+  [ "$(cat "$DA_HOME/state/taken.jsonl")" = kept ]
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+}
+
+@test "rotate: --rotate with no file exits 5" {
+  run --separate-stderr bash "$NOTIFY" --rotate old.jsonl
+  [ "$status" -eq 5 ]
+  [[ "$stderr" == *'notify: nothing-to-rotate'* ]]
+  [ ! -e "$DA_HOME/state/old.jsonl" ]
+  rm -rf "$DA_HOME/state"
+  run --separate-stderr bash "$NOTIFY" --rotate old.jsonl
+  [ "$status" -eq 5 ]
+  [ ! -e "$DA_HOME/state" ]
+}
+
+@test "rotate: a failed rename is io and leaves the file" {
+  is_git_bash && skip "Git Bash has no POSIX directory modes"
+  [ "$(id -u)" -ne 0 ] || skip "root renames in a read-only directory"
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  chmod 500 "$DA_HOME/state"
+  run --separate-stderr bash "$NOTIFY" --rotate old.jsonl
+  chmod 700 "$DA_HOME/state"
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *'notify: io:'* ]]
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  [ ! -e "$DA_HOME/state/old.jsonl" ]
+}

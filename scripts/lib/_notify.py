@@ -8,7 +8,7 @@ Stdin framing: one <key>=<value> per line, UTF-8, LF only, split at the first
 `=`, ended by EOF. Location comes only from argv (never DA_HOME, HOME,
 DEVAGENT_STATE_DIR or a session pin); project and issue only from the fields.
 
-Exits: 0 done; 2 refused; 3 lock timeout; 4 I/O. Diagnostics go to stderr,
+Exits: 0 done; 2 refused; 3 lock timeout; 4 I/O; 5 nothing to rotate. Diagnostics go to stderr,
 stdout stays empty, and no message repeats a field value. Spec §7.3.
 
 Python 3.8 syntax floor: no `match`, no PEP 604 unions at runtime.
@@ -59,6 +59,10 @@ class IOFault(Exception):
 
 class LockTimeout(Exception):
     """The lock stayed held past the deadline: exit 3, nothing written."""
+
+
+class NothingToRotate(Exception):
+    """--rotate found no notifications file: exit 5."""
 
 
 def parse_fields(raw: bytes) -> dict:
@@ -325,6 +329,29 @@ def append(state_dir: str, line: bytes) -> None:
             os.close(fd)
 
 
+def rotate(state_dir: str, new_name: str) -> None:
+    """Rename the file to <new-name> in the same directory, under the lock.
+
+    The name is checked before the lock is taken; the target's absence and the
+    rename are both inside it. A failed rename is not retried: the file stays
+    in place and the exit is 4.
+    """
+    check_rotate_name(new_name)
+    path = os.path.join(state_dir, FILE_NAME)
+    target = os.path.join(state_dir, new_name)
+    if not os.path.isdir(state_dir):
+        raise NothingToRotate()
+    with locked(state_dir):
+        if os.path.lexists(target):
+            raise Refused("rotate-exists", "the new name already exists in the state directory")
+        if not os.path.exists(path):
+            raise NothingToRotate()
+        try:
+            os.rename(path, target)
+        except OSError as e:
+            raise IOFault(f"cannot rename {FILE_NAME}: {e.strerror}")
+
+
 def run(argv: list) -> int:
     if len(argv) == 3 and argv[0] in ("append", "check"):
         mode, state_dir, config_path = argv
@@ -335,8 +362,8 @@ def run(argv: list) -> int:
             append(state_dir, line)
         return 0
     if len(argv) == 3 and argv[0] == "rotate":
-        check_rotate_name(argv[2])
-        raise IOFault("rotate is not implemented")
+        rotate(argv[1], argv[2])
+        return 0
     raise Refused("usage", "_notify.py append|check <state-dir> <config-path> | " + ROTATE_USAGE)
 
 
@@ -346,6 +373,9 @@ def main(argv: list) -> int:
     except Refused as e:
         print(f"notify: refused ({e.rid}): {e.rule}", file=sys.stderr)
         return 2
+    except NothingToRotate:
+        print("notify: nothing-to-rotate", file=sys.stderr)
+        return 5
     except LockTimeout:
         print(f"notify: lock-timeout: waited {LOCK_WAIT_SECONDS} s for {LOCK_NAME}; nothing written", file=sys.stderr)
         return 3
