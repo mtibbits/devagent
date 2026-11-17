@@ -29,6 +29,17 @@ the README's "Versioning & releases" section has the release procedure.
   `time` with two bounds instead of `unparseable`, and it reports an
   unparseable `tok` as `tok_unparseable`. The template's example estimate
   `0w` is now the placeholder `?w`.
+
+- **Added: accept a merge-forward that leaves the branch diff unchanged (#1125).**
+  A project that sets `[project.<name>.merge_forward] verify = "ci"` can re-record
+  `verified_head` after a merge-forward with `scripts/preship-verified-head.sh
+  forward <project>` instead of a full `/devagent:preship`. It accepts only git's
+  own merge of the base (`git merge-tree`), plus keeping both sides of a conflict
+  in a file listed in `append_only` (for example `CHANGELOG.md`), and refuses with
+  a named condition otherwise. Step 20 merges such a head only on green CI, and
+  rule 14 now names the conflicted paths, and this remedy when it applies.
+  `/devagent:doctor` reports a bad table.
+
 - **Changed: the landing page (#998).** The site's front page is now a
   hand-written `docs-site/index.html` in place of `index.md`: the promise,
   README's two install commands with copy buttons, a lesson-0 path for

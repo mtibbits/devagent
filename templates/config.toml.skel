@@ -183,6 +183,18 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # repo       = "you/your-fork"
 # dir_prefix = "Issue-Fork-"          # register grammar (#613): issue ids must be Issue-N or Issue-Fork-N (POTHOLES_ISSUE_RE)
 
+# Accepting a merge-forward without a full re-verification (#1125). With verify = "ci",
+# `preship-verified-head.sh forward <project>` re-records verified_head (marked
+# verified_by = forward) after a merge-forward that only re-applies git's own merge of
+# the base, plus keep-both of a conflict in an append_only file. mergemr (step 20) then
+# merges that head only on green CI, and rule 14 names this remedy when it applies.
+# Absent, or verify = "preship": every merge-forward needs a full /devagent:preship.
+# "The base" is default_baseline's ref: a project whose default_baseline does not
+# track the PR's base should not set verify = "ci".
+# [project.{{PROJECT}}.merge_forward]
+# verify      = "ci"                # absent or "preship": today's behaviour
+# append_only = ["CHANGELOG.md"]    # exact repo-relative file paths (no globs)
+
 # Optional model-tier map (#150 surfacing, #151 dispatch consumer). next.sh prints one hint at dispatch and
 # catchup shows the current step's tier; tier names (not model IDs) are
 # forward-compatible. An absent table changes nothing; when set, next/catchup
@@ -239,7 +251,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # instead, for every project the policy scopes; nothing here can open them.
 [project.{{PROJECT}}.permissions]
 push_mr            = false
-merge_mr           = false   # true: step 20 merges the PR at the preship-verified head (#885); never prompts
+merge_mr           = false   # true: step 20 merges the PR at the verified head (#885; a forward-recorded head only on green CI, #1125); never prompts
 merge_to_all_prs   = false   # step 19 mergetoall (merge_mr no longer gates it)
 commit_devdoc      = false
 transition_issue   = false   # every tracker transition (draft, ship, sync) writes only when true; fail-closed (#219, #710)

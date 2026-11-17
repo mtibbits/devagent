@@ -894,3 +894,23 @@ check_merge_keys() {
   _has "$workflow" '/devagent:mergemr' 'does not name /devagent:mergemr' || return 1
   _has "$workflow" 'WAITING' 'does not name WAITING' || return 1
 }
+
+# check_merge_forward_docs <skel> <config-page> <mergemr-command> — #1125: the
+# merge_forward opt-in is documented in each home a reader meets it: the
+# skeleton (as a commented [project.{{PROJECT}}.merge_forward] block, AFTER the
+# first [project.{{PROJECT}}] header — a block above it would read as
+# [defaults]), the configuration page and commands/mergemr.md. Each names the
+# table, verify = "ci", append_only and the remedy preship-verified-head.sh forward.
+check_merge_forward_docs() {
+  local skel="$1" config="$2" mergemr="$3" f tok first mf
+  _need "$skel" "$config" "$mergemr" || return 2
+  for f in "$skel" "$config" "$mergemr"; do
+    for tok in 'merge_forward' 'verify = "ci"' 'append_only' 'preship-verified-head.sh forward'; do
+      _has "$f" "$tok" "does not name $tok" || return 1
+    done
+  done
+  first="$(grep -nF -m1 '[project.{{PROJECT}}]' "$skel" | cut -d: -f1)"
+  mf="$(grep -nF -m1 '[project.{{PROJECT}}.merge_forward]' "$skel" | cut -d: -f1)"
+  [ -n "$first" ] && [ -n "$mf" ] || { echo "$skel: no [project.{{PROJECT}}.merge_forward] block" >&2; return 1; }
+  [ "$mf" -gt "$first" ] || { echo "$skel: the merge_forward block precedes [project.{{PROJECT}}]" >&2; return 1; }
+}
