@@ -1134,7 +1134,7 @@ def test_tok_unparseable_reported(tmp_path):
     text, doc = _tok_doc(tmp_path)
     got = [(r["source_line"], r["kind"], r["message"]) for r in doc["parse_report"]]
     want = [(_line_of(text, f"{m} {{"), "tok_unparseable",
-             f"tok {pf._show(v)} is not a token estimate or placeholder")
+             f'tok "{v}" is not a token estimate or placeholder')
             for m, v in TOK_ROWS[:3]]
     assert got == want
     assert pf.pc.check(doc) == []
