@@ -14,7 +14,7 @@ checklist_template = "standard"
 ship_as_draft = false
 # phase_breaks: an --auto chain stops before the named steps so the next phase
 # starts in a fresh session; "" disables. Unset, it breaks before implement and
-# quality, and before updatewbs unless the checklist's mergemr row is [x], or [-]
+# quality, and before updatewbs unless the active revision's mergemr row is [x], or [-]
 # because ship was [-] (no PR); no mergemr row (older than #899) or an abandoned
 # PR (mergemr [-] after a real ship) keeps that break. A value set here or in
 # [project.<name>] itself (above its first subtable) is honoured as written, so

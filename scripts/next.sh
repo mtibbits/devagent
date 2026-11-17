@@ -69,7 +69,7 @@ phase_breaks_resolve() {
 # mid-loop, and only the built-in updatewbs break yields to it (#933).
 phase_break_at() {
   [[ "$1" == *" $2 "* ]] || return 1
-  if [[ "$2" == updatewbs && "$PHASE_BREAKS_BUILTIN" == 1 ]] && merged_closeout "$3"; then
+  if [[ "$2" == updatewbs && "${PHASE_BREAKS_BUILTIN:-0}" == 1 ]] && merged_closeout "$3"; then
     return 1
   fi
 }

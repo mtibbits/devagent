@@ -1088,8 +1088,8 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
   `phase_breaks` (`""` disables; `--no-breaks` opts one chain out) and
   prints `PHASE BREAK` with a Resume command. The built-in default breaks
   before `implement` and `quality`, and before `updatewbs` unless the active
-  revision's mergemr row is `[x]`, or `[-]` because ship was `[-]` (no PR)
-  (#933). A checklist with no mergemr row (older than #899), or an abandoned
+  revision's mergemr row is `[x]`, or `[-]` because ship was `[-]` (no PR;
+  #933). A checklist with no mergemr row (older than #899), or an abandoned
   PR (mergemr `[-]` after a real ship), keeps the break before updatewbs. A
   `phase_breaks` value in `[project.<name>]` or `[defaults]` is honoured as
   written, so `"implement quality updatewbs"` keeps that break. The

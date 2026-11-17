@@ -18,7 +18,7 @@ the README's "Versioning & releases" section has the release procedure.
 
 - **Changed: no phase break after a merged PR (#933).** The built-in
   `phase_breaks` default no longer breaks before updatewbs once the
-  checklist's mergemr row is `[x]` (or `[-]` because ship was `[-]`), so
+  active revision's mergemr row is `[x]` (or `[-]` because ship was `[-]`), so
   `--auto` runs steps 21-24 (updatewbs, impact, lessonslearned, cleanup) in
   the mergemr session. A checklist with no mergemr row (older than #899), a
   mergemr not yet done, or an abandoned PR keeps the break. An explicit
