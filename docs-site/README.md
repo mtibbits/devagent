@@ -83,9 +83,9 @@ does not pin is held only by the derivation rule above and by review.
 site and derives expectations from the markdown: each page's code-fence count
 and `workflow.md`'s table rows must survive rendering, the two
 `claude plugin …` lines in `install.md` must appear verbatim in the HTML,
-`install.md`'s and `workflow.md`'s H1s are pinned as page titles, and the site's navigation order
-is the one page list, the index's own list (`index.html`'s one-line
-`<li><a href="page.html">` entries). Its
+`install.md`'s and `workflow.md`'s H1s are pinned as page titles, and the
+site's navigation order is the one page list, the index's own list
+(`index.html`'s one-line `<li><a href="page.html">` entries). Its
 real-site legs also read `live.txt`: the expected top bar and footer are
 rendered from it, so flipping a site live moves them with the file. If no entry
 is in that form the build refuses (exit 4); if a single entry drifts, that

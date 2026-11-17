@@ -859,7 +859,7 @@ check_phase_bullets() {
   steps="$(template_steps "$tmpl")" || return 2
   [ -n "$split" ] || { echo "$ph: no phases read" >&2; return 2; }
   region="$(_region "$file" "$4" "$5")" || return $?
-  while read -r num cmd; do tnum[$cmd]=$num; done <<<"$steps"
+  while read -r num cmd; do [ -n "$cmd" ] || continue; tnum[$cmd]=$num; done <<<"$steps"
   while read -r name got; do names+=("$name"); stepsof+=("$got"); done <<<"$split"
   np="${#names[@]}"
   mapfile -t bl < <(grep -E '^- \*\*[^*]+\*\* — ' <<<"$region")

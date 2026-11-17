@@ -34,18 +34,18 @@ Rows in execution order.
 | 6  | `prune` | Plan | Move non-load-bearing items to the future-enhancements file | Moving the nice-to-haves out of the plan keeps the change small enough to review well. |
 | 7  | `tighten` | Plan | Final pre-implementation review: lock ordering, paths, and test plan | Locking the order, the files and the tests means the build follows a fixed plan, not a moving one. |
 | 8  | `branch` | Build | Create the issue branch from the configured baseline | Its own branch keeps each issue's change apart from everything else. |
-| 9  | `implement` | Build | Execute the plan task-by-task | The plan is carried out one task at a time, tests first, so each piece is checked as it lands. |
+| 9  | `implement` | Build | Execute the plan task-by-task | The plan is carried out one task at a time, each with its own test plan run before the next, so each piece is checked as it lands. |
 | 10 | `quality` | Build | Review and tighten code quality on the branch | A second pass over working code catches the mess that passing tests let through. |
 | 11 | `document` | Build | Record what was actually built versus planned | Writing down what was built, and where it differs from the plan, keeps the record honest. |
-| 12 | `commit` | Build | Commit with DCO sign-off using the commit template | A signed commit in a fixed format ties the change to its issue and its author. |
+| 12 | `commit` | Build | Commit with DCO sign-off using the commit template | A signed-off commit in a fixed format ties the change to its issue and its author. |
 | 13 | `analyze` | Build | Run the project's analyzer family against the changed lines | Static checks on the changed lines catch mistakes that people and tests miss. |
 | 14 | `draftmr` | Verify | Draft the merge-request body | The merge request says what changed and why, so reviewers do not have to rebuild the story. |
 | 15 | `review` | Verify | Run code review on the branch | A code review reads the whole change against the plan before anyone else has to. |
 | 16 | `redmr` | Verify | Red-team adversarial review of the MR before shipping | A hostile reader tries to break the change before a real reviewer or user does. |
 | 17 | `preship` | Verify | Fresh-context verification that the committed branch satisfies the acceptance criteria, after a main-session preflight checks the suite evidence and the MR body's claims | A fresh reader checks the committed branch against the issue's goals, so nothing ships on the author's word alone. |
-| 18 | `ship` | Ship | Push the branch and open the MR | The merge request opens only after every check has passed, so reviewers see finished work. |
+| 18 | `ship` | Ship | Push the branch and open the MR | The merge request opens only after the fresh preship check has passed, so reviewers see finished work. |
 | 19 | `mergetoall` | Ship | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR | Merging every open change into one local branch shows early whether they work together. |
-| 20 | `mergemr` | Ship | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged | The change merges only at the exact version that was checked, so nothing unchecked slips in. |
+| 20 | `mergemr` | Ship | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged | When devAgent merges, it merges only at the exact version that was checked, so nothing unchecked slips in. |
 | 21 | `updatewbs` | Learn | Update the work-breakdown structure | Updating the plan of work keeps the list of what is left true after each merge. |
 | 22 | `impact` | Learn | Measure and record the real-world impact of the merged change | Measuring what the merged change really did shows whether it solved the problem. |
 | 23 | `lessonslearned` | Learn | Extract reusable lessons from the completed issue | Writing down what went wrong feeds the next plan, so the same mistake is not made twice. |
