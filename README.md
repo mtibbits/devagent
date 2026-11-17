@@ -68,12 +68,12 @@ scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (J
 as appropriate for your backend.
 
 **Supported platforms.** devAgent is developed and tested on **Linux**, including
-WSL on Windows; CI runs the full suite on Linux, and runs the `gitbash`-tagged test
-files under Git Bash on Windows. macOS is currently untested: the scripts
-assume GNU coreutils (`stat -c`, GNU `sed -i`, `readlink -f`). Native Git Bash on
-Windows can run the plugin, but the full suite needs a filesystem where `chmod`
-works, which Git Bash's default `noacl` mounts are not; the `gitbash`-tagged files
-run on Windows CI (see [Running the test suite](#running-the-test-suite)).
+WSL on Windows. Native Git Bash on Windows can run the plugin.
+macOS is currently untested: the scripts assume GNU coreutils (`stat -c`, GNU
+`sed -i`, `readlink -f`). CI runs the full suite on Linux, and runs the
+`gitbash`-tagged test files under Git Bash on Windows; the full suite needs a
+filesystem where `chmod` works, which Git Bash's default `noacl` mounts are not
+(see [Running the test suite](#running-the-test-suite)).
 
 **Claude Code version.** Developed and verified against Claude Code **2.1.223**;
 earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,

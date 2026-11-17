@@ -16,6 +16,18 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: the install page (#999).** `docs-site/install.md` is now three
+  short parts in 60 lines: prerequisites in plain words, the two install
+  commands with the optional superpowers commands, and a three-line first run
+  that sends setup to the Quickstart and ends on `/devagent:doctor <project>`.
+  Contributor facts moved to `CONTRIBUTING.md` (the pytest-interpreter rule is
+  new there), and the grant forms and version ranges stay on README, linked.
+  README's Supported platforms paragraph is reordered, same facts, user claims
+  first; the page copies that prefix word for word, by test. The install-page
+  tests now check facts: every tool on the page is in README's Prerequisites,
+  and the page shows no issue number. The shellcheck token floor is 13 (was
+  14); the Claude Code token floor stays at 5, the measured count.
+
 ## [3.2.0] — 2026-11-17
 
 A minor release: new options and features, with no change that breaks an
