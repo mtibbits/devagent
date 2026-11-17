@@ -1758,7 +1758,7 @@ def test_tok_is_a_known_key():
     assert [n["meta_unknown_keys"] for n in nodes] == [[]] * 13
 
 
-CONTRACT_PROSE =("agent time", "agent hours", "cost-report", "input-token equivalents",
+CONTRACT_PROSE = ("agent time", "agent hours", "cost-report", "input-token equivalents",
                   "one trailing unit", "single value", "roll-up", "never summed",
                   "not an actual")
 NODE_LINE = re.compile(r"^\s*- \[")

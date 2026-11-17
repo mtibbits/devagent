@@ -315,8 +315,8 @@ producer would report n5's `h` (`h_malformed`) and n6's `est`
 
 **Estimate classes.** The WBS key contract owns range syntax and unit
 factors (spec §13.1, `classify_estimate`, #737); the schema carries the result
-and converts nothing. A range such as `2-4d` is `time`, with `high_hours` its
-high bound.
+and converts nothing. `low_hours` and `high_hours` are agent hours. A range
+such as `2-4d` is `time`, with `high_hours` its high bound.
 
 **Models** (#890). On each leaf, `models.thinking` and `models.checking` are
 the leaf's own key when it is one `model_token_allowlist` token (`source:
