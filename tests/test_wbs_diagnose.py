@@ -9,8 +9,12 @@ node gained the additive `parse_warnings` field (LF; no other change), and
 again on the #887 branch, when every node gained the additive `depends_on`
 field (LF; no other change), and once more there for the #887 malformed-prefix
 check: one added `parse_warnings` string on the plant-unmatched-bracket node.
+unknown_keys.parse.json (#737) is the same recipe on unknown_keys.md: `python3
+scripts/lib/wbs-parser.py parse tests/fixtures/wbs/unknown_keys.md`, LF, cut on
+the tree before `tok` joined KNOWN_META_KEYS, and never hand-edited.
 """
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -51,6 +55,31 @@ def test_diagnose_fixture_cli_unchanged(tmp_path):
                         ("leaves", "diagnose.leaves.txt")):
         assert _lf(_cli(cmd, str(DIAG))) == (FIX / golden).read_bytes(), cmd
     assert _cli("render", str(FIX / "diagnose.parse.json")) == DIAG.read_bytes()
+
+
+UNKNOWN = FIX / "unknown_keys.md"
+
+
+def _walk(node):
+    yield node
+    for child in node.get("children", []):
+        yield from _walk(child)
+
+
+def test_parse_cli_unchanged_without_tok():
+    # AC4 (#737): parse output for a file without `tok` is byte-identical to
+    # the golden cut before `tok` became a known key, and the golden exercises
+    # the meta_unknown_keys path that change edits.
+    for subject in (UNKNOWN, DIAG):
+        tree = wbs_parser.parse_file(str(subject))
+        nodes = [n for top in tree["children"] for n in _walk(top)]
+        assert nodes, subject
+        assert not any("tok" in n["meta"] for n in nodes), subject
+    golden = (FIX / "unknown_keys.parse.json").read_bytes()
+    assert _lf(_cli("parse", str(UNKNOWN))) == golden
+    flat = [k for top in json.loads(golden)["children"] for n in _walk(top)
+            for k in n["meta_unknown_keys"]]
+    assert flat == ["jira", "severity", "custom_field"]
 
 
 # --- additive diagnostics ---------------------------------------------------

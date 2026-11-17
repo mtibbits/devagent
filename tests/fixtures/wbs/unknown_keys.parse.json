@@ -1,0 +1,48 @@
+{
+  "title": "test WBS",
+  "children": [
+    {
+      "text": "Future-proof node",
+      "state": "pending",
+      "glyph": " ",
+      "depth": 1,
+      "meta": {
+        "est": "1w",
+        "jira": "PROJ-42",
+        "severity": "high",
+        "owner": "@me"
+      },
+      "meta_unknown_keys": [
+        "jira",
+        "severity"
+      ],
+      "children": [
+        {
+          "text": "Leaf",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-7",
+            "est": "1w",
+            "custom_field": "value with spaces"
+          },
+          "meta_unknown_keys": [
+            "custom_field"
+          ],
+          "children": [],
+          "source_line": 4,
+          "parse_warnings": [],
+          "depends_on": []
+        }
+      ],
+      "source_line": 3,
+      "parse_warnings": [],
+      "depends_on": []
+    }
+  ],
+  "source_text": "# test WBS\n\n- [ ] Future-proof node {est: 1w, jira: PROJ-42, severity: high, owner: @me}\n  - [ ] Leaf {issue: Issue-7, est: 1w, custom_field: \"value with spaces\"}\n",
+  "exclusions": [],
+  "exclusion_warnings": [],
+  "scopes": []
+}
