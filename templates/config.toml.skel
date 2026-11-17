@@ -19,10 +19,11 @@ ship_as_draft = false
 # printed Resume command). A single session re-reads its whole history on every
 # call; fresh sessions at implement, quality and updatewbs cut Issue-660's
 # main-session cost ~56%. Unset, the default breaks before implement and quality,
-# and before updatewbs unless the active revision's mergemr row is [x], or [-] because
-# ship was [-] (no PR), so a merged chain runs on through cleanup. No mergemr row
-# (older than #899) or an abandoned PR (mergemr [-] after a real ship) keeps that
-# break. Space-separated step names; "" disables; `--no-breaks` skips one chain.
+# and before updatewbs unless the active revision's mergemr row is [x], or [-]
+# because ship was [-] (no PR), so a merged chain runs on through cleanup. No
+# mergemr row (older than #899) or an abandoned PR (mergemr [-] after a real
+# ship) keeps that break. Space-separated step names; "" disables; `--no-breaks`
+# skips one chain.
 # A value you set is honoured as written: the line below keeps the break before
 # updatewbs. A [project.<name>] phase_breaks (above its first subtable) wins
 # over this value.
