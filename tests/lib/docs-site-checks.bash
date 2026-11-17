@@ -626,8 +626,8 @@ check_absent() {
   esac
 }
 
-# The floor of the install page's Prerequisites list (#999): the tools a
-# newcomer's first run needs. The list may name more; each must be in README.
+# The floor of the install page's Prerequisites list (#999): the tools the
+# page must list. The list may name more; each must be in README.
 PAGE_PREREQ_TOOLS=(bash python3 jq git gh shellcheck timeout)
 
 # _bold_para <file> <label> [normalise 0|1] — the paragraph that opens with the

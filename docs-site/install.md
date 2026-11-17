@@ -16,7 +16,7 @@ macOS is currently untested: the scripts assume GNU coreutils (`stat -c`, GNU `s
 - Your tracker's command-line tool: `gh` for GitHub.
 - `shellcheck` 0.9.0 or newer, for a project with `analyze = "shellcheck"` (step 13 needs it).
 
-GitLab, JIRA, or Python older than 3.11? See [README's Prerequisites paragraph](../README.md#install).
+GitLab, JIRA, or Python older than 3.11? See [README's Install section (Prerequisites)](../README.md#install).
 Working on devAgent itself? See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Install the plugin
@@ -50,8 +50,8 @@ Workflow scripts usually run without a prompt on [README's Claude Code version](
 
 ## Updates
 
-A release, not a merge to `master`, reaches an installed plugin. An install whose
-old manifest required superpowers stays disabled until this update runs once:
+Run this to pick up a new release; a merge to `master` alone does not reach you. An
+install whose old manifest required superpowers stays disabled until it runs once:
 
 ```sh
 claude plugin update devagent@devagent
