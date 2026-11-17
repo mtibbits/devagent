@@ -27,13 +27,16 @@
 #   #1000 (replaces Quickstart): check_quickstart_forms; a moved.txt line for
 #        quickstart; check_command_arity's subject floor (>= 1 /devagent: line);
 #        the arity mutation leg, which edits a copy of quickstart.md.
-#   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
-#        /devagent:mergemr and WAITING (#885); the 21-step mutation leg, which
-#        edits a copy of workflow.md. Reuse docs-site/phases.txt unchanged;
-#        check_phase_split and check_loop are the readers. The workflow page's
-#        Phase column and README's step-group bullets ("The 25-step workflow":
-#        Plan / Implement / Ship / Integrate & close) still use the 1.0 four-phase
-#        split; move both to phases.txt's five phases, read from that file.
+#   #1001 (how it works, rewritten): the "| N | `cmd`" row shape and the
+#        header-named Phase and Why columns (check_phase_column, check_why_column);
+#        "numbered 0-24 in" (its Details section); /devagent:mergemr and WAITING
+#        (#885); the "## When it stops" heading (check_stop_section,
+#        check_example_hints); the pre-table region, H1 to the table header
+#        (check_pre_table); the "- **Name** — `step`" phase bullets on the page and
+#        in README's "The N-step workflow" section (check_phase_bullets); the
+#        21-step mutation leg, which edits a copy of workflow.md. phases.txt is
+#        read unchanged by check_phase_split, check_loop, check_scripts_off,
+#        check_phase_column and check_phase_bullets.
 #   #1002: none beyond its bullet in the one list.
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).

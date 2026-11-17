@@ -49,13 +49,15 @@ Counts and versions are restated minimally, with the sources' exact tokens:
   its own requirements reader, so the page, the filler and the reader agree.
 - the steps of each phase — `phases.txt` is the one record; the landing page's
   loop is checked against it, and it against `templates/checklist-standard.md`.
-  Step numbers are shown only through `<ol start="N">`, never written beside a
-  step name.
+  The How it works page's phase list and Phase column, and README's step-group
+  bullets, are checked against it too. On the landing page, step numbers are
+  shown only through `<ol start="N">`, never written beside a step name;
+  README's bullets write them (`0 pull`), checked against the template.
 - "25-step workflow" — the site-wide headline number; `workflow.md`'s
-  Numbering section carries the reconciling sentence for the optional steps.
+  Details section carries the reconciling sentence for the optional steps.
 - the mandatory/optional step split — spec §6.3 is the authority, but the
   number is restated wherever a reader needs it (README, `workflow.md`'s
-  Numbering section). Those restatements are kept honest by the sweep in
+  Details section). Those restatements are kept honest by the sweep in
   `tests/checklist-numbering.bats`, which derives the expected count from
   `templates/checklist-standard.md` and finds its subjects by predicate — so a
   new home is covered the moment it is written, without editing the test.
@@ -81,7 +83,7 @@ does not pin is held only by the derivation rule above and by review.
 site and derives expectations from the markdown: each page's code-fence count
 and `workflow.md`'s table rows must survive rendering, the two
 `claude plugin …` lines in `install.md` must appear verbatim in the HTML,
-`install.md`'s H1 is pinned as a page title, and the site's navigation order
+`install.md`'s and `workflow.md`'s H1s are pinned as page titles, and the site's navigation order
 is the one page list, the index's own list (`index.html`'s one-line
 `<li><a href="page.html">` entries). Its
 real-site legs also read `live.txt`: the expected top bar and footer are
