@@ -324,6 +324,9 @@ EOF
   for name in draft scope nonexistentstep; do
     run checklist_step_state_by_name "$f" "$name"
     want_out="$output"; want_st="$status"
+    if [[ "$name" != nonexistentstep ]]; then
+      [ "$want_st" -eq 0 ]      # a present name really was found
+    fi
     run checklist_active_step_state_by_name "$f" "$name"
     [ "$status" -eq "$want_st" ]
     [ "$output" = "$want_out" ]
