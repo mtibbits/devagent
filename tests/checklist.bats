@@ -266,6 +266,74 @@ EOF
   [ -z "$output" ]
 }
 
+# --- #1029: checklist_active_step_state_by_name reads ONLY the active block ---
+@test "checklist_active_step_state_by_name reads the active block's own row" {
+  local f="$ISSUE_DIR/checklist.md"
+  cat > "$f" <<'EOF'
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [ ] 24. cleanup
+EOF
+  run checklist_active_step_state_by_name "$f" cleanup
+  [ "$status" -eq 0 ]
+  [ "$output" = " " ]
+  checklist_mark_by_name "$f" cleanup x
+  run checklist_active_step_state_by_name "$f" cleanup
+  [ "$status" -eq 0 ]
+  [ "$output" = "x" ]
+}
+
+@test "checklist_active_step_state_by_name returns 1 with no output when the name is only in an older block" {
+  local f="$ISSUE_DIR/checklist.md"
+  cat > "$f" <<'EOF'
+- [x]  0. pull
+- [x]  3. spike
+- [ ]  4. scope
+- [ ] 24. cleanup
+
+## Revision 2
+
+- [x]  2. draft
+- [ ]  4. scope
+- [ ] 24. cleanup
+EOF
+  run checklist_active_step_state_by_name "$f" spike
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  # Why the wrapper exists: the sibling falls back file-wide to the older block.
+  run checklist_step_state_by_name "$f" spike
+  [ "$status" -eq 0 ]
+  [ "$output" = "x" ]
+}
+
+@test "checklist_active_step_state_by_name on a checklist with no revision heading equals checklist_step_state_by_name" {
+  local f="$ISSUE_DIR/checklist.md"
+  cat > "$f" <<'EOF'
+- [x]  0. pull
+- [x]  2. draft
+- [ ]  4. scope
+- [ ] 23. cleanup
+EOF
+  local name want_out want_st
+  for name in draft scope nonexistentstep; do
+    run checklist_step_state_by_name "$f" "$name"
+    want_out="$output"; want_st="$status"
+    if [[ "$name" != nonexistentstep ]]; then
+      [ "$want_st" -eq 0 ]      # a present name really was found
+    fi
+    run checklist_active_step_state_by_name "$f" "$name"
+    [ "$status" -eq "$want_st" ]
+    [ "$output" = "$want_out" ]
+  done
+  [ "$want_st" -eq 1 ]          # the absent name really was absent
+}
+
 # --- #76: by-name gate helpers scope to the ACTIVE revision block -----------
 # revision_block.md now reuses the closeout names 19-24 (#76/#558/#885), so the #149/#242
 # gates must read the active revision's copy, not revision 1's stale glyph.

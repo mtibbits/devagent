@@ -54,3 +54,10 @@ skill_frontmatter() {
 checklist_row_nums() {
   grep -E '^- \[.\] +[0-9]+\.' "$1" | sed -E 's/^- \[.\] +([0-9]+)\..*/\1/' | tr '\n' ' ' | sed 's/ $//'
 }
+
+# "N name" for every row of the shipped standard checklist template — the
+# canonical step list, shared rather than minted per suite.
+canonical_steps() {
+    sed -nE 's/^- \[.\][[:space:]]+([0-9]+)\.[[:space:]]+([a-z]+).*$/\1 \2/p' \
+        "$PLUGIN_ROOT/templates/checklist-standard.md"
+}

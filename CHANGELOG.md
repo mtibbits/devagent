@@ -28,6 +28,23 @@ the README's "Versioning & releases" section has the release procedure.
   and the page shows no issue number. The shellcheck token floor is 13 (was
   14); the Claude Code token floor stays at 5, the measured count.
 
+- **Fixed: `next --through` and `--auto` find the chain target by name in the
+  active revision block (#1029).** The chain-target check took the target's
+  number from its first row in the file and read that number's glyph in the
+  active block. On a checklist whose older block numbers the target differently
+  (an unmigrated block from before a renumber, then a revision), that number
+  lands on another step. A done row stopped the chain early (`--auto` stopped
+  before `cleanup`), and a pending one let it run past the target into `ship`
+  and `mergemr`. Both the `--through` validation and the per-step check now
+  read the target's own row in the active block, matching the name exactly
+  rather than as a regex, so a hand-annotated row (`24. cleanup: note`) is now
+  a valid target. A `--through` step that is only in an older revision block,
+  such as `spike` on a revised checklist, is now refused: pick a step from the
+  active revision, or, if that older row is still pending, run
+  `/devagent:<step> <project>` directly. It used to stop or run on according to
+  that older row. Under a bare `--auto` the refusal names `--auto`, not the
+  `--through cleanup` it implies.
+
 ## [3.2.0] — 2026-11-17
 
 A minor release: new options and features, with no change that breaks an

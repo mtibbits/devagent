@@ -81,6 +81,23 @@ step_backing() {
   fi
 }
 
+# through_target_state <step> <checklist> <project> <flag>: print the chain
+# target's glyph from its own row in the active revision block, by exact name
+# (#1029): an older block's glyph would stop the chain early or let it run past
+# the target. Dies on a name in no row (a typo) or only in an older block, where
+# re-running is offered only for a row still pending there. <flag> is how the
+# operator asked for the target, for the refusal.
+through_target_state() {
+  local step="$1" file="$2" proj="$3" flag="$4" old
+  checklist_active_step_state_by_name "$file" "$step" && return 0
+  old="$(checklist_step_state_by_name "$file" "$step")" \
+    || die "unknown step '$step' (not present in $file)"
+  if [[ "$old" == x || "$old" == - ]]; then
+    die "$flag: that step is only in an older revision block of $file, where it is already done. Choose a --through step from the active revision."
+  fi
+  die "$flag: that step is only in an older revision block of $file, not the active one. Run /devagent:$step $proj directly, or choose a --through step from the active revision."
+}
+
 main() {
   local project="" auto=0 through="" note="" chained=0 breaks_on=1
   local -a rest=()
@@ -121,26 +138,15 @@ quarantine_guard "next" "$project"
   fi
   (( breaks_on == 0 )) && resume_flags+=" --no-breaks"
 
+  local through_flag="--through '$through'"
   if (( auto == 1 )) && [[ -z "$through" ]]; then
     through="cleanup"
+    through_flag="--auto (implies --through 'cleanup')"
   fi
   local chaining=0 breaks=""
   if (( auto == 1 )) || [[ -n "$through" ]]; then
     chaining=1
     (( breaks_on == 1 )) && breaks=" $(phase_breaks "$project") "
-  fi
-
-  # Validate --through against the actual checklist (the authority).
-  if [[ -n "$through" ]]; then
-    local _ai _idir _cl
-    _ai="$(active_resolve_issue "$project" 2>/dev/null || true)"
-    if [[ -n "$_ai" && "$_ai" != "null" ]]; then
-      _idir="$(issue_context_dir "$project" 2>/dev/null || true)"
-      _cl="$_idir/checklist.md"
-      if [[ -f "$_cl" ]] && ! grep -qE "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$_cl"; then
-        die "unknown step '$through' (not present in $_cl)"
-      fi
-    fi
   fi
 
   # #240: session view — an env-pinned session's bare `next` drives ITS issue.
@@ -168,11 +174,12 @@ quarantine_guard "next" "$project"
     # skill marks itself [x], the model re-invokes next.sh and we must
     # not advance into the next step. Script-backed targets stop below
     # via the post-exec check, so this branch is mainly for skills.
+    # #1029: the first iteration is also the --through validation (nothing has
+    # dispatched yet). Later ones fail closed: a step that starts a revision
+    # without the target ends the chain with the refusal.
     if [[ -n "$through" ]]; then
       local _ts
-      _ts="$(checklist_step_state "$checklist" \
-        "$(grep -E "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$checklist" \
-            | sed -E 's/^- \[.\][[:space:]]+([0-9]+)\..*/\1/' | head -n1)" 2>/dev/null || true)"
+      _ts="$(through_target_state "$through" "$checklist" "$project" "$through_flag")"
       if [[ "$_ts" == "x" || "$_ts" == "-" ]]; then
         echo "Chain target '$through' is complete; stopping."
         return 0
