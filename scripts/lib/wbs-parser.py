@@ -135,7 +135,7 @@ STATE_GLYPHS: dict[str, str] = {
 
 KNOWN_META_KEYS: frozenset[str] = frozenset(
     {
-        "issue", "est", "cost", "owner", "milestone", "start", "due",
+        "issue", "est", "tok", "cost", "owner", "milestone", "start", "due",
         "depends_on", "status_src", "mr", "priority",
         "satisfies", "objective", "h", "thinking", "checking",
     }

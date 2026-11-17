@@ -915,7 +915,8 @@ def test_documented_key_lists_match_known_meta_keys():
     spec = (REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
             ).read_text(encoding="utf-8")
     t_keys, s_keys = _template_keys(template), _spec_keys(spec)
-    assert len(t_keys) == len(s_keys) == 16
+    assert len(t_keys) == len(s_keys) == 17
+    assert "tok" in t_keys
     assert t_keys == wbs_parser.KNOWN_META_KEYS
     assert s_keys == wbs_parser.KNOWN_META_KEYS
     # planted control: the same extractor sees a missing key
@@ -1740,3 +1741,94 @@ ESTIMATE_API = ("classify_estimate", "ESTIMATE_KEYS", "HOUR_FACTORS", "TOKEN_FAC
 def test_module_docstring_names_estimate_api():
     doc = wbs_parser.__doc__
     assert [n for n in ESTIMATE_API if f"`{n}`" not in doc] == []
+
+
+def test_tok_is_a_known_key():
+    # #737: `tok` joins KNOWN_META_KEYS; a range stays one string in meta.
+    node = wbs_parser.parse_text("- [ ] a {est: 2-4d, tok: 1-3M, zz: 1}\n")["children"][0]
+    assert node["meta"] == {"est": "2-4d", "tok": "1-3M", "zz": "1"}
+    assert node["meta_unknown_keys"] == ["zz"]
+    assert node["parse_warnings"] == []
+    nodes = list(_walk(wbs_parser.parse_file(FIX / "est-forms.md")))
+    assert len(nodes) == 13
+    assert [n["meta_unknown_keys"] for n in nodes] == [[]] * 13
+
+
+TEMPLATE = REPO / "templates" / "wbs_template.md"
+SPEC = REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
+CONTRACT_PROSE = ("agent time", "agent hours", "cost-report", "input-token equivalents",
+                  "one trailing unit", "single value", "roll-up", "never summed",
+                  "not an actual")
+NODE_LINE = re.compile(r"^\s*- \[")
+
+
+def _contract_text(text):
+    """The prose of a contract home: node lines dropped (an example row must
+    not supply a claim), `> ` markers removed, whitespace collapsed."""
+    kept = [re.sub(r"^\s*>\s?", "", ln) for ln in text.splitlines()
+            if not NODE_LINE.match(ln)]
+    return " ".join(" ".join(kept).split())
+
+
+def _factor_re(unit, factor):
+    # bounded: `w = 40` inside `low = 40`, `h = 1` inside `high = 16` and
+    # `k = 1000` inside `k = 1000000` do not count
+    return re.compile(rf"(?<![\w`])`?{re.escape(unit)}`? = {factor}(?![\d])")
+
+
+FACTORS = {**wbs_parser.HOUR_FACTORS, **wbs_parser.TOKEN_FACTORS}
+CLASS_NAMES = tuple(dict.fromkeys(wbs_parser.EST_CLASSES + wbs_parser.TOK_CLASSES))
+
+
+def _missing_contract_claims(text):
+    flat = _contract_text(text)
+    missing = [c for c in CONTRACT_PROSE if c not in flat]
+    missing += [f"{u} = {f}" for u, f in FACTORS.items() if not _factor_re(u, f).search(flat)]
+    missing += [f"`{c}`" for c in CLASS_NAMES if f"`{c}`" not in flat]
+    return missing
+
+
+def _spec_131(text):
+    return text[text.index("### 13.1 "):text.index("### 13.2 ")]
+
+
+def _template_without_estimate_note(text):
+    """The template with its estimate note lines removed: the lines between
+    the `> thinking, checking:` line and `> Unrecognized keys`."""
+    lines = text.splitlines(keepends=True)
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("> thinking, checking:"))
+    end = next(i for i, ln in enumerate(lines) if ln.startswith("> Unrecognized keys"))
+    assert end - start > 1, "no estimate note lines between the anchors"
+    return "".join(lines[:start + 1] + lines[end:])
+
+
+def test_contract_homes_state_the_estimate_contract():
+    # AC1 (#737): both homes state every claim; the test pins tokens built
+    # from the constants, not sentences.
+    template = TEMPLATE.read_text(encoding="utf-8")
+    spec = _spec_131(SPEC.read_text(encoding="utf-8"))
+    assert _missing_contract_claims(template) == []
+    assert _missing_contract_claims(spec) == []
+    # planted controls, one per claim kind, on each home's flattened prose
+    for home in (template, spec):
+        flat = _contract_text(home)
+        assert _missing_contract_claims(flat.replace("one trailing unit", "")) == \
+            ["one trailing unit"]
+        for u, f in FACTORS.items():
+            bumped = _factor_re(u, f).sub(lambda m: m.group(0)[:-len(str(f))] + str(f + 1), flat)
+            assert _missing_contract_claims(bumped) == [f"{u} = {f}"], u
+        assert _missing_contract_claims(flat.replace("`non-time`", "non-time")) == ["`non-time`"]
+    # the example rows (a range in each key) cannot supply the range claims
+    bare = _missing_contract_claims(_template_without_estimate_note(template))
+    assert {"one trailing unit", "single value"} <= set(bare)
+    assert re.search(r"est: 2-4d, tok: 1-3M", _template_without_estimate_note(template))
+
+
+def test_template_example_rows_are_not_zero_estimates():
+    nodes = list(_walk(wbs_parser.parse_text(TEMPLATE.read_text(encoding="utf-8"))))
+    assert len(nodes) >= 3
+    est = [wbs_parser.classify_estimate("est", n["meta"].get("est")) for n in nodes]
+    assert not [e for e in est if e["class"] == "time" and e["high"] == 0]
+    assert {"placeholder", "time"} <= {e["class"] for e in est}
+    tok = [wbs_parser.classify_estimate("tok", n["meta"].get("tok"))["class"] for n in nodes]
+    assert tok.count("tokens") == 1
