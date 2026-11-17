@@ -25,10 +25,13 @@ the README's "Versioning & releases" section has the release procedure.
   before `cleanup`), and a pending one let it run past the target into `ship`
   and `mergemr`. Both the `--through` validation and the per-step check now
   read the target's own row in the active block, matching the name exactly
-  rather than as a regex. A `--through` step that is only in an older revision
-  block, such as `spike` on a revised checklist, is now refused with the
-  remedy: run `/devagent:<step> <project>` directly, or pick a step from the
-  active revision. It used to stop or run on according to that older row.
+  rather than as a regex, so a hand-annotated row (`24. cleanup: note`) is now
+  a valid target. A `--through` step that is only in an older revision block,
+  such as `spike` on a revised checklist, is now refused: pick a step from the
+  active revision, or, if that older row is still pending, run
+  `/devagent:<step> <project>` directly. It used to stop or run on according to
+  that older row. Under a bare `--auto` the refusal names `--auto`, not the
+  `--through cleanup` it implies.
 
 ## [3.2.0] — 2026-11-17
 

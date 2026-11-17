@@ -1010,11 +1010,12 @@ _1029_issue9() {
 EOC
 }
 
-# Spike shape: spike exists only in the older block.
+# Spike shape: spike exists only in the older block (done there unless given).
 _1029_spike() {
-  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+  local old_spike="${1:-x}"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
 - [x]  0. pull
-- [x]  3. spike
+- [$old_spike]  3. spike
 - [ ]  4. scope
 - [ ] 24. cleanup
 
@@ -1119,10 +1120,60 @@ EOC
   echo "$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
-  [[ "$output" == *"Run /devagent:spike volk directly"* ]]
+  [[ "$output" == *"where it is already done. Choose a --through step from the active revision."* ]]
+  [[ "$output" != *"Run /devagent:spike"* ]]
   [[ "$output" != *"dispatch:"* ]]
   [[ "$output" != *"STUB-"* ]]
   cmp "$BATS_TEST_TMPDIR/before.md" "$DEVDOC/Issue-676/checklist.md"
+}
+
+@test "#1029: --through a step pending only in an older block offers to run it directly" {
+  _1029_root
+  _1029_spike ' '
+  run bash "$root/scripts/next.sh" volk --through spike
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
+  [[ "$output" == *"Run /devagent:spike volk directly, or choose a --through step from the active revision."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: --auto whose cleanup is only in an older block names --auto in the refusal" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [ ] 23. lessonslearned
+EOC
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--auto (implies --through 'cleanup'): that step is only in an older revision block of"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: a hand-annotated target row in the active block is the chain target" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [ ] 24. cleanup: note
+EOC
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
 }
 
 @test "#1029: --through a name absent from the whole file keeps the unknown-step message" {
