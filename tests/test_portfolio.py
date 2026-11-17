@@ -107,7 +107,6 @@ def test_interim_classifier_is_gone():
     # #737 replaced #726's interim classifier; the factors live in the parser.
     assert [n for n in ("classify_est", "HOUR_FACTORS", "PLACEHOLDER_RE", "QUANTITY_RE")
             if hasattr(pf, n)] == []
-    assert callable(pf.est_fields)
 
 
 def test_est_fields_delegates_to_parser(monkeypatch):
@@ -1086,19 +1085,16 @@ def test_bare_issue_in_other_project_does_not_resolve(ready_doc):
         in ready_doc["parse_report"]
 
 
-def _one_leaf_doc(tmp_path, glyph):
-    devdoc = tmp_path / "solo"
-    devdoc.mkdir()
-    (devdoc / "WBS.md").write_bytes(f"# solo\n\n- [{glyph}] leaf {{issue: Issue-1}}\n".encode())
-    return pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
-
-
 def _solo_doc(root, body):
     devdoc = root / "solo"
     devdoc.mkdir(parents=True)
     text = "# solo\n\n" + body
     (devdoc / "WBS.md").write_bytes(text.encode())
     return text, pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
+
+
+def _one_leaf_doc(tmp_path, glyph):
+    return _solo_doc(tmp_path, f"- [{glyph}] leaf {{issue: Issue-1}}\n")[1]
 
 
 def test_range_and_tok_through_the_producer(tmp_path):

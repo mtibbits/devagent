@@ -99,7 +99,8 @@ also reads `_dep_ids`, `h_value` and `as_list`, #888, `split_dep`, #887, and
 `priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888),
 `classify_estimate` with `ESTIMATE_KEYS`, `HOUR_FACTORS`, `TOKEN_FACTORS`,
 `EST_CLASSES`, `TOK_CLASSES`, `est_num`, `ESTIMATE_PLACEHOLDER_RE`,
-`ESTIMATE_VALUE_RE` and `ESTIMATE_KEY_ERROR` (#737; portfolio.py reads them),
+`ESTIMATE_VALUE_RE` and `ESTIMATE_KEY_ERROR` (#737; portfolio.py calls
+`classify_estimate` and `est_num`),
 and for the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
@@ -284,12 +285,12 @@ def classify_estimate(key: str, value) -> dict:
         return out
     lo = Decimal(m.group("lo"))
     hi = lo if m.group("hi") is None else Decimal(m.group("hi"))
+    if lo > hi:
+        return out
     unit = m.group("u")
     factors = HOUR_FACTORS if key == "est" else TOKEN_FACTORS
     if unit in factors:
         low, high = lo * factors[unit], hi * factors[unit]
-        if lo > hi:
-            return out
         if key == "est":
             out.update({"class": "time", "low": est_num(low), "high": est_num(high)})
         elif low == low.to_integral_value() and high == high.to_integral_value():

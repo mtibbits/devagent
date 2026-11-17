@@ -68,11 +68,6 @@ EST_SRC_VALUES = ("confirmed", "derived")
 PRODUCER_KEYS: frozenset[str] = frozenset({"est_src", "satisfies", "h", "thinking", "checking"})
 
 
-def _num(d: Decimal) -> int | float:
-    """An exact decimal as JSON wants it (D14): the parser's `est_num`."""
-    return wbs_parser.est_num(d)
-
-
 def est_fields(raw) -> dict:
     """`meta.est` as the schema's Est fields (without `src`), classified by the
     WBS key contract's `classify_estimate` (#737; spec §13.1)."""
@@ -253,8 +248,9 @@ def rollup(nodes: list[dict]) -> dict:
         elif est["class"] == "non-time":
             non_time[est["unit"]] = non_time.get(est["unit"], Decimal(0)) + _dec(est["quantity"])
     remaining.update({
-        "low_hours": _num(low), "high_hours": _num(high),
-        "non_time": {u: _num(q) for u, q in non_time.items()},
+        # D14: exact decimals as JSON wants them, by the parser's one rule
+        "low_hours": wbs_parser.est_num(low), "high_hours": wbs_parser.est_num(high),
+        "non_time": {u: wbs_parser.est_num(q) for u, q in non_time.items()},
     })
     return {"by_state": by_state, "remaining": remaining}
 

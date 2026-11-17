@@ -901,19 +901,26 @@ def _template_keys(text):
     return set(line[len(prefix):].strip().split(", "))
 
 
+TEMPLATE = REPO / "templates" / "wbs_template.md"
+SPEC = REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
+
+
+def _spec_131(text):
+    return text[text.index("### 13.1 "):text.index("### 13.2 ")]
+
+
 def _spec_keys(text):
     """The backticked key set spec §13.1 claims, between `Recognized keys
     (v1):` and `Unrecognized keys`."""
-    s131 = text[text.index("### 13.1 "):text.index("### 13.2 ")]
+    s131 = _spec_131(text)
     claim = s131[s131.index("Recognized keys (v1):"):s131.index("Unrecognized keys")]
     return set(re.findall(r"`([^`]+)`", claim))
 
 
 def test_documented_key_lists_match_known_meta_keys():
     # #888: derived from the claim, not hand-copied.
-    template = (REPO / "templates" / "wbs_template.md").read_text(encoding="utf-8")
-    spec = (REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
-            ).read_text(encoding="utf-8")
+    template = TEMPLATE.read_text(encoding="utf-8")
+    spec = SPEC.read_text(encoding="utf-8")
     t_keys, s_keys = _template_keys(template), _spec_keys(spec)
     assert len(t_keys) == len(s_keys) == 17
     assert "tok" in t_keys
@@ -1637,8 +1644,6 @@ def test_classify_estimate_rows(key, raw, want):
         v = got[field]
         if v is not None and float(v).is_integer():
             assert type(v) is int, (field, v)
-    if got["class"] == "tokens":
-        assert type(got["low"]) is int and type(got["high"]) is int
 
 
 def test_estimate_tables_pinned():
@@ -1648,9 +1653,8 @@ def test_estimate_tables_pinned():
     assert wbs_parser.ESTIMATE_KEYS == ("est", "tok")
     assert wbs_parser.EST_CLASSES == ("absent", "placeholder", "time", "non-time", "unparseable")
     assert wbs_parser.TOK_CLASSES == ("absent", "placeholder", "tokens", "unparseable")
-    got = [(wbs_parser.classify_estimate("est", v)["low"],
-            wbs_parser.classify_estimate("est", v)["high"]) for v in ("1h", "1d", "1w")]
-    assert got == [(1, 1), (8, 8), (40, 40)]
+    got = [wbs_parser.classify_estimate("est", v) for v in ("1h", "1d", "1w")]
+    assert [(c["low"], c["high"]) for c in got] == [(1, 1), (8, 8), (40, 40)]
 
 
 @pytest.mark.parametrize("key", ["cost", "EST", ""])
@@ -1754,9 +1758,7 @@ def test_tok_is_a_known_key():
     assert [n["meta_unknown_keys"] for n in nodes] == [[]] * 13
 
 
-TEMPLATE = REPO / "templates" / "wbs_template.md"
-SPEC = REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
-CONTRACT_PROSE = ("agent time", "agent hours", "cost-report", "input-token equivalents",
+CONTRACT_PROSE =("agent time", "agent hours", "cost-report", "input-token equivalents",
                   "one trailing unit", "single value", "roll-up", "never summed",
                   "not an actual")
 NODE_LINE = re.compile(r"^\s*- \[")
@@ -1788,10 +1790,6 @@ def _missing_contract_claims(text):
     return missing
 
 
-def _spec_131(text):
-    return text[text.index("### 13.1 "):text.index("### 13.2 ")]
-
-
 def _template_without_estimate_note(text):
     """The template with its estimate note lines removed: the lines between
     the `> thinking, checking:` line and `> Unrecognized keys`."""
@@ -1815,7 +1813,7 @@ def test_contract_homes_state_the_estimate_contract():
         assert _missing_contract_claims(flat.replace("one trailing unit", "")) == \
             ["one trailing unit"]
         for u, f in FACTORS.items():
-            bumped = _factor_re(u, f).sub(lambda m: m.group(0)[:-len(str(f))] + str(f + 1), flat)
+            bumped = _factor_re(u, f).sub(lambda m, f=f: m.group(0)[:-len(str(f))] + str(f + 1), flat)
             assert _missing_contract_claims(bumped) == [f"{u} = {f}"], u
         assert _missing_contract_claims(flat.replace("`non-time`", "non-time")) == ["`non-time`"]
     # the example rows (a range in each key) cannot supply the range claims

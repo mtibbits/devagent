@@ -60,9 +60,9 @@ def test_diagnose_fixture_cli_unchanged(tmp_path):
 UNKNOWN = FIX / "unknown_keys.md"
 
 
-def _walk(node):
-    yield node
-    for child in node.get("children", []):
+def _walk(tree):
+    for child in tree["children"]:
+        yield child
         yield from _walk(child)
 
 
@@ -72,13 +72,12 @@ def test_parse_cli_unchanged_without_tok():
     # the meta_unknown_keys path that change edits.
     for subject in (UNKNOWN, DIAG):
         tree = wbs_parser.parse_file(str(subject))
-        nodes = [n for top in tree["children"] for n in _walk(top)]
+        nodes = list(_walk(tree))
         assert nodes, subject
         assert not any("tok" in n["meta"] for n in nodes), subject
     golden = (FIX / "unknown_keys.parse.json").read_bytes()
     assert _lf(_cli("parse", str(UNKNOWN))) == golden
-    flat = [k for top in json.loads(golden)["children"] for n in _walk(top)
-            for k in n["meta_unknown_keys"]]
+    flat = [k for n in _walk(json.loads(golden)) for k in n["meta_unknown_keys"]]
     assert flat == ["jira", "severity", "custom_field"]
 
 
