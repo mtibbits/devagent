@@ -694,7 +694,7 @@ lc_lacks() {
   plant "$f" '<p>Install superpowers too</p>'
   breaks 'superpowers' check_install_only "$f"
   f="$(filled_index)"
-  edit "$f" '<p><a href="install.html">Full install guide</a></p>' '<p>Full install guide</p>'
+  edit "$f" '<p><a href="install.html">Install guide</a></p>' '<p>Install guide</p>'
   breaks 'install.html' check_install_only "$f"
 }
 

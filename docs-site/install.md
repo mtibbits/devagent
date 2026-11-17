@@ -1,4 +1,4 @@
-<!-- derived-from: README.md scripts/ .github/workflows/ -->
+<!-- derived-from: README.md scripts/ -->
 # Install
 
 ## Prerequisites
