@@ -33,6 +33,7 @@ FILE_NAME = "notifications.jsonl"
 LOCK_NAME = FILE_NAME + ".lock"
 LOCK_WAIT_SECONDS = 10
 MAX_LINE_BYTES = 4096
+ELLIPSIS = "\u2026"   # the shortening mark ending a cut detail
 EVENTS = ("hold", "notify", "answered", "stuck")
 KEYS = ("event", "project", "issue", "capture", "step", "question", "detail")
 O_BINARY = getattr(os, "O_BINARY", 0)   # Windows: no newline translation on os.open fds
@@ -171,6 +172,33 @@ def encode(obj: dict) -> bytes:
     return (json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
 
 
+def fit(obj: dict) -> bytes:
+    """The encoded line, at most MAX_LINE_BYTES with its \\n.
+
+    A longer line keeps the longest code-point prefix of `detail` that fits with
+    ELLIPSIS appended (a binary search: the encoded length only grows with the
+    prefix). If even `detail` equal to ELLIPSIS alone does not fit, refuse.
+    """
+    line = encode(obj)
+    if len(line) <= MAX_LINE_BYTES:
+        return line
+    detail = obj["detail"]
+
+    def with_prefix(k: int) -> bytes:
+        return encode(dict(obj, detail=detail[:k] + ELLIPSIS))
+
+    if len(with_prefix(0)) > MAX_LINE_BYTES:
+        raise Refused("too-long", f"the line is longer than {MAX_LINE_BYTES} bytes even with an empty detail")
+    lo, hi = 0, len(detail)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if len(with_prefix(mid)) <= MAX_LINE_BYTES:
+            lo = mid
+        else:
+            hi = mid - 1
+    return with_prefix(lo)
+
+
 def ensure_state_dir(state_dir: str) -> None:
     """Create the state directory 0700, only when it is missing."""
     if not os.path.isdir(state_dir):
@@ -243,7 +271,7 @@ def run(argv: list) -> int:
         mode, state_dir, config_path = argv
         fields = parse_fields(sys.stdin.buffer.read())
         check_fields(fields, config_path)
-        line = encode(build_record(fields))
+        line = fit(build_record(fields))
         if mode == "append":
             append(state_dir, line)
         return 0

@@ -449,3 +449,63 @@ run_rows() {
   [[ "$stderr" == *'notify: io:'* ]]
   [ ! -e "$NF" ]
 }
+
+# ---- Task 4: long detail ---------------------------------------------------
+
+ELL="$(printf '\xe2\x80\xa6')"   # U+2026, the shortening mark
+
+@test "notify: a 5,000-character ASCII detail is shortened to fit 4096 bytes" {
+  local in d
+  in="$(head -c 5000 /dev/zero | tr '\0' x)"
+  [ "${#in}" -eq 5000 ]
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 "detail=$in"
+  [ "$status" -eq 0 ]
+  run probe bytes "$NF" 1
+  [ "$output" -eq 4096 ]
+  d="$(probe field "$NF" 1 detail)"
+  [[ "$d" == *"$ELL" ]]
+  [ "${#d}" -lt 5000 ]
+  [[ "$in" == "${d%"$ELL"}"* ]]
+  notify_append event=hold project=toy issue=Issue-7 detail=short
+  run probe field "$NF" 2 detail
+  [ "$output" = short ]
+}
+
+@test "notify: a 5,000-character multi-byte detail is shortened on a character boundary" {
+  local in d
+  in="$(printf '\xe6\x97\xa5%.0s' $(seq 5000))"
+  [ "${#in}" -eq 5000 ]
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 "detail=$in"
+  [ "$status" -eq 0 ]
+  run probe bytes "$NF" 1
+  [ "$output" -ge 4093 ]
+  [ "$output" -le 4096 ]
+  run probe count "$NF"
+  [ "$output" = 1 ]
+  d="$(probe field "$NF" 1 detail)"
+  [[ "$d" == *"$ELL" ]]
+  [ "${#d}" -lt 5000 ]
+  [[ "$in" == "${d%"$ELL"}"* ]]
+}
+
+@test "notify: a line too long with an empty detail is refused" {
+  local cap
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  cap="$(head -c 4200 /dev/zero | tr '\0' c)"
+  run --separate-stderr notify_append event=notify project=toy "capture=$cap" detail=d
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(too-long)'* ]]
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+}
+
+@test "notify: a 200,000-character detail is shortened within 5 seconds" {
+  local in start
+  in="$(head -c 200000 /dev/zero | tr '\0' y)"
+  start=$SECONDS
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 "detail=$in"
+  [ "$status" -eq 0 ]
+  [ $((SECONDS - start)) -le 5 ]
+  run probe bytes "$NF" 1
+  [ "$output" -eq 4096 ]
+}
