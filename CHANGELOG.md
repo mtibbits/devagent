@@ -16,6 +16,20 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `next --through` and `--auto` find the chain target by name in the
+  active revision block (#1029).** The chain-target check took the target's
+  number from its first row in the file and read that number's glyph in the
+  active block. On a checklist whose older block numbers the target differently
+  (an unmigrated block from before a renumber, then a revision), that number
+  lands on another step. A done row stopped the chain early (`--auto` stopped
+  before `cleanup`), and a pending one let it run past the target into `ship`
+  and `mergemr`. Both the `--through` validation and the per-step check now
+  read the target's own row in the active block, matching the name exactly
+  rather than as a regex. A `--through` step that is only in an older revision
+  block, such as `spike` on a revised checklist, is now refused with the
+  remedy: run `/devagent:<step> <project>` directly, or pick a step from the
+  active revision. It used to stop or run on according to that older row.
+
 ## [3.2.0] — 2026-11-17
 
 A minor release: new options and features, with no change that breaks an
