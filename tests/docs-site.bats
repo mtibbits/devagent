@@ -132,14 +132,15 @@ filled_index() {
   holds check_derived_from "$PLUGIN_ROOT" "${pages[@]}"
 }
 
-@test "docs-site: the install commands, notice, version and grant are shared with README" {
+@test "docs-site: the install commands, notice and version are shared with README; README carries the grant" {
   local f
   for f in "$WEB/install.md" "$README"; do
     holds check_install_block "$f"
     holds check_userconfig_notice "$f"
     holds check_verified_version "$f"
-    holds check_permission_grant "$f"
   done
+  # #999: the grant forms and "Never widen" live on README only; the page links there.
+  holds check_permission_grant "$README"
 }
 
 @test "docs-site: the headline step count is derived from the template, in README and the index" {
@@ -226,10 +227,17 @@ filled_index() {
   done
 }
 
-@test "docs-site: install-page prerequisite and platform claims trace to README (#579)" {
+@test "docs-site: every install-page prerequisite is in README's Prerequisites" {
   holds check_prereqs_trace "$WEB/install.md" "$README"
-  holds check_platform_tokens "$WEB/install.md"
+}
+
+@test "docs-site: the install page's platform paragraph is README's user-facing prefix" {
+  holds check_platform_sentence "$WEB/install.md" "$README"
   holds check_platform_tokens "$README"
+}
+
+@test "docs-site: the install page shows no issue number in its visible text" {
+  holds check_no_issue_numbers "$WEB/install.md"
 }
 
 @test "docs-site: command lines on every page are full-arity; the quickstart forms are gate-honest" {
@@ -519,11 +527,11 @@ lc_lacks() {
 
 @test "mutation: permission grant" {
   local f
-  f="$(fresh "$WEB/install.md")"
+  f="$(fresh "$README")"
   holds check_permission_grant "$f"
   edit "$f" 'Never widen to bare `Bash`' 'Never widen it'
   breaks 'Never widen' check_permission_grant "$f"
-  f="$(fresh "$WEB/install.md")"
+  f="$(fresh "$README")"
   edit "$f" ', Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)' ''
   breaks 'two-form' check_permission_grant "$f"
 }
@@ -725,33 +733,106 @@ lc_lacks() {
   local page readme
   page="$(fresh "$WEB/install.md")"; readme="$(fresh "$README")"
   holds check_prereqs_trace "$page" "$readme"
-  # A reflow that moves a tool onto the contributors bullet's second line holds.
-  edit "$page" 'need **`bats`** and' $'need\n  **`bats`** and'
-  grep -qx -- '  \*\*`bats`\*\* and.*' "$page"
+  # A reflow that moves a tool onto a bullet's two-space continuation line holds.
+  edit "$page" '- `jq`.' $'- The JSON tool,\n  `jq`.'
+  grep -qx -- '  `jq`\.' "$page"
   holds check_prereqs_trace "$page" "$readme"
+  # A backticked bullet under a later "## " heading is outside the list.
+  page="$(fresh "$WEB/install.md")"
+  plant "$page" '- `zsh` for the prompt.'
+  holds check_prereqs_trace "$page" "$readme"
+  # README's Prerequisites paragraph loses a tool the page lists.
   page="$(fresh "$WEB/install.md")"
   edit "$readme" '`jq`' 'jq'
-  breaks '`jq`' check_prereqs_trace "$page" "$readme"
+  breaks 'not in README Prerequisites: `jq`' check_prereqs_trace "$page" "$readme"
   readme="$(fresh "$README")"
   plant "$page" 'No private-repo access is needed.'
   breaks 'private' check_prereqs_trace "$page" "$readme"
   # A page tool README lacks.
   page="$(fresh "$WEB/install.md")"
-  sed -i 's/^- Contributors additionally/- **`zsh`** for the prompt.\n&/' "$page"
-  grep -qF -- '- **`zsh`**' "$page"
-  breaks '`zsh`' check_prereqs_trace "$page" "$readme"
-  # A tool the page no longer names.
+  sed -i 's/^- `jq`\.$/- `zsh` for the prompt.\n&/' "$page"
+  grep -qx -- '- `zsh` for the prompt.' "$page"
+  breaks 'not in README Prerequisites: `zsh`' check_prereqs_trace "$page" "$readme"
+  # README names `bats` only outside its Prerequisites paragraph: the scope holds.
   page="$(fresh "$WEB/install.md")"
-  edit "$page" '**`jq`**' '**jq**'
-  breaks 'toolchain list does not name `jq`' check_prereqs_trace "$page" "$readme"
+  grep -qF '`bats`' "$readme"
+  sed -i 's/^- `jq`\.$/- `bats` for the tests.\n&/' "$page"
+  grep -qx -- '- `bats` for the tests.' "$page"
+  breaks 'not in README Prerequisites: `bats`' check_prereqs_trace "$page" "$readme"
+  # A floor tool the page no longer names.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" '- `jq`.' '- jq.'
+  breaks 'page list is missing `jq`' check_prereqs_trace "$page" "$readme"
+  # No Prerequisites section at all.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" '## Prerequisites' '## Before you start'
+  breaks 'no Prerequisites list' check_prereqs_trace "$page" "$readme"
+  # README's Prerequisites paragraph gone: the check cannot run.
+  page="$(fresh "$WEB/install.md")"
+  edit "$readme" '**Prerequisites.**' '**Needs.**'
+  run check_prereqs_trace "$page" "$readme"
+  [ "$status" -eq 2 ]
 }
 
 @test "mutation: platform tokens" {
   local f
-  f="$(fresh "$WEB/install.md")"
+  f="$(fresh "$README")"
   holds check_platform_tokens "$f"
   edit "$f" 'macOS is currently untested' 'macOS may work'
   breaks 'macOS' check_platform_tokens "$f"
+}
+
+@test "mutation: platform sentence" {
+  local page readme
+  page="$(fresh "$WEB/install.md")"; readme="$(fresh "$README")"
+  holds check_platform_sentence "$page" "$readme"
+  # Cut to the first sentence: a README prefix, but it drops claims.
+  drop "$page" 'Native Git Bash on Windows can run the plugin.'
+  drop "$page" 'macOS is currently untested:'
+  breaks 'drops the claim: Git Bash' check_platform_sentence "$page" "$readme"
+  # A word changed.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" 'can run the plugin' 'runs the plugin'
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # Cut mid-sentence.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" ' (`stat -c`, GNU `sed -i`, `readlink -f`).' ''
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # The bare label only.
+  page="$(fresh "$WEB/install.md")"
+  drop "$page" 'Native Git Bash on Windows can run the plugin.'
+  drop "$page" 'macOS is currently untested:'
+  edit "$page" '**Supported platforms.** devAgent is developed and tested on **Linux**, including WSL on Windows.' \
+    '**Supported platforms.**'
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # README's leading sentences change; the page does not follow.
+  page="$(fresh "$WEB/install.md")"
+  edit "$readme" 'developed and tested on **Linux**' 'built and tested on **Linux**'
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # LIMIT (documented on the check): a README edit after the page's cut holds.
+  readme="$(fresh "$README")"
+  edit "$readme" 'CI runs the full suite on Linux' 'CI runs every test on Linux'
+  holds check_platform_sentence "$page" "$readme"
+  # The page paragraph gone.
+  readme="$(fresh "$README")"
+  edit "$page" '**Supported platforms.**' 'Platforms:'
+  breaks 'no **Supported platforms.**' check_platform_sentence "$page" "$readme"
+  # README's paragraph gone: the check cannot run.
+  page="$(fresh "$WEB/install.md")"
+  edit "$readme" '**Supported platforms.**' 'Platforms:'
+  run check_platform_sentence "$page" "$readme"
+  [ "$status" -eq 2 ]
+}
+
+@test "mutation: install page issue numbers" {
+  local f
+  f="$(fresh "$WEB/install.md")"
+  holds check_no_issue_numbers "$f"
+  plant "$f" 'Fixed long ago (#541).'
+  breaks '#541' check_no_issue_numbers "$f"
+  f="$(fresh "$WEB/install.md")"
+  plant "$f" 'Fixed long ago (Issue-541).'
+  breaks 'Issue-541' check_no_issue_numbers "$f"
 }
 
 @test "mutation: command arity" {
@@ -809,6 +890,12 @@ lc_lacks() {
   holds check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
   plant "$t/$CONFIG_REL" 'Older docs said shellcheck 0.8.0.'
   breaks "$CONFIG_REL: 0.8.0" check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
+  # #999: the contributor statement lives in CONTRIBUTING.md "What you need".
+  # An edit, not a drop, so the shellcheck floor on the same bullet still parses.
+  cp "$PLUGIN_ROOT/$CONFIG_REL" "$t/$CONFIG_REL"
+  holds check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
+  edit "$t/CONTRIBUTING.md" '`bats` 1.10 or newer, ' ''
+  breaks 'no longer names `bats`' check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
 }
 
 @test "mutation: merge keys" {
