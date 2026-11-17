@@ -1111,8 +1111,10 @@ def test_range_and_tok_through_the_producer(tmp_path):
                          "quantity": None, "unit": None, "src": None}
     assert ok["meta"]["tok"] == "1-3M"
     assert ok["meta_unknown_keys"] == []
+    assert bad["est"]["class"] == "unparseable"
+    assert bad["source_line"] == _line_of(text, "bad {")
     report = [(r["source_line"], r["kind"]) for r in doc["parse_report"]]
-    assert report == [(_line_of(text, "bad {"), "est_unparseable")]
+    assert report == [(bad["source_line"], "est_unparseable")]
     remaining = doc["projects"][0]["rollup"]["remaining"]
     assert (remaining["estimated"], remaining["unestimated"],
             remaining["low_hours"], remaining["high_hours"]) == (1, 1, 16, 32)
