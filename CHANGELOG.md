@@ -16,6 +16,18 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+## [3.2.0] — 2026-11-17
+
+A minor release: new options and features, with no change that breaks an
+existing project's `config.toml`, devdoc layout or command contract. Added:
+the local code backend, capture-time model-tier proposals, the WBS estimate
+contract (`est` units and ranges, the `tok` key), and accepting a
+merge-forward that leaves the branch diff unchanged. `/devagent:preship` now
+runs an evidence and MR-claims preflight before the verifier, and the docs
+site moved to the shared family template with a new landing page. `local` is
+now a built-in code backend name, so a custom backend saved as
+`scripts/code/local.sh` should be renamed.
+
 - **Added: the WBS estimate contract (#737).** The template note and spec
   §13.1 now say what `est` measures: agent time, in `h`, `d` and `w` units of
   1, 8 and 40 agent hours. A new `tok` key holds the token estimate, in
