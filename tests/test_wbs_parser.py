@@ -1832,3 +1832,23 @@ def test_template_example_rows_are_not_zero_estimates():
     assert {"placeholder", "time"} <= {e["class"] for e in est}
     tok = [wbs_parser.classify_estimate("tok", n["meta"].get("tok"))["class"] for n in nodes]
     assert tok.count("tokens") == 1
+
+
+ESTIMATE_RULE_NAMES = ("HOUR_FACTORS", "TOKEN_FACTORS", "ESTIMATE_VALUE_RE",
+                       "ESTIMATE_PLACEHOLDER_RE")
+
+
+def test_estimate_rule_has_one_home():
+    # #737: the estimate tables and classify_estimate live in wbs-parser.py
+    # alone; portfolio.py's interim classifier is gone. Planted controls first.
+    assert _assigns_named("HOUR" + "_FACTORS: dict = {}\n", "HOUR_FACTORS") == 1
+    assert _defs_named("def classify" + "_estimate(k, v):\n    pass\n", "classify_estimate") == 1
+    hits = {}
+    for p in sorted((REPO / "scripts" / "lib").glob("*.py")):
+        src = p.read_text(encoding="utf-8")
+        counts = {n: _assigns_named(src, n) for n in ESTIMATE_RULE_NAMES}
+        counts["classify_estimate"] = _defs_named(src, "classify_estimate")
+        if any(counts.values()):
+            hits[p.name] = counts
+    assert hits == {"wbs-parser.py": {**{n: 1 for n in ESTIMATE_RULE_NAMES},
+                                      "classify_estimate": 1}}
