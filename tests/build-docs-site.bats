@@ -363,6 +363,10 @@ real_stubs() {
 @test "build-docs-site: real site — title from the H1, nav marks exactly the current page" {
   need_pandoc
   grep -qF '<title>Install | devAgent</title>' "$REAL_OUT/install.html"
+  # #1001: the workflow page's H1 is "How it works", its title and nav label.
+  grep -qF '<title>How it works | devAgent</title>' "$REAL_OUT/workflow.html"
+  nav_of "$REAL_OUT/workflow.html" | grep -qF '<a href="workflow.html" aria-current="page">How it works</a>'
+  nav_of "$REAL_OUT/install.html" | grep -qF '<a href="workflow.html">How it works</a>'
   local content=() p html
   mapfile -t content < <(real_content)
   # content pages only (a moved-page stub has no nav); each nav links them all

@@ -152,6 +152,40 @@ filled_index() {
   holds check_step_table "$TEMPLATE" "$WEB/workflow.md"
 }
 
+# The How it works page's pre-table region and README's step-workflow section:
+# where check_phase_bullets reads the phase bullets.
+PRE_TABLE=('^# ' "$_TABLE_HEAD")
+README_STEPS=('^## The [0-9]+-step workflow$' '^## ')
+
+@test "docs-site: the How it works Phase column matches the phase-split file and uses no retired phase" {
+  holds check_phase_column "$WEB/phases.txt" "$WEB/workflow.md"
+}
+
+@test "docs-site: every How it works step row has one non-empty Why cell" {
+  holds check_why_column "$TEMPLATE" "$WEB/workflow.md"
+}
+
+@test "docs-site: before the step table the How it works page shows no issue number or config key" {
+  holds check_pre_table "$PLUGIN_ROOT/templates/config.toml.skel" "$WEB/workflow.md"
+}
+
+@test "docs-site: the How it works stop section names waiting, stuck, phase breaks and --through; its commands fit their argument hints" {
+  holds check_stop_section "$WEB/workflow.md" "$TEMPLATE" "$PLUGIN_ROOT/scripts/next.sh"
+  holds check_example_hints "$WEB/workflow.md" "$PLUGIN_ROOT"
+}
+
+@test "docs-site: the phase lists on the How it works page and in README match the phase-split file" {
+  holds check_phase_bullets "$WEB/phases.txt" "$TEMPLATE" "$WEB/workflow.md" "${PRE_TABLE[@]}"
+  holds check_phase_bullets "$WEB/phases.txt" "$TEMPLATE" "$README" "${README_STEPS[@]}"
+}
+
+@test "docs-site: no page calls the How it works page the workflow reference" {
+  local -a pages
+  mapfile -t pages < <(content_pages)
+  [ "${#pages[@]}" -ge 1 ]
+  holds check_absent -iF 'workflow reference' "${pages[@]}"
+}
+
 @test "docs-site: the phase-split file covers each checklist-template step once, in order" {
   holds check_phase_split "$TEMPLATE" "$WEB/phases.txt"
 }
@@ -566,6 +600,123 @@ lc_lacks() {
   f="$(fresh "$WEB/workflow.md")"
   edit "$f" "| $num | \`$cmd\`" "| $num | \`${cmd}x\`"
   breaks "step $num" check_step_table "$TEMPLATE" "$f"
+}
+
+@test "mutation: phase column" {
+  local f ph="$WEB/phases.txt"
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_phase_column "$ph" "$f"
+  edit "$f" '`branch` | Build' '`branch` | Implement'
+  breaks 'retired phase name' check_phase_column "$ph" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '`analyze` | Build' '`analyze` | Verify'
+  breaks "want 'Build'" check_phase_column "$ph" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '| Phase |' '| Stage |'
+  breaks 'no Phase column' check_phase_column "$ph" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  drop "$f" '| 13 |'
+  breaks 'step rows' check_phase_column "$ph" "$f"
+}
+
+@test "mutation: why column" {
+  local f
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_why_column "$TEMPLATE" "$f"
+  edit "$f" 'Static checks on the changed lines catch mistakes that people and tests miss.' ' '
+  breaks 'empty Why cell' check_why_column "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" 'people and tests miss.' 'people | and tests miss.'
+  breaks 'cells, header has' check_why_column "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '| Why |' '| Reason |'
+  breaks 'no Why column' check_why_column "$TEMPLATE" "$f"
+}
+
+@test "mutation: pre-table" {
+  local f skel="$PLUGIN_ROOT/templates/config.toml.skel" lit='keeps a written record of each step.'
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_pre_table "$skel" "$f"
+  edit "$f" "$lit" 'keeps a written record of each step (see #885).'
+  breaks '#885' check_pre_table "$skel" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" "$lit" 'keeps a written record of each step (set phase_breaks).'
+  breaks 'phase_breaks' check_pre_table "$skel" "$f"
+  # Controls: a single-word key is the declared blind spot; past the table is
+  # outside the region.
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" "$lit" 'keeps a written record of each `branch`.'
+  holds check_pre_table "$skel" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  plant "$f" 'merge_mr'
+  holds check_pre_table "$skel" "$f"
+}
+
+@test "mutation: stop section" {
+  local f t n w="$WEB/workflow.md" nx="$PLUGIN_ROOT/scripts/next.sh"
+  f="$(fresh "$w")"
+  holds check_stop_section "$f" "$TEMPLATE" "$nx"
+  edit "$f" '`blocked-external`' '`blocked`'
+  breaks 'blocked-external' check_stop_section "$f" "$TEMPLATE" "$nx"
+  # The [?] label is read from the template, not written into the check.
+  f="$(fresh "$w")"; t="$(fresh "$TEMPLATE")"
+  edit "$t" '[?] blocked-external' '[?] blocked-outside'
+  breaks 'blocked-outside' check_stop_section "$f" "$t" "$nx"
+  edit "$f" '`quality` and `updatewbs`' ' and `updatewbs`'
+  breaks 'quality' check_stop_section "$f" "$TEMPLATE" "$nx"
+  # The default breaks are read from next.sh.
+  f="$(fresh "$w")"; n="$(fresh "$nx")"
+  edit "$n" '"implement quality updatewbs"' '"implement review updatewbs"'
+  breaks 'review' check_stop_section "$f" "$TEMPLATE" "$n"
+  edit "$f" '## When it stops' '## When a chain halts'
+  breaks 'When it stops' check_stop_section "$f" "$TEMPLATE" "$nx"
+}
+
+@test "mutation: example hints" {
+  local f r
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_example_hints "$f" "$PLUGIN_ROOT"
+  edit "$f" '--through <step>' '--through'
+  breaks 'needs <step>' check_example_hints "$f" "$PLUGIN_ROOT"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '/devagent:unstuck <project>' '/devagent:unstuck'
+  breaks 'missing required <project>' check_example_hints "$f" "$PLUGIN_ROOT"
+  # Beyond the stop section: the revision loop's examples are checked too.
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '/devagent:where <project>' '/devagent:where'
+  breaks '/devagent:where: missing required' check_example_hints "$f" "$PLUGIN_ROOT"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '--through' '--thru'
+  breaks 'not in its argument hint' check_example_hints "$f" "$PLUGIN_ROOT"
+  # The hint side: the hint is read from the command's file.
+  f="$(fresh "$WEB/workflow.md")"
+  r="$(temp_root skills/next commands)"
+  holds check_example_hints "$f" "$r"
+  edit "$r/skills/next/SKILL.md" '[--through <step>] ' ''
+  breaks 'not in its argument hint' check_example_hints "$f" "$r"
+}
+
+@test "mutation: phase bullets" {
+  local f ph="$WEB/phases.txt"
+  f="$(fresh "$README")"
+  holds check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  edit "$f" '`17 preship`' '`17 preship` · `18 ship`'
+  edit "$f" '**Ship** — `18 ship` · ' '**Ship** — '
+  breaks 'phase Verify' check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  f="$(fresh "$README")"
+  edit "$f" '**Build**' '**Implement**'
+  breaks "want 'Build'" check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  f="$(fresh "$README")"
+  edit "$f" '`9 implement`' '`10 implement`'
+  breaks 'template says' check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_phase_bullets "$ph" "$TEMPLATE" "$f" "${PRE_TABLE[@]}"
+  edit "$f" ' · `spike`' ''
+  breaks 'phase Plan' check_phase_bullets "$ph" "$TEMPLATE" "$f" "${PRE_TABLE[@]}"
+  # Control: a bold bullet past the section's end is outside the region.
+  f="$(fresh "$README")"
+  plant "$f" '- **Extra** — `pull`'
+  holds check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
 }
 
 @test "mutation: phase split" {
