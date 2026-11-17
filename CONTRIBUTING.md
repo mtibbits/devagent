@@ -3,7 +3,8 @@
 Thank you for looking under the hood. devAgent is a Claude Code plugin written
 almost entirely in bash, with a bats test suite and a small pytest suite. This
 page covers what you need installed, how the suite runs, and the conventions
-every change is held to. The README's "Running the test suite" section is the
+every change is held to. The README's
+[Running the test suite](README.md#running-the-test-suite) section is the
 authority on the suite's environmental requirements; this page points at it
 rather than repeating it.
 
@@ -34,6 +35,10 @@ Bash on Windows provides neither by default, so it can run the plugin and
 individual scripts but not the full suite. On Windows, develop in a WSL clone
 on a native Linux filesystem, not under `/mnt/c`. The README section named above
 explains the mechanism behind both requirements.
+For a tree with `tests/test_*.py`, `scripts/run-suite.sh` prefers
+`<tree>/.venv/bin/python` over `python3`; if no candidate can run pytest, the
+artifact records `pytest: (error)` and `scripts/preship-evidence.sh` refuses it.
+Set `DEVAGENT_PYTEST_PYTHON` to name any other interpreter.
 Every suite-count artifact records the platform it was produced on
 (`platform:`). The maintainer who runs preship can set `evidence_platforms` in
 their `config.toml`, so that evidence from any other platform fails instead of
