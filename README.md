@@ -101,9 +101,13 @@ configuring `all_prs_branch`. A normal issue's checklist reads top-to-bottom
 with those rows pre-marked `[-]` (skipped):
 
 - **Plan** — `0 pull` · `1 research` _(optional, flagged)_ · `2 draft` · `3 spike` _(optional, flagged)_ · `4 scope` · `5 improve` · `6 prune` · `7 tighten`
-- **Implement** — `8 branch` · `9 implement` · `10 quality` · `11 document` · `12 commit` · `13 analyze`
-- **Ship** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship` · `18 ship`
-- **Integrate & close** — `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 mergemr` · `21 updatewbs` · `22 impact` · `23 lessonslearned` · `24 cleanup`
+- **Build** — `8 branch` · `9 implement` · `10 quality` · `11 document` · `12 commit` · `13 analyze`
+- **Verify** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship`
+- **Ship** — `18 ship` · `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 mergemr`
+- **Learn** — `21 updatewbs` · `22 impact` · `23 lessonslearned` · `24 cleanup`
+
+The phases are the site's, from `docs-site/phases.txt`; a test holds these
+bullets to that file.
 
 `20 mergemr` merges the PR only when the project sets `permissions.merge_mr =
 true`, and only at the head the last passing `preship` verified; otherwise it
