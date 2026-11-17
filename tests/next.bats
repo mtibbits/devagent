@@ -859,7 +859,27 @@ _mm_calls() { grep -cx "$1" "$MM_CALLS" || true; }
 _mm_row()   { grep -qxF -- "- [$1] $2. $3" "$DEVDOC/Issue-676/checklist.md"; }
 MM_WAIT="WAITING at step 20 (mergemr): the PR is not merged yet; state is on disk. Re-check later: /devagent:next volk"
 
-@test "#885 --auto from ship runs ship, mergetoall, mergemr, then PHASE BREAK before updatewbs" {
+# --- #933: the break before updatewbs under the built-in default -----------------
+# _mm_set_row G N NAME: set the one `- [.] N. NAME` row to glyph G; fail if none.
+_mm_set_row() {
+  local f="$DEVDOC/Issue-676/checklist.md"
+  grep -qE "^- \[.\] $2\. $3\$" "$f" || { echo "_mm_set_row: no row $2. $3" >&2; return 1; }
+  sed -i -E "s/^- \[.\] $2\. $3\$/- [$1] $2. $3/" "$f"
+}
+# _mm_done_through N: rows 17..N [x] (19 mergetoall stays [-]), so step N+1 is current.
+# Checklist rows only: never touches state/volk.toml or config.toml.
+_mm_done_through() {
+  local f="$DEVDOC/Issue-676/checklist.md" n
+  for n in $(seq 17 "$1"); do
+    (( n == 19 )) && continue
+    sed -i -E "s/^- \[.\] $n\. /- [x] $n. /" "$f"
+  done
+}
+# Config writes go through _toml.py AFTER _mm_window (which rewrites config.toml).
+_mm_cfg() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" "$1" "$2"; }
+_no_break() { [ "$(grep -c 'PHASE BREAK' <<<"$output" || true)" -eq 0 ]; }
+
+@test "#885 #933 --auto from ship runs ship, mergetoall, mergemr, then continues to updatewbs" {
   _mm_window false
   # Precondition: ship not run yet, nothing recorded; the branch carries one commit
   # past the baseline; mergetoall auto-skips (no all_prs_branch); the PR is merged,
@@ -883,8 +903,9 @@ MM_WAIT="WAITING at step 20 (mergemr): the PR is not merged yet; state is on dis
   _mm_row - 19 mergetoall
   _mm_row x 20 mergemr
   _mm_row ' ' 21 updatewbs
-  [[ "$output" == *"step 18 (ship), script-backed"*"step 19 (mergetoall), script-backed"*"step 20 (mergemr), script-backed"*"PHASE BREAK before step 21 (updatewbs)"* ]]
-  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+  [[ "$output" == *"step 18 (ship), script-backed"*"step 19 (mergetoall), script-backed"*"step 20 (mergemr), script-backed"*"→ Run /devagent:updatewbs volk"* ]]
+  [ "$(grep -c 'PHASE BREAK' <<<"$output" || true)" -eq 0 ]
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto --through cleanup --chained"* ]]
   grep -qE '^mr_url = "https://github.com/acme/volk/pull/9"' "$DA_HOME/state/volk.toml"
   [ "$(_mm_calls mr-checks)" -eq 0 ]
   [ ! -e "$MM_MERGES" ]
@@ -969,4 +990,182 @@ MM_WAIT="WAITING at step 20 (mergemr): the PR is not merged yet; state is on dis
   [[ "$output" != *"dispatch:"* ]]
   [[ "$output" != *"WAITING"* ]]
   [ "$(_mm_rows)" = "$before" ]
+}
+
+@test "#933 each --chained hop at rows 21-24 prints its dispatch line and no PHASE BREAK (built-in default, mergemr [x])" {
+  _mm_window false
+  local hop n name
+  for hop in 21:updatewbs 22:impact 23:lessonslearned 24:cleanup; do
+    n="${hop%%:*}" name="${hop#*:}"
+    _mm_done_through $((n - 1))
+    run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+    echo "--- hop $n: $output"
+    [[ "$output" == *"dispatch: volk/Issue-676 — step $n ($name),"* ]]
+    _no_break
+    if (( n < 24 )); then
+      [ "$status" -eq 0 ]
+      [[ "$output" == *"→ Run /devagent:$name volk"* ]]
+    else
+      # cleanup.sh is script-backed: it stops at its lessons gate (no
+      # lessonsLearned.md is seeded) before any git side effect.
+      [[ "$output" == *"lessonslearned is [x] but there is no lessonsLearned.md"* ]]
+    fi
+  done
+}
+
+@test "#933 explicit project phase_breaks naming updatewbs still breaks with mergemr [x]" {
+  _mm_window false
+  _mm_done_through 20
+  _mm_cfg project.volk.phase_breaks '"implement quality updatewbs"'
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+}
+
+@test "#933 [defaults] phase_breaks naming updatewbs still breaks with mergemr [x]" {
+  _mm_window false
+  _mm_done_through 20
+  _mm_cfg defaults.phase_breaks '"implement quality updatewbs"'
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+}
+
+@test "#933 phase_breaks = \"\" and --no-breaks run through updatewbs where the default would break" {
+  _mm_window false
+  _mm_done_through 20
+  _mm_set_row - 20 mergemr        # ship [x], mergemr [-]: abandoned PR, the default breaks
+  # (o) control: the built-in default breaks here.
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  # (ii) --no-breaks under the built-in config.
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained --no-breaks
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  _no_break
+  # (i) phase_breaks = "".
+  _mm_cfg project.volk.phase_breaks '""'
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  _no_break
+}
+
+@test "#933 guard: zero-diff mergemr [-] with ship [-] passes; [-] after a real ship keeps the break" {
+  _mm_window false
+  _mm_done_through 20
+  # (ii) ship [x], mergemr [-]: an abandoned PR keeps the break.
+  _mm_set_row - 20 mergemr
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  grep -qxF "  Resume: run /clear, then /devagent:next volk --auto" <<<"$output"
+  # (i) ship, mergetoall and mergemr all [-]: no PR existed (mergemr rule 1).
+  _mm_set_row - 18 ship
+  _mm_set_row - 19 mergetoall
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  _no_break
+}
+
+@test "#933 guard reads the active revision only" {
+  _mm_window false
+  # Revision 1 merged; revision 2's mergemr is [-] after a real ship (no merge).
+  # A file-wide first-match read would see revision 1's [x] and skip the break.
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+Active revision: 2
+
+## Revision 1
+
+- [x] 17. preship
+- [x] 18. ship
+- [-] 19. mergetoall
+- [x] 20. mergemr
+- [x] 21. updatewbs
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [x] 24. cleanup
+
+## Revision 2
+
+- [x] 17. preship
+- [x] 18. ship
+- [-] 19. mergetoall
+- [-] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
+
+## Log
+EOC
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+}
+
+@test "#933 built-in default still breaks before implement and quality when mergemr is [x]" {
+  _mm_window false
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x]  0. pull
+- [x]  2. draft
+- [x]  4. scope
+- [x]  5. improve
+- [x]  6. prune
+- [x]  7. tighten
+- [x]  8. branch
+- [ ]  9. implement
+- [ ] 10. quality
+- [ ] 18. ship
+- [x] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 24. cleanup
+
+## Log
+EOC
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 9 (implement)"* ]]
+  sed -i -E 's/^- \[ \]  9\./- [x]  9./' "$DEVDOC/Issue-676/checklist.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 10 (quality)"* ]]
+}
+
+# _guard_home FILE: some single line carrying both `mergemr` and `[x]` lies in the
+# phase-breaks passage (the 12 lines from the first phase_breaks/PHASE BREAK line).
+_guard_home() {
+  awk 'BEGIN { IGNORECASE = 1 }
+       !s && tolower($0) ~ /phase_breaks|phase break/ { s = NR }
+       s && NR <= s + 12 && index($0, "mergemr") && index($0, "[x]") { ok = 1 }
+       END { exit (ok ? 0 : 1) }' "$1"
+}
+
+@test "#933 every phase_breaks home states the mergemr guard" {
+  local homes=(docs/specs/2026-05-19-devagent-plugin-design.md docs-site/workflow.md
+               docs/configuration.md templates/config.toml.skel)
+  local h passed=0 planted=0 copy
+  for h in "${homes[@]}"; do
+    if _guard_home "$PLUGIN_ROOT/$h"; then passed=$((passed + 1)); else echo "no guard line: $h"; fi
+    # Planted control: the same home without its guard lines must fail.
+    copy="$BATS_TEST_TMPDIR/planted-${h//\//_}"
+    awk '!(index($0, "mergemr") && index($0, "[x]"))' "$PLUGIN_ROOT/$h" > "$copy"
+    if _guard_home "$copy"; then planted=$((planted + 1)); fi
+  done
+  [ "$planted" -eq 0 ]
+  [ "$passed" -eq "${#homes[@]}" ]
 }
