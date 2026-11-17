@@ -431,12 +431,13 @@ _article() {
 # check_no_issue_numbers <page> — no visible text node holds an issue number:
 # '#' and a digit, or the "Issue-" form and a digit. Attributes, styles,
 # scripts, comments and SVG colour values are not text.
+_ISSUE_NUM_ERE='#[0-9]|Issue-[0-9]'
 check_no_issue_numbers() {
   local t hits rc=0
   _need "$1" || return 2
   t="$(landing_py text "$1")" || return 2
   [ -n "$t" ] || { echo "$1: no visible text read" >&2; return 1; }
-  hits="$(grep -E '#[0-9]|Issue-[0-9]' <<<"$t")" || rc=$?
+  hits="$(grep -E "$_ISSUE_NUM_ERE" <<<"$t")" || rc=$?
   case "$rc" in
     1) return 0 ;;
     0) echo "$1: an issue number in visible text: $(tr '\n' ' ' <<<"$hits")" >&2; return 1 ;;
@@ -712,10 +713,10 @@ check_why_column() {
 # they are not checked. Floors: >= 20 keys read (cannot run otherwise), >= 3
 # non-blank region lines.
 check_pre_table() {
-  local skel="$1" page="$2" region hits keys k n rc=0
+  local skel="$1" page="$2" region hits keys n rc=0
   _need "$skel" "$page" || return 2
   region="$(_region "$page" '^# ' "$_TABLE_HEAD")" || return $?
-  hits="$(grep -E '#[0-9]|Issue-[0-9]' <<<"$region")" || rc=$?
+  hits="$(grep -E "$_ISSUE_NUM_ERE" <<<"$region")" || rc=$?
   case "$rc" in
     1) ;;
     0) echo "$page: an issue number before the step table: $(head -1 <<<"$hits")" >&2; return 1 ;;
@@ -724,14 +725,12 @@ check_pre_table() {
   keys="$(sed -nE 's/^#? ?([a-z][a-z0-9_.]*) +=.*/\1/p' "$skel" | tr '.' '\n' | grep '_' | sort -u)" || true
   n="$(grep -c . <<<"$keys" || true)"
   [ "$n" -ge 20 ] || { echo "$skel: $n underscore config keys read, want >= 20" >&2; return 2; }
-  while IFS= read -r k; do
-    rc=0; grep -qwF -- "$k" <<<"$region" || rc=$?
-    case "$rc" in
-      1) ;;
-      0) echo "$page: config key $k before the step table" >&2; return 1 ;;
-      *) return 2 ;;
-    esac
-  done <<<"$keys"
+  rc=0; hits="$(grep -owF -f <(printf '%s\n' "$keys") <<<"$region")" || rc=$?
+  case "$rc" in
+    1) ;;
+    0) echo "$page: config key $(head -1 <<<"$hits") before the step table" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
   n="$(grep -c '[^[:space:]]' <<<"$region" || true)"
   [ "$n" -ge 3 ] || { echo "$page: $n non-blank lines before the step table, want >= 3" >&2; return 1; }
 }
@@ -806,7 +805,7 @@ _hint_fit() {
 
 # check_example_hints <page> <root> — #1001: every backticked span on the page
 # that begins /devagent:<name> fits that command's argument-hint (the first
-# argument-hint: line of <root>/commands/<name>.md, else
+# frontmatter argument-hint: line of <root>/commands/<name>.md, else
 # <root>/skills/<name>/SKILL.md; one outer quote pair removed; no hint means no
 # arguments). Spans are read per source line, so each sits on one line. Each
 # example is checked (R1-R3, _hint_fit) in page order; the subject floor comes
@@ -814,20 +813,25 @@ _hint_fit() {
 check_example_hints() {
   local page="$1" root="$2" spans span name f hint through=0 unstuck=0
   local -a w
+  local -A hints=()
   _need "$page" || return 2
   spans="$(grep -o '`[^`]*`' "$page" | tr -d '`' | grep '^/devagent:')" || true
   while IFS= read -r span; do
     [ -n "$span" ] || continue
     read -r -a w <<<"$span"
     name="${w[0]#/devagent:}"
-    f="$root/commands/$name.md"
-    [ -f "$f" ] || f="$root/skills/$name/SKILL.md"
-    [ -f "$f" ] || { echo "$page: no command file for /devagent:$name" >&2; return 1; }
-    hint="$(sed -n 's/^argument-hint: *//p' "$f" | head -1)"
-    case "$hint" in
-      \"*\") hint="${hint#\"}"; hint="${hint%\"}" ;;
-      \'*\') hint="${hint#\'}"; hint="${hint%\'}" ;;
-    esac
+    if [ -z "${hints[$name]+x}" ]; then
+      f="$root/commands/$name.md"
+      [ -f "$f" ] || f="$root/skills/$name/SKILL.md"
+      [ -f "$f" ] || { echo "$page: no command file for /devagent:$name" >&2; return 1; }
+      hint="$(skill_frontmatter "$f" | sed -n 's/^argument-hint: *//p' | head -1)"
+      case "$hint" in
+        \"*\") hint="${hint#\"}"; hint="${hint%\"}" ;;
+        \'*\') hint="${hint#\'}"; hint="${hint%\'}" ;;
+      esac
+      hints[$name]="$hint"
+    fi
+    hint="${hints[$name]}"
     _hint_fit "$name" "$hint" "${w[@]:1}" || return 1
     case "$name" in
       next) [[ " ${w[*]} " != *" --through "* ]] || through=$((through + 1)) ;;
@@ -848,7 +852,7 @@ check_example_hints() {
 # read as a step).
 check_phase_bullets() {
   local ph="$1" tmpl="$2" file="$3" region split steps name got want tok num cmd i np total=0
-  local -a bl=() names=() stepsof=()
+  local -a bl=() names=() stepsof=() toks=()
   local -A tnum=()
   _need "$ph" "$tmpl" "$file" || return 2
   split="$(phase_split "$ph")" || return 2
@@ -863,9 +867,11 @@ check_phase_bullets() {
   for ((i = 0; i < np; i++)); do
     name="${bl[i]#- \*\*}"; name="${name%%\*\* — *}"
     [ "$name" = "${names[i]}" ] || { echo "$file: bullet $((i + 1)) is '$name', want '${names[i]}'" >&2; return 1; }
+    toks[i]="$(grep -oE '`([0-9]+ )?[a-z]+`' <<<"${bl[i]}" | tr -d '`')"
   done
   for ((i = 0; i < np; i++)); do
-    got="$(grep -oE '`([0-9]+ )?[a-z]+`' <<<"${bl[i]}" | tr -d '`' | sed 's/^[0-9]* //' | tr '\n' ' ')"
+    got=""
+    while IFS= read -r tok; do [ -z "$tok" ] || got+="${tok#* } "; done <<<"${toks[i]}"
     got="${got% }"
     [ "$got" = "${stepsof[i]}" ] \
       || { echo "$file: phase ${names[i]}: steps '$got', want '${stepsof[i]}'" >&2; return 1; }
@@ -878,7 +884,7 @@ check_phase_bullets() {
       num="${tok%% *}"; cmd="${tok#* }"
       [ "$num" = "${tnum[$cmd]:-}" ] \
         || { echo "$file: phase ${names[i]}: $num $cmd, template says ${tnum[$cmd]:-nothing}" >&2; return 1; }
-    done < <(grep -oE '`([0-9]+ )?[a-z]+`' <<<"${bl[i]}" | tr -d '`')
+    done <<<"${toks[i]}"
   done
   [ "$total" -eq "$STEP_COUNT" ] || { echo "$file: $total steps in bullets, want $STEP_COUNT" >&2; return 1; }
 }
