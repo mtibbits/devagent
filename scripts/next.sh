@@ -81,6 +81,23 @@ step_backing() {
   fi
 }
 
+# through_require_active <step> <checklist> <project>: die unless the chain
+# target names a row in the ACTIVE revision block of <checklist> (the whole file
+# when it has no revision heading), matched by exact name, never as a regex
+# (#1029). Two messages: a name in no row at all (a typo), and a name only in an
+# older revision block, whose glyph would stop the chain early or let it run past
+# the target. The --through validation and the chain-target guard both call this,
+# so their verdicts and wording cannot drift.
+through_require_active() {
+  local step="$1" file="$2" proj="$3"
+  if ! checklist_step_state_by_name "$file" "$step" >/dev/null; then
+    die "unknown step '$step' (not present in $file)"
+  fi
+  if ! checklist_active_step_state_by_name "$file" "$step" >/dev/null; then
+    die "--through '$step': that step is only in an older revision block of $file, not the active one. Run /devagent:$step $proj directly, or choose a --through step from the active revision."
+  fi
+}
+
 main() {
   local project="" auto=0 through="" note="" chained=0 breaks_on=1
   local -a rest=()
@@ -137,8 +154,8 @@ quarantine_guard "next" "$project"
     if [[ -n "$_ai" && "$_ai" != "null" ]]; then
       _idir="$(issue_context_dir "$project" 2>/dev/null || true)"
       _cl="$_idir/checklist.md"
-      if [[ -f "$_cl" ]] && ! grep -qE "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$_cl"; then
-        die "unknown step '$through' (not present in $_cl)"
+      if [[ -f "$_cl" ]]; then
+        through_require_active "$through" "$_cl" "$project"
       fi
     fi
   fi
@@ -168,11 +185,14 @@ quarantine_guard "next" "$project"
     # skill marks itself [x], the model re-invokes next.sh and we must
     # not advance into the next step. Script-backed targets stop below
     # via the post-exec check, so this branch is mainly for skills.
+    # #1029: the target's state is its OWN row in the active revision block,
+    # found by name. Re-checked every iteration: a step that starts a new
+    # revision without the target ends the chain with the refusal instead of
+    # letting it run on (fail closed; an older block's glyph never decides).
     if [[ -n "$through" ]]; then
+      through_require_active "$through" "$checklist" "$project"
       local _ts
-      _ts="$(checklist_step_state "$checklist" \
-        "$(grep -E "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$checklist" \
-            | sed -E 's/^- \[.\][[:space:]]+([0-9]+)\..*/\1/' | head -n1)" 2>/dev/null || true)"
+      _ts="$(checklist_active_step_state_by_name "$checklist" "$through")"
       if [[ "$_ts" == "x" || "$_ts" == "-" ]]; then
         echo "Chain target '$through' is complete; stopping."
         return 0
