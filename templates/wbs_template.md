@@ -16,7 +16,8 @@
 > est classes: `absent` (no key), `placeholder` (? or ?w), `time` (h, d or w), `non-time` (any other unit, as in
 > 48pr: not an estimate), `unparseable` (anything else). tok classes: `absent` (no key), `placeholder` (? or ?M),
 > `tokens` (k or M, whole tokens), `unparseable` (anything else, a bare number included).
-> On a parent node, est or tok is the operator's own roll-up: leaf readers ignore it, and it is never summed.
+> Only time and tokens count as estimates. On a parent node, est or tok is the operator's own roll-up: leaf
+> readers ignore it, and it is never summed.
 > cost: operator-defined and uninterpreted. It is not an actual; actuals belong in the planned actuals ledger (#729), never in WBS.md.
 > Unrecognized keys are preserved verbatim.
 > `wbs update` sets a leaf's glyph from its issue's tracker state, linked MRs, else its
