@@ -16,9 +16,12 @@ Python 3.8 syntax floor: no `match`, no PEP 604 unions at runtime.
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import json
 import os
+import re
 import sys
+import unicodedata
 from datetime import datetime
 
 try:
@@ -33,6 +36,8 @@ MAX_LINE_BYTES = 4096
 EVENTS = ("hold", "notify", "answered", "stuck")
 KEYS = ("event", "project", "issue", "capture", "step", "question", "detail")
 O_BINARY = getattr(os, "O_BINARY", 0)   # Windows: no newline translation on os.open fds
+ISSUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+STEP_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")   # the checklist row form (checklist.sh:68)
 
 
 class Refused(Exception):
@@ -49,15 +54,99 @@ class IOFault(Exception):
 
 
 def parse_fields(raw: bytes) -> dict:
-    """The stdin fields as {key: value}, in the order given."""
-    text = raw.decode("utf-8")
-    if text.endswith("\n"):
-        text = text[:-1]
+    """The stdin fields as {key: value}, in the order given.
+
+    Checks run in the order of the id list (newline, encoding, framing,
+    unknown-field, duplicate), so a one-fault input has one id.
+    """
+    if raw.endswith(b"\n"):
+        raw = raw[:-1]
+    lines = raw.split(b"\n")
+    if any(b"\r" in line for line in lines):
+        raise Refused("newline", "a field line holds a CR")
+    try:
+        texts = [line.decode("utf-8") for line in lines]
+    except UnicodeDecodeError:
+        raise Refused("encoding", "the fields are not UTF-8")
+    pairs = []
+    for text in texts:
+        key, sep, value = text.partition("=")
+        if not sep:
+            raise Refused("framing", "a field line has no =")
+        pairs.append((key, value))
+    for key, _ in pairs:
+        if key not in KEYS:
+            raise Refused("unknown-field", "a field name is not one of " + " ".join(KEYS))
     fields = {}
-    for line in text.split("\n"):
-        key, _, value = line.partition("=")
+    for key, value in pairs:
+        if key in fields:
+            raise Refused("duplicate", "a field is given twice")
         fields[key] = value
     return fields
+
+
+def is_absolute(path: str) -> bool:
+    """`^/` on POSIX; `^[A-Za-z]:/` or `^//[^/]` on Windows. Never os.path.isabs,
+    whose answer for /x on Windows changed in Python 3.13."""
+    if os.name == "nt":
+        return re.match(r"[A-Za-z]:/", path) is not None or re.match(r"//[^/]", path) is not None
+    return path.startswith("/")
+
+
+def configured_projects(config_path: str) -> list:
+    """The project names config_list_projects prints: tables `project.<name>`, two parts."""
+    lib = os.path.dirname(os.path.abspath(__file__))
+    try:
+        spec = importlib.util.spec_from_file_location("_notify_toml", os.path.join(lib, "_toml.py"))
+        toml = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(toml)
+    except (OSError, ImportError) as e:
+        raise IOFault(f"cannot load _toml.py: {type(e).__name__}")
+    try:
+        data = toml._load(toml.Path(config_path), retry=True)
+    except OSError as e:
+        raise IOFault(f"cannot read config.toml: {e.strerror}")
+    except ValueError:
+        raise IOFault("cannot read config.toml: not valid TOML")
+    names = []
+    for table in toml._list_tables(data):
+        parts = table.split(".")
+        if len(parts) == 2 and parts[0] == "project":
+            names.append(parts[1])
+    return names
+
+
+def check_fields(fields: dict, config_path: str) -> None:
+    """Refuse the first faulty field, in the order of the id list."""
+    if fields.get("event") not in EVENTS:
+        raise Refused("event", "event is not one of " + " ".join(EVENTS))
+    project = fields.get("project")
+    if not project:
+        raise Refused("project", "project is missing or empty")
+    if project not in configured_projects(config_path):
+        raise Refused("project", "project is not a configured project")
+    if ("issue" in fields) == ("capture" in fields):
+        raise Refused("issue-capture", "give exactly one of issue and capture")
+    if "issue" in fields and not ISSUE_RE.fullmatch(fields["issue"]):
+        raise Refused("issue", "issue is outside [A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+    if "capture" in fields:
+        capture = fields["capture"]
+        if not capture or any(ch == " " or unicodedata.category(ch) == "Cc" for ch in capture):
+            raise Refused("capture", "capture is empty or holds a space or a control character")
+    if "step" in fields and not STEP_RE.fullmatch(fields["step"]):
+        raise Refused("step", "step is outside [A-Za-z][A-Za-z0-9_-]{0,63}")
+    if "question" in fields and not is_absolute(fields["question"]):
+        raise Refused("question", "question is not an absolute path")
+    if not fields.get("detail"):
+        raise Refused("detail", "detail is missing or empty")
+
+
+ROTATE_USAGE = "_notify.py rotate <state-dir> <new-name>"
+
+
+def check_rotate_name(name: str) -> None:
+    if not name or name in (".", "..") or any(ch in name for ch in "/\\:"):
+        raise Refused("rotate-name", "the new name must be a bare file name: no /, \\ or :, not . or ..")
 
 
 def build_record(fields: dict) -> dict:
@@ -150,14 +239,18 @@ def append(state_dir: str, line: bytes) -> None:
 
 
 def run(argv: list) -> int:
-    if len(argv) != 3 or argv[0] not in ("append", "check"):
-        raise Refused("usage", "_notify.py append|check <state-dir> <config-path>")
-    mode, state_dir, _config = argv
-    fields = parse_fields(sys.stdin.buffer.read())
-    line = encode(build_record(fields))
-    if mode == "append":
-        append(state_dir, line)
-    return 0
+    if len(argv) == 3 and argv[0] in ("append", "check"):
+        mode, state_dir, config_path = argv
+        fields = parse_fields(sys.stdin.buffer.read())
+        check_fields(fields, config_path)
+        line = encode(build_record(fields))
+        if mode == "append":
+            append(state_dir, line)
+        return 0
+    if len(argv) == 3 and argv[0] == "rotate":
+        check_rotate_name(argv[2])
+        raise IOFault("rotate is not implemented")
+    raise Refused("usage", "_notify.py append|check <state-dir> <config-path> | " + ROTATE_USAGE)
 
 
 def main(argv: list) -> int:

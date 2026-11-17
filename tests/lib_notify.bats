@@ -250,3 +250,202 @@ EOF
   [ "$status" -eq 4 ]
   [ ! -e "$NF" ]
 }
+
+# ---- Task 3: refusals, field formats, framing and --check -------------------
+
+# refusal_rows: one refused input per line, `id|arg|arg...`, shared by R1 and R4.
+# Each row is the fault-free twin (event=hold project=toy issue=Issue-7 detail=d)
+# with exactly one fault. Capture values carry `zz` so a test can see whether
+# stderr repeats them.
+refusal_rows() {
+  local b='event=hold|project=toy' i='issue=Issue-7' d='detail=d' l65
+  l65="$(printf 'a%.0s' $(seq 65))"
+  printf '%s\n' \
+    "event|event=bogus|project=toy|$i|$d" \
+    "event|project=toy|$i|$d" \
+    "project|event=hold|project=|$i|$d" \
+    "project|event=hold|project=nope|$i|$d" \
+    "project|event=hold|project=volk.issue_source|$i|$d" \
+    "issue-capture|$b|$i|capture=zzboth|$d" \
+    "issue-capture|$b|$d" \
+    "unknown-field|v=1|$b|$i|$d" \
+    "question|$b|$i|question=rel/STUCK|$d" \
+    "question|$b|$i|question=|$d" \
+    "issue|$b|issue=-x|$d" \
+    "issue|$b|issue=a b|$d" \
+    "issue|$b|issue=a/b|$d" \
+    "issue|$b|issue=$l65|$d" \
+    "issue|$b|issue=|$d" \
+    "capture|$b|capture=.zzdot|$d" \
+    "capture|$b|capture=zz/yy|$d" \
+    "capture|$b|capture=zz yy|$d" \
+    "capture|$b|capture=|$d" \
+    "step|$b|$i|step=9x|$d" \
+    "step|$b|$i|step=a.b|$d" \
+    "step|$b|$i|step=$l65|$d" \
+    "step|$b|$i|step=|$d" \
+    "detail|$b|$i|detail=" \
+    "detail|$b|$i"
+  printf 'capture|%s|capture=zz\tyy|%s\n' "$b" "$d"
+  printf 'capture|%s|capture=zz\001yy|%s\n' "$b" "$d"
+  is_git_bash || printf 'question|%s|%s|question=C:/x|%s\n' "$b" "$i" "$d"
+}
+
+# run_rows <door...>: run every refusal row through the door; each must exit 2
+# with its id, leave $NF byte-identical to $SEED (or absent when SEED is empty),
+# and, for capture rows, keep the slug out of stderr. Sets ROWS.
+run_rows() {
+  local id rest a n=0
+  local -a args
+  while IFS='|' read -r id rest; do
+    IFS='|' read -r -a args <<< "$rest"
+    n=$((n + 1))
+    run --separate-stderr "$@" "${args[@]}"
+    [ "$status" -eq 2 ] || { echo "row $n ($id): status $status: $stderr" >&2; return 1; }
+    [[ "$stderr" == *"($id)"* ]] || { echo "row $n ($id): stderr $stderr" >&2; return 1; }
+    [ -z "$output" ] || { echo "row $n ($id): stdout $output" >&2; return 1; }
+    if [ -n "$SEED" ]; then
+      cmp -s "$SEED" "$NF" || { echo "row $n ($id): the file changed" >&2; return 1; }
+    else
+      [ ! -e "$NF" ] || { echo "row $n ($id): the file was written" >&2; return 1; }
+    fi
+    if [ "$id" = capture ]; then
+      for a in "${args[@]}"; do
+        case "$a" in capture=?*)
+          [[ "$stderr" != *"${a#capture=}"* ]] || { echo "row $n: stderr repeats the slug" >&2; return 1; } ;;
+        esac
+      done
+    fi
+  done < <(refusal_rows)
+  ROWS="$n"
+}
+
+@test "refused: each refused input exits 2 with its id and leaves the file unchanged" {
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  SEED="$BATS_TEST_TMPDIR/seed"
+  cp "$NF" "$SEED"
+  run_rows notify_append
+  [ "$ROWS" -eq "$(refusal_rows | wc -l)" ]
+  [ "$ROWS" -ge 27 ]
+  run --separate-stderr notify_append
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(framing)'* ]]
+  cmp "$SEED" "$NF"
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 0 ]
+  [ "$(lines "$NF")" -eq 2 ]
+}
+
+@test "refused: a value with a newline or CR is refused before the helper runs" {
+  local stub="$BATS_TEST_TMPDIR/stub" mark="$BATS_TEST_TMPDIR/python-ran"
+  mkdir -p "$stub"
+  printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$mark" > "$stub/python3"
+  chmod +x "$stub/python3"
+  PATH="$stub:$PATH" run --separate-stderr notify_append event=hold project=toy issue=Issue-7 "detail=$(printf 'x\nstep=crrf')"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(newline)'* ]]
+  [ ! -e "$mark" ]
+  PATH="$stub:$PATH" run --separate-stderr notify_append event=hold project=toy issue=Issue-7 "detail=$(printf 'x\rcr')"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(newline)'* ]]
+  [ ! -e "$mark" ]
+  PATH="$stub:$PATH" run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=x
+  [ "$status" -eq 0 ]
+  [ -e "$mark" ]
+}
+
+@test "refused: the helper fed directly refuses a duplicate key, a line without =, invalid UTF-8 and a CR" {
+  local f="$BATS_TEST_TMPDIR/in" ok='event=hold\nproject=toy\nissue=Issue-7\n'
+  printf "${ok}detail=d\ndetail=e\n" > "$f"
+  run --separate-stderr _notify_helper check < "$f"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(duplicate)'* ]]
+  printf "${ok}detail=d\nnokey\n" > "$f"
+  run --separate-stderr _notify_helper check < "$f"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(framing)'* ]]
+  printf "${ok}detail=\xff\n" > "$f"
+  run --separate-stderr _notify_helper check < "$f"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(encoding)'* ]]
+  printf "${ok}detail=x\r\n" > "$f"
+  run --separate-stderr _notify_helper check < "$f"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(newline)'* ]]
+  printf "${ok}detail=d\n" > "$f"
+  run --separate-stderr _notify_helper check < "$f"
+  [ "$status" -eq 0 ]
+}
+
+@test "refused: --check refuses every refused input with the same id and writes nothing" {
+  rm -rf "$DA_HOME/state"
+  SEED=
+  run_rows bash "$NOTIFY" --check
+  [ "$ROWS" -eq "$(refusal_rows | wc -l)" ]
+  run_rows notify_check
+  [ "$ROWS" -eq "$(refusal_rows | wc -l)" ]
+  run --separate-stderr bash "$NOTIFY" --check event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run --separate-stderr notify_check event=notify project=volk capture=2026-11-09-some-capture step=crrf question=/x/STUCK detail=d
+  [ "$status" -eq 0 ]
+  [ ! -e "$DA_HOME/state" ]
+}
+
+@test "refused: configured projects and capture slugs follow their real producers" {
+  . "$PLUGIN_ROOT/scripts/lib/io.sh"
+  . "$PLUGIN_ROOT/scripts/lib/config.sh"
+  local p c n=0 refused=0
+  local -a names
+  mapfile -t names < <(config_list_projects)
+  [ "${#names[@]}" -eq 2 ]
+  for p in "${names[@]}"; do
+    run --separate-stderr notify_check event=hold "project=$p" issue=Issue-7 detail=d
+    [ "$status" -eq 0 ] || { echo "configured $p refused: $stderr" >&2; return 1; }
+  done
+  for p in defaults project volk.issue_source toy.code_source Volk 'toy '; do
+    run --separate-stderr notify_check event=hold "project=$p" issue=Issue-7 detail=d
+    [ "$status" -eq 2 ] || { echo "unconfigured <$p> gave $status" >&2; return 1; }
+    [[ "$stderr" == *'(project)'* ]]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 6 ]
+  for c in .x .. a/b /abs .hidden-slug 'x/' ok-slug 2026-11-09-some-capture; do
+    if devagent_validate_slug "$c" 2>/dev/null; then continue; fi
+    refused=$((refused + 1))
+    run --separate-stderr notify_check event=notify project=toy "capture=$c" detail=d
+    [ "$status" -eq 2 ] || { echo "slug <$c> gave $status" >&2; return 1; }
+    [[ "$stderr" == *'(capture)'* ]]
+  done
+  [ "$refused" -ge 3 ]
+  run --separate-stderr notify_check event=notify project=toy capture=ok-slug detail=d
+  [ "$status" -eq 0 ]
+}
+
+@test "refused: usage errors exit 2" {
+  local n=0 form
+  local -a args
+  for form in '' 'event=hold' '--rotate=x' '--check|--rotate|x' '--check|event=hold|--rotate|x' \
+              '--bogus' '--check' '--check|' '--rotate' '--rotate|a|b' 'event=hold|--check'; do
+    if [ -z "$form" ]; then args=(); else IFS='|' read -r -a args <<< "$form|"; fi
+    [ "$form" != '--check|' ] || args=(--check '')
+    n=$((n + 1))
+    run --separate-stderr bash "$NOTIFY" "${args[@]}"
+    [ "$status" -eq 2 ] || { echo "form <$form>: $status $stderr" >&2; return 1; }
+    [[ "$stderr" == *'(usage)'* ]] || { echo "form <$form>: $stderr" >&2; return 1; }
+    [ -z "$output" ]
+  done
+  [ "$n" -eq 11 ]
+  run --separate-stderr bash "$NOTIFY" --rotate ''
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(rotate-name)'* ]]
+  [ ! -e "$NF" ]
+}
+
+@test "refused: an unreadable helper is io, not 2" {
+  _NOTIFY_PY="$BATS_TEST_TMPDIR/missing/_notify.py"
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *'notify: io:'* ]]
+  [ ! -e "$NF" ]
+}

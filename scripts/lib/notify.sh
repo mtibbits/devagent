@@ -3,6 +3,8 @@
 #
 #   sourced:  notify_append <key>=<value>...   append one line
 #             notify_check  <key>=<value>...   the same checks, writes nothing
+#   executed: notify.sh --check <key>=<value>...
+#             notify.sh --rotate <new-name>     rename the file under the lock
 #
 # Keys: event project issue capture step question detail. The file is
 # $(devagent_home)/state/notifications.jsonl, one JSON object per line; the
@@ -75,6 +77,7 @@ _notify_helper() {
 _notify_run() {
   local mode="$1" a k v fields=""
   shift
+  [ "$#" -gt 0 ] || { _notify_refuse framing "no fields given"; return 2; }
   for a in "$@"; do
     case "$a" in
       *$'\n'*|*$'\r'*) _notify_refuse newline "a value holds a newline or CR"; return 2 ;;
@@ -90,9 +93,50 @@ _notify_run() {
       esac
       a="question=$v"
     fi
+    # The validator's stderr echoes the slug; this message never does.
+    if [ "$k" = capture ] && [ "$a" != "$k" ] && ! devagent_validate_slug "$v" 2>/dev/null; then
+      _notify_refuse capture "capture is not a valid capture slug"
+      return 2
+    fi
     fields+="$a"$'\n'
   done
   _notify_helper "$mode" <<< "${fields%$'\n'}"
 }
 
 notify_append() { _notify_run append "$@"; }
+notify_check() { _notify_run check "$@"; }
+
+_NOTIFY_USAGE='notify.sh --check <key>=<value>... | notify.sh --rotate <new-name>'
+
+# _notify_main <args...>: the executed grammar. Anything else is usage (exit 2).
+_notify_main() {
+  local a
+  case "${1:-}" in
+    --check)
+      shift
+      [ "$#" -gt 0 ] || { _notify_refuse usage "$_NOTIFY_USAGE"; return 2; }
+      for a in "$@"; do
+        case "$a" in
+          ''|-*) _notify_refuse usage "$_NOTIFY_USAGE"; return 2 ;;
+        esac
+      done
+      _notify_run check "$@"
+      ;;
+    --rotate)
+      [ "$#" -eq 2 ] || { _notify_refuse usage "$_NOTIFY_USAGE"; return 2; }
+      case "$2" in
+        *$'\n'*|*$'\r'*) _notify_refuse newline "the new name holds a newline or CR"; return 2 ;;
+      esac
+      _notify_helper rotate "$2"
+      ;;
+    *)
+      _notify_refuse usage "$_NOTIFY_USAGE"
+      return 2
+      ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  _notify_main "$@"
+  exit $?
+fi
