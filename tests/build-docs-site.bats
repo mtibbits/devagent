@@ -324,8 +324,8 @@ real_stubs() {
 
 @test "build-docs-site: real site — the link that leaves docs-site/ goes to the forge blob" {
   need_pandoc
-  grep -qF '](../README.md#running-the-test-suite)' "$SITE/install.md"
-  grep -qF 'href="https://github.com/mtibbits/devagent/blob/master/README.md#running-the-test-suite"' "$REAL_OUT/install.html"
+  grep -qF '](../README.md#install)' "$SITE/install.md"
+  grep -qF 'href="https://github.com/mtibbits/devagent/blob/master/README.md#install"' "$REAL_OUT/install.html"
 }
 
 @test "build-docs-site: real site — code blocks and table rows match the markdown, page by page" {
