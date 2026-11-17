@@ -509,3 +509,143 @@ ELL="$(printf '\xe2\x80\xa6')"   # U+2026, the shortening mark
   run probe bytes "$NF" 1
   [ "$output" -eq 4096 ]
 }
+
+# ---- Task 5: the lock, concurrency, the torn line and I/O failure ------------
+
+# hold_lock <name>: start a holder of the module's own lock; sets HOLDER (pid) and
+# RELEASE (the file that ends it). The holder ends on RELEASE or after 30 s.
+hold_lock() {
+  local ready="$BATS_TEST_TMPDIR/$1.ready" i
+  RELEASE="$BATS_TEST_TMPDIR/$1.release"
+  probe hold-lock "$DA_HOME/state" "$ready" "$RELEASE" 3>&- >/dev/null 2>&1 &
+  HOLDER=$!
+  for i in $(seq 200); do [ -e "$ready" ] && return 0; sleep 0.05; done
+  echo "the holder never became ready" >&2
+  return 1
+}
+
+# release: end the holder and wait for it, so teardown never races a handle.
+release() { touch "$RELEASE"; wait "$HOLDER"; }
+
+@test "notify: with the lock held by another process an append exits 3 after the bounded wait" {
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  hold_lock c1
+  local start end
+  start=$(date +%s)
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=late
+  end=$(date +%s)
+  release
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *'notify: lock-timeout:'* ]]
+  [ $((end - start)) -ge 9 ]
+  [ $((end - start)) -le 25 ]
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+}
+
+@test "notify: an append started while the lock is held completes when it is released" {
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  hold_lock c2
+  ( notify_append event=hold project=toy issue=Issue-7 detail=waited; echo $? > "$BATS_TEST_TMPDIR/c2.rc" ) 3>&- >/dev/null 2>&1 &
+  local writer=$!
+  sleep 1
+  kill -0 "$writer"
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  release
+  wait "$writer"
+  [ "$(cat "$BATS_TEST_TMPDIR/c2.rc")" = 0 ]
+  [ "$(lines "$NF")" -eq 2 ]
+  run probe field "$NF" 2 detail
+  [ "$output" = waited ]
+}
+
+@test "notify: two different callers appending 200 lines each leave 400 whole valid lines" {
+  local fx="$PLUGIN_ROOT/tests/fixtures/notify" a b ra=0 rb=0
+  bash "$fx/caller-hold.sh" 200 3>&- >"$BATS_TEST_TMPDIR/a.out" 2>&1 &
+  a=$!
+  bash "$fx/caller-notice.sh" 200 3>&- >"$BATS_TEST_TMPDIR/b.out" 2>&1 &
+  b=$!
+  wait "$a" || ra=$?
+  wait "$b" || rb=$?
+  [ "$ra" -eq 0 ] || { cat "$BATS_TEST_TMPDIR/a.out" >&2; return 1; }
+  [ "$rb" -eq 0 ] || { cat "$BATS_TEST_TMPDIR/b.out" >&2; return 1; }
+  run probe count "$NF"
+  [ "$status" -eq 0 ]
+  [ "$output" = 400 ]
+  run probe prefix-count "$NF" 'hold '
+  [ "$output" = 200 ]
+  run probe prefix-count "$NF" 'notice '
+  [ "$output" = 200 ]
+}
+
+@test "notify: after a torn last line the next append starts on a new line" {
+  notify_append event=hold project=toy issue=Issue-7 detail=whole
+  head -n1 "$NF" > "$BATS_TEST_TMPDIR/line1"
+  printf '{"v":1,"ts":"torn' >> "$NF"
+  local s
+  s=$(wc -c < "$NF")
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=after
+  [ "$status" -eq 0 ]
+  cmp -n "$s" "$BATS_TEST_TMPDIR/seed" "$NF"
+  [ "$(lines "$NF")" -eq 3 ]
+  head -n1 "$NF" | cmp - "$BATS_TEST_TMPDIR/line1"
+  [ "$(sed -n 2p "$NF")" = '{"v":1,"ts":"torn' ]
+  run probe field "$NF" 3 detail
+  [ "$output" = after ]
+  run probe field "$NF" 1 detail
+  [ "$status" -eq 0 ]
+  run probe field "$NF" 2 detail
+  [ "$status" -ne 0 ]
+}
+
+@test "notify: existing bytes never change and a byte-offset cursor reads exactly the new line" {
+  notify_append event=hold project=toy issue=Issue-7 detail=one
+  notify_append event=notify project=volk capture=c-1 detail=two
+  local s
+  s=$(wc -c < "$NF")
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  notify_append event=answered project=toy issue=Issue-7 question=/x/q-03 'detail=answered; resume'
+  cmp -n "$s" "$BATS_TEST_TMPDIR/seed" "$NF"
+  tail -c +"$((s + 1))" "$NF" > "$BATS_TEST_TMPDIR/new"
+  run probe count "$BATS_TEST_TMPDIR/new"
+  [ "$output" = 1 ]
+  run probe field "$BATS_TEST_TMPDIR/new" 1 detail
+  [ "$output" = 'answered; resume' ]
+}
+
+@test "notify: an unwritable file exits 4 and is unchanged" {
+  is_git_bash && skip "Git Bash has no POSIX file modes"
+  [ "$(id -u)" -ne 0 ] || skip "root writes a mode-400 file"
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  chmod 400 "$NF"
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=more
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *'notify: io:'* ]]
+  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+}
+
+@test "notify: an open refused for sharing is retried until the holder closes" {
+  is_git_bash || skip "Windows only: POSIX has no sharing violation"
+  notify_append event=hold project=toy issue=Issue-7 detail=seed
+  local ready="$BATS_TEST_TMPDIR/c7.ready" i
+  RELEASE="$BATS_TEST_TMPDIR/c7.release"
+  probe deny-share "$NF" "$ready" "$RELEASE" 3>&- >/dev/null 2>&1 &
+  HOLDER=$!
+  for i in $(seq 200); do [ -e "$ready" ] && break; sleep 0.05; done
+  [ -e "$ready" ]
+  # The control: a plain open fails while the holder has the file.
+  run python3 -c 'import sys; open(sys.argv[1], "ab")' "$NF"
+  [ "$status" -ne 0 ]
+  ( notify_append event=hold project=toy issue=Issue-7 detail=shared; echo $? > "$BATS_TEST_TMPDIR/c7.rc" ) 3>&- >/dev/null 2>&1 &
+  local writer=$!
+  sleep 1
+  release
+  wait "$writer"
+  [ "$(cat "$BATS_TEST_TMPDIR/c7.rc")" = 0 ]
+  [ "$(lines "$NF")" -eq 2 ]
+  run probe field "$NF" 2 detail
+  [ "$output" = shared ]
+}

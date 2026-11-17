@@ -16,11 +16,13 @@ Python 3.8 syntax floor: no `match`, no PEP 604 unions at runtime.
 from __future__ import annotations
 
 import contextlib
+import errno
 import importlib.util
 import json
 import os
 import re
 import sys
+import time
 import unicodedata
 from datetime import datetime
 
@@ -32,6 +34,7 @@ except ImportError:   # Windows: msvcrt, imported where it is used
 FILE_NAME = "notifications.jsonl"
 LOCK_NAME = FILE_NAME + ".lock"
 LOCK_WAIT_SECONDS = 10
+LOCK_POLL_SECONDS = 0.05
 MAX_LINE_BYTES = 4096
 ELLIPSIS = "\u2026"   # the shortening mark ending a cut detail
 EVENTS = ("hold", "notify", "answered", "stuck")
@@ -52,6 +55,10 @@ class Refused(Exception):
 
 class IOFault(Exception):
     """An I/O failure: exit 4, nothing written."""
+
+
+class LockTimeout(Exception):
+    """The lock stayed held past the deadline: exit 3, nothing written."""
 
 
 def parse_fields(raw: bytes) -> dict:
@@ -208,27 +215,63 @@ def ensure_state_dir(state_dir: str) -> None:
             raise IOFault(f"cannot create the state directory: {e.strerror}")
 
 
+def open_retrying(path: str, flags: int, deadline: float) -> int:
+    """os.open, retrying a Windows sharing violation (PermissionError) until the
+    deadline; on POSIX a refused open fails at once."""
+    while True:
+        try:
+            return os.open(path, flags, 0o600)
+        except PermissionError:
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+            time.sleep(LOCK_POLL_SECONDS)
+
+
+def _try_lock(fd: int) -> bool:
+    """One non-blocking attempt: True when held, False when another process has it."""
+    if fcntl:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES):
+                return False
+            raise
+    import msvcrt
+    os.lseek(fd, 0, os.SEEK_SET)
+    try:
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)   # one byte at offset 0
+        return True
+    except OSError as e:
+        if e.errno in (errno.EACCES, errno.EDEADLOCK):
+            return False
+        raise
+
+
 @contextlib.contextmanager
 def locked(state_dir: str):
-    """Hold the exclusive lock on <state-dir>/notifications.jsonl.lock.
+    """Hold the exclusive lock on <state-dir>/notifications.jsonl.lock; yield the
+    deadline, which also bounds the caller's Windows open retry.
 
-    The lock file is opened for append (never truncated: an msvcrt byte lock is
-    mandatory, and a truncating open of a held file can fail) and created 0600.
+    One time.monotonic() deadline, LOCK_WAIT_SECONDS from entry, polled every
+    LOCK_POLL_SECONDS with a non-blocking attempt (LK_LOCK is not used: its own
+    bound is the CRT's). Past it, LockTimeout. The lock file is opened for append,
+    never truncated (an msvcrt byte lock is mandatory, and a truncating open of a
+    held file can fail), and created 0600.
     """
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
     path = os.path.join(state_dir, LOCK_NAME)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | O_BINARY, 0o600)
+        fd = open_retrying(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | O_BINARY, deadline)
     except OSError as e:
         raise IOFault(f"cannot open {LOCK_NAME}: {e.strerror}")
     try:
-        if fcntl:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-        else:
-            import msvcrt
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+        while not _try_lock(fd):
+            if time.monotonic() >= deadline:
+                raise LockTimeout()
+            time.sleep(LOCK_POLL_SECONDS)
         try:
-            yield
+            yield deadline
         finally:
             if fcntl:
                 fcntl.flock(fd, fcntl.LOCK_UN)
@@ -250,16 +293,32 @@ def write_all(fd: int, data: bytes) -> None:
         view = view[n:]
 
 
+def ends_in_newline(fd: int) -> bool:
+    """True for an empty file or one whose last byte is \\n."""
+    size = os.fstat(fd).st_size
+    if size == 0:
+        return True
+    os.lseek(fd, size - 1, os.SEEK_SET)
+    return os.read(fd, 1) == b"\n"
+
+
 def append(state_dir: str, line: bytes) -> None:
+    """Write one line under the lock.
+
+    The data file is opened only after the lock is held and closed before it is
+    released (a waiting writer never holds it open, which would block a Windows
+    rename). The last-byte read and the write are both inside the lock: after a
+    torn line from a crashed writer, a \\n goes first.
+    """
     ensure_state_dir(state_dir)
     path = os.path.join(state_dir, FILE_NAME)
-    with locked(state_dir):
+    with locked(state_dir) as deadline:
         try:
-            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND | O_BINARY, 0o600)
+            fd = open_retrying(path, os.O_RDWR | os.O_CREAT | os.O_APPEND | O_BINARY, deadline)
         except OSError as e:
             raise IOFault(f"cannot open {FILE_NAME}: {e.strerror}")
         try:
-            write_all(fd, line)
+            write_all(fd, line if ends_in_newline(fd) else b"\n" + line)
         except OSError as e:
             raise IOFault(f"cannot write {FILE_NAME}: {e.strerror}")
         finally:
@@ -287,6 +346,9 @@ def main(argv: list) -> int:
     except Refused as e:
         print(f"notify: refused ({e.rid}): {e.rule}", file=sys.stderr)
         return 2
+    except LockTimeout:
+        print(f"notify: lock-timeout: waited {LOCK_WAIT_SECONDS} s for {LOCK_NAME}; nothing written", file=sys.stderr)
+        return 3
     except IOFault as e:
         print(f"notify: io: {e}", file=sys.stderr)
         return 4
