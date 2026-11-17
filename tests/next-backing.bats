@@ -48,13 +48,6 @@ CFG
         > "$DA_HOME/state/p.toml"
 }
 
-# "N name" for every row of the shipped standard checklist template — the
-# canonical step list, reused rather than minted a third time.
-_canonical_steps() {
-    sed -nE 's/^- \[.\][[:space:]]+([0-9]+)\.[[:space:]]+([a-z]+).*$/\1 \2/p' \
-        "$PLUGIN_ROOT/templates/checklist-standard.md"
-}
-
 # _backing_mismatches <root>: stub every step-named executable script in <root>
 # (pass 1, before ANY run), then dispatch each one's row through the real
 # next.sh (pass 2). Prints `EXAMINED <name>` per stubbed step and a `MISMATCH`
@@ -68,7 +61,7 @@ _backing_mismatches() {
             examined+=("$num $name")
             echo "EXAMINED $name"
         fi
-    done < <(_canonical_steps)
+    done < <(canonical_steps)
 
     local row out want hdr ran should_run
     for row in "${examined[@]}"; do
@@ -96,7 +89,7 @@ _backing_mismatches() {
 
 @test "backing: every scripts/<step>.sh dispatches as spec 6.3 types it (#812)" {
     local n
-    n="$(_canonical_steps | wc -l)"
+    n="$(canonical_steps | wc -l)"
     # A thinned template would make this test vacuous.
     [ "$n" -eq 25 ] || _die "expected 25 canonical steps, parsed $n"
     _stage_tree

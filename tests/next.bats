@@ -1156,3 +1156,274 @@ _guard_home() {
   echo "$output"
   _breaks_at_updatewbs
 }
+
+# --- #1029: chain target resolved by name in the active revision ---
+# The chain-target guard and the --through validation read the target's OWN row
+# in the active revision block, by name. An older block that numbers the target
+# differently must neither stop the chain early nor let it run past the target.
+
+# _1029_root: a copied plugin root (scripts/ + templates/) with every step-named
+# executable script replaced by a stub that prints STUB-<name> and exits 0
+# without marking. Sets the GLOBAL `root`. The step set comes from the shipped
+# standard template, not a hand-kept list.
+_1029_root() {
+  root="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$root/scripts"
+  cp -r "$PLUGIN_ROOT/scripts/." "$root/scripts/"
+  cp -r "$PLUGIN_ROOT/templates" "$root/"
+  local _num n
+  while read -r _num n; do
+    if [[ -x "$root/scripts/$n.sh" ]]; then
+      printf '#!/usr/bin/env bash\necho STUB-%s\nexit 0\n' "$n" > "$root/scripts/$n.sh"
+    fi
+  done < <(canonical_steps)
+}
+
+# Issue-9 shape: the older block numbers cleanup 23; the active block numbers it 24.
+_1029_issue9() {
+  local active_cleanup="${1:- }"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
+# Issue-9
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [$active_cleanup] 24. cleanup
+EOC
+}
+
+# Spike shape: spike exists only in the older block (done there unless given).
+_1029_spike() {
+  local old_spike="${1:-x}"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
+- [x]  0. pull
+- [$old_spike]  3. spike
+- [ ]  4. scope
+- [ ] 24. cleanup
+
+## Revision 2
+
+- [x]  2. draft
+- [ ]  4. scope
+- [ ] 24. cleanup
+EOC
+}
+
+@test "#1029 AC1: --auto on a renumbered Revision 2 dispatches cleanup instead of false-stopping" {
+  _1029_root
+  _1029_issue9
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
+  [[ "$output" != *"Chain target 'cleanup' is complete"* ]]
+  ! grep -qxE '[ x~?!P-]' <<<"$output" || false
+}
+
+@test "#1029 AC2: a done target in the active block stops though the older block's twin is pending" {
+  _1029_root
+  _1029_issue9 x
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"Chain target 'cleanup' is complete; stopping."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  [[ "$output" != *"STUB-"* ]]
+}
+
+@test "#1029 AC3: --through preship on a renumbered Revision 2 stops instead of dispatching ship" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+# Issue-8
+- [x] 14. redmr
+- [ ] 21. preship
+- [ ] 15. ship
+
+## Revision 2
+
+- [x] 16. redmr
+- [x] 17. preship
+- [ ] 18. ship
+- [-] 19. mergetoall
+- [ ] 20. mergemr
+- [ ] 21. updatewbs
+EOC
+  cp "$DEVDOC/Issue-676/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  run bash "$root/scripts/next.sh" volk --through preship
+  echo "$output"
+  [[ "$output" == *"Chain target 'preship' is complete; stopping."* ]]
+  [[ "$output" != *"STUB-ship"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  cmp "$BATS_TEST_TMPDIR/before.md" "$DEVDOC/Issue-676/checklist.md"
+}
+
+# Uniform shape: both blocks number cleanup 24; the older one is done.
+_1029_uniform() {
+  local active_cleanup="$1"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
+## Revision 1
+
+- [x] 21. updatewbs
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [x] 24. cleanup
+
+## Revision 2
+
+- [x] 21. updatewbs
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [$active_cleanup] 24. cleanup
+EOC
+}
+
+@test "#1029 AC4 case A: identically numbered blocks, done target stops as today" {
+  _1029_root
+  _1029_uniform x
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"Chain target 'cleanup' is complete; stopping."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029 AC4 case B: identically numbered blocks, pending target dispatches as today" {
+  _1029_root
+  _1029_uniform ' '
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
+}
+
+@test "#1029: --through a step only in an older block is refused with a remedy, nothing dispatched" {
+  _1029_root
+  _1029_spike
+  cp "$DEVDOC/Issue-676/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  run bash "$root/scripts/next.sh" volk --through spike
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
+  [[ "$output" == *"where it is already done. Choose a --through step from the active revision."* ]]
+  [[ "$output" != *"Run /devagent:spike"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  [[ "$output" != *"STUB-"* ]]
+  cmp "$BATS_TEST_TMPDIR/before.md" "$DEVDOC/Issue-676/checklist.md"
+}
+
+@test "#1029: --through a step pending only in an older block offers to run it directly" {
+  _1029_root
+  _1029_spike ' '
+  run bash "$root/scripts/next.sh" volk --through spike
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
+  [[ "$output" == *"Run /devagent:spike volk directly, or choose a --through step from the active revision."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: --auto whose cleanup is only in an older block names --auto in the refusal" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [ ] 23. lessonslearned
+EOC
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--auto (implies --through 'cleanup'): that step is only in an older revision block of"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: a hand-annotated target row in the active block is the chain target" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [ ] 24. cleanup: note
+EOC
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
+}
+
+@test "#1029: --through a name absent from the whole file keeps the unknown-step message" {
+  _1029_root
+  _1029_spike
+  run bash "$root/scripts/next.sh" volk --through nonsense
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown step 'nonsense' (not present in"* ]]
+  [[ "$output" != *"older revision block"* ]]
+}
+
+@test "#1029: --through is matched by exact name, not as a regex" {
+  _1029_root
+  run bash "$root/scripts/next.sh" volk --through 'clean.*'
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown step 'clean.*' (not present in"* ]]
+  [[ "$output" != *"older revision block"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: explicit --through cleanup on a renumbered Revision 2 dispatches cleanup" {
+  _1029_root
+  _1029_issue9
+  run bash "$root/scripts/next.sh" volk --through cleanup
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" != *"unknown step"* ]]
+  [[ "$output" != *"older revision block"* ]]
+}
+
+@test "#1029: a target that leaves the active block mid-chain stops the chain with the refusal" {
+  _1029_root
+  local cl="$DEVDOC/Issue-676/checklist.md"
+  cat > "$cl" <<'EOC'
+## Revision 1
+
+- [ ]  0. pull
+- [ ]  3. spike
+- [ ]  4. scope
+- [ ] 24. cleanup
+EOC
+  cat > "$BATS_TEST_TMPDIR/after.md" <<'EOC'
+## Revision 1
+
+- [x]  0. pull
+- [ ]  3. spike
+- [ ]  4. scope
+- [ ] 24. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+- [ ] 24. cleanup
+EOC
+  # pull's stub starts a new revision that lacks the target, as a mid-chain
+  # /devagent:revise would.
+  printf '#!/usr/bin/env bash\ncp "%s" "%s"\necho STUB-pull\nexit 0\n' \
+    "$BATS_TEST_TMPDIR/after.md" "$cl" > "$root/scripts/pull.sh"
+  run bash "$root/scripts/next.sh" volk --through spike
+  echo "$output"
+  [[ "$output" == *"STUB-pull"* ]]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
+  [[ "$output" != *"dispatch: volk/Issue-676 — step 2 (draft)"* ]]
+}

@@ -1056,6 +1056,8 @@ Any executing command accepts:
 - `--auto` — continue chaining through end-of-workflow without
   prompting between steps. Equivalent to `--through cleanup`.
 - `--through <step>` — chain up to and including `<step>`, then stop.
+  `<step>` is resolved by name in the active revision block; a step present
+  only in an older revision block is refused (#1029).
 
 Without either flag, every step ends with:
 
