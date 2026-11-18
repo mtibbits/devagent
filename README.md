@@ -607,8 +607,9 @@ reading `git tag` in the checkout. A clone without the `devagent--v*` tags, or
 with tags older than the newest release (a `--depth 1` clone, or one fetched
 per branch), fails that test with `git tag is empty` or `not in git tag`; fetch
 them from devagent's repository first (`git fetch --tags`, or
-`git fetch --tags upstream` in a fork, whose own tags lag). `run-suite.sh` neither enforces nor records this. CI
-checks out with `fetch-depth: 0`, which a test in the same file pins.
+`git fetch --tags upstream` in a fork, whose own tags lag). `run-suite.sh`
+neither enforces nor records this. CI checks out with `fetch-depth: 0`, which a
+test in the same file pins.
 
 **Parallel bats (optional).** `suite_jobs = N` in `[project.<name>]` runs bats test
 FILES N at a time (`bats --jobs N --no-parallelize-within-files`; the tests inside a

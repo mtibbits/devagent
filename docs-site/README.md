@@ -75,7 +75,10 @@ the first published release that has it; `whats-new-sources.txt` ties each
 item to its CHANGELOG bullet, and `tests/docs-site.bats` checks every item
 against the CHANGELOG and `git tag`. Its "What's next" part comes from the open
 epics on the public tracker, which is not a repository file, so the page dates
-it with a "last checked" line instead of naming it in `derived-from`.
+it with a "last checked" line instead of naming it in `derived-from`. A theme
+is a user-facing direction that is still to come: leave out epics about the
+site or research, and epics whose main deliverable has already shipped (their
+released parts belong under "Shipped since 1.0").
 
 Re-check `whats-new.md` at each release, in two halves. In the release change
 itself (README "Versioning & releases", step 2), re-derive the roadmap and set
