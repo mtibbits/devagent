@@ -85,7 +85,9 @@ stops at each phase break and prints `PHASE BREAK` with a resume command. Run
 session instead of re-reading the whole issue's history on every call. By
 default the breaks fall before `implement`, `quality` and `updatewbs`. They
 fall where a fresh session helps most, not on the five phases' borders; only the
-last happens to sit on one. To stop a chain early on purpose, give it an end:
+last happens to sit on one. Once the pull request has merged, the default
+`updatewbs` break is skipped, so the chain runs on through the Learn steps to
+cleanup in the same session. To stop a chain early on purpose, give it an end:
 `/devagent:next --through <step>` runs up to and including that step, then
 stops. It still stops at any phase break on the way.
 `/devagent:next --auto --no-breaks` runs a chain without them.
@@ -112,6 +114,10 @@ checklist tiers show a monotonic subset with larger gaps.
 **Phase breaks.** The phase breaks described under When it stops come from
 config `phase_breaks`; see the
 [configuration reference](../docs/configuration.md).
+Only the built-in default skips its `updatewbs` break, and only when the active
+revision's mergemr row is `[x]`, or `[-]` because ship was `[-]` (no PR). A
+checklist with no mergemr row, an abandoned PR (mergemr `[-]` after a real
+ship), or a `phase_breaks` value you set keeps the break.
 
 **Merging.** Step 20, `/devagent:mergemr`, merges the PR only when the project
 sets `permissions.merge_mr = true`, and only at the head the last passing

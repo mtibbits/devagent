@@ -740,9 +740,9 @@ check_pre_table() {
 # one is reported; their order on the page is not checked): [?], the word
 # waiting, the [?] label of the template's State key line, [!], the phase break,
 # --through, and each default phase-break step as `<step>`. The defaults are read
-# from the one printf line inside next.sh's phase_breaks() whose argument is a
-# literal word list. Tokens are literals (grep -F): '[?]' is a bracket
-# expression as a regex.
+# from the one PHASE_BREAKS="<word list>" assignment inside next.sh's
+# phase_breaks_resolve() (its built-in fallback). Tokens are literals (grep -F):
+# '[?]' is a bracket expression as a regex.
 check_stop_section() {
   local page="$1" tmpl="$2" nextsh="$3" region label line re tok rc
   _need "$page" "$tmpl" "$nextsh" || return 2
@@ -750,11 +750,11 @@ check_stop_section() {
   region="$(_region "$page" '^## When it stops$' '^## ')" || return $?
   label="$(sed -n 's/^State key:.*\[?\] \([^ ]*\).*$/\1/p' "$tmpl" | head -1)"
   [ -n "$label" ] || { echo "$tmpl: cannot read the [?] label from its State key line" >&2; return 2; }
-  re="printf '%s\\\\n' \"[a-z ]+\""
-  line="$(sed -n '/^phase_breaks() {$/,/^}$/p' "$nextsh" | grep -E -- "$re")" || true
+  re='PHASE_BREAKS="[a-z ]+"'
+  line="$(sed -n '/^phase_breaks_resolve() {$/,/^}$/p' "$nextsh" | grep -E -- "$re")" || true
   [ -n "$line" ] && [[ "$line" != *$'\n'* ]] \
-    || { echo "$nextsh: not exactly one line in phase_breaks() matches $re" >&2; return 2; }
-  line="${line#*\"}"; line="${line%\"*}"
+    || { echo "$nextsh: not exactly one line in phase_breaks_resolve() matches $re" >&2; return 2; }
+  line="${line#*PHASE_BREAKS=\"}"; line="${line%%\"*}"
   for tok in '[?]' waiting "$label" '[!]' 'phase break' '--through'; do
     rc=0
     case "$tok" in
