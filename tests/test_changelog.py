@@ -231,3 +231,368 @@ def test_check_repository_root(tool, capsys):
     on_disk = len(list(d.glob("*.md"))) if d.is_dir() else 0
     unit = "entry file" if on_disk == 1 else "entry files"
     assert out == P + "no problems in %d %s\n" % (on_disk, unit)
+
+
+# --- release and preview -----------------------------------------------------------
+
+HEADER = "# Changelog\n\nHeader paragraph.\n\n"
+CARRIED = (
+    "- **Fixed: carried one (#7).** First carried entry\n"
+    "  wrapped onto a second line.\n"
+    "\n"
+    "- **Docs: carried two (#6).** Second carried entry.\n"
+)
+OLDER = (
+    "## [1.0.0] — 2026-01-01\n"
+    "\n"
+    "The first release opens with prose.\n"
+    "\n"
+    "- **Added: the start (#1).** Old entry.\n"
+)
+CHANGELOG = HEADER + "## [Unreleased]\n\n" + CARRIED + "\n" + OLDER
+E10 = (
+    "- **Added: ten (#10).** Ten.\n"
+    "\n"
+    "- **Changed (breaking): ten moves (#10).** It\n"
+    "  moves.\n"
+    "\n"
+    "  **Migration:** do the new thing.\n"
+)
+E9 = "- **Fixed: nine (#9).** Nine.\n"
+EDOCS = "- **Docs: a docs pass.** Docs.\n"
+EAGENTS = "- **Changed: an agents note.** Note.\n"
+FILES = {"9.md": E9, "10.md": E10, "docs-pass.md": EDOCS, "agents-note.md": EAGENTS}
+INTRO = "\nFirst paragraph of the\nintro.\n\nSecond paragraph.\n\n"
+NEW_ENTRIES = E10 + "\n" + E9 + "\n" + EAGENTS + "\n" + EDOCS + "\n" + CARRIED
+HEADING = "## [9.9.9] — 2026-12-01\n"
+EXPECTED = (
+    HEADER
+    + "## [Unreleased]\n\n"
+    + HEADING
+    + "\n"
+    + "First paragraph of the\nintro.\n\nSecond paragraph.\n\n"
+    + NEW_ENTRIES
+    + "\n"
+    + OLDER
+)
+
+
+def _fixture(tmp, changelog=CHANGELOG, files=FILES):
+    _write(tmp / "CHANGELOG.md", changelog)
+    _write(tmp / "keep.txt", "not an entry\n")
+    if files is not None:
+        _entries(tmp, files)
+    return tmp
+
+
+def _snapshot(tmp):
+    return {
+        str(p.relative_to(tmp)): (p.read_bytes() if p.is_file() else None)
+        for p in sorted(tmp.rglob("*"))
+    }
+
+
+def test_release_fixture(tool, tmp_path, capsys):
+    _fixture(tmp_path)
+    _write(tmp_path / "intro.md", INTRO)
+    intro = str(tmp_path / "intro.md")
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01", "--intro", intro)
+    assert (rc, err) == (0, "")
+    assert out == P + "wrote ## [9.9.9] — 2026-12-01: 7 entries, 4 entry files deleted\n"
+    assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == EXPECTED
+    assert (tmp_path / "changelog.d").is_dir()
+    assert list((tmp_path / "changelog.d").iterdir()) == []
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "CHANGELOG.md",
+        "changelog.d",
+        "intro.md",
+        "keep.txt",
+    ]
+
+
+def test_release_without_intro(tool, tmp_path, capsys):
+    _fixture(tmp_path)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, err) == (0, "")
+    text = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert text == HEADER + "## [Unreleased]\n\n" + HEADING + "\n" + NEW_ENTRIES + "\n" + OLDER
+
+
+def test_release_no_newer_section(tool, tmp_path, capsys):
+    _fixture(tmp_path, changelog=HEADER + "## [Unreleased]\n", files={"1.md": ENTRY})
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, err) == (0, "")
+    assert out == P + "wrote ## [9.9.9] — 2026-12-01: 1 entry, 1 entry file deleted\n"
+    text = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert text == HEADER + "## [Unreleased]\n\n" + HEADING + "\n" + ENTRY
+
+
+def test_release_carried_entries_only(tool, tmp_path, capsys):
+    _fixture(tmp_path, files=None)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, err) == (0, "")
+    assert out == P + "wrote ## [9.9.9] — 2026-12-01: 2 entries, 0 entry files deleted\n"
+    text = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert text == HEADER + "## [Unreleased]\n\n" + HEADING + "\n" + CARRIED + "\n" + OLDER
+
+
+EXISTS_NEWEST = (
+    "CHANGELOG.md already has a section for 9.9.9; add to it with release 9.9.9 "
+    "--fold before it is tagged, or release a new version"
+)
+UNRELEASED_PROSE = HEADER + "## [Unreleased]\n\n" + CARRIED + "\nSome prose.\n\n" + OLDER
+UNRELEASED_HEADING = HEADER + "## [Unreleased]\n\n### Added\n\n" + CARRIED + "\n" + OLDER
+NOTHING = "nothing is waiting: no entry files in changelog.d/ and no entries under ## [Unreleased]"
+REFUSALS = {
+    "exists": (
+        {"changelog": HEADER + "## [Unreleased]\n\n" + HEADING + "\n" + ENTRY + "\n" + OLDER},
+        ["9.9.9", "2026-12-01"],
+        [EXISTS_NEWEST],
+    ),
+    "exists-not-newest": (
+        {
+            "changelog": HEADER
+            + "## [Unreleased]\n\n"
+            + CARRIED
+            + "\n## [2.0.0] — 2026-06-01\n\n- **Added: two.**\n\n"
+            + OLDER
+        },
+        ["1.0.0", "2026-12-01"],
+        ["CHANGELOG.md already has a section for 1.0.0; release a new version"],
+    ),
+    "version-shape": ({}, ["9.9", "2026-12-01"], ["'9.9' is not a plain X.Y.Z version"]),
+    "version-leading-zero": ({}, ["09.9.9", "2026-12-01"], ["'09.9.9' is not a plain X.Y.Z version"]),
+    "version-prerelease": ({}, ["9.9.9-rc1", "2026-12-01"], ["'9.9.9-rc1' is not a plain X.Y.Z version"]),
+    "date-shape": ({}, ["9.9.9", "2026-12-1"], ["'2026-12-1' is not a YYYY-MM-DD date"]),
+    "date-calendar": ({}, ["9.9.9", "2026-02-30"], ["'2026-02-30' is not a YYYY-MM-DD date"]),
+    "no-unreleased": (
+        {"changelog": HEADER + OLDER},
+        ["9.9.9", "2026-12-01"],
+        ["CHANGELOG.md has no '## [Unreleased]' line"],
+    ),
+    "nothing-waiting": (
+        {"changelog": HEADER + "## [Unreleased]\n\n" + OLDER, "files": None},
+        ["9.9.9", "2026-12-01"],
+        [NOTHING],
+    ),
+    "check-fails": (
+        {"files": dict(FILES, **{"012.md": ENTRY})},
+        ["9.9.9", "2026-12-01"],
+        [
+            "changelog.d/012.md: the issue number has a leading zero",
+            "release refused: fix the changelog.d/ problems above",
+        ],
+    ),
+    "unreleased-prose": (
+        {"changelog": UNRELEASED_PROSE},
+        ["9.9.9", "2026-12-01"],
+        ["CHANGELOG.md line 12: prose outside an entry under ## [Unreleased]"],
+    ),
+    "unreleased-heading": (
+        {"changelog": UNRELEASED_HEADING},
+        ["9.9.9", "2026-12-01"],
+        ["CHANGELOG.md line 7: a heading under ## [Unreleased]"],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REFUSALS))
+def test_release_refuses(tool, tmp_path, capsys, case):
+    kwargs, args, messages = REFUSALS[case]
+    _fixture(tmp_path, **kwargs)
+    before = _snapshot(tmp_path)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", *args)
+    assert (rc, out) == (1, "")
+    assert err.splitlines() == [P + m for m in messages]
+    assert _snapshot(tmp_path) == before
+
+
+def test_release_refusal_order(tool, tmp_path, capsys):
+    # A bad version is reported before anything is read, even with nothing waiting.
+    _fixture(tmp_path, changelog=HEADER + OLDER, files=None)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9", "bad")
+    assert (rc, err) == (1, P + "'9.9' is not a plain X.Y.Z version\n")
+
+
+INTRO_REFUSALS = {
+    "missing": (None, "could not read (No such file or directory)"),
+    "empty": ("\n\n", "empty"),
+    "heading": ("A paragraph.\n\n# Heading\n", "line 3 is a heading or an entry's first line; the intro is prose"),
+    "entry": ("- **Added: x.**\n", "line 1 is a heading or an entry's first line; the intro is prose"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(INTRO_REFUSALS))
+def test_release_intro_refuses(tool, tmp_path, capsys, case):
+    body, reason = INTRO_REFUSALS[case]
+    _fixture(tmp_path)
+    intro = tmp_path / "intro.md"
+    if body is not None:
+        _write(intro, body)
+    before = _snapshot(tmp_path)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01", "--intro", str(intro))
+    assert (rc, out) == (1, "")
+    assert err == P + "--intro %s: %s\n" % (intro, reason)
+    assert _snapshot(tmp_path) == before
+
+
+USAGE = {
+    "no-date": (["release", "9.9.9"], "release needs a <date>, or --fold"),
+    "fold-with-date": (
+        ["release", "9.9.9", "2026-12-01", "--fold"],
+        "release --fold takes no date; the section keeps its own",
+    ),
+    "fold-with-intro": (
+        ["release", "9.9.9", "--fold", "--intro", "x.md"],
+        "release --fold takes no --intro; the section keeps its opening prose",
+    ),
+    "unknown-command": (["relase", "9.9.9", "2026-12-01"], "invalid choice: 'relase'"),
+    "abbreviated-flag": (["release", "9.9.9", "--fo"], "unrecognized arguments: --fo"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(USAGE))
+def test_usage_errors(tool, tmp_path, capsys, case):
+    argv, message = USAGE[case]
+    _fixture(tmp_path)
+    before = _snapshot(tmp_path)
+    rc, out, err = _run(tool, tmp_path, capsys, *argv)
+    assert rc == 2
+    assert message in err
+    assert _snapshot(tmp_path) == before
+
+
+def test_preview_matches_release(tool, tmp_path, capsys):
+    a = _fixture(tmp_path / "a")
+    b = _fixture(tmp_path / "b")
+    rc, preview, err = _run(tool, a, capsys, "preview")
+    assert (rc, err) == (0, "")
+    rc, _out, err = _run(tool, b, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, err) == (0, "")
+    released = (b / "CHANGELOG.md").read_text(encoding="utf-8")
+    body = released.split(HEADING + "\n", 1)[1].split("\n\n## [1.0.0]", 1)[0]
+    assert preview == "## [Unreleased]\n\n" + body + "\n"
+    assert preview == "## [Unreleased]\n\n" + NEW_ENTRIES
+
+
+def test_preview_order_is_numeric_then_slug(tool, tmp_path, capsys):
+    files = {
+        name: "- **Fixed: %s.**\n" % name[:-3]
+        for name in ("9.md", "100.md", "1100.md", "20.md", "b-note.md", "a-note.md")
+    }
+    _fixture(tmp_path, changelog=HEADER + "## [Unreleased]\n", files=files)
+    rc, out, err = _run(tool, tmp_path, capsys, "preview")
+    assert (rc, err) == (0, "")
+    order = [ln[len("- **Fixed: ") : -len(".**")] for ln in out.splitlines() if ln.startswith("- ")]
+    assert order == ["1100", "100", "20", "9", "a-note", "b-note"]
+
+
+def test_preview_nothing_waiting(tool, tmp_path, capsys):
+    _fixture(tmp_path, changelog=HEADER + "## [Unreleased]\n\n" + OLDER, files=None)
+    rc, out, err = _run(tool, tmp_path, capsys, "preview")
+    assert (rc, out, err) == (0, "## [Unreleased]\n", "")
+
+
+def test_preview_changes_nothing(tool, tmp_path, capsys):
+    _fixture(tmp_path)
+    before = _snapshot(tmp_path)
+    rc, out, err = _run(tool, tmp_path, capsys, "preview")
+    assert rc == 0
+    assert _snapshot(tmp_path) == before
+
+
+PREVIEW_REFUSALS = {
+    "check-fails": (
+        {"files": dict(FILES, **{"012.md": ENTRY})},
+        [
+            "changelog.d/012.md: the issue number has a leading zero",
+            "preview refused: fix the changelog.d/ problems above",
+        ],
+    ),
+    "unreleased-prose": (
+        {"changelog": UNRELEASED_PROSE},
+        ["CHANGELOG.md line 12: prose outside an entry under ## [Unreleased]"],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(PREVIEW_REFUSALS))
+def test_preview_refuses(tool, tmp_path, capsys, case):
+    kwargs, messages = PREVIEW_REFUSALS[case]
+    _fixture(tmp_path, **kwargs)
+    rc, out, err = _run(tool, tmp_path, capsys, "preview")
+    assert (rc, out) == (1, "")
+    assert err.splitlines() == [P + m for m in messages]
+
+
+def test_versioning_section_check_after_release(tool, tmp_path, capsys, monkeypatch):
+    import test_plugin_versioning
+
+    _fixture(tmp_path)
+    _write(tmp_path / ".claude-plugin" / "plugin.json", '{"version": "9.9.9"}\n')
+    monkeypatch.setattr(test_plugin_versioning, "_REPO", str(tmp_path))
+    with pytest.raises(AssertionError):
+        test_plugin_versioning.test_changelog_has_section_for_plugin_version()
+    rc, _out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, err) == (0, "")
+    test_plugin_versioning.test_changelog_has_section_for_plugin_version()
+
+
+def _crlf(text):
+    return text.replace("\n", "\r\n")
+
+
+def test_release_writes_lf(tool, tmp_path, capsys):
+    _fixture(tmp_path, changelog=_crlf(CHANGELOG), files={k: _crlf(v) for k, v in FILES.items()})
+    _write(tmp_path / "intro.md", _crlf(INTRO))
+    rc, out, err = _run(
+        tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01", "--intro", str(tmp_path / "intro.md")
+    )
+    assert (rc, err) == (0, "")
+    data = (tmp_path / "CHANGELOG.md").read_bytes()
+    assert b"\r" not in data
+    assert data.decode("utf-8") == EXPECTED
+
+
+def test_release_unlink_failure_names_files(tool, tmp_path, capsys, monkeypatch):
+    _fixture(tmp_path)
+    real = Path.unlink
+
+    def unlink(self, *args, **kwargs):
+        if self.name == "9.md":
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, out) == (3, "")
+    assert err == P + (
+        "the release is written; delete these files by hand — do not re-run "
+        "release or --fold: changelog.d/9.md\n"
+    )
+    assert HEADING in (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert sorted(p.name for p in (tmp_path / "changelog.d").iterdir()) == ["9.md"]
+
+
+def test_release_write_failure_restores(tool, tmp_path, capsys, monkeypatch):
+    _fixture(tmp_path)
+    before = _snapshot(tmp_path)
+    real = Path.write_bytes
+    calls = []
+
+    def write_bytes(self, data):
+        calls.append(self.name)
+        if len(calls) == 1:
+            real(self, data[:10])
+            raise OSError(28, "No space left on device", str(self))
+        return real(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, out) == (1, "")
+    assert err == P + (
+        "could not write CHANGELOG.md (No space left on device); it is restored "
+        "and no entry file is deleted\n"
+    )
+    assert calls == ["CHANGELOG.md", "CHANGELOG.md"]
+    assert _snapshot(tmp_path) == before

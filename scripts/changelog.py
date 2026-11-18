@@ -22,6 +22,7 @@ reads only ``scripts/<step>.sh``. Stdlib only, Python 3.8 or later.
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import re
 import stat
@@ -36,10 +37,19 @@ ENTRY_HEAD = re.compile(r"- \*\*(?:%s)(?: \([a-z]+(?: [a-z]+)*\))?: " % "|".join
 ISSUE_KEY = re.compile(r"[1-9][0-9]*")  # .fullmatch
 SLUG_KEY = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")  # .fullmatch
 
+VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")  # .fullmatch
+DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")  # .fullmatch, then datetime.date.fromisoformat
+SECTION = re.compile(r"## \[(?P<version>[^\]]+)\]")  # .match on col-0 lines
+DATED = re.compile(r"## \[(?P<version>[^\]]+)\] — (?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})")  # .fullmatch
+UNRELEASED = "## [Unreleased]"
+
 NO_KIND = "an entry with no listed kind (%s)" % ", ".join(KINDS)
 PROSE = "prose outside an entry"
 HEADING = "a heading"
 ONLY_ENTRIES = "changelog.d/ holds only entry files"
+NOTHING_WAITING = (
+    "nothing is waiting: no entry files in changelog.d/ and no entries under ## [Unreleased]"
+)
 
 
 # --- the entry grammar ---------------------------------------------------------
@@ -191,27 +201,234 @@ def check(root):
     return scan(root)[1]
 
 
-# --- command line ------------------------------------------------------------------
+# --- CHANGELOG.md --------------------------------------------------------------------
+
+
+class Refusal(Exception):
+    """A refusal: its lines are printed to stderr and the tool exits ``code``."""
+
+    def __init__(self, *lines, code=1):
+        super().__init__(*lines)
+        self.lines = lines
+        self.code = code
 
 
 def _plural(count, one, many):
     return "%d %s" % (count, one if count == 1 else many)
 
 
+def _read_changelog(root):
+    path = Path(root) / "CHANGELOG.md"
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise Refusal("could not read CHANGELOG.md (%s)" % exc.strerror)
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise Refusal("CHANGELOG.md is not UTF-8")
+    return path, data, _lines(text)
+
+
+def _unreleased(lines):
+    """-> (u, end): the ``## [Unreleased]`` line and the first col-0 ``## `` after it
+    (the newest section's heading, or len(lines)); None when there is no such line."""
+    try:
+        u = lines.index(UNRELEASED)
+    except ValueError:
+        return None
+    end = next((i for i in range(u + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return u, end
+
+
+def _waiting(root, lines, span, command):
+    """Everything waiting, in release order -> (files, entries).
+
+    The entry files by key (file-internal order kept), then the entries carried
+    under ``## [Unreleased]`` in document order. Refuses on a check problem or
+    on anything but entries under ``## [Unreleased]``."""
+    files, problems = scan(root)
+    if problems:
+        raise Refusal(*problems, "%s refused: fix the changelog.d/ problems above" % command)
+    carried = []
+    if span is not None:
+        u, end = span
+        carried, bad = parse_entries(lines[u + 1 : end])
+        if bad:
+            raise Refusal(
+                *("CHANGELOG.md line %d: %s under %s" % (u + 1 + n, why, UNRELEASED) for n, why in bad)
+            )
+    entries = [entry for _name, file_entries in files for entry in file_entries] + carried
+    return files, entries
+
+
+def _join(entries):
+    """Entries as lines, separated by exactly one blank line (preview and release)."""
+    out = []
+    for entry in entries:
+        if out:
+            out.append("")
+        out.extend(entry)
+    return out
+
+
+def _read_intro(name):
+    try:
+        data = Path(name).read_bytes()
+    except OSError as exc:
+        raise Refusal("--intro %s: could not read (%s)" % (name, exc.strerror))
+    try:
+        lines = _lines(data.decode("utf-8-sig"))
+    except UnicodeDecodeError:
+        raise Refusal("--intro %s: not UTF-8" % name)
+    for number, line in enumerate(lines, 1):
+        if line.startswith("#") or ENTRY_HEAD.match(line):
+            raise Refusal(
+                "--intro %s: line %d is a heading or an entry's first line; the intro is prose"
+                % (name, number)
+            )
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        raise Refusal("--intro %s: empty" % name)
+    return lines
+
+
+def _check_version(version):
+    if not VERSION.fullmatch(version):
+        raise Refusal("'%s' is not a plain X.Y.Z version" % version)
+
+
+def _check_date(date):
+    try:
+        ok = bool(DATE.fullmatch(date)) and bool(datetime.date.fromisoformat(date))
+    except ValueError:
+        ok = False
+    if not ok:
+        raise Refusal("'%s' is not a YYYY-MM-DD date" % date)
+
+
+def _write(root, path, original, lines, files):
+    """Write CHANGELOG.md (UTF-8, LF), restoring its bytes on failure, then delete
+    each used entry file on its own. -> the number of files deleted."""
+    try:
+        path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    except OSError as exc:
+        try:
+            path.write_bytes(original)
+        except OSError:
+            raise Refusal(
+                "could not write CHANGELOG.md (%s) nor restore it; compare it with git "
+                "before anything else, no entry file is deleted" % exc.strerror
+            )
+        raise Refusal(
+            "could not write CHANGELOG.md (%s); it is restored and no entry file is deleted"
+            % exc.strerror
+        )
+    left = []
+    for name, _entries in files:
+        try:
+            (Path(root) / "changelog.d" / name).unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            left.append("changelog.d/" + name)
+    if left:
+        raise Refusal(
+            "the release is written; delete these files by hand — do not re-run release "
+            "or --fold: " + ", ".join(left),
+            code=3,
+        )
+    return len(files)
+
+
+def preview(root):
+    """The ``## [Unreleased]`` section everything waiting would make, as text."""
+    _path, _data, lines = _read_changelog(root)
+    _files, entries = _waiting(root, lines, _unreleased(lines), "preview")
+    if not entries:
+        return UNRELEASED + "\n"
+    return "\n".join([UNRELEASED, ""] + _join(entries)) + "\n"
+
+
+def release(root, version, date, intro=None):
+    """Write ``## [<version>] — <date>`` from everything waiting -> a report line."""
+    _check_version(version)
+    _check_date(date)
+    path, original, lines = _read_changelog(root)
+    span = _unreleased(lines)
+    if span is None:
+        raise Refusal("CHANGELOG.md has no '%s' line" % UNRELEASED)
+    u, end = span
+    newest = DATED.fullmatch(lines[end]) if end < len(lines) else None
+    for line in lines:
+        found = SECTION.match(line)
+        if found and found.group("version") == version:
+            if newest and newest.group("version") == version:
+                raise Refusal(
+                    "CHANGELOG.md already has a section for %s; add to it with release %s "
+                    "--fold before it is tagged, or release a new version" % (version, version)
+                )
+            raise Refusal("CHANGELOG.md already has a section for %s; release a new version" % version)
+    files, entries = _waiting(root, lines, span, "release")
+    if not entries:
+        raise Refusal(NOTHING_WAITING)
+    intro_lines = _read_intro(intro) + [""] if intro is not None else []
+    heading = "## [%s] — %s" % (version, date)
+    out = lines[:u] + [UNRELEASED, "", heading, ""] + intro_lines + _join(entries)
+    if end < len(lines):
+        out += [""] + lines[end:]
+    deleted = _write(root, path, original, out, files)
+    return "wrote %s: %s, %s deleted" % (
+        heading,
+        _plural(len(entries), "entry", "entries"),
+        _plural(deleted, "entry file", "entry files"),
+    )
+
+
+# --- command line ------------------------------------------------------------------
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog=PROG,
         allow_abbrev=False,
-        description="Check changelog.d/ entry files (#1127).",
+        description="Check and release changelog.d/ entry files (#1127).",
     )
     sub = parser.add_subparsers(dest="command", metavar="command")
     sub.required = True
     sub.add_parser("check", help="report every problem in changelog.d/", allow_abbrev=False)
+    sub.add_parser(
+        "preview", help="print the ## [Unreleased] section a release would write", allow_abbrev=False
+    )
+    rel = sub.add_parser(
+        "release",
+        help="write the next dated section, or --fold into the newest one",
+        allow_abbrev=False,
+    )
+    rel.add_argument("version", help="plain X.Y.Z")
+    rel.add_argument("date", nargs="?", help="YYYY-MM-DD; omitted with --fold")
+    rel.add_argument("--intro", metavar="file", help="the section's opening prose")
+    rel.add_argument(
+        "--fold", action="store_true", help="add what is waiting to the newest dated section"
+    )
     return parser
 
 
 def validate_args(ns):
     """The rules argparse cannot state; a breach is a usage error (exit 2)."""
+    if ns.command == "release":
+        reason = None
+        if ns.fold and ns.date is not None:
+            reason = "release --fold takes no date; the section keeps its own"
+        elif ns.fold and ns.intro is not None:
+            reason = "release --fold takes no --intro; the section keeps its opening prose"
+        elif not ns.fold and ns.date is None:
+            reason = "release needs a <date>, or --fold"
+        if reason:
+            build_parser().error(reason)
     return ns
 
 
@@ -225,15 +442,23 @@ def main(argv=None, root=None):
         ns = validate_args(build_parser().parse_args(argv))
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
-    if ns.command == "check":
-        files, problems = scan(root)
-        for problem in problems:
-            _say(sys.stderr, problem)
-        if problems:
-            return 1
-        _say(sys.stdout, "no problems in " + _plural(len(files), "entry file", "entry files"))
-        return 0
-    return 2  # pragma: no cover - argparse admits only the commands above
+    try:
+        if ns.command == "check":
+            files, problems = scan(root)
+            if problems:
+                raise Refusal(*problems)
+            _say(sys.stdout, "no problems in " + _plural(len(files), "entry file", "entry files"))
+        elif ns.command == "preview":
+            sys.stdout.write(preview(root))
+        elif ns.fold:
+            raise Refusal("--fold is not implemented yet")
+        else:
+            _say(sys.stdout, release(root, ns.version, ns.date, ns.intro))
+    except Refusal as refusal:
+        for line in refusal.lines:
+            _say(sys.stderr, line)
+        return refusal.code
+    return 0
 
 
 if __name__ == "__main__":
