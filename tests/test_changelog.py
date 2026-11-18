@@ -345,7 +345,15 @@ EXISTS_NEWEST = (
 UNRELEASED_PROSE = HEADER + "## [Unreleased]\n\n" + CARRIED + "\nSome prose.\n\n" + OLDER
 UNRELEASED_HEADING = HEADER + "## [Unreleased]\n\n### Added\n\n" + CARRIED + "\n" + OLDER
 NOTHING = "nothing is waiting: no entry files in changelog.d/ and no entries under ## [Unreleased]"
+# A second heading's entries would sit outside the span every command reads, so a
+# release would leave them unreleased while preview reported nothing waiting.
+DUP_UNRELEASED = HEADER + "## [Unreleased]\n\n" + E9 + "\n## [Unreleased]\n\n" + CARRIED + "\n" + OLDER
+SECOND_UNRELEASED = (
+    "CHANGELOG.md line 9: a second '## [Unreleased]' line; move its entries under "
+    "the first and delete it"
+)
 REFUSALS = {
+    "second-unreleased": ({"changelog": DUP_UNRELEASED}, ["9.9.9", "2026-12-01"], [SECOND_UNRELEASED]),
     "exists": (
         {"changelog": HEADER + "## [Unreleased]\n\n" + HEADING + "\n" + ENTRY + "\n" + OLDER},
         ["9.9.9", "2026-12-01"],
@@ -515,6 +523,14 @@ PREVIEW_REFUSALS = {
         {"changelog": UNRELEASED_PROSE},
         ["CHANGELOG.md line 12: prose outside an entry under ## [Unreleased]"],
     ),
+    # preview is README's tag gate: it must fail closed, never print a bare heading
+    # while release would refuse (final review, Issue-1127).
+    "unreleased-trailing-space": (
+        {"changelog": HEADER + "## [Unreleased] \n\n" + CARRIED + "\n" + OLDER},
+        ["CHANGELOG.md has no '## [Unreleased]' line"],
+    ),
+    "no-unreleased": ({"changelog": HEADER + OLDER}, ["CHANGELOG.md has no '## [Unreleased]' line"]),
+    "second-unreleased": ({"changelog": DUP_UNRELEASED}, [SECOND_UNRELEASED]),
 }
 
 
@@ -600,6 +616,44 @@ def test_release_write_failure_restores(tool, tmp_path, capsys, monkeypatch):
     assert _snapshot(tmp_path) == before
 
 
+def test_release_write_refused_leaves_file_unchanged(tool, tmp_path, capsys, monkeypatch):
+    # A read-only or locked CHANGELOG.md: open() fails, nothing was touched.
+    _fixture(tmp_path)
+    before = _snapshot(tmp_path)
+
+    def write_bytes(self, data):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, out) == (1, "")
+    assert err == P + (
+        "could not write CHANGELOG.md (Permission denied); it is unchanged and no "
+        "entry file is deleted\n"
+    )
+    assert _snapshot(tmp_path) == before
+
+
+def test_release_write_and_restore_fail_exits_3(tool, tmp_path, capsys, monkeypatch):
+    # Exit 1 promises nothing changed; a truncated file the restore could not undo
+    # is a partial state, so it exits 3 like a failed delete.
+    _fixture(tmp_path)
+    real = Path.write_bytes
+
+    def write_bytes(self, data):
+        real(self, data[:10])
+        raise OSError(28, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "2026-12-01")
+    assert (rc, out) == (3, "")
+    assert err == P + (
+        "could not write CHANGELOG.md (No space left on device) nor restore it; "
+        "compare it with git before anything else — no entry file is deleted\n"
+    )
+    assert sorted(p.name for p in (tmp_path / "changelog.d").iterdir()) == sorted(FILES)
+
+
 # --- release --fold ----------------------------------------------------------------
 
 E11 = "- **Added: eleven (#11).** Eleven.\n"
@@ -674,6 +728,7 @@ def test_fold_empty_section_at_end(tool, tmp_path, capsys):
 
 
 FOLD_REFUSALS = {
+    "second-unreleased": ({"changelog": DUP_UNRELEASED}, "9.9.9", [SECOND_UNRELEASED]),
     "nothing-waiting": (
         {"changelog": HEADER + "## [Unreleased]\n\n" + FOLD_SECTION, "files": None},
         "9.9.9",

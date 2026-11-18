@@ -31,7 +31,9 @@ Every refusal exits 1 and changes nothing; usage errors exit 2. CHANGELOG.md is
 written in place, UTF-8 with LF, its bytes restored if the write fails. The
 entry files are deleted afterwards, one at a time; if one cannot be, the tool
 exits 3 naming it: the release is written, so delete it by hand and do not
-re-run release or --fold.
+re-run release or --fold. Exit 3 also covers a write that failed and could not
+be undone. preview, the tag gate, refuses whenever it cannot read
+``## [Unreleased]`` as release would, so it never fails open.
 
 This is not a plugin command and not a workflow step: next.sh's role detection
 reads only ``scripts/<step>.sh``. Stdlib only, Python 3.8 or later.
@@ -250,11 +252,22 @@ def _read_changelog(root):
 
 def _unreleased(lines):
     """-> (u, end): the ``## [Unreleased]`` line and the first col-0 ``## `` after it
-    (the newest section's heading, or len(lines)); None when there is no such line."""
+    (the newest section's heading, or len(lines)).
+
+    Refuses when there is no such exact line, or when there are two: the second
+    one's entries would sit outside the span every command reads, so a release
+    would leave them unreleased while preview reported nothing waiting. preview
+    is README's tag gate, so it refuses here too rather than fail open."""
     try:
         u = lines.index(UNRELEASED)
     except ValueError:
-        return None
+        raise Refusal("CHANGELOG.md has no '%s' line" % UNRELEASED)
+    for i in range(u + 1, len(lines)):
+        if lines[i] == UNRELEASED:
+            raise Refusal(
+                "CHANGELOG.md line %d: a second '%s' line; move its entries under the "
+                "first and delete it" % (i + 1, UNRELEASED)
+            )
     end = next((i for i in range(u + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
     return u, end
 
@@ -268,14 +281,12 @@ def _waiting(root, lines, span, command):
     files, problems = scan(root)
     if problems:
         raise Refusal(*problems, "%s refused: fix the changelog.d/ problems above" % command)
-    carried = []
-    if span is not None:
-        u, end = span
-        carried, bad = parse_entries(lines[u + 1 : end])
-        if bad:
-            raise Refusal(
-                *("CHANGELOG.md line %d: %s under %s" % (u + 1 + n, why, UNRELEASED) for n, why in bad)
-            )
+    u, end = span
+    carried, bad = parse_entries(lines[u + 1 : end])
+    if bad:
+        raise Refusal(
+            *("CHANGELOG.md line %d: %s under %s" % (u + 1 + n, why, UNRELEASED) for n, why in bad)
+        )
     entries = [entry for _name, file_entries in files for entry in file_entries] + carried
     return files, entries
 
@@ -328,22 +339,42 @@ def _check_date(date):
         raise Refusal("'%s' is not a YYYY-MM-DD date" % date)
 
 
+def _holds(path, data):
+    """True when path reads back as exactly data."""
+    try:
+        return path.read_bytes() == data
+    except OSError:
+        return False
+
+
 def _write(root, path, original, lines, files):
     """Write CHANGELOG.md (UTF-8, LF), restoring its bytes on failure, then delete
-    each used entry file on its own. -> the number of files deleted."""
+    each used entry file on its own. -> the number of files deleted.
+
+    Exit 1 means nothing changed, so a failed write reads the file back: untouched
+    (a read-only or locked file) or restored is exit 1; a file left changed is a
+    partial state, exit 3, like a failed delete."""
     try:
         path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
     except OSError as exc:
+        if _holds(path, original):
+            raise Refusal(
+                "could not write CHANGELOG.md (%s); it is unchanged and no entry file is deleted"
+                % exc.strerror
+            )
         try:
             path.write_bytes(original)
         except OSError:
+            pass
+        if _holds(path, original):
             raise Refusal(
-                "could not write CHANGELOG.md (%s) nor restore it; compare it with git "
-                "before anything else, no entry file is deleted" % exc.strerror
+                "could not write CHANGELOG.md (%s); it is restored and no entry file is deleted"
+                % exc.strerror
             )
         raise Refusal(
-            "could not write CHANGELOG.md (%s); it is restored and no entry file is deleted"
-            % exc.strerror
+            "could not write CHANGELOG.md (%s) nor restore it; compare it with git before "
+            "anything else — no entry file is deleted" % exc.strerror,
+            code=3,
         )
     left = []
     for name, _entries in files:
@@ -377,8 +408,6 @@ def release(root, version, date, intro=None):
     _check_date(date)
     path, original, lines = _read_changelog(root)
     span = _unreleased(lines)
-    if span is None:
-        raise Refusal("CHANGELOG.md has no '%s' line" % UNRELEASED)
     u, end = span
     newest = DATED.fullmatch(lines[end]) if end < len(lines) else None
     for line in lines:
@@ -414,8 +443,6 @@ def fold(root, version):
     _check_version(version)
     path, original, lines = _read_changelog(root)
     span = _unreleased(lines)
-    if span is None:
-        raise Refusal("CHANGELOG.md has no '%s' line" % UNRELEASED)
     u, end = span
     newest = DATED.fullmatch(lines[end]) if end < len(lines) else None
     if not newest or newest.group("version") != version:
