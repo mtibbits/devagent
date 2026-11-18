@@ -34,6 +34,7 @@ to the next one; it counts only when it starts "- **Added" or "- **Changed".
 Versions compare as integer tuples, never as strings.
 """
 
+import collections
 import datetime
 import re
 import sys
@@ -49,6 +50,7 @@ MONTHS = ("January February March April May June July August September "
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 MONTH_RE = re.compile(r"\b(" + "|".join(MONTHS) + r")\b")
 QUARTER_RE = re.compile(r"\bQ[1-4]\b")
+# The same issue-number rule as _ISSUE_NUM_ERE in docs-site-checks.bash.
 ISSUE_RE = re.compile(r"#[0-9]|Issue-[0-9]")
 FAMILY_RE = re.compile(r"journeyman|gantry|curriculum|blazeahead", re.I)
 COMING_RE = re.compile(r"\bcoming\b", re.I)
@@ -111,8 +113,11 @@ def items(lines):
     return [(a, b, ws(t)) for a, b, t in out]
 
 
+Section = collections.namedtuple("Section", "version name date bullets text")
+
+
 def changelog(path):
-    """[(version-tuple|None, name, date|None, [bullet-text], whole-text)]."""
+    """[Section] of the released ("## [x.y.z]") sections, any order."""
     secs, cur = [], None
     for line in read(path):
         m = re.match(r"^## \[([^\]]+)\]", line)
@@ -131,8 +136,11 @@ def changelog(path):
             cur[3].append(line)
         elif cur[3] and line.strip():
             cur[3][-1] += " " + line.strip()
-    return [(v, n, d, [ws(b) for b in bs], ws(" ".join(t)))
-            for v, n, d, bs, t in secs]
+    out = [Section(v, n, d, [ws(b) for b in bs], ws(" ".join(t)))
+           for v, n, d, bs, t in secs if v is not None]
+    if not out:
+        raise CannotRun(f"{path}: no released sections")
+    return out
 
 
 def anchor_in(anchor, text):
@@ -147,16 +155,12 @@ def vstr(v):
 
 def cmd_shipped(page, sources, chlog, tagsfile):
     try:
-        tag_lines = read(tagsfile)
+        tag_lines = [t.strip() for t in read(tagsfile) if t.strip()]
     except CannotRun:
         tag_lines = []
-    tags = {}
-    for t in (x.strip() for x in tag_lines):
-        m = TAG_RE.match(t)
-        if m:
-            tags[t] = tuple(map(int, m.groups()))
-    if not [t for t in tag_lines if t.strip()]:
+    if not tag_lines:
         raise Broken("git tag is empty: fetch tags (git fetch --tags)")
+    tags = {t: tuple(map(int, m.groups())) for t in tag_lines for m in [TAG_RE.match(t)] if m}
 
     src = {}
     for n, line in enumerate(read(sources), 1):
@@ -188,10 +192,7 @@ def cmd_shipped(page, sources, chlog, tagsfile):
         if label not in page_items:
             raise Broken(f"no page item for '{label}'")
 
-    secs = changelog(chlog)
-    released = [s for s in secs if s[0] is not None]
-    if not released:
-        raise CannotRun(f"{chlog}: no released sections")
+    released = changelog(chlog)
     by_version = sorted(tags.items(), key=lambda kv: kv[1])
     for label, text in page_items.items():
         links = REL_RE.findall(text)
@@ -201,12 +202,12 @@ def cmd_shipped(page, sources, chlog, tagsfile):
         if tag not in tags:
             raise Broken(f"'{label}': {tag} not in git tag (git fetch --tags if this clone is behind)")
         anchor = src[label]
-        added = [s[0] for s in released if s[0] > FLOOR
+        added = [s.version for s in released if s.version > FLOOR
                  and any(b.startswith(("- **Added", "- **Changed")) and anchor_in(anchor, b)
-                         for b in s[3])]
+                         for b in s.bullets)]
         if not added:
             raise Broken(f"'{label}': {anchor} not in an Added or Changed bullet of a released section newer than 1.0.0")
-        anywhere = [s[0] for s in released if anchor_in(anchor, s[4])]
+        anywhere = [s.version for s in released if anchor_in(anchor, s.text)]
         if min(anywhere) <= FLOOR:
             raise Broken(f"'{label}': {anchor} first appeared in 1.0.0 or earlier ({vstr(min(anywhere))})")
         first = min(added)
@@ -257,14 +258,11 @@ def cmd_checked(page, chlog):
         when = datetime.date.fromisoformat(d)
     except ValueError:
         raise Broken(f"{page}: invalid date {d}")
-    released = [s for s in changelog(chlog) if s[0] is not None]
-    if not released:
-        raise CannotRun(f"{chlog}: no released sections")
-    newest = max(released, key=lambda s: s[0])
-    if not newest[2]:
-        raise Broken(f"{chlog}: newest release {newest[1]} has no date")
-    if when < datetime.date.fromisoformat(newest[2]):
-        raise Broken(f"{page}: roadmap last checked {d} predates release {newest[1]} ({newest[2]})")
+    newest = max(changelog(chlog), key=lambda s: s.version)
+    if not newest.date:
+        raise Broken(f"{chlog}: newest release {newest.name} has no date")
+    if when < datetime.date.fromisoformat(newest.date):
+        raise Broken(f"{page}: roadmap last checked {d} predates release {newest.name} ({newest.date})")
 
 
 def cmd_tag_lane(yml):
@@ -285,16 +283,17 @@ def cmd_tag_lane(yml):
 
 def steps(lines):
     """[(number, joined_text)] of the column-0 '<n>. ' list items."""
-    out = []
+    out, open_ = [], False
     for line in lines:
         m = re.match(r"^(\d+)\. ", line)
         if m:
             out.append([int(m.group(1)), line])
-        elif out and line.startswith(" ") and line.strip():
+            open_ = True
+        elif open_ and line.startswith(" ") and line.strip():
             out[-1][1] += " " + line.strip()
-        elif not line.strip() and out:
-            out.append(None)
-    return [(n, ws(t)) for n, t in (s for s in out if s)]
+        else:
+            open_ = False
+    return [(n, ws(t)) for n, t in out]
 
 
 def cmd_recheck(readme, policy):

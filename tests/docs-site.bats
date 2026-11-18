@@ -280,7 +280,6 @@ README_STEPS=('^## The [0-9]+-step workflow$' '^## ')
   local tags rc=0
   tags="$(git -C "$PLUGIN_ROOT" tag 2>&1)" || rc=$?
   [ "$rc" -eq 0 ] || { echo "git tag could not run: $tags" >&2; return 1; }
-  [ -n "$tags" ] || { echo "git tag is empty: fetch tags (git fetch --tags)" >&2; return 1; }
   printf '%s\n' "$tags" >"$BATS_TEST_TMPDIR/tags"
   holds check_whats_new_shipped "$WEB/whats-new.md" "$WEB/whats-new-sources.txt" "$PLUGIN_ROOT/CHANGELOG.md" "$BATS_TEST_TMPDIR/tags"
 }
@@ -1169,40 +1168,43 @@ wn_fixture() {
   printf '%s\n' "$d"
 }
 
+# wn_ship <fixture-dir> [<tags-file>] — check_whats_new_shipped on the fixture.
+wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.md" "${2:-$1/tags}"; }
+
 @test "mutation: whats-new shipped" {
   local d u='https://github.com/mtibbits/devagent/releases/tag'
   d="$(wn_fixture)"
-  holds check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  holds wn_ship "$d"
   # The wrapper passes "cannot run" through as 2, never 1.
   run check_whats_new_shipped "$d/nope.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
   [ "$status" -eq 2 ]
   : >"$d/empty"
-  breaks 'git tag is empty' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/empty"
-  breaks 'git tag is empty' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/no-such-tags"
+  breaks 'git tag is empty' wn_ship "$d" "$d/empty"
+  breaks 'git tag is empty' wn_ship "$d" "$d/no-such-tags"
   drop "$d/sources.txt" 'Nine feature |'
-  breaks 'no sources line for' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'no sources line for' wn_ship "$d"
   d="$(wn_fixture)"; plant "$d/sources.txt" 'Ghost | #200'
-  breaks 'no page item for' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'no page item for' wn_ship "$d"
   d="$(wn_fixture)"; plant "$d/sources.txt" 'Bad | 200'
-  breaks 'bad anchor' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'bad anchor' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/page.md" "It does two. [Release 3.0.0]($u/devagent--v3.0.0)" 'It does two.'
-  breaks 'release link' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'release link' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/page.md" 'It does two.' "It does two [twice]($u/devagent--v3.0.0)."
-  breaks 'release link' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'release link' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 2.0.0]($u/devagent--v2.0.0)"
-  breaks 'not in git tag' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'not in git tag' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #811'
-  breaks 'not in an Added or Changed bullet' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #900'
-  breaks 'not in an Added or Changed bullet' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #100'
-  breaks 'first appeared in 1.0.0' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'first appeared in 1.0.0' wn_ship "$d"
   # An existing tag that is the wrong one: a [2.0.0] item must link v3.0.0.
   d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 3.9.0]($u/devagent--v3.9.0)"
-  breaks 'should link' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'should link' wn_ship "$d"
   # Earliest of 3.9.0 and 3.10.0 is 3.9.0 by integer tuple (a string compare says 3.10.0).
   d="$(wn_fixture)"; edit "$d/page.md" "nine. [Release 3.9.0]($u/devagent--v3.9.0)" "nine. [Release 3.10.0]($u/devagent--v3.10.0)"
-  breaks 'should link' check_whats_new_shipped "$d/page.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  breaks 'should link' wn_ship "$d"
 }
 
 @test "mutation: whats-new roadmap" {
