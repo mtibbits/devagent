@@ -27,13 +27,16 @@
 #   #1000 (replaces Quickstart): check_quickstart_forms; a moved.txt line for
 #        quickstart; check_command_arity's subject floor (>= 1 /devagent: line);
 #        the arity mutation leg, which edits a copy of quickstart.md.
-#   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
-#        /devagent:mergemr and WAITING (#885); the 21-step mutation leg, which
-#        edits a copy of workflow.md. Reuse docs-site/phases.txt unchanged;
-#        check_phase_split and check_loop are the readers. The workflow page's
-#        Phase column and README's step-group bullets ("The 25-step workflow":
-#        Plan / Implement / Ship / Integrate & close) still use the 1.0 four-phase
-#        split; move both to phases.txt's five phases, read from that file.
+#   #1001 (how it works, rewritten): the "| N | `cmd`" row shape and the
+#        header-named Phase and Why columns (check_phase_column, check_why_column);
+#        "numbered 0-24 in" (its Details section); /devagent:mergemr and WAITING
+#        (#885); the "## When it stops" heading (check_stop_section,
+#        check_example_hints); the pre-table region, H1 to the table header
+#        (check_pre_table); the "- **Name** — `step`" phase bullets on the page and
+#        in README's "The N-step workflow" section (check_phase_bullets); the
+#        21-step mutation leg, which edits a copy of workflow.md. phases.txt is
+#        read unchanged by check_phase_split, check_loop, check_scripts_off,
+#        check_phase_column and check_phase_bullets.
 #   #1002: none beyond its bullet in the one list.
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
@@ -428,12 +431,13 @@ _article() {
 # check_no_issue_numbers <page> — no visible text node holds an issue number:
 # '#' and a digit, or the "Issue-" form and a digit. Attributes, styles,
 # scripts, comments and SVG colour values are not text.
+_ISSUE_NUM_ERE='#[0-9]|Issue-[0-9]'
 check_no_issue_numbers() {
   local t hits rc=0
   _need "$1" || return 2
   t="$(landing_py text "$1")" || return 2
   [ -n "$t" ] || { echo "$1: no visible text read" >&2; return 1; }
-  hits="$(grep -E '#[0-9]|Issue-[0-9]' <<<"$t")" || rc=$?
+  hits="$(grep -E "$_ISSUE_NUM_ERE" <<<"$t")" || rc=$?
   case "$rc" in
     1) return 0 ;;
     0) echo "$1: an issue number in visible text: $(tr '\n' ' ' <<<"$hits")" >&2; return 1 ;;
@@ -598,6 +602,294 @@ check_step_table() {
   [ "$count" -eq "$STEP_COUNT" ] || { echo "$tmpl: $count steps, want $STEP_COUNT" >&2; return 1; }
   rows="$(grep -c '^| [0-9]' "$page" || true)"
   [ "$rows" -eq "$count" ] || { echo "$page: $rows numbered rows, want $count" >&2; return 1; }
+}
+
+# _region <file> <start-ERE> <end-ERE> — the first line matching start, then
+# every following line up to, not including, the next line matching end. The
+# one region reader of the How it works checks: the pre-table region ('^# ' to
+# the step-table header), the stop section, README's step-workflow section.
+# Returns 1 naming the missing line. The EREs reach awk through the environment,
+# so a '\|' is not an awk -v escape.
+_region() {
+  local f="$1" out rc=0
+  out="$(_RS="$2" _RE="$3" awk '
+    !f && $0 ~ ENVIRON["_RS"] { f = 1; print; next }
+    f && $0 ~ ENVIRON["_RE"] { done = 1; exit }
+    f { print }
+    END { if (!f) exit 3; if (!done) exit 4 }' "$f")" || rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$out" ;;
+    3) echo "$f: no line matches /$2/" >&2; return 1 ;;
+    4) echo "$f: no line matches /$3/ after /$2/" >&2; return 1 ;;
+    *) echo "_region: cannot read $f" >&2; return 2 ;;
+  esac
+}
+
+# The step table's header line: its first cell is '#'.
+_TABLE_HEAD='^\| *# *\|'
+
+# _table_col <page> <name> — the 1-based '|'-split field index of the step-table
+# header cell whose trimmed text is <name>. Columns are found by name, never by
+# position, so a reordered table still checks the column it names.
+_table_col() {
+  local i
+  i="$(_TH="$_TABLE_HEAD" awk -F'|' -v want="$2" '
+    $0 ~ ENVIRON["_TH"] {
+      for (i = 2; i < NF; i++) { c = $i; gsub(/^[ \t]+|[ \t]+$/, "", c); if (c == want) { print i; exit } }
+      exit
+    }' "$1")" || { echo "_table_col: cannot read $1" >&2; return 2; }
+  [ -n "$i" ] || { echo "$1: no $2 column in the step table header" >&2; return 1; }
+  printf '%s\n' "$i"
+}
+
+# check_phase_column <phases-file> <page> — #1001: each step row's Phase cell is
+# the phase that holds the row's command in the phase-split file. The Phase and
+# Command columns are found by header name, and only they are read, so the
+# Command cell `implement` cannot read as the retired phase "Implement". A
+# retired 1.0 phase name is named first. Floor, checked last: STEP_COUNT rows.
+check_phase_column() {
+  local ph="$1" page="$2" split pc cc name steps s rows num cmd phase want n=0
+  local -A of=()
+  _need "$ph" "$page" || return 2
+  split="$(phase_split "$ph")" || return 2
+  [ -n "$split" ] || { echo "$ph: no phases read" >&2; return 2; }
+  while read -r name steps; do
+    # shellcheck disable=SC2086  # the steps are one word each
+    for s in $steps; do of[$s]="$name"; done
+  done <<<"$split"
+  pc="$(_table_col "$page" Phase)" || return $?
+  cc="$(_table_col "$page" Command)" || return $?
+  rows="$(awk -F'|' -v p="$pc" -v c="$cc" '
+    /^\| *[0-9]+ *\|/ {
+      n = $2; x = $c; y = $p
+      gsub(/[ \t`]/, "", n); gsub(/[ \t`]/, "", x); gsub(/^[ \t]+|[ \t]+$/, "", y)
+      printf "%s\037%s\037%s\n", n, x, y
+    }' "$page")" || return 2
+  while IFS=$'\037' read -r num cmd phase; do
+    [ -n "$num" ] || continue
+    n=$((n + 1))
+    case "$phase" in
+      Implement|"Integrate & close") echo "$page: retired phase name '$phase' at step $num" >&2; return 1 ;;
+    esac
+    want=""; [ -z "$cmd" ] || want="${of[$cmd]:-}"
+    [ -n "$want" ] || { echo "$page: step $num ($cmd) is in no phase of $ph" >&2; return 1; }
+    [ "$phase" = "$want" ] || { echo "$page: step $num ($cmd): Phase '$phase', want '$want'" >&2; return 1; }
+  done <<<"$rows"
+  [ "$n" -eq "$STEP_COUNT" ] || { echo "$page: $n step rows, want $STEP_COUNT" >&2; return 1; }
+}
+
+# check_why_column <template> <page> — #1001: the step table has a Why column
+# (found by header name); every numbered row has the header's cell count (a '|'
+# inside a cell, or a row split across lines, changes it); every row's Why cell
+# is non-blank; and the Why cells number the template's steps.
+check_why_column() {
+  local tmpl="$1" page="$2" want wc out rc=0
+  _need "$tmpl" "$page" || return 2
+  want="$(_step_n "$tmpl")" || return 2
+  wc="$(_table_col "$page" Why)" || return $?
+  out="$(_TH="$_TABLE_HEAD" awk -F'|' -v w="$wc" '
+    !h && $0 ~ ENVIRON["_TH"] { h = NF - 2; next }
+    /^\| *[0-9]+ *\|/ {
+      n = $2; gsub(/[ \t]/, "", n)
+      if (NF - 2 != h) { printf "row %s: %d cells, header has %d\n", n, NF - 2, h; bad = 1; exit }
+      c = $w; gsub(/[ \t]/, "", c)
+      if (c == "") { printf "step %s: empty Why cell\n", n; bad = 1; exit }
+      k++
+    }
+    END { if (bad) exit 1; print k + 0 }' "$page")" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) echo "$page: $out" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  [ "$out" -eq "$want" ] || { echo "$page: $out Why cells, want $want (the steps of $tmpl)" >&2; return 1; }
+}
+
+# check_pre_table <skel> <page> — #1001: before the step table (the H1 to the
+# table header) the page shows no issue number and no config key name. The keys
+# are read from the config skeleton: each dotted part that holds an underscore
+# (merge_mr, phase_breaks, all_prs_branch ...). BLIND SPOT: single-word keys
+# (analyze, branch, repo, backend ...) are also step names or plain English, so
+# they are not checked. Floors: >= 20 keys read (cannot run otherwise), >= 3
+# non-blank region lines.
+check_pre_table() {
+  local skel="$1" page="$2" region hits keys n rc=0
+  _need "$skel" "$page" || return 2
+  region="$(_region "$page" '^# ' "$_TABLE_HEAD")" || return $?
+  hits="$(grep -E "$_ISSUE_NUM_ERE" <<<"$region")" || rc=$?
+  case "$rc" in
+    1) ;;
+    0) echo "$page: an issue number before the step table: $(head -1 <<<"$hits")" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  keys="$(sed -nE 's/^#? ?([a-z][a-z0-9_.]*) +=.*/\1/p' "$skel" | tr '.' '\n' | grep '_' | sort -u)" || true
+  n="$(grep -c . <<<"$keys" || true)"
+  [ "$n" -ge 20 ] || { echo "$skel: $n underscore config keys read, want >= 20" >&2; return 2; }
+  rc=0; hits="$(grep -owF -f <(printf '%s\n' "$keys") <<<"$region")" || rc=$?
+  case "$rc" in
+    1) ;;
+    0) echo "$page: config key $(head -1 <<<"$hits") before the step table" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  n="$(grep -c '[^[:space:]]' <<<"$region" || true)"
+  [ "$n" -ge 3 ] || { echo "$page: $n non-blank lines before the step table, want >= 3" >&2; return 1; }
+}
+
+# check_stop_section <page> <template> <next-sh> — #1001: the page's "## When it
+# stops" section names each of these, checked in this order (the first missing
+# one is reported; their order on the page is not checked): [?], the word
+# waiting, the [?] label of the template's State key line, [!], the phase break,
+# --through, and each default phase-break step as `<step>`. The defaults are read
+# from the one PHASE_BREAKS="<word list>" assignment inside next.sh's
+# phase_breaks_resolve() (its built-in fallback). Tokens are literals (grep -F):
+# '[?]' is a bracket expression as a regex.
+check_stop_section() {
+  local page="$1" tmpl="$2" nextsh="$3" region label line re tok rc
+  _need "$page" "$tmpl" "$nextsh" || return 2
+  grep -qx '## When it stops' "$page" || { echo "$page: no \"## When it stops\" section" >&2; return 1; }
+  region="$(_region "$page" '^## When it stops$' '^## ')" || return $?
+  label="$(sed -n 's/^State key:.*\[?\] \([^ ]*\).*$/\1/p' "$tmpl" | head -1)"
+  [ -n "$label" ] || { echo "$tmpl: cannot read the [?] label from its State key line" >&2; return 2; }
+  re='PHASE_BREAKS="[a-z ]+"'
+  line="$(sed -n '/^phase_breaks_resolve() {$/,/^}$/p' "$nextsh" | grep -E -- "$re")" || true
+  [ -n "$line" ] && [[ "$line" != *$'\n'* ]] \
+    || { echo "$nextsh: not exactly one line in phase_breaks_resolve() matches $re" >&2; return 2; }
+  line="${line#*PHASE_BREAKS=\"}"; line="${line%%\"*}"
+  for tok in '[?]' waiting "$label" '[!]' 'phase break' '--through'; do
+    rc=0
+    case "$tok" in
+      waiting) grep -qiw -- "$tok" <<<"$region" || rc=$? ;;
+      'phase break') grep -qi -- "$tok" <<<"$region" || rc=$? ;;
+      *) grep -qF -- "$tok" <<<"$region" || rc=$? ;;
+    esac
+    [ "$rc" -le 1 ] || return 2
+    [ "$rc" -eq 0 ] || { echo "$page: the When it stops section does not name $tok" >&2; return 1; }
+  done
+  for tok in $line; do
+    grep -qF -- "\`$tok\`" <<<"$region" \
+      || { echo "$page: the When it stops section does not name the default break \`$tok\`" >&2; return 1; }
+  done
+}
+
+# _hint_fit <name> <hint> <arg>... — one example of /devagent:<name> fits the
+# command's argument hint. The hint is tokenised with [ and ] spaced out;
+# depth-0 tokens are required; a --flag followed by a <placeholder> in its group
+# is a pair. R1 every argument is a hint token; R2 every required token is
+# given; R3 a paired flag is directly followed by its placeholder.
+_hint_fit() {
+  local name="$1" hint="$2" sp t a i depth=0; shift 2
+  local -a toks=() req=() args=("$@")
+  local -A inh=() pair=()
+  sp="${hint//\[/ [ }"; sp="${sp//\]/ ] }"
+  read -r -a toks <<<"$sp"
+  for ((i = 0; i < ${#toks[@]}; i++)); do
+    t="${toks[i]}"
+    case "$t" in
+      '[') depth=$((depth + 1)); continue ;;
+      ']') depth=$((depth - 1)); continue ;;
+    esac
+    inh[$t]=1
+    [ "$depth" -ne 0 ] || req+=("$t")
+    if [[ "$t" == --* ]] && [[ "${toks[i + 1]:-}" == \<*\> ]]; then pair[$t]="${toks[i + 1]}"; fi
+  done
+  for a in "${args[@]}"; do
+    [ -n "${inh[$a]+x}" ] || { echo "/devagent:$name: '$a' is not in its argument hint $hint" >&2; return 1; }
+  done
+  for t in "${req[@]}"; do
+    [[ " ${args[*]} " == *" $t "* ]] || { echo "/devagent:$name: missing required $t" >&2; return 1; }
+  done
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    a="${args[i]}"
+    [ -n "${pair[$a]+x}" ] || continue
+    [ "${args[i + 1]:-}" = "${pair[$a]}" ] || { echo "/devagent:$name: $a needs ${pair[$a]}" >&2; return 1; }
+  done
+}
+
+# check_example_hints <page> <root> — #1001: every backticked span on the page
+# that begins /devagent:<name> fits that command's argument-hint (the first
+# frontmatter argument-hint: line of <root>/commands/<name>.md, else
+# <root>/skills/<name>/SKILL.md; one outer quote pair removed; no hint means no
+# arguments). Spans are read per source line, so each sits on one line. Each
+# example is checked (R1-R3, _hint_fit) in page order; the subject floor comes
+# last: a /devagent:next example with --through, and a /devagent:unstuck one.
+# Needs skill_frontmatter from tests/lib/bats-helpers.bash, which both callers load.
+check_example_hints() {
+  local page="$1" root="$2" spans span name f hint through=0 unstuck=0
+  local -a w
+  local -A hints=()
+  _need "$page" || return 2
+  spans="$(grep -o '`[^`]*`' "$page" | tr -d '`' | grep '^/devagent:')" || true
+  while IFS= read -r span; do
+    [ -n "$span" ] || continue
+    read -r -a w <<<"$span"
+    name="${w[0]#/devagent:}"
+    if [ -z "${hints[$name]+x}" ]; then
+      f="$root/commands/$name.md"
+      [ -f "$f" ] || f="$root/skills/$name/SKILL.md"
+      [ -f "$f" ] || { echo "$page: no command file for /devagent:$name" >&2; return 1; }
+      hint="$(skill_frontmatter "$f" | sed -n 's/^argument-hint: *//p' | head -1)"
+      case "$hint" in
+        \"*\") hint="${hint#\"}"; hint="${hint%\"}" ;;
+        \'*\') hint="${hint#\'}"; hint="${hint%\'}" ;;
+      esac
+      hints[$name]="$hint"
+    fi
+    hint="${hints[$name]}"
+    _hint_fit "$name" "$hint" "${w[@]:1}" || return 1
+    case "$name" in
+      next) [[ " ${w[*]} " != *" --through "* ]] || through=$((through + 1)) ;;
+      unstuck) unstuck=$((unstuck + 1)) ;;
+    esac
+  done <<<"$spans"
+  [ "$through" -ge 1 ] || { echo "$page: subject floor: no /devagent:next example with --through" >&2; return 1; }
+  [ "$unstuck" -ge 1 ] || { echo "$page: subject floor: no /devagent:unstuck example" >&2; return 1; }
+}
+
+# check_phase_bullets <phases-file> <template> <file> <start-ERE> <end-ERE> —
+# #1001: inside the region, the phase bullets ("- **Name** — `step` · ..."; any
+# bold name is read, so a retired one is caught) are the phase-split file's: in
+# order (1) one bullet per phase, (2) the names in order, (3) each phase's steps
+# in order (its `step` or `N step` tokens), (4) a number beside a step is its
+# template number, (5) LAST the steps number STEP_COUNT. Each bullet sits on one
+# line, and its trailing sentence backticks no single lowercase word (it would
+# read as a step).
+check_phase_bullets() {
+  local ph="$1" tmpl="$2" file="$3" region split steps name got tok num cmd i np total=0
+  local -a bl=() names=() stepsof=() toks=()
+  local -A tnum=()
+  _need "$ph" "$tmpl" "$file" || return 2
+  split="$(phase_split "$ph")" || return 2
+  steps="$(template_steps "$tmpl")" || return 2
+  [ -n "$split" ] || { echo "$ph: no phases read" >&2; return 2; }
+  region="$(_region "$file" "$4" "$5")" || return $?
+  while read -r num cmd; do [ -n "$cmd" ] || continue; tnum[$cmd]=$num; done <<<"$steps"
+  while read -r name got; do names+=("$name"); stepsof+=("$got"); done <<<"$split"
+  np="${#names[@]}"
+  mapfile -t bl < <(grep -E '^- \*\*[^*]+\*\* — ' <<<"$region")
+  [ "${#bl[@]}" -eq "$np" ] || { echo "$file: ${#bl[@]} bullets read, want $np" >&2; return 1; }
+  for ((i = 0; i < np; i++)); do
+    name="${bl[i]#- \*\*}"; name="${name%%\*\* — *}"
+    [ "$name" = "${names[i]}" ] || { echo "$file: bullet $((i + 1)) is '$name', want '${names[i]}'" >&2; return 1; }
+    toks[i]="$(grep -oE '`([0-9]+ )?[a-z]+`' <<<"${bl[i]}" | tr -d '`')"
+  done
+  for ((i = 0; i < np; i++)); do
+    got=""
+    while IFS= read -r tok; do [ -z "$tok" ] || got+="${tok#* } "; done <<<"${toks[i]}"
+    got="${got% }"
+    [ "$got" = "${stepsof[i]}" ] \
+      || { echo "$file: phase ${names[i]}: steps '$got', want '${stepsof[i]}'" >&2; return 1; }
+  done
+  for ((i = 0; i < np; i++)); do
+    while IFS= read -r tok; do
+      [ -n "$tok" ] || continue
+      total=$((total + 1))
+      [[ "$tok" == *" "* ]] || continue
+      num="${tok%% *}"; cmd="${tok#* }"
+      [ "$num" = "${tnum[$cmd]:-}" ] \
+        || { echo "$file: phase ${names[i]}: $num $cmd, template says ${tnum[$cmd]:-nothing}" >&2; return 1; }
+    done <<<"${toks[i]}"
+  done
+  [ "$total" -eq "$STEP_COUNT" ] || { echo "$file: $total steps in bullets, want $STEP_COUNT" >&2; return 1; }
 }
 
 # check_backend_verbs <file> — every backend verb, backtick-anchored

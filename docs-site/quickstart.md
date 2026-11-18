@@ -87,6 +87,6 @@ through the 25-step loop.
 Executes the next actionable step and chains onward until a permission gate
 or a stuck step needs you. You'll see `checklist.md` advancing step by step,
 per-step artifacts accumulating, and the MR opening at the ship step. See
-the [workflow reference](./workflow.md) for every step.
+the [How it works](./workflow.md) page for every step.
 
 [← devAgent onboarding](./index.html)

@@ -16,6 +16,19 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: the workflow page is now "How it works" (#1001).**
+  `docs-site/workflow.md` opens with the idea (plan first, fresh eyes on the
+  plan and the finished change, a written record), then the five phases read
+  from `docs-site/phases.txt`. The step table's Phase column uses those phases,
+  and a new Why column gives one sentence per step on why that gate exists. A
+  new "When it stops" section covers waiting `[?]`, stuck `[!]`, phase breaks
+  and `--through`; the numbering, merge and other-stop mechanics move to a
+  closing Details section. README's step groups move to the same five phases.
+  New checks hold the Phase and Why columns, the text before the table (no issue
+  numbers or config keys), the stop section and its commands' argument hints,
+  the phase bullets on the page and in README, and the built title and nav
+  label. The 1.0 page's anchors `#numbering`, `#step-table` and
+  `#checklist-glyphs` are gone; no in-repo link used them.
 - **Changed: the install page (#999).** `docs-site/install.md` is now three
   short parts in 60 lines: prerequisites in plain words, the two install
   commands with the optional superpowers commands, and a three-line first run
