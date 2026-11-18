@@ -58,12 +58,20 @@ cap_shared() {
 }
 
 # cap_healthy_projects <n> — n projects (p01, p02, ...) each well-formed enough for
-# doctor's per-project checks to pass, with its own source and devdoc directories.
+# doctor's per-project checks to pass: its own source and devdoc directories, and a
+# state file.
 cap_healthy_projects() {
   local n="$1" i name
+  # shellcheck source=/dev/null
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"
+  # shellcheck source=/dev/null
+  source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  # shellcheck source=/dev/null
+  source "$PLUGIN_ROOT/scripts/lib/state.sh"
   for (( i = 1; i <= n; i++ )); do
     printf -v name 'p%02d' "$i"
     mkdir -p "$DA_HOME/src-$name" "$DA_HOME/devdoc-$name"
+    state_init "$name"
     cat >> "$DA_HOME/config.toml" <<TOML
 
 [project.$name]
