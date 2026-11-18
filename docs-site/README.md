@@ -66,6 +66,25 @@ Counts and versions are restated minimally, with the sources' exact tokens:
   update README first, then the page and the test's expectation together,
   and sweep the old token repo-wide **including docs-site/**.
 
+## The What's new page
+
+`whats-new.md` derives from `CHANGELOG.md`. Its "Shipped since 1.0" part lists
+features first added in a released section newer than `[1.0.0]`, each linking
+the first published release that has it; `whats-new-sources.txt` ties each
+item to its CHANGELOG bullet, and `tests/docs-site.bats` checks every item
+against the CHANGELOG and `git tag`. Its "What's next" part comes from the open
+epics on the public tracker, which is not a repository file, so the page dates
+it with a "last checked" line instead of naming it in `derived-from`.
+
+Re-check `whats-new.md` at each release, in two halves. In the release change
+itself (README "Versioning & releases", step 2), re-derive the roadmap and set
+the "last checked" date: the test fails while that date is older than the
+newest release, so a stale roadmap announces itself at every release and
+nowhere else. After the tag is pushed and the release published (step 5), add
+the release's new features with their links; they cannot link a tag that does
+not exist yet. The page is a curated short list, so the test checks only the
+items it lists, never that every CHANGELOG feature appears.
+
 ## Enforcement today
 
 `tests/docs-site.bats` is the enforcement, and it pins **facts, not wording**:

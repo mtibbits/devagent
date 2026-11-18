@@ -53,6 +53,10 @@ LC_ALL=C.UTF-8 bats tests/                  # or one file: bats tests/some-file.
 python3 -m pytest tests/ -v
 ```
 
+The clone needs the release tags: `tests/docs-site.bats` reads `git tag`, so a
+`--depth 1` clone or one with stale tags fails there until you run
+`git fetch --tags`.
+
 The maintainer's runner is `scripts/run-suite.sh`, which pins the hermetic
 environment and refuses to write a result it cannot stand behind. It needs
 devAgent installed and configured with a project, and the issue it measures

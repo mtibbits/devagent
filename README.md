@@ -601,6 +601,14 @@ it, and `.github/workflows/publish-docs-site.yml` installs pandoc, runs the
 file, and additionally fails if anything in it skips;
 `docs/pages-deployment.md` has the local build command.
 
+**The release tags, for one test (required).** `tests/docs-site.bats` checks
+that every item on the What's new page links a release tag that exists, by
+reading `git tag` in the checkout. A clone without the `devagent--v*` tags, or
+with tags older than the newest release (a `--depth 1` clone, or one fetched
+per branch), fails that test with `git tag is empty` or `not in git tag`; run
+`git fetch --tags` first. `run-suite.sh` neither enforces nor records this. CI
+checks out with `fetch-depth: 0`, which a test in the same file pins.
+
 **Parallel bats (optional).** `suite_jobs = N` in `[project.<name>]` runs bats test
 FILES N at a time (`bats --jobs N --no-parallelize-within-files`; the tests inside a
 file still run in order), which cut this repo's bats leg from ~9 minutes to well under
@@ -718,7 +726,10 @@ Cutting a release, all on a clean `master`:
    existing project's `config.toml`, devdoc layout or command contract.
 2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new
    `## [<version>] — <date>` heading; `tests/test_plugin_versioning.py` fails
-   until the section for the manifest version exists.
+   until the section for the manifest version exists. In the same change,
+   re-derive the What's new page's roadmap from the open epics and set its
+   "last checked" date to today: `tests/docs-site.bats` fails while that date
+   is older than the newest release.
 3. Merge that change, then run `claude plugin tag --push`. It validates the
    plugin, checks that plugin.json and the marketplace entry agree, refuses a
    dirty tree or an existing tag, and pushes the annotated
@@ -727,6 +738,9 @@ Cutting a release, all on a clean `master`:
 4. Publish the GitHub release on that tag with the CHANGELOG section as its
    notes: `gh release create devagent--v<version> --title "devagent <version>"
    --notes-file <section>`.
+5. Re-check the What's new page (`docs-site/whats-new.md`; the rule is in
+   `docs-site/README.md`): add the release's new features, each linked to the
+   tag just pushed, with a line in `docs-site/whats-new-sources.txt`.
 
 Guards: `tests/test_plugin_versioning.py` (CI) requires a semver `version` in
 plugin.json, none in the marketplace entry, and a matching CHANGELOG section.
