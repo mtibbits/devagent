@@ -3,7 +3,8 @@
 This directory holds the devAgent onboarding site: its content pages,
 `moved.txt` (old page names and their new homes), `live.txt` (which family
 sites are live, and the counts pages may show), `phases.txt` (the loop's five
-phases and the checklist steps each holds) and the `assets/` folder (the
+phases and the checklist steps each holds), `whats-new-sources.txt` (each What's
+new item's CHANGELOG anchor, read only by the tests) and the `assets/` folder (the
 landing page's `landing.css`, `landing.js` and its placeholder still,
 `drafting-table.svg`). The index is the hand-written landing page,
 `index.html`. The content pages are the index plus the pages its own list
@@ -65,6 +66,28 @@ Counts and versions are restated minimally, with the sources' exact tokens:
   and the repo README, pinned on both sides by the guard suite; on a bump,
   update README first, then the page and the test's expectation together,
   and sweep the old token repo-wide **including docs-site/**.
+
+## The What's new page
+
+`whats-new.md` derives from `CHANGELOG.md`. Its "Shipped since 1.0" part lists
+features first added in a released section newer than `[1.0.0]`, each linking
+the first published release that has it; `whats-new-sources.txt` ties each
+item to its CHANGELOG bullet, and `tests/docs-site.bats` checks every item
+against the CHANGELOG and `git tag`. Its "What's next" part comes from the open
+epics on the public tracker, which is not a repository file, so the page dates
+it with a "last checked" line instead of naming it in `derived-from`. A theme
+is a user-facing direction that is still to come: leave out epics about the
+site or research, and epics whose main deliverable has already shipped (their
+released parts belong under "Shipped since 1.0").
+
+Re-check `whats-new.md` at each release, in two halves. In the release change
+itself (README "Versioning & releases", step 2), re-derive the roadmap and set
+the "last checked" date: the test fails while that date is older than the
+newest release, so a stale roadmap announces itself at every release and
+nowhere else. After the tag is pushed and the release published (step 5), add
+the release's new features with their links; they cannot link a tag that does
+not exist yet. The page is a curated short list, so the test checks only the
+items it lists, never that every CHANGELOG feature appears.
 
 ## Enforcement today
 

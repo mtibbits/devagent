@@ -17,6 +17,15 @@ request records its entry as a file in `changelog.d/` rather than editing
 `## [Unreleased]` below (#1127); that README section says how, and each release
 compiles the files into its dated section.
 
+<!-- Editor note (#1002): a test reads this file. tests/lib/whats-new-check.py
+     (run by tests/docs-site.bats) reads the "## [x.y.z]" section headings and
+     dates, the "- **Added" / "- **Changed" bullet prefixes, and the issue
+     numbers and keywords that docs-site/whats-new-sources.txt names, to tie
+     each What's new item to the release that first added it. Rewording or
+     reclassifying a released bullet can turn that test red. The checker reads
+     only the dated sections here, never changelog.d/ or [Unreleased]; if
+     released entries ever leave this file, the checker must follow. -->
+
 ## [Unreleased]
 
 - **Changed: the workflow page is now "How it works" (#1001).**

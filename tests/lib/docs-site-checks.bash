@@ -37,7 +37,16 @@
 #        21-step mutation leg, which edits a copy of workflow.md. phases.txt is
 #        read unchanged by check_phase_split, check_loop, check_scripts_off,
 #        check_phase_column and check_phase_bullets.
-#   #1002: none beyond its bullet in the one list.
+#   #1002 (What's new, written): the "## Shipped since 1.0" and "## What's next"
+#        headings and the "- **<label>.**" item shape (whats-new-check.py
+#        shipped/roadmap/checked); the one "last checked <YYYY-MM-DD>" line;
+#        the sidecar's "<label> | <anchor>" lines (whats-new-sources.txt); the
+#        release-link form .../releases/tag/<tag>; in README's "Versioning &
+#        releases", the `gh release create` step, a step before it naming What's
+#        new and "last checked", and a "Re-check the What's new page" step after
+#        it (check_release_recheck); the bats job's checkout fetching tags in
+#        test.yml (check_tag_lane). CHANGELOG.md's "## [x.y.z]" headings and
+#        "- **Added"/"- **Changed" bullet prefixes are read too (its header says so).
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
 . "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
@@ -67,6 +76,32 @@ LANDING_CHECK="$(dirname "${BASH_SOURCE[0]}")/landing-check.py"
 # landing_py <subcommand> <arg>... — run landing-check.py (0 ok, 1 a structural
 # absence, 2 usage or an unreadable file; diagnostics on stderr).
 landing_py() { python3 -I -X utf8 "$LANDING_CHECK" "$@"; }
+
+# The What's new page's fact reader (#1002), next to this library. Its exit
+# status IS the check's: every check_whats_new_* / check_tag_lane /
+# check_release_recheck wrapper ends on the reader, so its 0/1/2 passes through
+# unchanged (never captured, never collapsed to 2).
+WHATS_NEW_CHECK="$(dirname "${BASH_SOURCE[0]}")/whats-new-check.py"
+whats_new_py() { python3 -I -X utf8 "$WHATS_NEW_CHECK" "$@"; }
+
+# check_whats_new_shipped <page> <sources> <CHANGELOG> <tags-file> — every
+# shipped item ties to a released Added/Changed bullet newer than 1.0.0 and
+# links the first tag holding it. <tags-file> is `git tag` output; an empty or
+# missing one is broken (1), never a skip.
+check_whats_new_shipped() { _need "$1" "$2" "$3" || return 2; whats_new_py shipped "$1" "$2" "$3" "$4"; }
+# check_whats_new_roadmap <page> — >= 3 themes, each "coming"; no issue number,
+# target date or family-site name anywhere in "## What's next".
+check_whats_new_roadmap() { _need "$1" || return 2; whats_new_py roadmap "$1"; }
+# check_whats_new_checked <page> <CHANGELOG> — one "last checked" date after the
+# themes and outside them, not before the newest release's date.
+check_whats_new_checked() { _need "$1" "$2" || return 2; whats_new_py checked "$1" "$2"; }
+# check_tag_lane <test.yml> — the bats job (the lane running docs-site.bats)
+# checks out with fetch-depth: 0 or fetch-tags: true.
+check_tag_lane() { _need "$1" || return 2; whats_new_py tag-lane "$1"; }
+# check_release_recheck <README> <docs-site-README> — the release steps bump the
+# What's new "last checked" date before the publish step and re-check the page
+# after it; the drift policy says to re-check whats-new.md at each release.
+check_release_recheck() { _need "$1" "$2" || return 2; whats_new_py recheck "$1" "$2"; }
 
 # landing_cmds [--article] <page> — the page's install commands (its <code>
 # lines beginning "claude plugin "); 2 when the page cannot be read.

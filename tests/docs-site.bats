@@ -274,6 +274,36 @@ README_STEPS=('^## The [0-9]+-step workflow$' '^## ')
   holds check_no_issue_numbers "$WEB/install.md"
 }
 
+# #1002: the What's new page. The shipped fact reads `git tag` in this checkout,
+# so the suite needs the release tags fetched (README "Running the test suite").
+@test "docs-site: every What's new shipped item is tied to a released CHANGELOG line and a real git tag" {
+  local tags rc=0
+  tags="$(git -C "$PLUGIN_ROOT" tag 2>&1)" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "git tag could not run: $tags" >&2; return 1; }
+  printf '%s\n' "$tags" >"$BATS_TEST_TMPDIR/tags"
+  holds check_whats_new_shipped "$WEB/whats-new.md" "$WEB/whats-new-sources.txt" "$PLUGIN_ROOT/CHANGELOG.md" "$BATS_TEST_TMPDIR/tags"
+}
+
+@test "docs-site: the What's new page's roadmap has no issue numbers or dates and every theme says coming" {
+  holds check_whats_new_roadmap "$WEB/whats-new.md"
+}
+
+@test "docs-site: the What's new page shows the date its roadmap was last checked, not before the newest release" {
+  holds check_whats_new_checked "$WEB/whats-new.md" "$PLUGIN_ROOT/CHANGELOG.md"
+}
+
+@test "docs-site: the What's new page shows no issue number in its visible text" {
+  holds check_no_issue_numbers "$WEB/whats-new.md"
+}
+
+@test "docs-site: the lane that runs these tests fetches git tags" {
+  holds check_tag_lane "$PLUGIN_ROOT/.github/workflows/test.yml"
+}
+
+@test "docs-site: the release steps and the drift policy say to re-check the What's new page" {
+  holds check_release_recheck "$README" "$WEB/README.md"
+}
+
 @test "docs-site: command lines on every page are full-arity; the quickstart forms are gate-honest" {
   local -a pages
   mapfile -t pages < <(content_pages)
@@ -1081,4 +1111,246 @@ lc_lacks() {
   drop "$skel" '# [project.{{PROJECT}}.merge_forward]'
   printf '# [project.{{PROJECT}}.merge_forward]\n%s\n' "$(cat "$skel")" > "$skel"
   breaks 'precedes' check_merge_forward_docs "$skel" "$c" "$m"
+}
+
+# --- #1002: the What's new page ---------------------------------------------
+# wn_fixture — write a small CHANGELOG, tags file, page and sources sidecar into
+# $BATS_TEST_TMPDIR/wn/ and print that directory. The fixture carries 3.9.0 and
+# 3.10.0 so integer-tuple order differs from string order, and its tags file is
+# in `git tag`'s lexicographic order (v3.10.0 before v3.9.0), so neither a
+# string compare nor "first tag in file order" can pass the control.
+wn_fixture() {
+  local d="$BATS_TEST_TMPDIR/wn" u='https://github.com/mtibbits/devagent/releases/tag'
+  rm -rf "$d"; mkdir -p "$d"
+  printf '%s\n' \
+    '# Changelog' '' \
+    '## [Unreleased]' '' \
+    '- **Added: an unreleased thing (#900).**' '' \
+    '## [3.10.0] — 2026-11-20' '' \
+    '- **Added: the ten feature (#810).**' \
+    '- **Changed: the shared phrase, reworked.**' \
+    '- **Fixed: a ten fix (#811).**' '' \
+    '## [3.9.0] — 2026-11-15' '' \
+    '- **Added: the nine feature (#790), and the shared phrase.**' '' \
+    '## [3.0.0] — 2026-11-09' '' \
+    '- **Changed (breaking): a bullet that wraps, so its' \
+    '  keyword phase' \
+    '  breaks across lines.**' \
+    '- **Changed: the one feature, reworked (#100).**' '' \
+    '## [2.0.0] — 2026-10-02' '' \
+    '- **Added: the two feature (#200).**' '' \
+    '## [1.0.0] — 2026-09-18' '' \
+    '- **Added: the one feature (#100).**' >"$d/CHANGELOG.md"
+  printf '%s\n' devagent--v1.0.0 devagent--v3.0.0 devagent--v3.10.0 devagent--v3.9.0 >"$d/tags"
+  printf '%s\n' \
+    '# fixture sidecar: <label> | <anchor>' \
+    'Two feature | #200' \
+    'Nine feature | #790' \
+    'Shared thing | kw:shared phrase' \
+    'Phase breaks | kw:phase breaks' >"$d/sources.txt"
+  printf '%s\n' \
+    '<!-- derived-from: CHANGELOG.md -->' \
+    "# What's new" '' \
+    'Still moving.' '' \
+    '## Shipped since 1.0' '' \
+    '### A group' '' \
+    "- **Two feature.** It does two. [Release 3.0.0]($u/devagent--v3.0.0)" \
+    '- **Nine feature.** It does nine, and the link' \
+    "  wraps. [Release 3.9.0]($u/devagent--v3.9.0)" \
+    "- **Shared thing.** It first came in nine. [Release 3.9.0]($u/devagent--v3.9.0)" \
+    "- **Phase breaks.** A wrapped keyword. [Release 3.0.0]($u/devagent--v3.0.0)" '' \
+    "## What's next" '' \
+    '- Theme one: more of it is coming.' \
+    '- Theme two: coming, and it may change.' \
+    '- Theme three: a direction, with the word' \
+    '  coming on a continuation line.' '' \
+    'Roadmap last checked against the open epics on 2026-11-20.' >"$d/page.md"
+  printf '%s\n' "$d"
+}
+
+# wn_ship <fixture-dir> [<tags-file>] — check_whats_new_shipped on the fixture.
+wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.md" "${2:-$1/tags}"; }
+
+@test "mutation: whats-new shipped" {
+  local d u='https://github.com/mtibbits/devagent/releases/tag'
+  d="$(wn_fixture)"
+  holds wn_ship "$d"
+  # The wrapper passes "cannot run" through as 2, never 1.
+  run check_whats_new_shipped "$d/nope.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  [ "$status" -eq 2 ]
+  : >"$d/empty"
+  breaks 'git tag is empty' wn_ship "$d" "$d/empty"
+  breaks 'git tag is empty' wn_ship "$d" "$d/no-such-tags"
+  drop "$d/sources.txt" 'Nine feature |'
+  breaks 'no sources line for' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'Ghost | #200'
+  breaks 'no page item for' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'Two feature | #200'
+  breaks 'duplicate label' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '- **Nine feature.**' '- **Two feature.**'
+  breaks 'duplicate label' wn_ship "$d"
+  # Another repo's issue (other#200) is not this repo's #200.
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '(#200)' '(other#200)'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  # A prose paragraph after a bullet is not part of it.
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '- **Added: the two feature (#200).**' $'- **Added: the two feature (#200).**\n\nProse that mentions #555.'
+  edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #555'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'A line with no separator'
+  breaks "not '<label> | <anchor>'" wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '## Shipped since 1.0' '## Shipped'
+  breaks "no '## Shipped since 1.0' heading" wn_ship "$d"
+  d="$(wn_fixture)"; awk '/^## Shipped/{s=1} /^## What/{s=0} !(s && /^(- |  )/)' "$d/page.md" >"$d/p2" && mv "$d/p2" "$d/page.md"
+  breaks 'no items under' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '- **Two feature.** It does two.' '- Two feature. It does two.'
+  breaks 'item has no bold label' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 3.2.0]($u/devagent--v3.0.0)"
+  breaks 'link text' wn_ship "$d"
+  # A tag that exists but predates the first section holding the item, and no
+  # tag after it (the release-PR window, before the new tag is pushed).
+  d="$(wn_fixture)"; printf '%s\n' devagent--v1.0.0 devagent--v3.0.0 >"$d/tags"
+  edit "$d/page.md" "nine. [Release 3.9.0]($u/devagent--v3.9.0)" "nine. [Release 3.0.0]($u/devagent--v3.0.0)"
+  edit "$d/page.md" "wraps. [Release 3.9.0]($u/devagent--v3.9.0)" "wraps. [Release 3.0.0]($u/devagent--v3.0.0)"
+  breaks 'no tag at or after 3.9.0' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'Bad | 200'
+  breaks 'bad anchor' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" "It does two. [Release 3.0.0]($u/devagent--v3.0.0)" 'It does two.'
+  breaks 'release link' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" 'It does two.' "It does two [twice]($u/devagent--v3.0.0)."
+  breaks 'release link' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 2.0.0]($u/devagent--v2.0.0)"
+  breaks 'not in git tag' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #811'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #900'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #100'
+  breaks 'first appeared in 1.0.0' wn_ship "$d"
+  # An existing tag that is the wrong one: a [2.0.0] item must link v3.0.0.
+  d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 3.9.0]($u/devagent--v3.9.0)"
+  breaks 'should link' wn_ship "$d"
+  # Earliest of 3.9.0 and 3.10.0 is 3.9.0 by integer tuple (a string compare says 3.10.0).
+  d="$(wn_fixture)"; edit "$d/page.md" "nine. [Release 3.9.0]($u/devagent--v3.9.0)" "nine. [Release 3.10.0]($u/devagent--v3.10.0)"
+  breaks 'should link' wn_ship "$d"
+}
+
+@test "mutation: whats-new roadmap" {
+  local d
+  d="$(wn_fixture)"
+  holds check_whats_new_roadmap "$d/page.md"
+  run check_whats_new_roadmap "$d/nope.md"
+  [ "$status" -eq 2 ]
+  drop "$d/page.md" 'Theme one:'
+  breaks 'no themes' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'more of it is coming' 'more of it is planned'
+  breaks 'missing coming' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'more of it is coming.' 'more of it is coming (#12).'
+  breaks 'issue number' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'more of it is coming.' 'more of it is coming in March.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  # Outside the list items, still in the section: the whole section is read.
+  d="$(wn_fixture)"; plant "$d/page.md" 'Expect all of it by 2027.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'This was last checked in 2027.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'Planned for Q3.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'Gantry is coming too.'
+  breaks 'names a family site' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" "## What's next" '## Later'
+  breaks "no '## What's next' heading" check_whats_new_roadmap "$d/page.md"
+}
+
+@test "mutation: whats-new checked" {
+  local d
+  d="$(wn_fixture)"
+  holds check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  run check_whats_new_checked "$d/page.md" "$d/nope.md"
+  [ "$status" -eq 2 ]
+  drop "$d/page.md" 'Roadmap last checked'
+  breaks 'no last-checked date' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'Also last checked on 2026-11-21.'
+  breaks 'want exactly one' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'epics on 2026-11-20' 'epics on 2026-02-30'
+  breaks 'invalid date' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'epics on 2026-11-20' 'epics on 2026-11-19'
+  breaks 'predates release 3.10.0' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  # No blank line before the footnote: in gfm it is part of the last theme.
+  d="$(wn_fixture)"; edit "$d/page.md" $'continuation line.\n\nRoadmap' $'continuation line.\nRoadmap'
+  breaks 'inside a theme' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; drop "$d/page.md" 'Roadmap last checked'
+  edit "$d/page.md" 'Still moving.' 'Still moving. Roadmap last checked on 2026-11-20.'
+  breaks "not in What's next" check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; drop "$d/page.md" 'Roadmap last checked'
+  edit "$d/page.md" $'## What\'s next\n\n' $'## What\'s next\n\nRoadmap last checked on 2026-11-20.\n\n'
+  breaks 'not after the roadmap themes' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '## [3.10.0] — 2026-11-20' '## [3.10.0]'
+  breaks 'has no date' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+}
+
+@test "mutation: tag lane" {
+  local f
+  f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
+  holds check_tag_lane "$f"
+  run check_tag_lane "$BATS_TEST_TMPDIR/nope.yml"
+  [ "$status" -eq 2 ]
+  # Break the bats job's own checkout only: the pytest job's fetch-depth: 0
+  # must not rescue it.
+  awk '/^  bats:/{b=1} /^  pytest:/{b=0} b && /fetch-depth: 0/{sub(/fetch-depth: 0/, "fetch-depth: 1")} {print}' "$f" >"$f.new"
+  mv "$f.new" "$f"
+  grep -q 'fetch-depth: 1' "$f"
+  breaks 'no tag fetch' check_tag_lane "$f"
+  f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
+  edit "$f" $'\n  bats:\n' $'\n  shards:\n'
+  breaks 'no tag fetch' check_tag_lane "$f"
+  f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
+  awk '/^  bats:/{b=1} /^  pytest:/{b=0} b{sub(/uses: actions\/checkout/, "uses: actions/cache")} {print}' "$f" >"$f.new"
+  mv "$f.new" "$f"
+  breaks 'no actions/checkout step' check_tag_lane "$f"
+}
+
+# rr_fixture — a README release section and a drift-policy file that hold.
+rr_fixture() {
+  local d="$BATS_TEST_TMPDIR/rr"
+  rm -rf "$d"; mkdir -p "$d"
+  printf '%s\n' \
+    '# Readme' '' \
+    '## Versioning & releases' '' \
+    'Cutting a release:' '' \
+    '1. Bump the version.' \
+    "2. Move the entries; also re-derive the What's new roadmap and set its" \
+    '   "last checked" date.' \
+    '3. Merge that change.' \
+    '4. Publish: `gh release create devagent--v<version>`.' \
+    "5. Re-check the What's new page: add the release's items." '' \
+    '## Next' >"$d/README.md"
+  printf '%s\n' '# policy' '' 'Re-check `whats-new.md` at each' 'release: bump its "last checked" date in the' \
+    'release change, then, once the tag exists, add the release'"'"'s items.' >"$d/policy.md"
+  printf '%s\n' "$d"
+}
+
+@test "mutation: release recheck" {
+  local d
+  d="$(rr_fixture)"
+  holds check_release_recheck "$d/README.md" "$d/policy.md"
+  run check_release_recheck "$d/README.md" "$d/nope.md"
+  [ "$status" -eq 2 ]
+  drop "$d/README.md" "5. Re-check the What's new page"
+  breaks 'no recheck step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"
+  drop "$d/README.md" "5. Re-check the What's new page"
+  edit "$d/README.md" '3. Merge that change.' "3. Merge that change. Re-check the What's new page."
+  breaks 'before the release step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/README.md" 'gh release create' 'gh release make'
+  breaks 'no release step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/README.md" '"last checked" date' 'date'
+  breaks 'no roadmap date step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" 'whats-new.md' 'the page'
+  breaks 'no recheck rule' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" '"last checked" date' 'date'
+  breaks 'no roadmap-date half' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" 'add the release' 'list the release'
+  breaks 'no post-tag half' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/README.md" '## Versioning & releases' '## Releases'
+  breaks 'Versioning & releases' check_release_recheck "$d/README.md" "$d/policy.md"
 }

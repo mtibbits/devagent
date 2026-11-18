@@ -1,0 +1,28 @@
+# docs-site/whats-new-sources.txt — where each What's new item comes from (#1002)
+#
+# One line per item under whats-new.md's "## Shipped since 1.0" heading:
+#   <label> | <anchor>
+# <label> is the item's bold label, without its closing period, exactly as the
+# page writes it. <anchor> is the CHANGELOG.md issue number (#N) or a keyword
+# (kw:<text>) found in that feature's "- **Added" or "- **Changed" bullet.
+# The page shows no issue numbers; this file is how the test still ties every
+# item to a released CHANGELOG line and to the tag it should link.
+#
+# Read only by tests/lib/whats-new-check.py (tests/docs-site.bats); the build
+# ignores it. Lines starting with # and blank lines are ignored.
+
+Work breakdown built from the tracker | #706
+Portfolio view across projects | #726
+Dependencies that cross projects | #727
+Evidence attested across environments | #655
+Evidence stamps in the merge request body | #894
+Claims and evidence checked before the verifier runs | #1122
+Merging the pull request as its own step | #885
+A trust policy baseline for shared queues | #713
+Issues kept as files on disk | #1009
+A starter checklist | #989
+A local code backend, no forge needed | #1016
+Token cost per issue and step | kw:cost-report.sh
+Breaks for a fresh session on long runs | kw:phase breaks
+devagent's own written requirements | #915
+Model-tier proposals when an issue is captured | #1101
