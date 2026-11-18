@@ -30,7 +30,7 @@ _door() {
     run --separate-stderr "$CAP"
   else
     DOOR_CFG="config.toml"
-    cd "$DA_HOME"
+    cd "$DA_HOME" || return 1
     run --separate-stderr python3 "$CAPPY" resolve config.toml "$@"
   fi
 }
