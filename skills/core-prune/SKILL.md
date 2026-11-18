@@ -31,7 +31,8 @@ to other contributors; one issue → one minimal change.
 - Reads: `<issue-dir>/imPlan.md` (Tasks + Improvements sections).
 - Writes:
   - Modifies `<issue-dir>/imPlan.md` (removes pruned tasks/items;
-    leaves a trail comment "moved to imPlan-potentialFutureEnhancements.md").
+    leaves a trail comment "moved to imPlan-potentialFutureEnhancements.md")
+    (not on the one-task skip path).
   - Creates/appends `<issue-dir>/imPlan-potentialFutureEnhancements.md`.
 
 ## Checklist
@@ -72,7 +73,6 @@ its own issue later via /devagent:reap.
 
 ## Halt and ask if
 
-- Plan has fewer than 2 tasks (nothing meaningful to prune).
 - After pruning, fewer than 1 task remains.
 - Operator's `$NOTE` says "keep X" but X is clearly off-scope —
   surface the conflict rather than silently keeping or pruning.
@@ -81,15 +81,33 @@ its own issue later via /devagent:reap.
 
 ## Skipping policy
 
-Never auto-skip. If the plan is already minimal (verified by
-re-reading and confirming every task is load-bearing), surface
-"nothing to prune; mark step `[-]` skipped?" for operator
-confirmation.
+Never auto-skip a plan of two or more tasks. If such a plan is already
+minimal (verified by re-reading and confirming every task is
+load-bearing), surface "nothing to prune; mark step `[-]` skipped?" for
+operator confirmation.
+
+Exception: when the plan has exactly one task, `## Improvements` has no
+`[defer]` item, the Scope evaluation's Out of scope has nothing
+substantive (the word Checklist step 4 uses), and `$NOTE` is empty, do
+not ask. Write nothing to `imPlan-potentialFutureEnhancements.md`;
+create it empty if it is absent, because tighten requires the file. The
+triaged `[dismiss]` entries in `## Improvements` stand as their own
+dismissal record. Log `nothing to prune: one-task plan` (Logging, skip
+line) and report that the step is skipped: the command marks it `[-]`.
+A one-task plan that does carry a `[defer]` item or a substantive
+Out-of-scope item is not skipped: prune it like any other plan, and the
+step is marked `[x]`.
 
 ## Logging
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" prune "Pruned P items to imPlan-potentialFutureEnhancements.md; K tasks remain; note: $NOTE"
+```
+
+On the one-task skip path, run this line instead:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" prune "nothing to prune: one-task plan"
 ```
 
 ## Templates referenced
