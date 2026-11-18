@@ -138,7 +138,8 @@ SH
   "$CAP" >"$BATS_TEST_TMPDIR/out"
   [ "$(tail -c 1 "$BATS_TEST_TMPDIR/out" | od -An -c | tr -d ' ')" = '\n' ]
   [ "$(tail -c 2 "$BATS_TEST_TMPDIR/out" | od -An -c | tr -d ' ')" = '}\n' ]
-  ! grep -q $'\r' "$BATS_TEST_TMPDIR/out"
+  run grep -q $'\r' "$BATS_TEST_TMPDIR/out"
+  [ "$status" -eq 1 ]   # 1: no CR; 2 would be a grep error
 }
 
 @test "not declared: no projects gives an empty list" {
