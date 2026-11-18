@@ -270,3 +270,70 @@ _wbs_cfg() {
   [ "$output" = other ]
   [ -z "$stderr" ]
 }
+
+# #1050: the six worktree-root shapes, for config_worktree_root and the trust pin.
+_worktree_config() {
+  cat > "$DA_HOME/config.toml" <<'TOML'
+[project.a]
+devdoc_dir = "/d/a"
+source_dir = "/s/a"
+worktree_root = "/w/a"
+
+[project.b]
+source_dir = "/s/b"
+
+[project.c]
+source_dir = "/s/c"
+worktree_root = ""
+
+[project.d]
+devdoc_dir = "/d/d"
+
+[project.e]
+worktree_root = ""
+
+[project.f]
+source_dir = "~/s/f"
+
+[project.g]
+devdoc_dir = "/d/g"
+TOML
+}
+
+@test "config_worktree_root: set, unset, empty, no source_dir (#1050)" {
+  _worktree_config
+  local p want
+  for p in a b c f; do
+    case "$p" in
+      a) want=/w/a ;; b) want=/s/b-wt ;; c) want=/s/c-wt ;; f) want="$HOME/s/f-wt" ;;
+    esac
+    run --separate-stderr config_worktree_root "$p"
+    echo "$p: status=$status output=[$output] stderr=[$stderr]"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$want" ]
+    [ -z "$stderr" ]
+  done
+  for p in d e; do
+    run --separate-stderr config_worktree_root "$p"
+    echo "$p: status=$status output=[$output] stderr=[$stderr]"
+    [ "$status" -eq 1 ]
+    [ -z "$output" ]
+    [ -z "$stderr" ]
+  done
+}
+
+@test "_trust_forbid_roots output is unchanged by config_worktree_root (#1050)" {
+  _worktree_config
+  source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+  run _trust_forbid_roots
+  [ "$status" -eq 0 ]
+  local want
+  want="$(printf '%s\n' --forbid "$DA_HOME" --forbid "$PLUGIN_ROOT" \
+    --forbid /d/a --forbid /s/a --forbid /w/a \
+    --forbid /s/b --forbid /s/b-wt \
+    --forbid /s/c --forbid /s/c-wt \
+    --forbid /d/d \
+    --forbid "$HOME/s/f" --forbid "$HOME/s/f-wt" \
+    --forbid /d/g)"
+  diff <(printf '%s\n' "$output") <(printf '%s\n' "$want")
+}

@@ -120,7 +120,7 @@ def load_schema(path=None) -> dict:
     path = SCHEMA_PATH if path is None else Path(path)
     try:
         schema = json.loads(Path(path).read_bytes().decode("utf-8"))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, RecursionError) as e:
         raise SchemaError(f"cannot read schema {path}: {e}") from e
     if not isinstance(schema, dict):
         raise SchemaError("schema root is not an object")
@@ -131,12 +131,17 @@ def load_schema(path=None) -> dict:
         parse_version(schema.get("version"))
     except ValueError as e:
         raise SchemaError(f"schema root version: {e}") from e
-    _lint(schema, "#", defs, root=True)
-    for name, sub in defs.items():
-        _lint(sub, f"#/$defs/{name}", defs, root=False)
-    done = set()
-    for name in defs:
-        _cycle_check(name, defs, (), done)
+    try:
+        _lint(schema, "#", defs, root=True)
+        for name, sub in defs.items():
+            _lint(sub, f"#/$defs/{name}", defs, root=False)
+        done = set()
+        for name in defs:
+            _cycle_check(name, defs, (), done)
+    except (TypeError, ValueError, AttributeError, RecursionError) as e:
+        # #1050: a value of the wrong type deep in the schema is an unreadable
+        # schema, not a traceback.
+        raise SchemaError(f"cannot read schema {path}: {type(e).__name__}: {e}") from e
     return schema
 
 

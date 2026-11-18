@@ -16,6 +16,23 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: portfolio input readers, exits and output rail (#1050).** No single
+  file can abort or hang a `/devagent:portfolio` run any more. A schema file
+  that cannot be read or linted (or whose major version differs) exits 3 with
+  one `portfolio: self-check: schema:` line, not a traceback. A step number
+  beyond the interpreter's integer-string limit, and a FIFO or other
+  non-regular `checklist.md`/`STUCK` (never opened now), are per-issue
+  `checklist_unreadable`/`stuck_unreadable` entries. An `issue:` value ending
+  in `.` or matching an issue dir only case-insensitively is `issue_not_id` and
+  its dir is not read; on case-insensitive or Win32 hosts such a value now
+  reads `absent` with `issue_not_id` instead of reading the other dir. When the
+  devdoc cannot be listed, a present issue dir is reported unreadable rather
+  than read unverified. A known `key:value` with no space after a missing comma
+  (`{issue: X est:1w}`) is `meta_unreadable`. Inline link bullets
+  (`- [text](url)`) are no longer `near_miss_line`. `--out` under
+  `<source_dir>-wt` (the default worktree root) is refused; portfolio and
+  trust's forbid list now share one rule, `worktree_root_rule` in
+  `scripts/lib/config.sh` (same trust output, no extra config reads).
 - **Changed: the install page (#999).** `docs-site/install.md` is now three
   short parts in 60 lines: prerequisites in plain words, the two install
   commands with the optional superpowers commands, and a three-line first run

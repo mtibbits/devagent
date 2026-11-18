@@ -14,7 +14,8 @@ The project manifest arrives as indexed environment variables, set by
 scripts/portfolio.sh from config.toml (this module reads no TOML):
 PORTFOLIO_PROJECT_COUNT, and per project i (0-based) PORTFOLIO_NAME_<i>,
 PORTFOLIO_DEVDOC_<i>, PORTFOLIO_SOURCE_<i> and PORTFOLIO_WORKTREE_<i>, each
-path variable set only when configured (it may be empty), and (#890)
+path variable set only when configured (it may be empty), PORTFOLIO_WORKTREE_<i>
+also when derived from source_dir as <source_dir>-wt (#1050), and (#890)
 PORTFOLIO_MODEL_THINKING_<i>, PORTFOLIO_MODEL_CHECKING_<i> and
 PORTFOLIO_MODEL_DEFAULT_<i>, the project's step_models values, set only when
 the key exists.
@@ -183,7 +184,13 @@ def checklist_next(path) -> tuple[str, int | None, str | None]:
         if m.group(1) not in DONE_GLYPHS:
             num = m.group(2)
             name = next(r.group(3) for r in rows if r.group(2) == num)
-            return "open", int(num), name
+            try:
+                number = int(num)
+            except ValueError:
+                # #1050 item 2: past the interpreter's integer-string limit.
+                raise ChecklistError(
+                    f"step number of {len(num)} digits is too long to read") from None
+            return "open", number, name
     return "complete", None, None
 
 
@@ -859,6 +866,29 @@ def _probe(path, follow: bool = True):
         return e
 
 
+NOT_REGULAR = "not a regular file"
+
+
+def _regular_file(path) -> tuple[str, str | None]:
+    """("absent", None), ("unreadable", detail) or ("regular", None) for `path`.
+
+    #1050 item 3: an lstat then a stat, never an open, so a FIFO (or a device)
+    cannot block the run. A dangling symlink or anything
+    that is not a regular file once followed is NOT_REGULAR.
+    """
+    st = _probe(path, follow=False)
+    if isinstance(st, OSError):
+        return "unreadable", _err_detail(st)
+    if st is None:
+        return "absent", None
+    st = _probe(path)
+    if isinstance(st, OSError):
+        return "unreadable", _err_detail(st)
+    if st is None or not stat.S_ISREG(st.st_mode):
+        return "unreadable", NOT_REGULAR
+    return "regular", None
+
+
 def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     """(status, reason, text): the project's WBS.md, or why it was not read."""
     if devdoc is None:
@@ -874,16 +904,13 @@ def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     if not stat.S_ISDIR(st.st_mode):
         return "no_devdoc_dir", REASON_NOT_DIR, None
     wbs = root / "WBS.md"
-    st = _probe(wbs, follow=False)
-    if isinstance(st, OSError):
-        return "unreadable", REASON_UNREADABLE.format(_err_detail(st)), None
-    if st is None:
+    kind, detail = _regular_file(wbs)
+    if kind == "absent":
         return "no_wbs", REASON_NO_WBS, None
-    st = _probe(wbs)
-    if isinstance(st, OSError):
-        return "unreadable", REASON_UNREADABLE.format(_err_detail(st)), None
-    if st is None or not stat.S_ISREG(st.st_mode):
-        return "unreadable", REASON_NOT_FILE, None
+    if kind == "unreadable":
+        if detail == NOT_REGULAR:
+            return "unreadable", REASON_NOT_FILE, None
+        return "unreadable", REASON_UNREADABLE.format(detail), None
     try:
         # newline="" keeps CR bytes, as wbs_parser.parse_file reads.
         with open(wbs, encoding="utf-8", newline="") as f:
@@ -901,28 +928,80 @@ def _preorder(tree: dict):
         stack.extend((c, node) for c in reversed(node["children"]))
 
 
-def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
-    entry = {"issue": issue, "nodes": node_ids, "stuck": None, "checklist": "absent",
-             "next_step": None, "next_step_number": None}
-    issue_dir = devdoc / issue
+ISSUE_NOT_ID = "is not an issue id"
+ISSUE_TRAILING_DOT = "ends in '.'"
+ISSUE_CASE_ALIAS = "matches issue dir '{}' only case-insensitively"
+
+
+def _devdoc_names(devdoc: Path) -> "frozenset[str] | OSError":
+    """Names of the devdoc's directory entries (symlinks followed), or the OSError.
+
+    #1050 item 4: the stored spellings, so a value that only a case-insensitive
+    volume would resolve can be refused. A file (WBS.md) is never a name here.
+    """
+    names = set()
+    try:
+        with os.scandir(devdoc) as it:
+            for e in it:
+                try:
+                    if e.is_dir():
+                        names.add(e.name)
+                except OSError:
+                    # A looping or unsearchable symlink: its type is unknown, so it
+                    # stays a candidate spelling (fail closed), and one bad entry
+                    # never fails the whole listing.
+                    names.add(e.name)
+    except OSError as e:
+        return e
+    return frozenset(names)
+
+
+def issue_dir_refusal(issue: str, names: "frozenset[str] | None") -> str | None:
+    """Why `issue` does not name an issue dir, or None: the one rule (#1050 item 4)
+    the report and the read share. `names` None means the listing is unknown."""
     # Only an id-shaped value names a dir, so nothing traverses out of devdoc.
     if not wbs_parser.ID_TOKEN_RE.fullmatch(issue):
+        return ISSUE_NOT_ID
+    if issue.endswith("."):
+        return ISSUE_TRAILING_DOT
+    if names is not None and issue not in names:
+        folded = issue.casefold()
+        aliases = [n for n in names if n.casefold() == folded]
+        if aliases:
+            return ISSUE_CASE_ALIAS.format(min(aliases))
+    return None
+
+
+def _both_unknown(entry: dict, report, why: str) -> dict:
+    """Neither issue file can be read: both are unknown, not absent."""
+    entry["stuck"] = dict.fromkeys(k for k, _ in STUCK_KEYS)
+    report(None, "checklist_unreadable", why)
+    report(None, "stuck_unreadable", why)
+    return entry
+
+
+def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report,
+                 refused: bool, listing_error: OSError | None) -> dict:
+    entry = {"issue": issue, "nodes": node_ids, "stuck": None, "checklist": "absent",
+             "next_step": None, "next_step_number": None}
+    if refused:
         return entry
+    issue_dir = devdoc / issue
     st = _probe(issue_dir)
     if isinstance(st, OSError):
-        # Neither file can be probed: both are unknown, not absent.
-        entry["stuck"] = dict.fromkeys(k for k, _ in STUCK_KEYS)
-        report(None, "checklist_unreadable", f"{issue}/ could not be read: {_err_detail(st)}")
-        report(None, "stuck_unreadable", f"{issue}/ could not be read: {_err_detail(st)}")
-        return entry
+        return _both_unknown(entry, report, f"{issue}/ could not be read: {_err_detail(st)}")
     if st is None or not stat.S_ISDIR(st.st_mode):
         return entry
+    if listing_error is not None:
+        # The dir is present but its spelling cannot be checked: fail closed.
+        return _both_unknown(entry, report,
+                             f"issue dir '{issue}' could not be verified: devdoc listing "
+                             f"failed: {_err_detail(listing_error)}")
     checklist = issue_dir / "checklist.md"
-    st = _probe(checklist, follow=False)
-    if isinstance(st, OSError):
-        report(None, "checklist_unreadable",
-               f"{issue}/checklist.md could not be read: {_err_detail(st)}")
-    elif st is not None:
+    kind, detail = _regular_file(checklist)
+    if kind == "unreadable":
+        report(None, "checklist_unreadable", f"{issue}/checklist.md could not be read: {detail}")
+    elif kind == "regular":
         try:
             state, number, name = checklist_next(checklist)
         except ChecklistError as e:
@@ -930,11 +1009,11 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
         else:
             entry.update({"checklist": state, "next_step": name, "next_step_number": number})
     stuck = issue_dir / "STUCK"
-    st = _probe(stuck, follow=False)
-    if isinstance(st, OSError):
+    kind, detail = _regular_file(stuck)
+    if kind == "unreadable":
         entry["stuck"] = {"step": None, "reason": None, "since": None}
-        report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {_err_detail(st)}")
-    elif st is not None:
+        report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {detail}")
+    elif kind == "regular":
         try:
             entry["stuck"] = read_stuck(stuck)
         except StuckError as e:
@@ -967,6 +1046,10 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
     for ln, code, message in diag["meta_problems"]:
         report(ln, code, message)
 
+    listing = _devdoc_names(devdoc)
+    listing_error = listing if isinstance(listing, OSError) else None
+    names = None if listing_error is not None else listing
+    refused: dict[str, bool] = {}
     nodes: list[dict] = []
     ids: dict[int, str] = {}
     carriers: dict[str, list[dict]] = {}
@@ -1000,9 +1083,10 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             report(ln, "issue_malformed",
                    f"issue {_show(meta['issue'])} is not a string; the node carries no issue")
         if issue is not None:
-            if not wbs_parser.ID_TOKEN_RE.fullmatch(issue):
-                report(ln, "issue_not_id",
-                       f"issue '{issue}' is not an issue id; its issue dir is not read")
+            refusal = issue_dir_refusal(issue, names)
+            refused[issue] = refusal is not None
+            if refusal is not None:
+                report(ln, "issue_not_id", f"issue '{issue}' {refusal}; its issue dir is not read")
             if issue in carriers:
                 report(ln, "duplicate_issue",
                        f"issue '{issue}' also appears at line {carriers[issue][0]['source_line']}")
@@ -1022,7 +1106,8 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             if key not in PRODUCER_KEYS:
                 report(ln, "unknown_meta_key", f"unknown metadata key '{key}'")
 
-    issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report) for i in carriers]
+    issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report, refused[i],
+                           listing_error) for i in carriers]
     return {"project": name, "status": "read", "status_reason": None,
             "wbs_title": tree["title"], "nodes": nodes, "issues": issues,
             "rollup": rollup(nodes)}
@@ -1181,7 +1266,13 @@ def _usage(problem: str | None = None) -> int:
 
 def _self_check(doc: dict) -> int | None:
     """EXIT_SELF_CHECK after printing why, or None when the document passes."""
-    errors = pc.check(doc)
+    try:
+        errors = pc.check(doc)
+    except (pc.SchemaError, pc.UnsupportedVersion) as e:
+        # #1050 item 1: one line, never a traceback; the invariants are not run.
+        text = str(e).replace("\r", " ").replace("\n", " ")
+        sys.stderr.write(f"portfolio: self-check: schema: {text}\n")
+        return EXIT_SELF_CHECK
     if not errors:
         errors = invariant_violations(doc)
     if not errors:
