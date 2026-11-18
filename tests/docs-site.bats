@@ -274,6 +274,37 @@ README_STEPS=('^## The [0-9]+-step workflow$' '^## ')
   holds check_no_issue_numbers "$WEB/install.md"
 }
 
+# #1002: the What's new page. The shipped fact reads `git tag` in this checkout,
+# so the suite needs the release tags fetched (README "Running the test suite").
+@test "docs-site: every What's new shipped item is tied to a released CHANGELOG line and a real git tag" {
+  local tags rc=0
+  tags="$(git -C "$PLUGIN_ROOT" tag 2>&1)" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "git tag could not run: $tags" >&2; return 1; }
+  [ -n "$tags" ] || { echo "git tag is empty: fetch tags (git fetch --tags)" >&2; return 1; }
+  printf '%s\n' "$tags" >"$BATS_TEST_TMPDIR/tags"
+  holds check_whats_new_shipped "$WEB/whats-new.md" "$WEB/whats-new-sources.txt" "$PLUGIN_ROOT/CHANGELOG.md" "$BATS_TEST_TMPDIR/tags"
+}
+
+@test "docs-site: the What's new page's roadmap has no issue numbers or dates and every theme says coming" {
+  holds check_whats_new_roadmap "$WEB/whats-new.md"
+}
+
+@test "docs-site: the What's new page shows the date its roadmap was last checked, not before the newest release" {
+  holds check_whats_new_checked "$WEB/whats-new.md" "$PLUGIN_ROOT/CHANGELOG.md"
+}
+
+@test "docs-site: the What's new page shows no issue number in its visible text" {
+  holds check_no_issue_numbers "$WEB/whats-new.md"
+}
+
+@test "docs-site: the lane that runs these tests fetches git tags" {
+  holds check_tag_lane "$PLUGIN_ROOT/.github/workflows/test.yml"
+}
+
+@test "docs-site: the release steps and the drift policy say to re-check the What's new page" {
+  holds check_release_recheck "$README" "$WEB/README.md"
+}
+
 @test "docs-site: command lines on every page are full-arity; the quickstart forms are gate-honest" {
   local -a pages
   mapfile -t pages < <(content_pages)
