@@ -22,8 +22,9 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
 2. Verify `imPlan.md` exists with `## Improvements` section.
 3. Invoke `core-prune` with `$ISSUE_DIR` and `$NOTE`.
 4. The skill modifies `imPlan.md`, writes/appends
-   `imPlan-potentialFutureEnhancements.md`, and logs via
-   `scripts/checklist-log.sh`.
+   `imPlan-potentialFutureEnhancements.md` (on the one-task skip path
+   it creates the enhancements file empty and leaves `imPlan.md`
+   untouched), and logs via `scripts/checklist-log.sh`.
 
 ## Halt and ask if
 
@@ -32,7 +33,17 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
 
 ## Skipping policy
 
-Never auto-skip; surface skip requests for operator confirmation.
+Never auto-skip a plan of two or more tasks; surface skip requests for
+operator confirmation.
+
+One exception: when the plan has exactly one task, `## Improvements`
+has no `[defer]` item, the Scope evaluation's Out of scope has nothing
+substantive, and `$NOTE` is empty, the Completion handoff marks
+`prune -` (`[-]`) without asking, and its one Logging line is the
+skill's skip line, `nothing to prune: one-task plan`. A one-task plan
+that carries a `[defer]` item or a substantive Out-of-scope item is
+pruned like any other and marked `[x]`. With a non-empty `$NOTE`, a
+one-task plan is not skipped: ask, as for a larger plan.
 
 ## Completion handoff
 
