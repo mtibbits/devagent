@@ -733,9 +733,10 @@ Cutting a release, all on a clean `master`:
    `python3 scripts/changelog.py release <version> <date> --intro <file>`
    instead, or add the paragraph by hand in the same change. `release`
    compiles every file on disk in `changelog.d/`, so run it on a clean
-   `master` (`git status --short changelog.d` prints nothing); `check` reports
-   a stray file there. `tests/test_plugin_versioning.py` fails until the
-   section for the manifest version exists.
+   `master` (`git status --short changelog.d` prints nothing): `check` reports
+   a file that is not an entry (a bad name or a non-`.md` file), but it cannot
+   see that a valid entry file is untracked. `tests/test_plugin_versioning.py`
+   fails until the section for the manifest version exists.
 3. Merge that change. Tag only when `python3 scripts/changelog.py preview` on
    the updated `master` exits 0 and prints only the `## [Unreleased]` heading:
    an entry file merged while the release change was open would otherwise be
