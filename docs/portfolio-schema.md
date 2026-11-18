@@ -215,8 +215,8 @@ carried as written and never summed.
 | `projects[].issues[].issue` | string | req | The issue id as written on its nodes. |
 | `projects[].issues[].nodes` | array | req | Ids of every node carrying the issue, in order. Two or more means a duplicate within the project. |
 | `projects[].issues[].nodes[]` | string | — | One node id. |
-| `projects[].issues[].stuck` | Stuck\|null | req | Non-null exactly when the issue dir has a `STUCK` file. |
-| `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, or no `checklist.md`. `open`: a step is still to do. `complete`: every step is done or skipped. |
+| `projects[].issues[].stuck` | Stuck\|null | req | Non-null when the issue dir has a `STUCK` file, or when the issue dir is present but cannot be read or verified (all-null fields; see `stuck_unreadable`). Null when the issue dir is not read (`issue_not_id`). |
+| `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, no `checklist.md`, the issue dir is not read (`issue_not_id`), or `checklist.md` cannot be read (`checklist_unreadable`). `open`: a step is still to do. `complete`: every step is done or skipped. |
 | `projects[].issues[].next_step` | string\|null | req | The name of the first step not `[x]`/`[-]` in the **active revision block** (the rule `next.sh` uses, `checklist_current_step` in `scripts/lib/checklist.sh`). Null unless `open`. |
 | `projects[].issues[].next_step_number` | integer\|null | req | That step's number. Null unless `open`. |
 | `projects[].issues[].actuals` | slot (#729) | opt | Reserved. |

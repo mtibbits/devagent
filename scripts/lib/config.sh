@@ -53,19 +53,6 @@ worktree_root_rule() {
   return 1
 }
 
-# config_worktree_root <project> — for callers that hold neither value (meant for
-# branch.sh and spike.sh once their empty-worktree_root semantic is settled; no
-# production caller yet). worktree_root_rule over the project's
-# worktree_root and source_dir (both tilde-expanded by config_get_project_field);
-# source_dir is read only when worktree_root is unset or empty. A field that
-# cannot be read counts as unset; stderr stays quiet.
-config_worktree_root() {
-  local wt
-  wt="$(config_get_project_field "$1" worktree_root 2>/dev/null || true)"
-  if [ -n "$wt" ]; then printf '%s\n' "$wt"; return 0; fi
-  worktree_root_rule "" "$(config_get_project_field "$1" source_dir 2>/dev/null || true)"
-}
-
 # config_get_global_path <key> — #611: the top-level [paths] table. Global,
 # every-project file paths; today the only consumer is potholes_workflow (the
 # shared workflow register). Tilde-expanded like project paths.*; rc from

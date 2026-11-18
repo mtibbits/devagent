@@ -934,11 +934,13 @@ ISSUE_TRAILING_DOT = "ends in '.'"
 ISSUE_CASE_ALIAS = "matches issue dir '{}' only case-insensitively"
 
 
-def _devdoc_names(devdoc: Path) -> "frozenset[str] | OSError":
-    """Names of the devdoc's directory entries (symlinks followed), or the OSError.
+def _devdoc_names(devdoc: Path) -> "dict[str, frozenset[str]] | OSError":
+    """The devdoc's directory entries (symlinks followed), keyed by casefolded
+    name with the stored spellings as values, or the OSError.
 
     #1050 item 4: the stored spellings, so a value that only a case-insensitive
-    volume would resolve can be refused. A file (WBS.md) is never a name here.
+    volume would resolve can be refused, in one lookup per issue. A file (WBS.md)
+    is never a name here.
     """
     names = set()
     try:
@@ -954,10 +956,13 @@ def _devdoc_names(devdoc: Path) -> "frozenset[str] | OSError":
                     names.add(e.name)
     except OSError as e:
         return e
-    return frozenset(names)
+    folds: dict[str, set[str]] = {}
+    for n in names:
+        folds.setdefault(n.casefold(), set()).add(n)
+    return {k: frozenset(v) for k, v in folds.items()}
 
 
-def issue_dir_refusal(issue: str, names: "frozenset[str] | None") -> str | None:
+def issue_dir_refusal(issue: str, names: "dict[str, frozenset[str]] | None") -> str | None:
     """Why `issue` does not name an issue dir, or None: the one rule (#1050 item 4)
     the report and the read share. `names` None means the listing is unknown."""
     # Only an id-shaped value names a dir, so nothing traverses out of devdoc.
@@ -965,11 +970,10 @@ def issue_dir_refusal(issue: str, names: "frozenset[str] | None") -> str | None:
         return ISSUE_NOT_ID
     if issue.endswith("."):
         return ISSUE_TRAILING_DOT
-    if names is not None and issue not in names:
-        folded = issue.casefold()
-        aliases = [n for n in names if n.casefold() == folded]
-        if aliases:
-            return ISSUE_CASE_ALIAS.format(min(aliases))
+    if names is not None:
+        spellings = names.get(issue.casefold(), frozenset())
+        if spellings and issue not in spellings:
+            return ISSUE_CASE_ALIAS.format(min(spellings))
     return None
 
 
@@ -1050,7 +1054,7 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
     listing = _devdoc_names(devdoc)
     listing_error = listing if isinstance(listing, OSError) else None
     names = None if listing_error is not None else listing
-    refused: dict[str, bool] = {}
+    refused: dict[str, str | None] = {}
     nodes: list[dict] = []
     ids: dict[int, str] = {}
     carriers: dict[str, list[dict]] = {}
@@ -1084,8 +1088,10 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             report(ln, "issue_malformed",
                    f"issue {_show(meta['issue'])} is not a string; the node carries no issue")
         if issue is not None:
-            refusal = issue_dir_refusal(issue, names)
-            refused[issue] = refusal is not None
+            if issue in refused:
+                refusal = refused[issue]
+            else:
+                refusal = refused[issue] = issue_dir_refusal(issue, names)
             if refusal is not None:
                 report(ln, "issue_not_id", f"issue '{issue}' {refusal}; its issue dir is not read")
             if issue in carriers:
@@ -1107,8 +1113,8 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             if key not in PRODUCER_KEYS:
                 report(ln, "unknown_meta_key", f"unknown metadata key '{key}'")
 
-    issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report, refused[i],
-                           listing_error) for i in carriers]
+    issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report,
+                           refused[i] is not None, listing_error) for i in carriers]
     return {"project": name, "status": "read", "status_reason": None,
             "wbs_title": tree["title"], "nodes": nodes, "issues": issues,
             "rollup": rollup(nodes)}

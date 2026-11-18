@@ -271,8 +271,7 @@ _wbs_cfg() {
   [ -z "$stderr" ]
 }
 
-# #1050: the worktree-root shapes (projects a-g), for config_worktree_root and the
-# trust pin.
+# #1050: the worktree-root shapes (projects a-g), for the trust pin.
 _worktree_config() {
   cat > "$DA_HOME/config.toml" <<'TOML'
 [project.a]
@@ -301,26 +300,23 @@ devdoc_dir = "/d/g"
 TOML
 }
 
-@test "config_worktree_root: set, unset, empty, no source_dir (#1050)" {
-  _worktree_config
-  local p want
-  for p in a b c f; do
-    case "$p" in
-      a) want=/w/a ;; b) want=/s/b-wt ;; c) want=/s/c-wt ;; f) want="$HOME/s/f-wt" ;;
-    esac
-    run --separate-stderr config_worktree_root "$p"
-    echo "$p: status=$status output=[$output] stderr=[$stderr]"
+@test "worktree_root_rule: set, unset or empty, no source_dir (#1050)" {
+  local wt src want
+  while IFS='|' read -r wt src want; do
+    run --separate-stderr worktree_root_rule "$wt" "$src"
+    echo "[$wt|$src]: status=$status output=[$output] stderr=[$stderr]"
     [ "$status" -eq 0 ]
     [ "$output" = "$want" ]
     [ -z "$stderr" ]
-  done
-  for p in d e; do
-    run --separate-stderr config_worktree_root "$p"
-    echo "$p: status=$status output=[$output] stderr=[$stderr]"
-    [ "$status" -eq 1 ]
-    [ -z "$output" ]
-    [ -z "$stderr" ]
-  done
+  done <<'ROWS'
+/w/a|/s/a|/w/a
+/w/x||/w/x
+|/s/b|/s/b-wt
+ROWS
+  run --separate-stderr worktree_root_rule "" ""
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
 }
 
 @test "_trust_forbid_roots output is unchanged by worktree_root_rule (#1050)" {

@@ -19,7 +19,8 @@ source "$_TRUST_LIB_DIR/refusals.sh"
 # shellcheck source=/dev/null
 declare -F plugin_root >/dev/null || source "$_TRUST_LIB_DIR/paths.sh"
 # shellcheck source=/dev/null
-declare -F config_get_project_field >/dev/null || source "$_TRUST_LIB_DIR/config.sh"
+{ declare -F config_get_project_field && declare -F worktree_root_rule; } >/dev/null \
+  || source "$_TRUST_LIB_DIR/config.sh"
 # shellcheck source=/dev/null
 declare -F transition_gate_open >/dev/null || source "$_TRUST_LIB_DIR/transition.sh"
 

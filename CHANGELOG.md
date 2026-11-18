@@ -16,8 +16,11 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
-- **Fixed: portfolio input readers, exits and output rail (#1050).** No single
-  file can abort or hang a `/devagent:portfolio` run any more. A schema file
+- **Fixed: portfolio input readers, exits and output rail (#1050).** A broken
+  schema file, an over-long step number, or a FIFO or other non-regular
+  `checklist.md`/`STUCK` no longer aborts or hangs a `/devagent:portfolio` run
+  (a regular file too large to read, and a file swapped for a FIFO between the
+  check and the read, still can). A schema file
   that cannot be read or linted (or whose major version differs) exits 3 with
   one `portfolio: self-check: schema:` line, not a traceback. A step number
   beyond the interpreter's integer-string limit, and a FIFO or other
