@@ -242,6 +242,51 @@ check_default_issue_source() {
   fi
 }
 
+# check_capacity (#743): the [capacity] section — global mode only, after the
+# per-project checks, under its own header so its rows never read as the last
+# project's. It always runs the reader (never greps the config for the table: the
+# reader is the one parser) and branches on the reader's exit code, so any non-zero
+# exit prints at least one FAIL and "not declared" is printed only for a document
+# whose `declared` is false. Reader warnings are WARN rows, which leave ERRORS alone.
+check_capacity() {
+  local out err rc=0 line summary last=""
+  local -a fails=() warns=()
+  echo "[capacity]"
+  out="$(mktemp)"
+  err="$(mktemp)"
+  bash "$PLUGIN_ROOT/scripts/capacity.sh" >"$out" 2>"$err" </dev/null || rc=$?
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -n "$line" ]] || continue
+    last="$line"
+    if [[ "$line" == "capacity: warning: "* ]]; then
+      warns+=("capacity: ${line#capacity: warning: }")
+    else
+      fails+=("$line")
+    fi
+  done <"$err"
+  case "$rc" in
+    0)
+      if summary="$(python3 "$PLUGIN_ROOT/scripts/lib/capacity.py" summary <"$out" 2>/dev/null)"; then
+        check "capacity: ${summary%$'\r'}" ok
+      else
+        check "capacity: reader failed (exit 0: no capacity document)" fail
+      fi
+      ;;
+    3)
+      for line in ${fails[@]+"${fails[@]}"}; do check "$line" fail; done
+      (( ${#fails[@]} > 0 )) || check "capacity: reader failed (exit 3: no violation lines)" fail
+      ;;
+    *)
+      check "capacity: reader failed (exit $rc)" fail "$last"
+      ;;
+  esac
+  if [[ "$rc" == 0 || "$rc" == 3 ]]; then
+    for line in ${warns[@]+"${warns[@]}"}; do check "$line" warn; done
+  fi
+  rm -f "$out" "$err"
+}
+
 check_one_project() {
   local project="$1"
   echo "[project: $project]"
@@ -590,6 +635,7 @@ else
     any=1
   done < <(config_list_projects)
   (( any == 1 )) || { echo "no projects configured"; exit 1; }
+  check_capacity
 fi
 
 echo

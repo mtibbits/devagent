@@ -752,10 +752,10 @@ Partly delivered. A requirement here that is not built yet starts with
   closed work and writes it only after the operator approves; it records
   provenance per estimate key and never rewrites an estimate the operator
   wrote. {refines: SR-19}
-- FR-117: (Planned.) devagent reads the operator's declared capacity (operator hours, a
+- FR-117: devagent reads the operator's declared capacity (operator hours, a
   token budget, a shared lane pool, and each project's priority, lane cap,
-  paused flag, deadline and reservations), and doctor fails on an invalid
-  declaration, naming the key. {refines: SR-19}
+  paused flag, deadline and reservations), and a bare doctor (every project)
+  fails on an invalid declaration, naming the key. {refines: SR-19}
 - FR-118: (Planned.) devagent forecasts each project's completion by simulation over
   dependencies and declared capacity, reports a median and a conservative
   date or the reason it cannot, and names the resource that binds the

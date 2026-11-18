@@ -48,3 +48,16 @@ the seed is curated; doctor is ungated; an unreadable seed, or a missing seed/fi
 absent from the suite fixture `tests/fixtures/private-project-names.txt` is
 reported as INFO only — that fixture must never be the first disclosure of a
 private name into the public repo, so new projects are checked live, not added.
+
+With no argument, after the per-project checks, doctor prints a `[capacity]`
+block (#743). It runs `scripts/capacity.sh`, which resolves the `[capacity]`
+and `[project.<name>.capacity]` tables, and prints one of:
+`OK   capacity: not declared (forecasting off)` (no `[capacity]` table);
+`OK   capacity: <H> operator h/week, pool of <L> lanes, <T> weighted tokens/week (<binding>)`;
+one `FAIL` row per violation (`capacity: <where>: <rule>`, reader exit 3);
+or `FAIL capacity: reader failed (exit <N>)` for any other outcome (exit 4 is a
+config that is missing, unreadable or not valid TOML), so a fault never reads
+as "not declared". Each reader warning (an unknown key, a project table whose
+only key is `capacity`) is a WARN row that adds no error. With a project
+argument the block is not printed. The keys, rules and document are in
+`docs/configuration.md` "Capacity".
