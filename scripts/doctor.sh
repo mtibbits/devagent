@@ -249,8 +249,8 @@ check_default_issue_source() {
 # exit prints at least one FAIL and "not declared" is printed only for a document
 # whose `declared` is false. Reader warnings are WARN rows, which leave ERRORS alone.
 check_capacity() {
-  local out err rc=0 line summary last="" any=0
-  local -a errs=()
+  local out err rc=0 line summary last=""
+  local -a fails=() warns=()
   echo "[capacity]"
   out="$(mktemp)"
   err="$(mktemp)"
@@ -258,8 +258,12 @@ check_capacity() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
     [[ -n "$line" ]] || continue
-    errs+=("$line")
     last="$line"
+    if [[ "$line" == "capacity: warning: "* ]]; then
+      warns+=("capacity: ${line#capacity: warning: }")
+    else
+      fails+=("$line")
+    fi
   done <"$err"
   case "$rc" in
     0)
@@ -270,21 +274,15 @@ check_capacity() {
       fi
       ;;
     3)
-      for line in ${errs[@]+"${errs[@]}"}; do
-        [[ "$line" == "capacity: warning: "* ]] && continue
-        check "$line" fail
-        any=1
-      done
-      (( any == 1 )) || check "capacity: reader failed (exit 3: no violation lines)" fail
+      for line in ${fails[@]+"${fails[@]}"}; do check "$line" fail; done
+      (( ${#fails[@]} > 0 )) || check "capacity: reader failed (exit 3: no violation lines)" fail
       ;;
     *)
       check "capacity: reader failed (exit $rc)" fail "$last"
       ;;
   esac
   if [[ "$rc" == 0 || "$rc" == 3 ]]; then
-    for line in ${errs[@]+"${errs[@]}"}; do
-      [[ "$line" == "capacity: warning: "* ]] && check "capacity: ${line#capacity: warning: }" warn
-    done
+    for line in ${warns[@]+"${warns[@]}"}; do check "$line" warn; done
   fi
   rm -f "$out" "$err"
 }

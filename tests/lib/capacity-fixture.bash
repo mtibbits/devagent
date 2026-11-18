@@ -31,6 +31,12 @@ cap_projects() {
   done
 }
 
+# cap_table <project> <toml line>... — append that project's capacity table.
+cap_table() {
+  local name="$1"; shift
+  { echo "[project.$name.capacity]"; printf '%s\n' "$@"; } | cap_append
+}
+
 # cap_shared [key=<toml literal>]... [-key]... — append a [capacity] table holding the
 # six required keys (20, 40, 3, 500000000, 60000000, 10), in table order. `key=` replaces
 # a key in place or adds one at the end; `-key` drops one.
@@ -59,7 +65,7 @@ cap_shared() {
 
 # cap_healthy_projects <n> — n projects (p01, p02, ...) each well-formed enough for
 # doctor's per-project checks to pass: its own source and devdoc directories, and a
-# state file.
+# state file. state_init runs once; the others copy its file (it names no project).
 cap_healthy_projects() {
   local n="$1" i name
   # shellcheck source=/dev/null
@@ -71,7 +77,11 @@ cap_healthy_projects() {
   for (( i = 1; i <= n; i++ )); do
     printf -v name 'p%02d' "$i"
     mkdir -p "$DA_HOME/src-$name" "$DA_HOME/devdoc-$name"
-    state_init "$name"
+    if (( i == 1 )); then
+      state_init "$name"
+    else
+      install -m 600 "$(state_path p01)" "$(state_path "$name")"
+    fi
     cat >> "$DA_HOME/config.toml" <<TOML
 
 [project.$name]

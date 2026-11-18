@@ -19,41 +19,27 @@ always runs this file.
 """
 
 import datetime
+import importlib.util
 import json
 import math
+import os
+import pathlib
 import re
 import sys
 
-try:
-    import tomllib          # stdlib, Python >= 3.11
-except ModuleNotFoundError:  # Python 3.8-3.10: the same parser, packaged
-    import tomli as tomllib  # apt install python3-tomli / pip install tomli
+# The one config loader (#293: it retries a Windows sharing violation). Loaded at
+# import, so a missing TOML parser crashes (exit 1) rather than reading as exit 4.
+_spec = importlib.util.spec_from_file_location(
+    "_capacity_toml", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_toml.py"))
+_toml = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_toml)
 
 CAPACITY_SCHEMA = "1.0"
 TOKEN_UNIT = "weighted_input_token_equivalents"
 
-# The shared keys, in the order the document lists them; every one but the last is
-# required.
-SHARED_KEYS = (
-    "operator_hours_per_week",
-    "lane_hours_per_week",
-    "max_lanes",
-    "tokens_per_week",
-    "tokens_per_window",
-    "windows_per_week",
-    "operator_hours_per_agent_hour",
-)
 BINDING_WEEK = "tokens_per_week"
 BINDING_WINDOWS = "tokens_per_window_x_windows_per_week"
 
-PROJECT_KEYS = (
-    "priority",
-    "max_lanes",
-    "paused",
-    "deadline",
-    "reserve_operator_hours_per_week",
-    "reserve_tokens_per_week",
-)
 PROJECT_DEFAULTS = {
     "priority": 5,
     "max_lanes": None,
@@ -75,7 +61,7 @@ RANGE_TOKENS = ("0 < x <= 9007199254740991", 0, False, SAFE_MAX)
 RANGE_WINDOWS = ("0 < x <= 33.6", 0, False, 33.6)
 RANGE_NONNEG = ("0 <= x <= 9007199254740991", 0, True, SAFE_MAX)
 
-# key -> (type, range or None)
+# key -> (type, range or None), in the order the document lists the keys.
 SHARED_RULES = {
     "operator_hours_per_week": ("number", RANGE_HOURS),
     "lane_hours_per_week": ("number", RANGE_HOURS),
@@ -94,6 +80,8 @@ PROJECT_RULES = {
     "reserve_operator_hours_per_week": ("number", RANGE_NONNEG),
     "reserve_tokens_per_week": ("integer", RANGE_NONNEG),
 }
+SHARED_KEYS = tuple(SHARED_RULES)
+PROJECT_KEYS = tuple(PROJECT_RULES)
 
 # The rule strings (#957 reproduces them).
 MISSING = "missing required key"
@@ -128,12 +116,9 @@ def _say(line):
 
 def _load(path):
     try:
-        fh = open(path, "rb")
-    except Exception:
+        return _toml._load(pathlib.Path(path), retry=True)
+    except OSError:
         raise _ConfigError("config not readable: " + path)
-    try:
-        with fh:
-            return tomllib.load(fh)
     except Exception:
         # Any parse failure, including an integer past the int-conversion limit
         # (a ValueError, not a TOMLDecodeError).
@@ -202,19 +187,18 @@ def check(value, kind, rng):
 
 
 def _doc_value(value):
-    """A config value as the document writes it: a date as YYYY-MM-DD."""
+    """A config value as the document writes it: a TOML date as YYYY-MM-DD (a valid
+    date string already is)."""
     if isinstance(value, datetime.date):
         return value.isoformat()
-    if isinstance(value, str):
-        return _calendar_date(value).isoformat()
     return value
 
 
 def _project(name, table):
-    """One element of `projects`: the six keys from `table` (None: no capacity table)."""
+    """One element of `projects`: the six keys from its capacity table ({}: none)."""
     out = {"name": name}
     for key in PROJECT_KEYS:
-        if isinstance(table, dict) and key in table:
+        if key in table:
             out[key] = _entry(_doc_value(table[key]), "config")
         else:
             out[key] = _entry(PROJECT_DEFAULTS[key], "default")
@@ -231,18 +215,42 @@ def _effective(cap):
     return {"value": windows, "binding": BINDING_WINDOWS}
 
 
-def _pool_sum(projects, key):
+def _pool_sum(unpaused, key):
     """Each unpaused project's set reservation, added with + from an integer 0 in
     project order. Never sum(), math.fsum or decimal: sum() rounds differently on
     3.12+, and #957 reproduces this in JavaScript."""
     total = 0
-    for project in projects:
-        if project["paused"]:
-            continue
+    for project in unpaused:
         value = project["table"].get(key)
         if value is not None:
             total = total + value
     return total
+
+
+def _validate(table, rules, base, violations, warnings, required=(), max_lanes=None):
+    """Append a violation per broken rule (in rules order), then a warning per unknown
+    key (in table order). Return (the valid values, the keys that broke a rule).
+    `max_lanes`: the valid shared lane pool, which a valid max_lanes may not exceed."""
+    ok = {}
+    bad = set()
+    for key, rule_args in rules.items():
+        if key not in table:
+            if key in required:
+                violations.append((base + [key], MISSING))
+            continue
+        rule = check(table[key], *rule_args)
+        if (rule is None and key == "max_lanes" and max_lanes is not None
+                and table[key] > max_lanes):
+            rule = EXCEEDS_LANES   # a paused project too
+        if rule:
+            violations.append((base + [key], rule))
+            bad.add(key)
+        else:
+            ok[key] = table[key]
+    for key in table:
+        if key not in rules:
+            warnings.append((base + [key], UNKNOWN_KEY))
+    return ok, bad
 
 
 def resolve(path, names):
@@ -258,19 +266,8 @@ def resolve(path, names):
     if declared and not isinstance(cap, dict):
         violations.append((["capacity"], WRONG_TYPE + "table"))
     elif declared:
-        for key in SHARED_KEYS:
-            if key not in cap:
-                if key not in SHARED_OPTIONAL:
-                    violations.append((["capacity", key], MISSING))
-                continue
-            rule = check(cap[key], *SHARED_RULES[key])
-            if rule:
-                violations.append((["capacity", key], rule))
-            else:
-                shared_ok[key] = cap[key]
-        for key in cap:
-            if key not in SHARED_RULES:
-                warnings.append((["capacity", key], UNKNOWN_KEY))
+        required = [k for k in SHARED_KEYS if k not in SHARED_OPTIONAL]
+        shared_ok, _ = _validate(cap, SHARED_RULES, ["capacity"], violations, warnings, required)
 
     # Each project, in the order given. A capacity that is not a table is read by
     # the pool rules as unpaused with no reservations; its own line reports it.
@@ -292,25 +289,10 @@ def resolve(path, names):
                 pcap = ptable["capacity"]
                 if not declared:
                     violations.append((base, TABLE_MISSING))
-                for key in PROJECT_KEYS:
-                    if key not in pcap:
-                        continue
-                    rule = check(pcap[key], *PROJECT_RULES[key])
-                    if (rule is None and key == "max_lanes" and "max_lanes" in shared_ok
-                            and pcap[key] > shared_ok["max_lanes"]):
-                        rule = EXCEEDS_LANES   # a paused project too
-                    if rule:
-                        violations.append((base + [key], rule))
-                        bad.add(key)
-                for key in pcap:
-                    if key not in PROJECT_RULES:
-                        warnings.append((base + [key], UNKNOWN_KEY))
-        projects.append({
-            "name": name,
-            "table": {k: v for k, v in pcap.items() if k in PROJECT_RULES},
-            "bad": bad,
-            "paused": pcap.get("paused") is True,
-        })
+                _, bad = _validate(pcap, PROJECT_RULES, base, violations, warnings,
+                                   max_lanes=shared_ok.get("max_lanes"))
+        projects.append({"name": name, "table": pcap, "bad": bad,
+                         "paused": pcap.get("paused") is True})
 
     # The pool rules, each only when every value it reads is valid (an absent
     # optional value is valid). Neither runs when [capacity] is absent or not a table.
@@ -318,7 +300,7 @@ def resolve(path, names):
     unpaused = [p for p in projects if not p["paused"]]
     if (paused_ok and "operator_hours_per_week" in shared_ok
             and all("reserve_operator_hours_per_week" not in p["bad"] for p in unpaused)):
-        total = _pool_sum(projects, "reserve_operator_hours_per_week")
+        total = _pool_sum(unpaused, "reserve_operator_hours_per_week")
         if total > shared_ok["operator_hours_per_week"] + HOURS_TOLERANCE:
             violations.append((["pool"], POOL_HOURS))
     effective = None
@@ -326,7 +308,7 @@ def resolve(path, names):
         effective = _effective(shared_ok)
         if paused_ok and all("reserve_tokens_per_week" not in p["bad"] for p in unpaused):
             # Strict: the token sum is an exact integer.
-            if _pool_sum(projects, "reserve_tokens_per_week") > effective["value"]:
+            if _pool_sum(unpaused, "reserve_tokens_per_week") > effective["value"]:
                 violations.append((["pool"], POOL_TOKENS))
 
     for parts, rule in violations:
@@ -349,7 +331,7 @@ def resolve(path, names):
         "declared": declared,
         "token_unit": TOKEN_UNIT,
         "shared": shared,
-        "effective_tokens_per_week": effective if declared else None,
+        "effective_tokens_per_week": effective,
         "projects": [_project(p["name"], p["table"]) for p in projects],
     }
     return 0, doc

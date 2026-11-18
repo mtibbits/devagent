@@ -19,11 +19,6 @@ setup() {
 
 teardown() { teardown_tmp_devagent_home; }
 
-# _volk_cap <toml line>... — the seeded volk project's capacity table.
-_volk_cap() {
-  { echo '[project.volk.capacity]'; printf '%s\n' "$@"; } | cap_append
-}
-
 # _stub_reader <body> — a plugin copy whose scripts/capacity.sh is a stub with this
 # body; sets STUB_DOCTOR to the copy's doctor.sh.
 _stub_reader() {
@@ -87,36 +82,36 @@ _fails_with() {
 
 @test "doctor capacity: violation row 4: not a calendar date" {
   cap_shared
-  _volk_cap 'deadline = "2026-02-30"'
+  cap_table volk 'deadline = "2026-02-30"'
   _fails_with "capacity: project.volk.capacity.deadline: not a calendar date"
 }
 
 @test "doctor capacity: violation row 5: exceeds capacity.max_lanes" {
   cap_shared
-  _volk_cap 'max_lanes = 4'
+  cap_table volk 'max_lanes = 4'
   _fails_with "capacity: project.volk.capacity.max_lanes: exceeds capacity.max_lanes"
 }
 
 @test "doctor capacity: violation row 6: reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week" {
   cap_shared
-  _volk_cap 'reserve_operator_hours_per_week = 25'
+  cap_table volk 'reserve_operator_hours_per_week = 25'
   _fails_with "capacity: pool: reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week"
 }
 
 @test "doctor capacity: violation row 7: reserve_tokens_per_week sum exceeds the effective weekly token budget" {
   cap_shared windows_per_week=5.5
-  _volk_cap 'reserve_tokens_per_week = 400000000'
+  cap_table volk 'reserve_tokens_per_week = 400000000'
   _fails_with "capacity: pool: reserve_tokens_per_week sum exceeds the effective weekly token budget"
 }
 
 @test "doctor capacity: violation row 8: [capacity] table missing" {
-  _volk_cap 'priority = 2'
+  cap_table volk 'priority = 2'
   _fails_with "capacity: project.volk.capacity: [capacity] table missing"
 }
 
 @test "doctor capacity: a violation leaves the per-project checks running, before the section" {
   cap_shared
-  _volk_cap 'max_lanes = 4'
+  cap_table volk 'max_lanes = 4'
   run "$PLUGIN_ROOT/scripts/doctor.sh"
   [ "$status" -eq 1 ]
   [[ "$output" == *"[project: volk]"* ]]
@@ -132,7 +127,7 @@ _fails_with() {
   # Green before the change by design: the control is the previous test, where the
   # same fixture fails in global mode.
   cap_shared
-  _volk_cap 'max_lanes = 4'
+  cap_table volk 'max_lanes = 4'
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" != *capacity* ]]
