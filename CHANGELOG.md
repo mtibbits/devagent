@@ -12,30 +12,26 @@ whose notes are that section. A marketplace install is pinned to the version
 string and picks up the next release on `claude plugin update`. Until 1.0.0
 the plugin was versioned by git commit SHA with no release cadence (#532,
 ratified 2026-07-20 while the repository was private, re-taken at go-public);
-the README's "Versioning & releases" section has the release procedure.
+the README's "Versioning & releases" section has the release procedure. A pull
+request records its entry as a file in `changelog.d/` rather than editing
+`## [Unreleased]` below (#1127); that README section says how, and each release
+compiles the files into its dated section.
 
 ## [Unreleased]
 
-- **Fixed: portfolio input readers, exits and output rail (#1050).** A broken
-  schema file, an over-long step number, or a FIFO or other non-regular
-  `checklist.md`/`STUCK` no longer aborts or hangs a `/devagent:portfolio` run
-  (a regular file too large to read, and a file swapped for a FIFO between the
-  check and the read, still can). A schema file
-  that cannot be read or linted (or whose major version differs) exits 3 with
-  one `portfolio: self-check: schema:` line, not a traceback. A step number
-  beyond the interpreter's integer-string limit, and a FIFO or other
-  non-regular `checklist.md`/`STUCK` (never opened now), are per-issue
-  `checklist_unreadable`/`stuck_unreadable` entries. An `issue:` value ending
-  in `.` or matching an issue dir only case-insensitively is `issue_not_id` and
-  its dir is not read; on case-insensitive or Win32 hosts such a value now
-  reads `absent` with `issue_not_id` instead of reading the other dir. When the
-  devdoc cannot be listed, a present issue dir is reported unreadable rather
-  than read unverified. A known `key:value` with no space after a missing comma
-  (`{issue: X est:1w}`) is `meta_unreadable`. Inline link bullets
-  (`- [text](url)`) are no longer `near_miss_line`. `--out` under
-  `<source_dir>-wt` (the default worktree root) is refused; portfolio and
-  trust's forbid list now share one rule, `worktree_root_rule` in
-  `scripts/lib/config.sh` (same trust output, no extra config reads).
+- **Changed: the workflow page is now "How it works" (#1001).**
+  `docs-site/workflow.md` opens with the idea (plan first, fresh eyes on the
+  plan and the finished change, a written record), then the five phases read
+  from `docs-site/phases.txt`. The step table's Phase column uses those phases,
+  and a new Why column gives one sentence per step on why that gate exists. A
+  new "When it stops" section covers waiting `[?]`, stuck `[!]`, phase breaks
+  and `--through`; the numbering, merge and other-stop mechanics move to a
+  closing Details section. README's step groups move to the same five phases.
+  New checks hold the Phase and Why columns, the text before the table (no issue
+  numbers or config keys), the stop section and its commands' argument hints,
+  the phase bullets on the page and in README, and the built title and nav
+  label. The 1.0 page's anchors `#numbering`, `#step-table` and
+  `#checklist-glyphs` are gone; no in-repo link used them.
 - **Changed: the install page (#999).** `docs-site/install.md` is now three
   short parts in 60 lines: prerequisites in plain words, the two install
   commands with the optional superpowers commands, and a three-line first run

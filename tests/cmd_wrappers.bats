@@ -262,7 +262,7 @@ _check_user_invocable() {
   # behind a new home, Issue-458): every "<N> slash commands" claim under the
   # public doc roots must carry the derived total. docs/plans is build history
   # and is deliberately outside the roots.
-  roots=(README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md .claude-plugin
+  roots=(README.md CHANGELOG.md changelog.d CONTRIBUTING.md SECURITY.md .claude-plugin
          docs-site docs/configuration.md docs/concurrency.md docs/specs commands skills templates)
   homes=0; stale=""
   while IFS= read -r hit; do
@@ -281,7 +281,10 @@ _check_user_invocable() {
   # spec). docs-site/index.md was a home until #998 retired it: the landing page
   # does not carry the count. The docs-site root stays in the sweep, so a page
   # that writes the phrase is enrolled automatically. A path typo that empties
-  # the sweep would otherwise pass vacuously.
+  # the sweep would otherwise pass vacuously. changelog.d/ is a root (#1127): an
+  # entry file is a home until a release moves it into CHANGELOG.md, and the
+  # folder is absent after a release (grep's complaint is discarded). The floor
+  # stays 6: it is a floor, and entry files can only add homes.
   [ "$homes" -ge 6 ]
   # Assert the SPLIT, not just the sum: a 4th command->skill conversion keeps
   # the sum and would slip through a sum-only check while falsifying README's

@@ -4,6 +4,7 @@
 # in its devdoc override (registry L2), not the plugin defaults.
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+. "${BATS_TEST_DIRNAME}/lib/changelog-text.bash"
 
 REPO="${BATS_TEST_DIRNAME}/.."
 
@@ -202,15 +203,20 @@ _class_assign() {
   # (step 14, the thinking list's tail) — not files that merely mention the keys
   # (e.g. docs/draft-dispatch-contract.md, which is about step 2 alone).
   local f n=0 out bad=()
+  local cl="$BATS_TEST_TMPDIR/changelog-text/CHANGELOG.md"
+  mkdir -p "${cl%/*}"
+  changelog_text "$REPO" > "$cl"
   while IFS= read -r f; do
     grep -q 'draftmr' "$f" || continue
     n=$((n + 1))
     out="$(_class_assign "$f" "$thinking" "$checking")"
     [ -z "$out" ] || bad+=("$out")
-  done < <(grep -rl 'implementation-model' "$REPO/docs" "$REPO/commands" "$REPO/templates" "$REPO/scripts" "$REPO/CHANGELOG.md" 2>/dev/null)
+  done < <(grep -rl 'implementation-model' "$REPO/docs" "$REPO/commands" "$REPO/templates" "$REPO/scripts" "$cl" 2>/dev/null)
   # Pin the DENOMINATOR: a grep that stops selecting its subjects passes silently
   # (register: Issue-439). 11 = 6 issue/epic templates + config.toml.skel + spec
-  # + commands/pull.md + flags.sh + CHANGELOG.md.
+  # + commands/pull.md + flags.sh + the changelog. CHANGELOG.md and changelog.d/
+  # count as ONE home, read through changelog_text (#1127), so the count stays 11
+  # while a release moves entries from the files into CHANGELOG.md.
   [ "$n" -eq 11 ] || { echo "class-enumerating homes = $n (expected 11) — did a home lose its enumeration, or gain one?" >&2; return 1; }
   [ "${#bad[@]}" -eq 0 ] || { printf 'class assignment drift:\n%s\n' "${bad[@]}" >&2; return 1; }
 
