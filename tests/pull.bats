@@ -1043,7 +1043,7 @@ CFG
   # No tracked doc, script or template spells the positional origin|fork form
   # (register Issue-461/583). The guard and its positive control read one regex.
   local re='(/devagent:pull|pull\.sh"?) +[^ ]+ +<?(origin|fork)\b'
-  run git -C "$PLUGIN_ROOT" grep -nE "$re" -- '*.md' 'scripts/*' 'templates/*' ':!docs/plans/**' ':!CHANGELOG.md'
+  run git -C "$PLUGIN_ROOT" grep -nE "$re" -- '*.md' 'scripts/*' 'templates/*' ':!docs/plans/**' ':!CHANGELOG.md' ':!changelog.d/**'
   [ "$status" -eq 1 ]
   run bash -c 'printf "%s\n" "/devagent:pull myproj origin 42" | grep -cE "$1"' _ "$re"
   [ "$output" = "1" ]

@@ -57,6 +57,9 @@ audited, and reproduced from a small set of on-disk artifacts.
 devAgent/
 ├── .claude-plugin/marketplace.json
 ├── README.md
+├── changelog.d/             # #1127: one changelog entry file per change (<issue>.md or <slug>.md);
+│                            #   scripts/changelog.py compiles them into CHANGELOG.md at release;
+│                            #   absent between a release and the next entry (git keeps no empty folder)
 ├── docs/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
@@ -120,6 +123,7 @@ devAgent/
 │   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885; forward: #1125),
 │   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
+│   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh

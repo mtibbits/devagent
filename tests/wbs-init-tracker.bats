@@ -10,6 +10,7 @@
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 . "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
 . "$(dirname "$BATS_TEST_FILENAME")/helpers/wbs-tracker.bash"
+. "$(dirname "$BATS_TEST_FILENAME")/lib/changelog-text.bash"
 load lib/fixture-server.sh
 bats_require_minimum_version 1.5.0
 
@@ -962,7 +963,9 @@ _append_issue() {
   printf 'merging is #707\n' > "$TMPROOT/planted"
   rc=0; grep -n 'is #707' "$TMPROOT/planted" >/dev/null || rc=$?
   [ "$rc" -eq 0 ]
-  rc=0; grep -n 'is #707' "$REPO/commands/wbs.md" "$spec" "$REPO/scripts/wbs-init.sh" "$REPO/CHANGELOG.md" || rc=$?
+  # the changelog is CHANGELOG.md plus changelog.d/ entry files (#1127)
+  local cl; cl="$(changelog_text "$REPO")"; [[ "$cl" == *'## [Unreleased]'* ]]
+  rc=0; grep -n 'is #707' "$REPO/commands/wbs.md" "$spec" "$REPO/scripts/wbs-init.sh" - <<<"$cl" || rc=$?
   [ "$rc" -eq 1 ]
 }
 
