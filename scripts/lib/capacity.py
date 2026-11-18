@@ -21,6 +21,7 @@ always runs this file.
 import datetime
 import json
 import math
+import re
 import sys
 
 try:
@@ -62,6 +63,48 @@ PROJECT_DEFAULTS = {
     "reserve_tokens_per_week": None,
 }
 
+# Every numeric key has a finite upper bound. Where the domain gives none it is
+# 2^53 - 1 (JavaScript's Number.MAX_SAFE_INTEGER), so int x float and int + float
+# cannot overflow, and #957's doubles agree with Python's integers.
+SAFE_MAX = 9007199254740991
+
+# (range text, low, low is allowed, high). The five texts are the complete set.
+RANGE_HOURS = ("0 < x <= 168", 0, False, 168)
+RANGE_COUNT = ("1 <= x <= 9007199254740991", 1, True, SAFE_MAX)
+RANGE_TOKENS = ("0 < x <= 9007199254740991", 0, False, SAFE_MAX)
+RANGE_WINDOWS = ("0 < x <= 33.6", 0, False, 33.6)
+RANGE_NONNEG = ("0 <= x <= 9007199254740991", 0, True, SAFE_MAX)
+
+# key -> (type, range or None)
+SHARED_RULES = {
+    "operator_hours_per_week": ("number", RANGE_HOURS),
+    "lane_hours_per_week": ("number", RANGE_HOURS),
+    "max_lanes": ("integer", RANGE_COUNT),
+    "tokens_per_week": ("integer", RANGE_TOKENS),
+    "tokens_per_window": ("integer", RANGE_TOKENS),
+    "windows_per_week": ("number", RANGE_WINDOWS),
+    "operator_hours_per_agent_hour": ("number", RANGE_NONNEG),
+}
+SHARED_OPTIONAL = ("operator_hours_per_agent_hour",)
+PROJECT_RULES = {
+    "priority": ("integer", RANGE_COUNT),
+    "max_lanes": ("integer", RANGE_COUNT),
+    "paused": ("boolean", None),
+    "deadline": ("date", None),
+    "reserve_operator_hours_per_week": ("number", RANGE_NONNEG),
+    "reserve_tokens_per_week": ("integer", RANGE_NONNEG),
+}
+
+# The rule strings (#957 reproduces them).
+MISSING = "missing required key"
+WRONG_TYPE = "wrong type: expected "
+OUT_OF_RANGE = "out of range: "
+NOT_A_DATE = "not a calendar date"
+TABLE_MISSING = "[capacity] table missing"
+
+_BARE_PART = re.compile(r"[A-Za-z0-9_-]+")
+_DATE_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
 USAGE = "capacity: usage: capacity.py resolve <config> [<project>...] | capacity.py summary"
 NOT_DECLARED = "not declared (forecasting off)"
 
@@ -92,10 +135,69 @@ def _entry(value, source):
     return {"value": value, "source": source}
 
 
+def where(parts):
+    """A dotted path: a part matching [A-Za-z0-9_-]+ in full is bare, any other is a
+    JSON string (JavaScript's JSON.stringify), so it stays on one line."""
+    out = []
+    for part in parts:
+        if _BARE_PART.fullmatch(part):
+            out.append(part)
+        else:
+            out.append(json.dumps(part, ensure_ascii=False))
+    return ".".join(out)
+
+
+def _is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _calendar_date(text):
+    """The date a YYYY-MM-DD string names, or None. Never fromisoformat, never \\d."""
+    if not _DATE_TEXT.fullmatch(text):
+        return None
+    try:
+        return datetime.date(int(text[0:4]), int(text[5:7]), int(text[8:10]))
+    except ValueError:
+        return None
+
+
+def check(value, kind, rng):
+    """The one rule `value` breaks (wrong type first), or None when it is valid."""
+    if kind == "integer":
+        if not _is_int(value):
+            return WRONG_TYPE + kind
+    elif kind == "number":
+        if not (_is_int(value) or isinstance(value, float)):
+            return WRONG_TYPE + kind
+    elif kind == "boolean":
+        if not isinstance(value, bool):
+            return WRONG_TYPE + kind
+    elif kind == "date":
+        # A date-time is a subclass of date: refuse it first.
+        if isinstance(value, datetime.datetime):
+            return WRONG_TYPE + kind
+        if isinstance(value, datetime.date):
+            return None
+        if not isinstance(value, str):
+            return WRONG_TYPE + kind
+        return None if _calendar_date(value) else NOT_A_DATE
+    if rng is not None:
+        text, low, low_ok, high = rng
+        # Compare the value as parsed: never convert a huge int to float, and only a
+        # float can be non-finite (math.isfinite on a huge int would overflow).
+        if isinstance(value, float) and not math.isfinite(value):
+            return OUT_OF_RANGE + text
+        if (value < low) or (value == low and not low_ok) or value > high:
+            return OUT_OF_RANGE + text
+    return None
+
+
 def _doc_value(value):
     """A config value as the document writes it: a date as YYYY-MM-DD."""
     if isinstance(value, datetime.date):
         return value.isoformat()
+    if isinstance(value, str):
+        return _calendar_date(value).isoformat()
     return value
 
 
@@ -121,21 +223,55 @@ def _effective(cap):
 
 
 def resolve(path, names):
-    """Return (exit code, document or None)."""
+    """Return (exit code, document or None). Violations go to stderr, in order."""
     data = _load(path)
+    violations = []
+    declared = "capacity" in data
+    cap = data.get("capacity")
+    if declared and not isinstance(cap, dict):
+        violations.append((["capacity"], WRONG_TYPE + "table"))
+        cap = None
+    elif declared:
+        for key in SHARED_KEYS:
+            if key not in cap:
+                if key not in SHARED_OPTIONAL:
+                    violations.append((["capacity", key], MISSING))
+                continue
+            rule = check(cap[key], *SHARED_RULES[key])
+            if rule:
+                violations.append((["capacity", key], rule))
+
     project_tables = data.get("project")
     if not isinstance(project_tables, dict):
         project_tables = {}
-    projects = []
+    tables = []
     for name in names:
         ptable = project_tables.get(name)
-        pcap = ptable.get("capacity") if isinstance(ptable, dict) else None
-        projects.append(_project(name, pcap))
-    declared = "capacity" in data
+        pcap = None
+        if isinstance(ptable, dict) and "capacity" in ptable:
+            pcap = ptable["capacity"]
+            base = ["project", name, "capacity"]
+            if not isinstance(pcap, dict):
+                violations.append((base, WRONG_TYPE + "table"))
+                pcap = None
+            else:
+                if not declared:
+                    violations.append((base, TABLE_MISSING))
+                for key in PROJECT_KEYS:
+                    if key in pcap:
+                        rule = check(pcap[key], *PROJECT_RULES[key])
+                        if rule:
+                            violations.append((base + [key], rule))
+        tables.append((name, pcap))
+
+    if violations:
+        for parts, rule in violations:
+            _say(where(parts) + ": " + rule)
+        return 3, None
+
     shared = None
     effective = None
     if declared:
-        cap = data["capacity"]
         shared = {}
         for key in SHARED_KEYS:
             if key in cap:
@@ -149,7 +285,7 @@ def resolve(path, names):
         "token_unit": TOKEN_UNIT,
         "shared": shared,
         "effective_tokens_per_week": effective,
-        "projects": projects,
+        "projects": [_project(name, pcap) for name, pcap in tables],
     }
     return 0, doc
 

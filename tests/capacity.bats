@@ -237,3 +237,213 @@ _full() { cp "$PLUGIN_ROOT/tests/fixtures/capacity/full.toml" "$CFG"; }
   run --separate-stderr python3 "$CAPPY" summary < <(jq '.capacity_schema = "1.0"' "$BATS_TEST_TMPDIR/v2.json")
   [ "$status" -eq 0 ]
 }
+
+# --- Task 3: key-local violations ---
+
+# _expect3 <stderr> — the reader exits 3 with an empty stdout and exactly this stderr.
+_expect3() {
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 3 ] || { printf 'want status 3, got %s; stderr:\n%s\n' "$status" "$stderr" >&2; return 1; }
+  [ -z "$output" ]
+  [ "$stderr" = "$1" ] || { printf 'want stderr:\n%s\ngot:\n%s\n' "$1" "$stderr" >&2; return 1; }
+}
+
+# _expect0 — the reader exits 0 with an empty stderr.
+_expect0() {
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ] || { printf 'want status 0, got %s; stderr:\n%s\n' "$status" "$stderr" >&2; return 1; }
+  [ -z "$stderr" ]
+}
+
+# _shared [cap_shared args] — a fresh config holding only the [capacity] table.
+_shared() { cap_config </dev/null; cap_shared "$@"; }
+
+# _alpha <toml line>... — a fresh config: a valid [capacity] table and project alpha
+# whose capacity table holds the given lines.
+_alpha() {
+  _shared
+  cap_projects alpha
+  { echo '[project.alpha.capacity]'; printf '%s\n' "$@"; } | cap_append
+}
+
+@test "violation: missing required key" {
+  local k
+  for k in operator_hours_per_week lane_hours_per_week max_lanes tokens_per_week tokens_per_window windows_per_week; do
+    _shared "-$k"
+    _expect3 "capacity: capacity.$k: missing required key"
+  done
+}
+
+@test "violation: wrong type: expected number" {
+  _shared operator_hours_per_week=true
+  _expect3 "capacity: capacity.operator_hours_per_week: wrong type: expected number"
+  _shared 'operator_hours_per_week="20"'
+  _expect3 "capacity: capacity.operator_hours_per_week: wrong type: expected number"
+}
+
+@test "violation: wrong type: expected integer" {
+  _shared max_lanes=3.0
+  _expect3 "capacity: capacity.max_lanes: wrong type: expected integer"
+  _shared max_lanes=true
+  _expect3 "capacity: capacity.max_lanes: wrong type: expected integer"
+  _shared 'tokens_per_week="1"'
+  _expect3 "capacity: capacity.tokens_per_week: wrong type: expected integer"
+  _alpha 'priority = 1.5'
+  _expect3 "capacity: project.alpha.capacity.priority: wrong type: expected integer"
+}
+
+@test "violation: wrong type: expected boolean" {
+  _alpha 'paused = "yes"'
+  _expect3 "capacity: project.alpha.capacity.paused: wrong type: expected boolean"
+  _alpha 'paused = 1'
+  _expect3 "capacity: project.alpha.capacity.paused: wrong type: expected boolean"
+}
+
+@test "violation: wrong type: expected date" {
+  local v
+  for v in 20261231 2026-12-31T00:00:00 true; do
+    _alpha "deadline = $v"
+    _expect3 "capacity: project.alpha.capacity.deadline: wrong type: expected date"
+  done
+}
+
+@test "violation: wrong type: expected table" {
+  cap_config_raw <<TOML
+capacity = 5
+
+[defaults]
+
+[project.alpha]
+source_dir = "$BATS_TEST_TMPDIR/alpha"
+
+[project.alpha.capacity]
+priority = 2
+TOML
+  _expect3 "capacity: capacity: wrong type: expected table"
+  _shared
+  cap_append <<TOML
+[project.alpha]
+source_dir = "$BATS_TEST_TMPDIR/alpha"
+capacity = "x"
+TOML
+  _expect3 "capacity: project.alpha.capacity: wrong type: expected table"
+}
+
+@test "violation: out of range: 0 < x <= 168" {
+  local v
+  for v in 0 168.5 -1; do
+    _shared "operator_hours_per_week=$v"
+    _expect3 "capacity: capacity.operator_hours_per_week: out of range: 0 < x <= 168"
+  done
+  _shared lane_hours_per_week=169
+  _expect3 "capacity: capacity.lane_hours_per_week: out of range: 0 < x <= 168"
+  for v in 168 0.5; do
+    _shared "operator_hours_per_week=$v" "lane_hours_per_week=$v"
+    _expect0
+  done
+}
+
+@test "violation: out of range: 1 <= x <= 9007199254740991" {
+  _shared max_lanes=0
+  _expect3 "capacity: capacity.max_lanes: out of range: 1 <= x <= 9007199254740991"
+  _alpha 'priority = 0'
+  _expect3 "capacity: project.alpha.capacity.priority: out of range: 1 <= x <= 9007199254740991"
+  _alpha 'max_lanes = 0'
+  _expect3 "capacity: project.alpha.capacity.max_lanes: out of range: 1 <= x <= 9007199254740991"
+  _alpha 'priority = 9007199254740992'
+  _expect3 "capacity: project.alpha.capacity.priority: out of range: 1 <= x <= 9007199254740991"
+  _shared max_lanes=9007199254740991
+  cap_projects alpha
+  _expect0
+}
+
+@test "violation: out of range: 0 < x <= 9007199254740991" {
+  _shared tokens_per_week=0
+  _expect3 "capacity: capacity.tokens_per_week: out of range: 0 < x <= 9007199254740991"
+  _shared tokens_per_window=-1
+  _expect3 "capacity: capacity.tokens_per_window: out of range: 0 < x <= 9007199254740991"
+  _shared tokens_per_week=9007199254740992
+  _expect3 "capacity: capacity.tokens_per_week: out of range: 0 < x <= 9007199254740991"
+  _shared tokens_per_week=9007199254740991
+  _expect0
+}
+
+@test "violation: out of range: 0 < x <= 33.6" {
+  local v
+  for v in 0 33.7; do
+    _shared "windows_per_week=$v"
+    _expect3 "capacity: capacity.windows_per_week: out of range: 0 < x <= 33.6"
+  done
+  _shared windows_per_week=33.6
+  _expect0
+}
+
+@test "violation: out of range: 0 <= x <= 9007199254740991" {
+  local r='out of range: 0 <= x <= 9007199254740991'
+  _alpha 'reserve_operator_hours_per_week = -0.5'
+  _expect3 "capacity: project.alpha.capacity.reserve_operator_hours_per_week: $r"
+  _alpha 'reserve_tokens_per_week = -1'
+  _expect3 "capacity: project.alpha.capacity.reserve_tokens_per_week: $r"
+  _shared operator_hours_per_agent_hour=-0.1
+  _expect3 "capacity: capacity.operator_hours_per_agent_hour: $r"
+  _shared operator_hours_per_agent_hour=1e300
+  _expect3 "capacity: capacity.operator_hours_per_agent_hour: $r"
+  _alpha 'reserve_operator_hours_per_week = 0' 'reserve_tokens_per_week = 0'
+  _expect0
+  _shared operator_hours_per_agent_hour=0
+  _expect0
+}
+
+@test "violation: a non-finite number is out of range" {
+  _shared operator_hours_per_agent_hour=inf
+  _expect3 "capacity: capacity.operator_hours_per_agent_hour: out of range: 0 <= x <= 9007199254740991"
+  _alpha 'reserve_operator_hours_per_week = nan'
+  _expect3 "capacity: project.alpha.capacity.reserve_operator_hours_per_week: out of range: 0 <= x <= 9007199254740991"
+  _shared windows_per_week=nan
+  _expect3 "capacity: capacity.windows_per_week: out of range: 0 < x <= 33.6"
+}
+
+@test "violation: a 400-digit integer is out of range, never a crash" {
+  local big
+  big="$(printf '9%.0s' {1..400})"
+  _shared "tokens_per_window=$big" windows_per_week=5.5
+  _expect3 "capacity: capacity.tokens_per_window: out of range: 0 < x <= 9007199254740991"
+  _alpha "reserve_operator_hours_per_week = $big"
+  _expect3 "capacity: project.alpha.capacity.reserve_operator_hours_per_week: out of range: 0 <= x <= 9007199254740991"
+}
+
+@test "violation: not a calendar date" {
+  local v
+  for v in '"2026-02-30"' '"2026-2-3"' '"next friday"' '"２０２６-１２-３１"'; do
+    _alpha "deadline = $v"
+    _expect3 "capacity: project.alpha.capacity.deadline: not a calendar date"
+  done
+  for v in '"2026-12-31"' 2026-12-31; do
+    _alpha "deadline = $v"
+    _expect0
+    jq -e '.projects[0].deadline == {"value":"2026-12-31","source":"config"}' <<<"$output"
+  done
+}
+
+@test "violation: [capacity] table missing" {
+  cap_config </dev/null
+  cap_projects alpha beta
+  printf '[project.alpha.capacity]\npriority = 2\n' | cap_append
+  _expect3 "capacity: project.alpha.capacity: [capacity] table missing"
+  printf '[project.beta.capacity]\npriority = 0\n' | cap_append
+  _expect3 "capacity: project.alpha.capacity: [capacity] table missing
+capacity: project.beta.capacity: [capacity] table missing
+capacity: project.beta.capacity.priority: out of range: 1 <= x <= 9007199254740991"
+}
+
+@test "where: a project name TOML must quote is a JSON string" {
+  _shared
+  cap_append <<TOML
+[project."my proj"]
+source_dir = "$BATS_TEST_TMPDIR/my proj"
+
+[project."my proj".capacity]
+priority = 0
+TOML
+  _expect3 'capacity: project."my proj".capacity.priority: out of range: 1 <= x <= 9007199254740991'
+}
