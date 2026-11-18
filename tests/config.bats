@@ -271,7 +271,8 @@ _wbs_cfg() {
   [ -z "$stderr" ]
 }
 
-# #1050: the six worktree-root shapes, for config_worktree_root and the trust pin.
+# #1050: the worktree-root shapes (projects a-g), for config_worktree_root and the
+# trust pin.
 _worktree_config() {
   cat > "$DA_HOME/config.toml" <<'TOML'
 [project.a]
@@ -322,7 +323,7 @@ TOML
   done
 }
 
-@test "_trust_forbid_roots output is unchanged by config_worktree_root (#1050)" {
+@test "_trust_forbid_roots output is unchanged by worktree_root_rule (#1050)" {
   _worktree_config
   source "$PLUGIN_ROOT/scripts/lib/trust.sh"
   run _trust_forbid_roots

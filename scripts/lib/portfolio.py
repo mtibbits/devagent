@@ -870,11 +870,12 @@ NOT_REGULAR = "not a regular file"
 
 
 def _regular_file(path) -> tuple[str, str | None]:
-    """("absent", None), ("unreadable", detail) or ("regular", None) for `path`.
+    """("absent", None), ("unreadable", detail), ("not_regular", NOT_REGULAR) or
+    ("regular", None) for `path`.
 
     #1050 item 3: an lstat then a stat, never an open, so a FIFO (or a device)
-    cannot block the run. A dangling symlink or anything
-    that is not a regular file once followed is NOT_REGULAR.
+    cannot block the run. A dangling symlink or anything that is not a regular
+    file once followed is "not_regular".
     """
     st = _probe(path, follow=False)
     if isinstance(st, OSError):
@@ -885,7 +886,7 @@ def _regular_file(path) -> tuple[str, str | None]:
     if isinstance(st, OSError):
         return "unreadable", _err_detail(st)
     if st is None or not stat.S_ISREG(st.st_mode):
-        return "unreadable", NOT_REGULAR
+        return "not_regular", NOT_REGULAR
     return "regular", None
 
 
@@ -907,9 +908,9 @@ def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     kind, detail = _regular_file(wbs)
     if kind == "absent":
         return "no_wbs", REASON_NO_WBS, None
+    if kind == "not_regular":
+        return "unreadable", REASON_NOT_FILE, None
     if kind == "unreadable":
-        if detail == NOT_REGULAR:
-            return "unreadable", REASON_NOT_FILE, None
         return "unreadable", REASON_UNREADABLE.format(detail), None
     try:
         # newline="" keeps CR bytes, as wbs_parser.parse_file reads.
@@ -999,26 +1000,26 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report,
                              f"failed: {_err_detail(listing_error)}")
     checklist = issue_dir / "checklist.md"
     kind, detail = _regular_file(checklist)
-    if kind == "unreadable":
-        report(None, "checklist_unreadable", f"{issue}/checklist.md could not be read: {detail}")
-    elif kind == "regular":
+    if kind == "regular":
         try:
             state, number, name = checklist_next(checklist)
         except ChecklistError as e:
             report(None, "checklist_unreadable", f"{issue}/checklist.md could not be read: {e}")
         else:
             entry.update({"checklist": state, "next_step": name, "next_step_number": number})
+    elif kind != "absent":
+        report(None, "checklist_unreadable", f"{issue}/checklist.md could not be read: {detail}")
     stuck = issue_dir / "STUCK"
     kind, detail = _regular_file(stuck)
-    if kind == "unreadable":
-        entry["stuck"] = {"step": None, "reason": None, "since": None}
-        report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {detail}")
-    elif kind == "regular":
+    if kind == "regular":
         try:
             entry["stuck"] = read_stuck(stuck)
         except StuckError as e:
             entry["stuck"] = {"step": None, "reason": None, "since": None}
             report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {e}")
+    elif kind != "absent":
+        entry["stuck"] = {"step": None, "reason": None, "since": None}
+        report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {detail}")
     return entry
 
 

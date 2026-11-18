@@ -53,7 +53,9 @@ worktree_root_rule() {
   return 1
 }
 
-# config_worktree_root <project> — worktree_root_rule over the project's
+# config_worktree_root <project> — for callers that hold neither value (meant for
+# branch.sh and spike.sh once their empty-worktree_root semantic is settled; no
+# production caller yet). worktree_root_rule over the project's
 # worktree_root and source_dir (both tilde-expanded by config_get_project_field);
 # source_dir is read only when worktree_root is unset or empty. A field that
 # cannot be read counts as unset; stderr stays quiet.
