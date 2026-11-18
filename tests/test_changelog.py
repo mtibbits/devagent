@@ -201,13 +201,16 @@ def test_check_child_that_vanishes_counts_as_gone(tool, tmp_path, capsys, monkey
     assert (d / "gone.md").exists()
 
 
+def _span(lines, start):
+    """lines[start:] up to the next line starting `## ` after start (exclusive)."""
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return lines[start:end]
+
+
 def _section(lines, version):
     """The lines of `## [<version>]` from its first col-0 `- **` line to the next `## `."""
     start = next(i for i, ln in enumerate(lines) if ln.startswith("## [%s]" % version))
-    end = next(
-        (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines)
-    )
-    body = lines[start + 1 : end]
+    body = _span(lines, start)[1:]
     first = next(i for i, ln in enumerate(body) if ln.startswith("- **"))
     return body[first:]
 
@@ -778,9 +781,7 @@ def _flat(text):
 def _md_section(path, heading):
     """The text from the line `heading` to the next line starting `## ` (exclusive)."""
     lines = path.read_text(encoding="utf-8").split("\n")
-    start = lines.index(heading)
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    return "\n".join(lines[start:end])
+    return "\n".join(_span(lines, lines.index(heading)))
 
 
 def test_docs_state_changelog_rules():

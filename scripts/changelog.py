@@ -42,6 +42,7 @@ reads only ``scripts/<step>.sh``. Stdlib only, Python 3.8 or later.
 from __future__ import annotations
 
 import argparse
+import collections
 import datetime
 import os
 import re
@@ -122,12 +123,18 @@ def parse_entries(lines):
     return entries, problems
 
 
-def _lines(text):
-    """Text -> lines without terminators; CRLF reads as LF."""
-    lines = text.replace("\r\n", "\n").split("\n")
+def _lines(data):
+    """File bytes -> lines without terminators: UTF-8 (a BOM dropped), CRLF read as
+    LF. Raises UnicodeDecodeError; each caller words its own refusal."""
+    lines = data.decode("utf-8-sig").replace("\r\n", "\n").split("\n")
     if lines and lines[-1] == "":
         lines.pop()
     return lines
+
+
+def _next_heading(lines, start):
+    """The index of the first col-0 ``## `` line at or after start, else len(lines)."""
+    return next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
 
 
 # --- changelog.d/ ----------------------------------------------------------------
@@ -188,106 +195,111 @@ def scan(root):
         if not stat.S_ISREG(st.st_mode) or not name.endswith(".md"):
             problems.append("%s: not a .md file; %s" % (where, ONLY_ENTRIES))
             continue
-        stem = name[: -len(".md")]
-        before = len(problems)
-        reason = _key_problem(stem)
-        if reason:
-            problems.append("%s: %s" % (where, reason))
         try:
             data = path.read_bytes()
         except FileNotFoundError:
-            del problems[before:]
             continue
+        reason = _key_problem(name[: -len(".md")])
+        mine = ["%s: %s" % (where, reason)] if reason else []
+        entries = []
         try:
-            text = data.decode("utf-8-sig")
+            lines = _lines(data)
         except UnicodeDecodeError:
-            problems.append("%s: not UTF-8" % where)
-            continue
-        lines = _lines(text)
-        if not any(line.strip() for line in lines):
-            problems.append("%s: empty; an entry file holds one or more entries" % where)
-            continue
-        entries, body = parse_entries(lines)
-        for number, why in body:
-            problems.append("%s: line %d: %s" % (where, number, why))
-        if len(problems) == before:
-            files.append((stem, name, entries))
-    files.sort(key=lambda f: _sort_key(f[0]))
-    return [(name, entries) for _stem, name, entries in files], problems
-
-
-def check(root):
-    """Every changelog.d/ problem, in name order; [] when there is none."""
-    return scan(root)[1]
+            mine.append("%s: not UTF-8" % where)
+        else:
+            if not any(line.strip() for line in lines):
+                mine.append("%s: empty; an entry file holds one or more entries" % where)
+            else:
+                entries, body = parse_entries(lines)
+                mine += ["%s: line %d: %s" % (where, number, why) for number, why in body]
+        problems += mine
+        if not mine:
+            files.append((name, entries))
+    files.sort(key=lambda f: _sort_key(f[0][: -len(".md")]))
+    return files, problems
 
 
 # --- CHANGELOG.md --------------------------------------------------------------------
 
 
 class Refusal(Exception):
-    """A refusal: its lines are printed to stderr and the tool exits ``code``."""
+    """A refusal: its lines are printed to stderr; the tool exits 1, changing nothing."""
 
-    def __init__(self, *lines, code=1):
+    code = 1
+
+    def __init__(self, *lines):
         super().__init__(*lines)
         self.lines = lines
-        self.code = code
+
+
+class Partial(Refusal):
+    """CHANGELOG.md was left changed but the release did not finish: exit 3."""
+
+    code = 3
 
 
 def _plural(count, one, many):
     return "%d %s" % (count, one if count == 1 else many)
 
 
-def _read_changelog(root):
+Changelog = collections.namedtuple("Changelog", "path original lines u end newest")
+
+
+def _load(root):
+    """Read CHANGELOG.md and find ``## [Unreleased]`` -> a Changelog.
+
+    ``u`` is the ``## [Unreleased]`` line, ``end`` the first col-0 ``## `` after it
+    (the newest section's heading, or len(lines)), and ``newest`` that heading's
+    version when it is a dated section, else None. Refuses when there is no
+    exact ``## [Unreleased]`` line, or when there are two: the second one's
+    entries would sit outside the span every command reads, so a release would
+    leave them unreleased while preview reported nothing waiting. preview is
+    README's tag gate, so it refuses here too rather than fail open."""
     path = Path(root) / "CHANGELOG.md"
     try:
-        data = path.read_bytes()
+        original = path.read_bytes()
     except OSError as exc:
         raise Refusal("could not read CHANGELOG.md (%s)" % exc.strerror)
     try:
-        text = data.decode("utf-8-sig")
+        lines = _lines(original)
     except UnicodeDecodeError:
         raise Refusal("CHANGELOG.md is not UTF-8")
-    return path, data, _lines(text)
-
-
-def _unreleased(lines):
-    """-> (u, end): the ``## [Unreleased]`` line and the first col-0 ``## `` after it
-    (the newest section's heading, or len(lines)).
-
-    Refuses when there is no such exact line, or when there are two: the second
-    one's entries would sit outside the span every command reads, so a release
-    would leave them unreleased while preview reported nothing waiting. preview
-    is README's tag gate, so it refuses here too rather than fail open."""
     try:
         u = lines.index(UNRELEASED)
     except ValueError:
         raise Refusal("CHANGELOG.md has no '%s' line" % UNRELEASED)
-    for i in range(u + 1, len(lines)):
-        if lines[i] == UNRELEASED:
-            raise Refusal(
-                "CHANGELOG.md line %d: a second '%s' line; move its entries under the "
-                "first and delete it" % (i + 1, UNRELEASED)
-            )
-    end = next((i for i in range(u + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    return u, end
+    try:
+        second = lines.index(UNRELEASED, u + 1)
+    except ValueError:
+        pass
+    else:
+        raise Refusal(
+            "CHANGELOG.md line %d: a second '%s' line; move its entries under the "
+            "first and delete it" % (second + 1, UNRELEASED)
+        )
+    end = _next_heading(lines, u + 1)
+    dated = DATED.fullmatch(lines[end]) if end < len(lines) else None
+    return Changelog(path, original, lines, u, end, dated.group("version") if dated else None)
 
 
-def _waiting(root, lines, span, command):
+def _waiting(root, log, command, required=True):
     """Everything waiting, in release order -> (files, entries).
 
     The entry files by key (file-internal order kept), then the entries carried
-    under ``## [Unreleased]`` in document order. Refuses on a check problem or
-    on anything but entries under ``## [Unreleased]``."""
+    under ``## [Unreleased]`` in document order. Refuses on a check problem, on
+    anything but entries under ``## [Unreleased]``, and, when ``required``, on
+    nothing waiting."""
     files, problems = scan(root)
     if problems:
         raise Refusal(*problems, "%s refused: fix the changelog.d/ problems above" % command)
-    u, end = span
-    carried, bad = parse_entries(lines[u + 1 : end])
+    carried, bad = parse_entries(log.lines[log.u + 1 : log.end])
     if bad:
         raise Refusal(
-            *("CHANGELOG.md line %d: %s under %s" % (u + 1 + n, why, UNRELEASED) for n, why in bad)
+            *("CHANGELOG.md line %d: %s under %s" % (log.u + 1 + n, why, UNRELEASED) for n, why in bad)
         )
     entries = [entry for _name, file_entries in files for entry in file_entries] + carried
+    if required and not entries:
+        raise Refusal(NOTHING_WAITING)
     return files, entries
 
 
@@ -303,11 +315,9 @@ def _join(entries):
 
 def _read_intro(name):
     try:
-        data = Path(name).read_bytes()
+        lines = _lines(Path(name).read_bytes())
     except OSError as exc:
         raise Refusal("--intro %s: could not read (%s)" % (name, exc.strerror))
-    try:
-        lines = _lines(data.decode("utf-8-sig"))
     except UnicodeDecodeError:
         raise Refusal("--intro %s: not UTF-8" % name)
     for number, line in enumerate(lines, 1):
@@ -347,34 +357,31 @@ def _holds(path, data):
         return False
 
 
-def _write(root, path, original, lines, files):
+def _write(root, log, lines, files):
     """Write CHANGELOG.md (UTF-8, LF), restoring its bytes on failure, then delete
-    each used entry file on its own. -> the number of files deleted.
+    each used entry file on its own.
 
     Exit 1 means nothing changed, so a failed write reads the file back: untouched
-    (a read-only or locked file) or restored is exit 1; a file left changed is a
-    partial state, exit 3, like a failed delete."""
+    (a read-only or locked file) or restored is a Refusal; a file left changed is
+    Partial, like a failed delete."""
     try:
-        path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+        log.path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
     except OSError as exc:
-        if _holds(path, original):
-            raise Refusal(
-                "could not write CHANGELOG.md (%s); it is unchanged and no entry file is deleted"
-                % exc.strerror
-            )
-        try:
-            path.write_bytes(original)
-        except OSError:
-            pass
-        if _holds(path, original):
-            raise Refusal(
-                "could not write CHANGELOG.md (%s); it is restored and no entry file is deleted"
-                % exc.strerror
-            )
+        state = "unchanged"
+        if not _holds(log.path, log.original):
+            state = "restored"
+            try:
+                log.path.write_bytes(log.original)
+            except OSError:
+                pass
+            if not _holds(log.path, log.original):
+                raise Partial(
+                    "could not write CHANGELOG.md (%s) nor restore it; compare it with git "
+                    "before anything else — no entry file is deleted" % exc.strerror
+                )
         raise Refusal(
-            "could not write CHANGELOG.md (%s) nor restore it; compare it with git before "
-            "anything else — no entry file is deleted" % exc.strerror,
-            code=3,
+            "could not write CHANGELOG.md (%s); it is %s and no entry file is deleted"
+            % (exc.strerror, state)
         )
     left = []
     for name, _entries in files:
@@ -385,18 +392,15 @@ def _write(root, path, original, lines, files):
         except OSError:
             left.append("changelog.d/" + name)
     if left:
-        raise Refusal(
+        raise Partial(
             "the release is written; delete these files by hand — do not re-run release "
-            "or --fold: " + ", ".join(left),
-            code=3,
+            "or --fold: " + ", ".join(left)
         )
-    return len(files)
 
 
 def preview(root):
     """The ``## [Unreleased]`` section everything waiting would make, as text."""
-    _path, _data, lines = _read_changelog(root)
-    _files, entries = _waiting(root, lines, _unreleased(lines), "preview")
+    _files, entries = _waiting(root, _load(root), "preview", required=False)
     if not entries:
         return UNRELEASED + "\n"
     return "\n".join([UNRELEASED, ""] + _join(entries)) + "\n"
@@ -406,32 +410,26 @@ def release(root, version, date, intro=None):
     """Write ``## [<version>] — <date>`` from everything waiting -> a report line."""
     _check_version(version)
     _check_date(date)
-    path, original, lines = _read_changelog(root)
-    span = _unreleased(lines)
-    u, end = span
-    newest = DATED.fullmatch(lines[end]) if end < len(lines) else None
-    for line in lines:
-        found = SECTION.match(line)
-        if found and found.group("version") == version:
-            if newest and newest.group("version") == version:
-                raise Refusal(
-                    "CHANGELOG.md already has a section for %s; add to it with release %s "
-                    "--fold before it is tagged, or release a new version" % (version, version)
-                )
-            raise Refusal("CHANGELOG.md already has a section for %s; release a new version" % version)
-    files, entries = _waiting(root, lines, span, "release")
-    if not entries:
-        raise Refusal(NOTHING_WAITING)
+    log = _load(root)
+    if any(m and m.group("version") == version for m in map(SECTION.match, log.lines)):
+        if log.newest == version:
+            raise Refusal(
+                "CHANGELOG.md already has a section for %s; add to it with release %s "
+                "--fold before it is tagged, or release a new version" % (version, version)
+            )
+        raise Refusal("CHANGELOG.md already has a section for %s; release a new version" % version)
+    files, entries = _waiting(root, log, "release")
     intro_lines = _read_intro(intro) + [""] if intro is not None else []
     heading = "## [%s] — %s" % (version, date)
-    out = lines[:u] + [UNRELEASED, "", heading, ""] + intro_lines + _join(entries)
-    if end < len(lines):
-        out += [""] + lines[end:]
-    deleted = _write(root, path, original, out, files)
+    lines = log.lines
+    out = lines[: log.u] + [UNRELEASED, "", heading, ""] + intro_lines + _join(entries)
+    if log.end < len(lines):
+        out += [""] + lines[log.end :]
+    _write(root, log, out, files)
     return "wrote %s: %s, %s deleted" % (
         heading,
         _plural(len(entries), "entry", "entries"),
-        _plural(deleted, "entry file", "entry files"),
+        _plural(len(files), "entry file", "entry files"),
     )
 
 
@@ -441,19 +439,15 @@ def fold(root, version):
     The entries go above the section's first entry and below its opening prose;
     the date and the prose are unchanged -> a report line."""
     _check_version(version)
-    path, original, lines = _read_changelog(root)
-    span = _unreleased(lines)
-    u, end = span
-    newest = DATED.fullmatch(lines[end]) if end < len(lines) else None
-    if not newest or newest.group("version") != version:
+    log = _load(root)
+    if log.newest != version:
         raise Refusal(
             "--fold adds only to the newest dated section, which is %s, not %s; "
-            "release a new version instead" % (newest.group("version") if newest else "none", version)
+            "release a new version instead" % (log.newest or "none", version)
         )
-    files, entries = _waiting(root, lines, span, "release")
-    if not entries:
-        raise Refusal(NOTHING_WAITING)
-    nxt = next((i for i in range(end + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    files, entries = _waiting(root, log, "release")
+    lines, end = log.lines, log.end
+    nxt = _next_heading(lines, end + 1)
     body = lines[end + 1 : nxt]
     first = next((i for i, line in enumerate(body) if ENTRY_HEAD.match(line)), None)
     if first is not None:
@@ -462,12 +456,12 @@ def fold(root, version):
         while body and not body[-1].strip():
             body.pop()
         body = body + [""] + _join(entries) + ([""] if nxt < len(lines) else [])
-    out = lines[:u] + [UNRELEASED, "", lines[end]] + body + lines[nxt:]
-    deleted = _write(root, path, original, out, files)
+    out = lines[: log.u] + [UNRELEASED, "", lines[end]] + body + lines[nxt:]
+    _write(root, log, out, files)
     return "folded %s into %s: %s deleted" % (
         _plural(len(entries), "entry", "entries"),
         lines[end],
-        _plural(deleted, "entry file", "entry files"),
+        _plural(len(files), "entry file", "entry files"),
     )
 
 
