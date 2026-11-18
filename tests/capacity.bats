@@ -19,13 +19,19 @@ setup() {
 teardown() { teardown_tmp_devagent_home; }
 
 # _door <n> [project...] — door 1 is the entry point (capacity.sh), door 2 the helper
-# called directly (capacity.py resolve <config> [project...]).
+# called directly (capacity.py resolve <config> [project...]). Sets DOOR_CFG to the config
+# path that door prints. Door 2 runs from $DA_HOME with the relative path: Git Bash
+# (MSYS) rewrites an absolute /tmp/... argument to a native program into C:/..., so an
+# absolute path would print in a form the test cannot predict.
 _door() {
   local n="$1"; shift
   if [[ "$n" == 1 ]]; then
+    DOOR_CFG="$CFG"
     run --separate-stderr "$CAP"
   else
-    run --separate-stderr python3 "$CAPPY" resolve "$CFG" "$@"
+    DOOR_CFG="config.toml"
+    cd "$DA_HOME"
+    run --separate-stderr python3 "$CAPPY" resolve config.toml "$@"
   fi
 }
 
@@ -57,7 +63,7 @@ _door() {
     _door "$d"
     [ "$status" -eq 4 ]
     [ -z "$output" ]
-    [ "$stderr" = "capacity: config not readable: $CFG" ]
+    [ "$stderr" = "capacity: config not readable: $DOOR_CFG" ]
   done
 }
 
@@ -68,7 +74,7 @@ _door() {
     _door "$d"
     [ "$status" -eq 4 ]
     [ -z "$output" ]
-    [ "$stderr" = "capacity: config is not valid TOML: $CFG" ]
+    [ "$stderr" = "capacity: config is not valid TOML: $DOOR_CFG" ]
   done
 }
 
@@ -84,7 +90,7 @@ TOML
     _door "$d"
     [ "$status" -eq 4 ]
     [ -z "$output" ]
-    [ "$stderr" = "capacity: config is not valid TOML: $CFG" ]
+    [ "$stderr" = "capacity: config is not valid TOML: $DOOR_CFG" ]
   done
 }
 
@@ -697,6 +703,9 @@ _states_limit_size() {
   for home in "${DOC_HOMES[@]}"; do
     grep -qF "devagent does not know the subscription's limits" "$PLUGIN_ROOT/$home" \
       || { echo "no disclaimer in $home" >&2; false; }
+    # The issue's API section: the token numbers are the operator's own declaration.
+    grep -qF "the token numbers are the operator's own" "$PLUGIN_ROOT/$home" \
+      || { echo "no operator's-own sentence in $home" >&2; false; }
   done
   for home in docs/configuration.md docs/specs/2026-05-19-devagent-plugin-design.md; do
     grep -qF 'ties go to the project holding fewer lanes, then by name' "$PLUGIN_ROOT/$home" \
@@ -721,10 +730,13 @@ _states_limit_size() {
   # ...and not on the shipped controls: the disclaimer and the skeleton's
   # tokens_per_window example line.
   local ctl
+  # (`[ ] && ! pred` cannot fail a bats test away from its last line: errexit ignores both.)
   ctl="$(grep -m1 -F "devagent does not know the subscription's limits" "$PLUGIN_ROOT/templates/config.toml.skel")"
-  [ -n "$ctl" ] && ! _states_limit_size "$ctl"
+  [ -n "$ctl" ]
+  if _states_limit_size "$ctl"; then echo "control tripped: $ctl" >&2; false; fi
   ctl="$(grep -m1 -E '^# tokens_per_window[[:space:]]*=' "$PLUGIN_ROOT/templates/config.toml.skel")"
-  [ -n "$ctl" ] && ! _states_limit_size "$ctl"
+  [ -n "$ctl" ]
+  if _states_limit_size "$ctl"; then echo "control tripped: $ctl" >&2; false; fi
   # The tracked set (#566), this file excluded: it holds the planted sentences.
   local subjects=0 offenders=() line text
   while IFS= read -r line; do

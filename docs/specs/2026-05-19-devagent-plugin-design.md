@@ -289,6 +289,8 @@ per week and per rolling window, in weighted input-token equivalents) and, per p
 `priority` (default 5), a lane cap, `paused`, a `deadline`, and operator-hour and token
 reservations. In `[capacity]`, every key except `operator_hours_per_agent_hour` is required.
 devagent does not know the subscription's limits: every value in the block above is an example.
+Every number is declared: the token numbers are the operator's own, and relating the
+subscription's limits (which may count raw tokens) to this budget is the operator's call.
 `scripts/capacity.sh` (`scripts/lib/capacity.py`) resolves and validates both tables into a
 JSON document (`capacity_schema` `"1.0"`) and exits 0, 2 (any argument), 3 (one stderr line
 per violation, `capacity: <where>: <rule>`) or 4 (config missing, unreadable or not valid

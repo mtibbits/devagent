@@ -51,7 +51,9 @@ _fails_with() {
   local hdr last_proj
   hdr="$(_line_no '[capacity]')"
   last_proj="$(printf '%s\n' "$output" | grep -n '^\[project: ' | tail -1 | cut -d: -f1)"
-  [ -n "$hdr" ] && [ -n "$last_proj" ] && [ "$hdr" -gt "$last_proj" ]
+  [ -n "$hdr" ]
+  [ -n "$last_proj" ]
+  [ "$hdr" -gt "$last_proj" ]
   [ "$(printf '%s\n' "$output" | sed -n "$((hdr + 1))p")" = "  OK   capacity: not declared (forecasting off)" ]
 }
 
@@ -180,6 +182,7 @@ _fails_with() {
   local fails n
   fails="$(printf '%s\n' "$output" | grep -c '^  FAIL ')"
   n="$(printf '%s\n' "${lines[-1]}" | sed -n 's/^FAIL (\([0-9]*\) error(s))$/\1/p')"
-  [ -n "$n" ] && [ "$fails" -eq "$n" ]
+  [ -n "$n" ]
+  [ "$fails" -eq "$n" ]
   [[ "$output" != *"FAIL capacity"* ]]
 }

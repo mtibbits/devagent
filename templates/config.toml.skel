@@ -72,6 +72,8 @@ ship_as_draft = false
 # table plus an optional table per project. scripts/capacity.sh reads it and a
 # bare /devagent:doctor checks it; absent, forecasting is off (planned, #744).
 # devagent does not know the subscription's limits: every value below is an example.
+# Every number is declared, not measured: the token numbers are the operator's own,
+# and relating the subscription's limits (which may count raw tokens) to them is yours.
 # Every key except operator_hours_per_agent_hour is required once the table exists.
 # Tokens are weighted input-token equivalents, the unit of the actuals ledger (#729).
 # See docs/configuration.md "Capacity" for the types, ranges and rule strings.

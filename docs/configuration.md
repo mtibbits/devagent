@@ -171,6 +171,7 @@ projects, scheduling and the forecast are planned (#744). With no `[capacity]`
 table, forecasting is off.
 
 devagent does not know the subscription's limits: every value in the examples is an example, not a measurement.
+Every number is declared: the token numbers are the operator's own, and relating the subscription's limits (which may count raw tokens) to this budget is the operator's call.
 
 Tokens are weighted input-token equivalents, the unit of the actuals ledger
 (#729); the document names it as `token_unit` = `weighted_input_token_equivalents`.
