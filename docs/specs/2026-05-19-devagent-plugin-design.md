@@ -296,7 +296,8 @@ JSON document (`capacity_schema` `"1.0"`) and exits 0, 2 (any argument), 3 (one 
 per violation, `capacity: <where>: <rule>`) or 4 (config missing, unreadable or not valid
 TOML). A project cap may not exceed `capacity.max_lanes`; unpaused reservations must fit
 the shared operator hours (within `1e-9`) and the effective budget
-`min(tokens_per_week, tokens_per_window * windows_per_week)`. Unknown keys and a
+`min(tokens_per_week, tokens_per_window * windows_per_week)`, the product rounded half up
+to whole tokens. Unknown keys and a
 project table whose only key is `capacity` warn. A bare `doctor` reports it under a
 `[capacity]` header after the per-project checks; `doctor <project>` does not. The priority
 rule is the forecast's (planned, #744): lanes go to the lowest number first, and

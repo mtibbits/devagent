@@ -94,6 +94,31 @@ TOML
   done
 }
 
+@test "config: a project list that cannot be read exits 4 with one line" {
+  cap_config </dev/null
+  cap_shared
+  # A python3 shim that fails only the project listing, as a Windows sharing
+  # violation would, with a traceback on stderr.
+  local real shim="$BATS_TEST_TMPDIR/shim"
+  real="$(command -v python3)"
+  mkdir -p "$shim"
+  cat >"$shim/python3" <<SH
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [[ "\$a" == list-tables ]]; then
+    printf 'Traceback (most recent call last):\nPermissionError: sharing violation\n' >&2
+    exit 1
+  fi
+done
+exec "$real" "\$@"
+SH
+  chmod 755 "$shim/python3"
+  PATH="$shim:$PATH" run --separate-stderr "$CAP"
+  [ "$status" -eq 4 ]
+  [ -z "$output" ]
+  [ "$stderr" = "capacity: cannot list projects: $CFG" ]
+}
+
 @test "not declared: exit 0, declared false, projects at defaults" {
   cap_config </dev/null
   cap_projects alpha beta
@@ -192,6 +217,12 @@ _full() { install_fixture_config capacity/full.toml; }
   run --separate-stderr "$CAP"
   [ "$status" -eq 0 ]
   jq -e '.effective_tokens_per_week == {"value":902000,"binding":"tokens_per_week"}' <<<"$output"
+  # A double of 2^52 or more is already whole: floor(p + 0.5) would add one here.
+  cap_config </dev/null
+  cap_shared tokens_per_week=9007199254740991 tokens_per_window=4503599627370497 windows_per_week=1.0
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e '.effective_tokens_per_week == {"value":4503599627370497,"binding":"tokens_per_window_x_windows_per_week"}' <<<"$output"
 }
 
 @test "contract: field names, capacity_schema and token_unit" {
@@ -236,6 +267,12 @@ _full() { install_fixture_config capacity/full.toml; }
   run --separate-stderr python3 "$CAPPY" summary <"$BATS_TEST_TMPDIR/doc.json"
   [ "$status" -eq 0 ]
   [ "$output" = "17.5 operator h/week, pool of 3 lanes, 330000000 weighted tokens/week (tokens_per_window_x_windows_per_week)" ]
+  cap_config </dev/null
+  cap_shared operator_hours_per_week=20.0
+  "$CAP" >"$BATS_TEST_TMPDIR/doc.json"
+  run --separate-stderr python3 "$CAPPY" summary <"$BATS_TEST_TMPDIR/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$output" = "20 operator h/week, pool of 3 lanes, 500000000 weighted tokens/week (tokens_per_week)" ]
 }
 
 @test "summary: the not-declared line" {
@@ -251,11 +288,18 @@ _full() { install_fixture_config capacity/full.toml; }
   cap_shared
   "$CAP" | jq '.capacity_schema = "2.0"' >"$BATS_TEST_TMPDIR/v2.json"
   local input
-  for input in '' 'null' '[]' '{"declared":"no"}' "$(cat "$BATS_TEST_TMPDIR/v2.json")"; do
+  for input in '' 'null' '[]' '{"declared":"no"}' '{"capacity_schema":"1","declared":false}' \
+      '{"capacity_schema":"1.banana","declared":false}' '{"capacity_schema":"01.0","declared":false}'; do
     run --separate-stderr python3 "$CAPPY" summary <<<"$input"
     [ "$status" -eq 1 ]
     [ -z "$output" ]
+    [ "$stderr" = "capacity: summary: not a capacity document" ]
   done
+  # Another major is refused with a message naming both versions.
+  run --separate-stderr python3 "$CAPPY" summary <"$BATS_TEST_TMPDIR/v2.json"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [ "$stderr" = "capacity: summary: capacity_schema 2.0 is not major 1 (this reader reads 1.0)" ]
   # Control: the same document at major 1 is accepted.
   run --separate-stderr python3 "$CAPPY" summary < <(jq '.capacity_schema = "1.0"' "$BATS_TEST_TMPDIR/v2.json")
   [ "$status" -eq 0 ]

@@ -102,6 +102,7 @@ HOURS_TOLERANCE = 1e-9
 
 _BARE_PART = re.compile(r"[A-Za-z0-9_-]+")
 _DATE_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_SCHEMA_TEXT = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
 USAGE = "capacity: usage: capacity.py resolve <config> [<project>...] | capacity.py summary"
 NOT_DECLARED = "not declared (forecasting off)"
@@ -109,6 +110,10 @@ NOT_DECLARED = "not declared (forecasting off)"
 
 class _ConfigError(Exception):
     """The config cannot be read or parsed: exit 4 with this one line."""
+
+
+class _OtherMajor(Exception):
+    """summary's input is a capacity document of another major: exit 1 with this line."""
 
 
 def _say(line):
@@ -369,8 +374,8 @@ def _reject_constant(name):
 
 def summary(text):
     """The one-line summary of a capacity document, or None when `text` is not one:
-    a JSON object with a capacity_schema of major 1, a boolean `declared` and, when
-    declared, the four values the line prints."""
+    a JSON object with a MAJOR.MINOR capacity_schema, a boolean `declared` and, when
+    declared, the four values the line prints. Another major raises _OtherMajor."""
     try:
         doc = json.loads(text, parse_constant=_reject_constant)
     except ValueError:
@@ -378,8 +383,11 @@ def summary(text):
     if not isinstance(doc, dict):
         return None
     schema = doc.get("capacity_schema")
-    if not isinstance(schema, str) or schema.split(".")[0] != "1":
+    if not isinstance(schema, str) or not _SCHEMA_TEXT.fullmatch(schema):
         return None
+    if schema.split(".")[0] != CAPACITY_SCHEMA.split(".")[0]:
+        raise _OtherMajor("capacity_schema %s is not major %s (this reader reads %s)" % (
+            schema, CAPACITY_SCHEMA.split(".")[0], CAPACITY_SCHEMA))
     declared = doc.get("declared")
     if not isinstance(declared, bool):
         return None
@@ -426,7 +434,11 @@ def main(argv):
             text = sys.stdin.buffer.read().decode("utf-8")
         except (OSError, ValueError):
             text = ""
-        line = summary(text)
+        try:
+            line = summary(text)
+        except _OtherMajor as e:
+            _say("summary: " + str(e))
+            return 1
         if line is None:
             _say("summary: not a capacity document")
             return 1

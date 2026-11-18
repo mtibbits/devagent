@@ -38,7 +38,7 @@ fi
 cfg="$(config_path)" || exit 4
 [[ -f "$cfg" && -r "$cfg" ]] || { echo "capacity: config not readable: $cfg" >&2; exit 4; }
 _config_toml validate "$cfg" >/dev/null 2>&1 || { echo "capacity: config is not valid TOML: $cfg" >&2; exit 4; }
-list="$(config_list_projects)" || { echo "capacity: cannot list projects: $cfg" >&2; exit 4; }
+list="$(config_list_projects 2>/dev/null)" || { echo "capacity: cannot list projects: $cfg" >&2; exit 4; }
 
 names=()
 while IFS= read -r p; do

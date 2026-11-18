@@ -20,9 +20,13 @@ setup() {
 teardown() { teardown_tmp_devagent_home; }
 
 # _stub_reader <body> — a plugin copy whose scripts/capacity.sh is a stub with this
-# body; sets STUB_DOCTOR to the copy's doctor.sh.
+# body; sets STUB_DOCTOR to the copy's doctor.sh. The copy leaves out .git, the venv
+# and every cache: another job's git or python can rename files there mid-copy.
 _stub_reader() {
-  cp -r "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/plugin"
+  mkdir -p "$BATS_TEST_TMPDIR/plugin"
+  tar -C "$PLUGIN_ROOT" --exclude=./.git --exclude=./.venv --exclude=__pycache__ \
+    --exclude=./.mypy_cache --exclude=./.pytest_cache --exclude=./.ruff_cache -cf - . \
+    | tar -C "$BATS_TEST_TMPDIR/plugin" -xf -
   printf '#!/usr/bin/env bash\n%s\n' "$1" >"$BATS_TEST_TMPDIR/plugin/scripts/capacity.sh"
   chmod 755 "$BATS_TEST_TMPDIR/plugin/scripts/capacity.sh"
   STUB_DOCTOR="$BATS_TEST_TMPDIR/plugin/scripts/doctor.sh"

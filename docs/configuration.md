@@ -223,7 +223,9 @@ of range. `capacity` or `project.<name>.capacity` present but not a table is
 `scripts/capacity.sh` takes no arguments (`-h` or `--help` prints
 `usage: capacity.sh`). It checks the config the way doctor does, takes the
 projects from `config_list_projects`, and runs `scripts/lib/capacity.py`, which
-owns every rule, the document and the text.
+owns every rule, the document and the text. A project that `config_list_projects`
+does not list (today, a name with a dot in it) is not read: its capacity table gets
+no line and is not in the document.
 
 | Exit | Meaning | stdout |
 |---|---|---|
@@ -250,7 +252,7 @@ The JSON (UTF-8, LF) has six top-level fields in both forms:
 - `token_unit`: `weighted_input_token_equivalents`.
 - `shared`: the seven shared keys, each `{"value": <v>, "source": "config" | "default"}`; `null` when not declared.
 - `effective_tokens_per_week`: `{"value": <n>, "binding": <b>}`, where `value` is `min(tokens_per_week, tokens_per_window * windows_per_week)` with the product rounded half up to whole tokens (`floor(product + 0.5)`; a product of 2^52 or more is already whole), so `value` is always an integer, and `binding` is `tokens_per_week` or `tokens_per_window_x_windows_per_week` (a tie is `tokens_per_week`); `null` when not declared.
-- `projects`: every project in config order, each with `name` and the six project keys in the same `{"value", "source"}` form. Defaults: `priority` 5, `paused` false, the rest `null`. `deadline.value` is `YYYY-MM-DD` for both spellings.
+- `projects`: every project `config_list_projects` lists, in config order, each with `name` and the six project keys in the same `{"value", "source"}` form. Defaults: `priority` 5, `paused` false, the rest `null`. `deadline.value` is `YYYY-MM-DD` for both spellings.
 
 Declared, for the example tables above (one project, layout abridged):
 
@@ -306,11 +308,13 @@ Not declared (no `[capacity]` table):
 }
 ```
 
-`capacity_schema` follows the version rules of
-[portfolio-schema.md](portfolio-schema.md#version-rules) as written. A new
+`capacity_schema` is `MAJOR.MINOR` and changes by the version rules of
+[portfolio-schema.md](portfolio-schema.md#version-rules). A new
 optional field bumps the minor. A renamed or removed field, a type change, a
 new enum value (`binding`, `source`), a changed bound, or an added or changed
-rule string bumps the major.
+rule string bumps the major. A reader refuses a document whose major differs
+from its own, with a message naming both versions. Doctor's summary is such a
+reader, and it reads only the four values its line prints.
 
 ### Violations
 
