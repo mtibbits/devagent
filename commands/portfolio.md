@@ -40,8 +40,9 @@ owner only (mode 0600); any directory the command creates is 0700. `--out PATH` 
 included. Keep it outside every devdoc: `cleanup` stages and pushes everything
 under a project's `devdoc_dir`. The command refuses an `--out` under any
 configured `devdoc_dir`, `source_dir` or `worktree_root` (both sides are
-canonicalised first). The default worktree root, used when `worktree_root` is
-unset, is not checked yet; keep `--out` out of it too.
+canonicalised first). When `worktree_root` is unset or empty, the rail treats
+`<source_dir>-wt` as the worktree root (the rule trust applies) and refuses
+`--out` under it the same way.
 
 Before writing, the command checks its own document. It runs the structural
 checker (`portfolio-check.py`) and the producer's cross-field invariants

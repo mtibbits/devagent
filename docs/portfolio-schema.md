@@ -215,8 +215,8 @@ carried as written and never summed.
 | `projects[].issues[].issue` | string | req | The issue id as written on its nodes. |
 | `projects[].issues[].nodes` | array | req | Ids of every node carrying the issue, in order. Two or more means a duplicate within the project. |
 | `projects[].issues[].nodes[]` | string | — | One node id. |
-| `projects[].issues[].stuck` | Stuck\|null | req | Non-null exactly when the issue dir has a `STUCK` file. |
-| `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, or no `checklist.md`. `open`: a step is still to do. `complete`: every step is done or skipped. |
+| `projects[].issues[].stuck` | Stuck\|null | req | Non-null when the issue dir has a `STUCK` file, or when the issue dir is present but cannot be read or verified (all-null fields; see `stuck_unreadable`). Null when the issue dir is not read (`issue_not_id`). |
+| `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, no `checklist.md`, the issue dir is not read (`issue_not_id`), or `checklist.md` cannot be read (`checklist_unreadable`). `open`: a step is still to do. `complete`: every step is done or skipped. |
 | `projects[].issues[].next_step` | string\|null | req | The name of the first step not `[x]`/`[-]` in the **active revision block** (the rule `next.sh` uses, `checklist_current_step` in `scripts/lib/checklist.sh`). Null unless `open`. |
 | `projects[].issues[].next_step_number` | integer\|null | req | That step's number. Null unless `open`. |
 | `projects[].issues[].actuals` | slot (#729) | opt | Reserved. |
@@ -414,7 +414,7 @@ they do not know. A project's status is not repeated in the report.
 | Kind | `source_line` | When |
 |---|---|---|
 | `leaf_no_issue` | node | A leaf has no `issue:` key, or it is `""`. A non-string `issue` gives only `issue_malformed`. |
-| `issue_not_id` | node | `issue` is a string that is not an issue id (`ID_TOKEN_RE`); its issue dir is not read. |
+| `issue_not_id` | node | `issue` is a string that is not an issue id (`ID_TOKEN_RE`), ends in `.`, or matches an issue dir in the devdoc's listing only case-insensitively; its issue dir is not read. |
 | `dep_unresolved` | node | One per `depends_on` entry that names no issue: none in this project, a project that is not configured, a project whose WBS was not read, or no such issue in the named project. |
 | `dep_skipped` | node | One per `depends_on` entry that resolves to a skipped row; leaves that depend on it are not ready. |
 | `dep_cycle` | node | One per dependency cycle (effective dependencies, ancestors' included), at its first member; the message names every member; its leaves are not ready. |
@@ -427,13 +427,13 @@ they do not know. A project's status is not repeated in the report.
 | `bad_model` | node or null | A model value that is not one `model_token_allowlist` token (#890). At a leaf's line: its `thinking` or `checking` key, once per class (the key counts as absent and the project rung applies); a parent's key is not reported. With a null line: a project `step_models` value a class resolves to, once per (project, class); that class is null, with no fall-through to `default`, and a bad `default` no class reaches is not reported. |
 | `issue_malformed` | node | `issue` is present but not a string (the node carries no issue). |
 | `unknown_meta_key` | node | One per `meta_unknown_keys` key that the producer does not consume (`est_src`, `satisfies`, `h`, `thinking` and `checking` are consumed). |
-| `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
+| `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a value holding a known key followed by `:` with no space (`est:1w`, a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
 | `meta_duplicate_key` | node | A metadata key that appears twice; the last value is kept. |
-| `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. |
+| `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. An inline link bullet (`- [text](url)`) is not reported; a bracket holding nothing or one checkbox glyph before `(` still is. |
 | `parser_warning` | line or null | A warning the parser printed on stderr, at the line it names. |
 | `directive_warning` | line | A malformed `wbs-exclude` or `wbs-scope` directive line. |
-| `checklist_unreadable` | null | An issue dir, or its `checklist.md`, is present but unreadable, or `checklist.md` has no step rows in its active revision block (`checklist` reads `absent`). |
-| `stuck_unreadable` | null | An issue dir, or its `STUCK`, is present but unreadable (`stuck` has all-null fields). |
+| `checklist_unreadable` | null | An issue dir or its `checklist.md` cannot be read, `checklist.md` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), it holds a step number beyond the interpreter's integer-string limit, it has no step rows in its active revision block, or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`checklist` reads `absent`). |
+| `stuck_unreadable` | null | An issue dir or its `STUCK` cannot be read, `STUCK` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`stuck` has all-null fields). |
 <!-- report-kinds:end -->
 
 ## Deferred

@@ -670,12 +670,23 @@ def _split_text_and_meta(rest: str) -> tuple[str, dict]:
 # Diagnostics (#726): additive, read-only, never printed. `diagnose_text`
 # reports what parse_text reads silently: a line shaped like a node that is
 # not one, and a metadata block the walk could not read as written.
-NEAR_MISS_RE = re.compile(r"^[ \t]*[-*+][ \t]*\[")
+# A list marker then `[` is a near-miss unless that `[` opens an inline link
+# (`[text](`) whose text is neither empty nor one node glyph (#1050 item 7).
+_NM_GLYPHS = "".join(re.escape(g) for g in STATE_GLYPHS)
+NEAR_MISS_RE = re.compile(
+    r"^[ \t]*[-*+][ \t]*\[(?!(?![" + _NM_GLYPHS + r"]?\]\()[^\]\n]*\]\()")
 META_UNREADABLE = "meta_unreadable"
 META_DUPLICATE_KEY = "meta_duplicate_key"
 UNCLOSED_BRACE = "'{' with no closing '}'; the text after it is item text, not metadata"
 TRAILING_TEXT = ("a '{...}' block that is not at the end of the line, or holds a brace, "
                  "is item text, not metadata")
+# #1050 item 5: a known key glued to its value (`est:1w`) after a missing comma.
+# The leading blank keeps `devagent:Issue-1` clean, the known-key set keeps
+# `localhost:8080`, `C:\x` and `10:30` clean, and `(?!//)` keeps URLs clean.
+SWALLOWED_KEY_RE = re.compile(
+    r"[ \t](" + "|".join(sorted(re.escape(k) for k in KNOWN_META_KEYS)) + r"):(?!//)")
+MISSING_COMMA = "a ',' may be missing and the next pair read as its value"
+SWALLOWED_NOSPACE = "'{}' value holds '{}:'; " + MISSING_COMMA
 
 
 def _parse_meta(body: str) -> dict:
@@ -756,9 +767,13 @@ def _parse_meta_walk(body: str) -> tuple[dict, list[tuple[str, str]]]:
             if ": " in out[key]:
                 problems.append((
                     META_UNREADABLE,
-                    f"'{key}' value holds ': '; a ',' may be missing "
-                    "and the next pair read as its value",
+                    f"'{key}' value holds ': '; {MISSING_COMMA}",
                 ))
+            else:
+                glued = SWALLOWED_KEY_RE.search(out[key])
+                if glued:
+                    problems.append((META_UNREADABLE,
+                                     SWALLOWED_NOSPACE.format(key, glued.group(1))))
     return out, problems
 
 
