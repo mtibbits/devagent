@@ -36,6 +36,7 @@ exception() { awk '/^## Skipping policy$/{s=1} s&&/Exception:/{f=1} f&&/^[[:spac
 
 @test "core-prune names the one-task skip log string and still has a Halt section" {
   grep -qF 'nothing to prune: one-task plan' "$SKILL/SKILL.md"
+  grep -qF 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" prune "nothing to prune: one-task plan"' "$SKILL/SKILL.md"
   grep -qE '^##[[:space:]]+Halt' "$SKILL/SKILL.md"
 }
 
@@ -51,6 +52,8 @@ exception() { awk '/^## Skipping policy$/{s=1} s&&/Exception:/{f=1} f&&/^[[:spac
   [[ "$s" == *'has no `[defer]`'* ]]
   [[ "$s" == *"create it empty if it is absent, because tighten requires the file"* ]]
   [[ "$s" == *'non-empty `$NOTE`'* ]]
+  [[ "$s" == *'and `$NOTE` is empty'* ]]
+  [[ "$s" == *"do not ask"* ]]
   p=$(section "$SKILL/SKILL.md" 'Skipping policy')
   [ -n "$p" ]
   [[ "$p" == *"Exception:"* ]]
@@ -75,6 +78,8 @@ exception() { awk '/^## Skipping policy$/{s=1} s&&/Exception:/{f=1} f&&/^[[:spac
   [[ "$s" == *"[x]"* ]]
   [[ "$s" == *'$NOTE'* ]]
   [[ "$s" == *'non-empty `$NOTE`'* ]]
+  [[ "$s" == *'and `$NOTE` is empty'* ]]
+  [[ "$s" == *"without asking"* ]]
   [[ "$s" == *"Never auto-skip a plan of two or more tasks"* ]]
 }
 
