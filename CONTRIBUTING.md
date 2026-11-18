@@ -97,7 +97,8 @@ so there is no list to maintain.
   deleted and its withdrawal noted in a prose line.
 - **Changelog entries are files.** A change records its changelog entry as
   `changelog.d/<issue>.md` (or `changelog.d/<slug>.md` when it has no issue)
-  and never edits `## [Unreleased]` in `CHANGELOG.md`. The README's
+  and never edits `## [Unreleased]` in `CHANGELOG.md` by hand; only a release
+  change does, through `scripts/changelog.py release` or `--fold`. The README's
   "Versioning & releases" section has the entry format and the release steps;
   `python3 scripts/changelog.py check` checks the files.
 - **Tests read changelog entries through `changelog_text`.** A test that reads
