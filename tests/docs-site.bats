@@ -1185,6 +1185,17 @@ wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.
   breaks 'no sources line for' wn_ship "$d"
   d="$(wn_fixture)"; plant "$d/sources.txt" 'Ghost | #200'
   breaks 'no page item for' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'Two feature | #200'
+  breaks 'duplicate label' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '- **Nine feature.**' '- **Two feature.**'
+  breaks 'duplicate label' wn_ship "$d"
+  # Another repo's issue (other#200) is not this repo's #200.
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '(#200)' '(other#200)'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  # A prose paragraph after a bullet is not part of it.
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '- **Added: the two feature (#200).**' $'- **Added: the two feature (#200).**\n\nProse that mentions #555.'
+  edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #555'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
   d="$(wn_fixture)"; plant "$d/sources.txt" 'Bad | 200'
   breaks 'bad anchor' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/page.md" "It does two. [Release 3.0.0]($u/devagent--v3.0.0)" 'It does two.'
@@ -1223,6 +1234,8 @@ wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.
   breaks 'target date' check_whats_new_roadmap "$d/page.md"
   # Outside the list items, still in the section: the whole section is read.
   d="$(wn_fixture)"; plant "$d/page.md" 'Expect all of it by 2027.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'This was last checked in 2027.'
   breaks 'target date' check_whats_new_roadmap "$d/page.md"
   d="$(wn_fixture)"; plant "$d/page.md" 'Planned for Q3.'
   breaks 'target date' check_whats_new_roadmap "$d/page.md"
@@ -1283,7 +1296,8 @@ rr_fixture() {
     '4. Publish: `gh release create devagent--v<version>`.' \
     "5. Re-check the What's new page: add the release's items." '' \
     '## Next' >"$d/README.md"
-  printf '%s\n' '# policy' '' 'Re-check `whats-new.md` at each' 'release.' >"$d/policy.md"
+  printf '%s\n' '# policy' '' 'Re-check `whats-new.md` at each' 'release: bump its "last checked" date in the' \
+    'release change, then, once the tag exists, add the release'"'"'s items.' >"$d/policy.md"
   printf '%s\n' "$d"
 }
 
@@ -1305,6 +1319,10 @@ rr_fixture() {
   breaks 'no roadmap date step' check_release_recheck "$d/README.md" "$d/policy.md"
   d="$(rr_fixture)"; edit "$d/policy.md" 'whats-new.md' 'the page'
   breaks 'no recheck rule' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" '"last checked" date' 'date'
+  breaks 'no roadmap-date half' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" 'add the release' 'list the release'
+  breaks 'no post-tag half' check_release_recheck "$d/README.md" "$d/policy.md"
   d="$(rr_fixture)"; edit "$d/README.md" '## Versioning & releases' '## Releases'
   breaks 'Versioning & releases' check_release_recheck "$d/README.md" "$d/policy.md"
 }

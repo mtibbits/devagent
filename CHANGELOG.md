@@ -26,8 +26,8 @@ the README's "Versioning & releases" section has the release procedure.
 
 - **Added: the "What's new" page (#1002).** `docs-site/whats-new.md` lists
   what devagent has gained since 1.0.0, each item linking the first release
-  that has it, and states where it is heading as dated themes with no issue
-  numbers or target dates. `docs-site/whats-new-sources.txt` ties each item to
+  that has it, and states where it is heading as themes with no issue numbers or
+  target dates, under the date the roadmap was last checked. `docs-site/whats-new-sources.txt` ties each item to
   its CHANGELOG bullet; `tests/lib/whats-new-check.py` checks the items against
   this file and `git tag`, the roadmap's wording, and its "last checked" date,
   which may not be older than the newest release. README's release steps gain

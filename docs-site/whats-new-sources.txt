@@ -14,7 +14,7 @@
 Work breakdown built from the tracker | #706
 Portfolio view across projects | #726
 Dependencies that cross projects | #887
-Evidence checked against the tree it was measured on | #655
+Evidence attested across environments | #655
 Evidence stamps in the merge request body | #894
 Claims and evidence checked before the verifier runs | #1122
 Merging the pull request as its own step | #885

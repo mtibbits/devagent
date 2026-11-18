@@ -24,8 +24,9 @@ Each item links the first published release that has it.
 
 ### Ship on evidence
 
-- **Evidence checked against the tree it was measured on.** Test results only
-  count when they come from the exact code being shipped.
+- **Evidence attested across environments.** A test run made in one
+  environment and checked from another counts only with an attestation of the
+  exact tree it ran on.
   [Release 3.0.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.0.0)
 - **Evidence stamps in the merge request body.** The test counts and file
   counts in a merge request are written from the recorded run, not typed by
@@ -54,8 +55,9 @@ Each item links the first published release that has it.
 - **A starter checklist.** A shorter checklist for small changes and for
   people new to devagent.
   [Release 3.1.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.1.0)
-- **A local code backend, no forge needed.** devagent can carry a change all
-  the way to merge without pushing anywhere.
+- **A local code backend, no forge needed.** devagent can take a change through
+  ship with no forge and no push: it records the merge request locally and
+  notices when you merge the branch yourself.
   [Release 3.2.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.2.0)
 
 ### Cost and rules
@@ -69,8 +71,9 @@ Each item links the first published release that has it.
 - **devagent's own written requirements.** devagent's requirements are written
   down in the repository, so work can be traced to them.
   [Release 3.1.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.1.0)
-- **Model-tier proposals when an issue is captured.** When you capture an
-  issue, devagent proposes which model should plan and which should check it.
+- **Model-tier proposals when an issue is captured.** When a captured issue
+  argues for a different model than the project's default, devagent writes
+  that proposal down with the draft.
   [Release 3.2.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.2.0)
 
 ## What's next

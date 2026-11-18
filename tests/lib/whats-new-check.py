@@ -118,7 +118,7 @@ Section = collections.namedtuple("Section", "version name date bullets text")
 
 def changelog(path):
     """[Section] of the released ("## [x.y.z]") sections, any order."""
-    secs, cur = [], None
+    secs, cur, in_bullet, blank = [], None, False, False
     for line in read(path):
         m = re.match(r"^## \[([^\]]+)\]", line)
         if m:
@@ -128,14 +128,22 @@ def changelog(path):
             cur = [tuple(map(int, v.groups())) if v else None, name,
                    d.group(1) if d else None, [], []]
             secs.append(cur)
+            in_bullet = blank = False
             continue
         if cur is None:
             continue
         cur[4].append(line)
         if line.startswith("- "):
             cur[3].append(line)
-        elif cur[3] and line.strip():
+            in_bullet = True
+        elif not line.strip():
+            blank = True
+            continue
+        elif in_bullet and (not blank or line.startswith(" ")):
             cur[3][-1] += " " + line.strip()
+        else:
+            in_bullet = False
+        blank = False
     out = [Section(v, n, d, [ws(b) for b in bs], ws(" ".join(t)))
            for v, n, d, bs, t in secs if v is not None]
     if not out:
@@ -145,7 +153,7 @@ def changelog(path):
 
 def anchor_in(anchor, text):
     if anchor.startswith("#"):
-        return re.search(re.escape(anchor) + r"(?!\d)", text) is not None
+        return re.search(r"(?<![\w-])" + re.escape(anchor) + r"(?!\d)", text) is not None
     return ws(anchor[3:]) in text
 
 
@@ -172,6 +180,8 @@ def cmd_shipped(page, sources, chlog, tagsfile):
         label, anchor = (x.strip() for x in s.rsplit(" | ", 1))
         if not (re.fullmatch(r"#\d+", anchor) or re.fullmatch(r"kw:\S.*", anchor)):
             raise Broken(f"{sources}:{n}: bad anchor '{anchor}' (want #N or kw:<text>)")
+        if label in src:
+            raise Broken(f"{sources}:{n}: duplicate label '{label}'")
         src[label] = anchor
 
     _, body = section(read(page), "Shipped since 1.0", page)
@@ -183,6 +193,8 @@ def cmd_shipped(page, sources, chlog, tagsfile):
         m = LABEL_RE.match(text)
         if not m:
             raise Broken(f"{page}: item has no bold label: {text[:60]}")
+        if m.group(1) in page_items:
+            raise Broken(f"{page}: duplicate label '{m.group(1)}'")
         page_items[m.group(1)] = text
 
     for label in page_items:
@@ -231,7 +243,7 @@ def cmd_roadmap(page):
             raise Broken(f"{page}: an issue number in What's next: {line.strip()[:60]}")
         if FAMILY_RE.search(line):
             raise Broken(f"{page}: What's next names a family site: {line.strip()[:60]}")
-        if CHECKED_RE.search(line):
+        if CHECKED_RE.search(line) and DATE_RE.search(line):
             continue
         if YEAR_RE.search(line) or MONTH_RE.search(line) or QUARTER_RE.search(line):
             raise Broken(f"{page}: a target date in What's next: {line.strip()[:60]}")
@@ -314,6 +326,11 @@ def cmd_recheck(readme, policy):
     paras = [ws(p) for p in re.split(r"\n\s*\n", text)]
     if not any("whats-new.md" in p and "each release" in p.lower() for p in paras):
         raise Broken(f"{policy}: no recheck rule (a paragraph naming whats-new.md and each release)")
+    low_paras = [p.lower() for p in paras]
+    if not any("last checked" in p and "release" in p for p in low_paras):
+        raise Broken(f"{policy}: no roadmap-date half (bump the 'last checked' date in the release change)")
+    if not any("tag" in p and "add the release" in p for p in low_paras):
+        raise Broken(f"{policy}: no post-tag half (add the release's items once its tag exists)")
 
 
 CMDS = {
