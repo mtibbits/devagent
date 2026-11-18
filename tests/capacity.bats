@@ -447,3 +447,159 @@ priority = 0
 TOML
   _expect3 'capacity: project."my proj".capacity.priority: out of range: 1 <= x <= 9007199254740991'
 }
+
+# --- Task 4: pool rules, paused, order, suppression, sums, warnings ---
+
+HOURS_POOL='capacity: pool: reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week'
+TOKENS_POOL='capacity: pool: reserve_tokens_per_week sum exceeds the effective weekly token budget'
+
+# _cap_table <project> <toml line>... — append that project's capacity table.
+_cap_table() {
+  local name="$1"; shift
+  { echo "[project.$name.capacity]"; printf '%s\n' "$@"; } | cap_append
+}
+
+# _reserving <shared args> -- <project>=<hours> ... — a fresh config: [capacity] from the
+# shared args, then one project per pair (in that file order) reserving those hours.
+_reserving() {
+  local shared=() pair
+  while [[ $# -gt 0 && "$1" != -- ]]; do shared+=("$1"); shift; done
+  shift
+  _shared ${shared[@]+"${shared[@]}"}
+  for pair in "$@"; do
+    cap_projects "${pair%%=*}"
+    _cap_table "${pair%%=*}" "reserve_operator_hours_per_week = ${pair#*=}"
+  done
+}
+
+@test "pool: a project cap exceeds capacity.max_lanes" {
+  _alpha 'max_lanes = 4'
+  _expect3 "capacity: project.alpha.capacity.max_lanes: exceeds capacity.max_lanes"
+  _alpha 'max_lanes = 4' 'paused = true'
+  _expect3 "capacity: project.alpha.capacity.max_lanes: exceeds capacity.max_lanes"
+  _alpha 'max_lanes = 3'
+  _expect0
+}
+
+@test "pool: the operator-hours reservations exceed the shared value" {
+  _reserving -- alpha=12.5 beta=8
+  _expect3 "$HOURS_POOL"
+  _reserving -- alpha=12 beta=8
+  _expect0
+}
+
+@test "pool: the token reservations exceed the effective budget" {
+  _shared windows_per_week=5.5
+  cap_projects alpha beta
+  _cap_table alpha 'reserve_tokens_per_week = 200000000'
+  _cap_table beta 'reserve_tokens_per_week = 200000000'
+  _expect3 "$TOKENS_POOL"
+  _shared windows_per_week=5.5
+  cap_projects alpha beta
+  _cap_table alpha 'reserve_tokens_per_week = 165000000'
+  _cap_table beta 'reserve_tokens_per_week = 165000000'
+  _expect0
+}
+
+@test "paused: a paused project resolves paused and leaves the pool sums" {
+  local p
+  for p in true false; do
+    _shared
+    cap_projects alpha beta
+    _cap_table alpha 'reserve_operator_hours_per_week = 15' 'reserve_tokens_per_week = 300000000'
+    _cap_table beta 'reserve_operator_hours_per_week = 15' 'reserve_tokens_per_week = 300000000' "paused = $p"
+    if [[ "$p" == true ]]; then
+      _expect0
+      jq -e '.projects[1].name == "beta" and .projects[1].paused == {"value":true,"source":"config"}' <<<"$output"
+    else
+      _expect3 "$HOURS_POOL
+$TOKENS_POOL"
+    fi
+  done
+}
+
+@test "sums: hours reservations add left to right and compare within 1e-9" {
+  _reserving -- a=4.4 b=11.8 c=3.8
+  _expect0
+  _reserving -- c=3.8 b=11.8 a=4.4
+  _expect0
+  _reserving operator_hours_per_week=0.6 -- a=0.1 b=0.2 c=0.3
+  _expect0
+  _reserving operator_hours_per_week=0.6 -- c=0.3 b=0.2 a=0.1
+  _expect0
+  _reserving -- a=10 b=10.000001
+  _expect3 "$HOURS_POOL"
+}
+
+@test "order: shared keys, then projects in config order, then pool" {
+  _shared lane_hours_per_week=0
+  cap_projects beta alpha
+  _cap_table beta 'priority = 0' 'reserve_tokens_per_week = 300000000'
+  _cap_table alpha 'priority = 0' 'reserve_tokens_per_week = 300000000'
+  _expect3 "capacity: capacity.lane_hours_per_week: out of range: 0 < x <= 168
+capacity: project.beta.capacity.priority: out of range: 1 <= x <= 9007199254740991
+capacity: project.alpha.capacity.priority: out of range: 1 <= x <= 9007199254740991
+$TOKENS_POOL"
+}
+
+@test "suppression: a rule that would read an invalid value is skipped" {
+  _shared -operator_hours_per_week 'max_lanes="three"'
+  cap_projects alpha
+  _cap_table alpha 'max_lanes = 9' 'reserve_operator_hours_per_week = 50' 'reserve_tokens_per_week = 600000000'
+  _expect3 "capacity: capacity.operator_hours_per_week: missing required key
+capacity: capacity.max_lanes: wrong type: expected integer
+$TOKENS_POOL"
+}
+
+@test "warning: an unknown key in [capacity]" {
+  _shared max_lane=3
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "capacity: warning: capacity.max_lane: unknown key (ignored)" ]
+  jq -e '.shared | has("max_lane") | not' <<<"$output"
+}
+
+@test "warning: an unknown key in a project table" {
+  _alpha 'priorty = 2'
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "capacity: warning: project.alpha.capacity.priorty: unknown key (ignored)" ]
+  jq -e '.projects[0].priority.source == "default"' <<<"$output"
+}
+
+@test "warning: a project whose only key is capacity" {
+  _shared
+  printf '[project.alphaa.capacity]\npriority = 2\n' | cap_append
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "capacity: warning: project.alphaa: only key is capacity (misspelled project name?)" ]
+  jq -e '[.projects[].name] | index("alphaa") != null' <<<"$output"
+}
+
+@test "warning: warnings follow violations and leave exit 3" {
+  _shared -max_lanes max_lane=3
+  _expect3 "capacity: capacity.max_lanes: missing required key
+capacity: warning: capacity.max_lane: unknown key (ignored)"
+}
+
+@test "suppression: a project capacity that is not a table leaves the pool rules running" {
+  _shared
+  cap_projects alpha
+  _cap_table alpha 'reserve_operator_hours_per_week = 25'
+  cap_append <<TOML
+[project.beta]
+source_dir = "$BATS_TEST_TMPDIR/beta"
+capacity = "x"
+TOML
+  _expect3 "capacity: project.beta.capacity: wrong type: expected table
+$HOURS_POOL"
+}
+
+@test "warning: a key with a newline is escaped on one line" {
+  _shared '"max_lane\n"=3'
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = 'capacity: warning: capacity."max_lane\n": unknown key (ignored)' ]
+  "$CAP" 2>"$BATS_TEST_TMPDIR/err" >/dev/null
+  [ "$(wc -l <"$BATS_TEST_TMPDIR/err")" -eq 1 ]
+}

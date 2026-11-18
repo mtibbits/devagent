@@ -101,6 +101,15 @@ WRONG_TYPE = "wrong type: expected "
 OUT_OF_RANGE = "out of range: "
 NOT_A_DATE = "not a calendar date"
 TABLE_MISSING = "[capacity] table missing"
+EXCEEDS_LANES = "exceeds capacity.max_lanes"
+POOL_HOURS = "reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week"
+POOL_TOKENS = "reserve_tokens_per_week sum exceeds the effective weekly token budget"
+UNKNOWN_KEY = "unknown key (ignored)"
+CAPACITY_ONLY = "only key is capacity (misspelled project name?)"
+
+# The hours pool refuses only past this fixed tolerance: it absorbs binary rounding,
+# so an exactly-full declaration (4.4 + 11.8 + 3.8 against 20) passes in any order.
+HOURS_TOLERANCE = 1e-9
 
 _BARE_PART = re.compile(r"[A-Za-z0-9_-]+")
 _DATE_TEXT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -222,15 +231,32 @@ def _effective(cap):
     return {"value": windows, "binding": BINDING_WINDOWS}
 
 
+def _pool_sum(projects, key):
+    """Each unpaused project's set reservation, added with + from an integer 0 in
+    project order. Never sum(), math.fsum or decimal: sum() rounds differently on
+    3.12+, and #957 reproduces this in JavaScript."""
+    total = 0
+    for project in projects:
+        if project["paused"]:
+            continue
+        value = project["table"].get(key)
+        if value is not None:
+            total = total + value
+    return total
+
+
 def resolve(path, names):
-    """Return (exit code, document or None). Violations go to stderr, in order."""
+    """Return (exit code, document or None). Violations, then warnings, go to stderr."""
     data = _load(path)
     violations = []
+    warnings = []
+
+    # The shared table. `shared_ok` holds each key that is present and valid.
     declared = "capacity" in data
     cap = data.get("capacity")
+    shared_ok = {}
     if declared and not isinstance(cap, dict):
         violations.append((["capacity"], WRONG_TYPE + "table"))
-        cap = None
     elif declared:
         for key in SHARED_KEYS:
             if key not in cap:
@@ -240,52 +266,91 @@ def resolve(path, names):
             rule = check(cap[key], *SHARED_RULES[key])
             if rule:
                 violations.append((["capacity", key], rule))
+            else:
+                shared_ok[key] = cap[key]
+        for key in cap:
+            if key not in SHARED_RULES:
+                warnings.append((["capacity", key], UNKNOWN_KEY))
 
+    # Each project, in the order given. A capacity that is not a table is read by
+    # the pool rules as unpaused with no reservations; its own line reports it.
     project_tables = data.get("project")
     if not isinstance(project_tables, dict):
         project_tables = {}
-    tables = []
+    projects = []
     for name in names:
         ptable = project_tables.get(name)
-        pcap = None
+        pcap = {}
+        bad = set()
         if isinstance(ptable, dict) and "capacity" in ptable:
-            pcap = ptable["capacity"]
             base = ["project", name, "capacity"]
-            if not isinstance(pcap, dict):
+            if list(ptable) == ["capacity"]:
+                warnings.append((["project", name], CAPACITY_ONLY))
+            if not isinstance(ptable["capacity"], dict):
                 violations.append((base, WRONG_TYPE + "table"))
-                pcap = None
             else:
+                pcap = ptable["capacity"]
                 if not declared:
                     violations.append((base, TABLE_MISSING))
                 for key in PROJECT_KEYS:
-                    if key in pcap:
-                        rule = check(pcap[key], *PROJECT_RULES[key])
-                        if rule:
-                            violations.append((base + [key], rule))
-        tables.append((name, pcap))
+                    if key not in pcap:
+                        continue
+                    rule = check(pcap[key], *PROJECT_RULES[key])
+                    if (rule is None and key == "max_lanes" and "max_lanes" in shared_ok
+                            and pcap[key] > shared_ok["max_lanes"]):
+                        rule = EXCEEDS_LANES   # a paused project too
+                    if rule:
+                        violations.append((base + [key], rule))
+                        bad.add(key)
+                for key in pcap:
+                    if key not in PROJECT_RULES:
+                        warnings.append((base + [key], UNKNOWN_KEY))
+        projects.append({
+            "name": name,
+            "table": {k: v for k, v in pcap.items() if k in PROJECT_RULES},
+            "bad": bad,
+            "paused": pcap.get("paused") is True,
+        })
 
+    # The pool rules, each only when every value it reads is valid (an absent
+    # optional value is valid). Neither runs when [capacity] is absent or not a table.
+    paused_ok = all("paused" not in p["bad"] for p in projects)
+    unpaused = [p for p in projects if not p["paused"]]
+    if (paused_ok and "operator_hours_per_week" in shared_ok
+            and all("reserve_operator_hours_per_week" not in p["bad"] for p in unpaused)):
+        total = _pool_sum(projects, "reserve_operator_hours_per_week")
+        if total > shared_ok["operator_hours_per_week"] + HOURS_TOLERANCE:
+            violations.append((["pool"], POOL_HOURS))
+    effective = None
+    if all(k in shared_ok for k in ("tokens_per_week", "tokens_per_window", "windows_per_week")):
+        effective = _effective(shared_ok)
+        if paused_ok and all("reserve_tokens_per_week" not in p["bad"] for p in unpaused):
+            # Strict: the token sum is an exact integer.
+            if _pool_sum(projects, "reserve_tokens_per_week") > effective["value"]:
+                violations.append((["pool"], POOL_TOKENS))
+
+    for parts, rule in violations:
+        _say(where(parts) + ": " + rule)
+    for parts, text in warnings:
+        _say("warning: " + where(parts) + ": " + text)
     if violations:
-        for parts, rule in violations:
-            _say(where(parts) + ": " + rule)
         return 3, None
 
     shared = None
-    effective = None
     if declared:
         shared = {}
         for key in SHARED_KEYS:
-            if key in cap:
-                shared[key] = _entry(cap[key], "config")
+            if key in shared_ok:
+                shared[key] = _entry(shared_ok[key], "config")
             else:
                 shared[key] = _entry(None, "default")
-        effective = _effective(cap)
     doc = {
         "capacity_schema": CAPACITY_SCHEMA,
         "declared": declared,
         "token_unit": TOKEN_UNIT,
         "shared": shared,
-        "effective_tokens_per_week": effective,
-        "projects": [_project(name, pcap) for name, pcap in tables],
+        "effective_tokens_per_week": effective if declared else None,
+        "projects": [_project(p["name"], p["table"]) for p in projects],
     }
     return 0, doc
 
