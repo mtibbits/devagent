@@ -36,6 +36,17 @@ merge_checks = "required"   # the default: step 20 merges only on green CI and s
                             # merge_checks = "if-present". Both keys also work per
                             # project; a bad value stops step 20 on every run.
 
+# Operator capacity (#743), optional: see "Capacity" below.
+# devagent does not know the subscription's limits: every value here is an example.
+# [capacity]
+# operator_hours_per_week = 20          # example
+# lane_hours_per_week = 40              # example
+# max_lanes = 3                         # example
+# tokens_per_week = 500000000           # example
+# tokens_per_window = 60000000          # example
+# windows_per_week = 10                 # example
+# operator_hours_per_agent_hour = 0.25  # example (the one optional key)
+
 [project.myproj]
 source_dir       = "/home/you/src/myproj"      # the code checkout
 devdoc_dir       = "/home/you/src/devDoc/myproj" # per-issue artifacts
@@ -124,6 +135,14 @@ append_only = ["CHANGELOG.md"] # in these exact files) without a full preship:
                                # stops step 20 and forward naming the key; doctor
                                # reports it.
 
+# [project.myproj.capacity]
+# priority = 5                          # example
+# max_lanes = 2                         # example
+# paused = false                        # example
+# deadline = 2026-12-31                 # example
+# reserve_operator_hours_per_week = 4   # example
+# reserve_tokens_per_week = 100000000   # example
+
 [project.myproj.step_models]   # optional per-step-class model tiers
 checking = "opus"
 
@@ -141,6 +160,250 @@ checking = "opus"
                                # declared secret is not quoted into an MR body.
 MYPROJ_DATA_ROOT = "~/src/myprojData"
 ```
+
+## Capacity
+
+Operator capacity (#743) is what the operator can give devagent each week. It
+is declared in a shared top-level `[capacity]` table and, per project, an
+optional `[project.<name>.capacity]` table (the commented tables in the anatomy
+above). devagent only declares and validates it here: dividing it among
+projects, scheduling and the forecast are planned (#744). With no `[capacity]`
+table, forecasting is off.
+
+devagent does not know the subscription's limits: every value in the examples is an example, not a measurement.
+
+Tokens are weighted input-token equivalents, the unit of the actuals ledger
+(#729); the document names it as `token_unit` = `weighted_input_token_equivalents`.
+Operator hours are operator time as #733 measures it.
+
+### Keys
+
+In `[capacity]`, every key except `operator_hours_per_agent_hour` is required.
+
+| Key | Type | Range | Meaning |
+|---|---|---|---|
+| `operator_hours_per_week` | number | `0 < x <= 168` | Hours of the operator's attention a week |
+| `lane_hours_per_week` | number | `0 < x <= 168` | Hours one lane may run a week |
+| `max_lanes` | integer | `1 <= x <= 9007199254740991` | The shared lane pool: lanes running at once, all projects together |
+| `tokens_per_week` | integer | `0 < x <= 9007199254740991` | The weekly token budget |
+| `tokens_per_window` | integer | `0 < x <= 9007199254740991` | The token budget of one rolling window |
+| `windows_per_week` | number | `0 < x <= 33.6` | Windows used a week (at most 168 hours of back-to-back five-hour windows) |
+| `operator_hours_per_agent_hour` | number | `0 <= x <= 9007199254740991` | Optional. Fallback operator hours per agent hour for a project with no history (the operator-attention sibling of #744 consumes it) |
+
+In `[project.<name>.capacity]`, every key is optional:
+
+| Key | Type | Default | Range | Meaning |
+|---|---|---|---|---|
+| `priority` | integer | `5` | `1 <= x <= 9007199254740991` | Order when shared capacity is short; a lower number is a higher priority |
+| `max_lanes` | integer | none | `1 <= x <= 9007199254740991` | This project's lane cap; it may not exceed `capacity.max_lanes` |
+| `paused` | boolean | `false` | | A paused project takes no capacity: its reservations leave the pool sums (planned, #744: its forecast outcome is "paused") |
+| `deadline` | date | none | | A TOML local date (`2026-12-31`) or a quoted `"YYYY-MM-DD"` string (planned, #744: the date the forecast reports a probability against) |
+| `reserve_operator_hours_per_week` | number | none | `0 <= x <= 9007199254740991` | Operator hours set aside for this project |
+| `reserve_tokens_per_week` | integer | none | `0 <= x <= 9007199254740991` | Tokens set aside for this project |
+
+The priority rule (planned, #744; this change only validates the value):
+lanes go to the lowest priority number first, and
+ties go to the project holding fewer lanes, then by name.
+Tokens and operator hours beyond the reservations are shared by weight 1/priority.
+The default priority is 5.
+
+Types. `integer` is a TOML integer: `3.0` and `true` are wrong types. `number`
+is a TOML integer or float, never a boolean. `date` is a TOML local date or a
+string; a date-time, a time or any other type is `wrong type: expected date`,
+and a string is a calendar date only when it is exactly `YYYY-MM-DD` in ASCII
+digits and names a real day. Every numeric key has a finite upper bound; where
+the domain gives none it is 2^53 − 1 = 9007199254740991 (JavaScript's
+`Number.MAX_SAFE_INTEGER`). A non-finite number (`nan`, `inf`, `-inf`) is out
+of range. `capacity` or `project.<name>.capacity` present but not a table is
+`wrong type: expected table`.
+
+### The reader
+
+`scripts/capacity.sh` takes no arguments (`-h` or `--help` prints
+`usage: capacity.sh`). It checks the config the way doctor does, takes the
+projects from `config_list_projects`, and runs `scripts/lib/capacity.py`, which
+owns every rule, the document and the text.
+
+| Exit | Meaning | stdout |
+|---|---|---|
+| 0 | resolved | the capacity JSON |
+| 2 | any argument | empty |
+| 3 | invalid values; one line per violation on stderr | empty |
+| 4 | config missing, unreadable or not valid TOML | empty |
+
+Exit 1 is never chosen: it is what a crash looks like. On exit 4 stderr is one of:
+
+```
+capacity: config not readable: <path>
+capacity: config is not valid TOML: <path>
+capacity: cannot list projects: <path>
+```
+
+Every line on stderr starts `capacity: `: violations first, then warnings. They
+are on stderr so a caller's `doc="$(capacity.sh)"` cannot swallow them.
+
+The JSON (UTF-8, LF) has six top-level fields in both forms:
+
+- `capacity_schema`: `"1.0"`.
+- `declared`: whether `[capacity]` is present.
+- `token_unit`: `weighted_input_token_equivalents`.
+- `shared`: the seven shared keys, each `{"value": <v>, "source": "config" | "default"}`; `null` when not declared.
+- `effective_tokens_per_week`: `{"value": <n>, "binding": <b>}`, where `value` is `min(tokens_per_week, tokens_per_window * windows_per_week)`, unrounded, and `binding` is `tokens_per_week` or `tokens_per_window_x_windows_per_week` (a tie is `tokens_per_week`); `null` when not declared.
+- `projects`: every project in config order, each with `name` and the six project keys in the same `{"value", "source"}` form. Defaults: `priority` 5, `paused` false, the rest `null`. `deadline.value` is `YYYY-MM-DD` for both spellings.
+
+Declared, for the example tables above (one project, layout abridged):
+
+```json
+{
+  "capacity_schema": "1.0",
+  "declared": true,
+  "token_unit": "weighted_input_token_equivalents",
+  "shared": {
+    "operator_hours_per_week": {"value": 20, "source": "config"},
+    "lane_hours_per_week": {"value": 40, "source": "config"},
+    "max_lanes": {"value": 3, "source": "config"},
+    "tokens_per_week": {"value": 500000000, "source": "config"},
+    "tokens_per_window": {"value": 60000000, "source": "config"},
+    "windows_per_week": {"value": 10, "source": "config"},
+    "operator_hours_per_agent_hour": {"value": 0.25, "source": "config"}
+  },
+  "effective_tokens_per_week": {"value": 500000000, "binding": "tokens_per_week"},
+  "projects": [
+    {
+      "name": "myproj",
+      "priority": {"value": 5, "source": "config"},
+      "max_lanes": {"value": 2, "source": "config"},
+      "paused": {"value": false, "source": "config"},
+      "deadline": {"value": "2026-12-31", "source": "config"},
+      "reserve_operator_hours_per_week": {"value": 4, "source": "config"},
+      "reserve_tokens_per_week": {"value": 100000000, "source": "config"}
+    }
+  ]
+}
+```
+
+Not declared (no `[capacity]` table):
+
+```json
+{
+  "capacity_schema": "1.0",
+  "declared": false,
+  "token_unit": "weighted_input_token_equivalents",
+  "shared": null,
+  "effective_tokens_per_week": null,
+  "projects": [
+    {
+      "name": "myproj",
+      "priority": {"value": 5, "source": "default"},
+      "max_lanes": {"value": null, "source": "default"},
+      "paused": {"value": false, "source": "default"},
+      "deadline": {"value": null, "source": "default"},
+      "reserve_operator_hours_per_week": {"value": null, "source": "default"},
+      "reserve_tokens_per_week": {"value": null, "source": "default"}
+    }
+  ]
+}
+```
+
+`capacity_schema` follows the version rules of
+[portfolio-schema.md](portfolio-schema.md#version-rules) as written. A new
+optional field bumps the minor. A renamed or removed field, a type change, a
+new enum value (`binding`, `source`), a changed bound, or an added or changed
+rule string bumps the major.
+
+### Violations
+
+Each violation is one stderr line, `capacity: <where>: <rule>`, and the exit is 3.
+#957 reproduces these rule strings in devagent's JavaScript engine, so they are a
+contract: change one only with a major bump.
+
+| Violation | `<where>` | `<rule>` |
+|---|---|---|
+| a required key is absent | the key's path | `missing required key` |
+| a value has the wrong type | the key's path | `wrong type: expected <type>` (`number`, `integer`, `boolean`, `date` or `table`) |
+| a number is outside its range | the key's path | `out of range: <range>` (the five ranges above) |
+| a `deadline` string is not a real calendar date | the key's path | `not a calendar date` |
+| a project's `max_lanes` is above `capacity.max_lanes` (paused or not) | the key's path | `exceeds capacity.max_lanes` |
+| reserved operator hours over unpaused projects exceed the shared value | `pool` | `reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week` |
+| reserved tokens over unpaused projects exceed the effective budget | `pool` | `reserve_tokens_per_week sum exceeds the effective weekly token budget` |
+| a project capacity table with no `[capacity]` table | `project.<name>.capacity` | `[capacity] table missing` |
+
+Every `<rule>` string, in full:
+
+```
+missing required key
+wrong type: expected number
+wrong type: expected integer
+wrong type: expected boolean
+wrong type: expected date
+wrong type: expected table
+out of range: 0 < x <= 168
+out of range: 1 <= x <= 9007199254740991
+out of range: 0 < x <= 9007199254740991
+out of range: 0 < x <= 33.6
+out of range: 0 <= x <= 9007199254740991
+not a calendar date
+exceeds capacity.max_lanes
+reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week
+reserve_tokens_per_week sum exceeds the effective weekly token budget
+[capacity] table missing
+```
+
+`<where>` is the dotted path. A part that matches `[A-Za-z0-9_-]+` in full is
+written bare; any other part is written as a JSON string, so
+`project."my proj".capacity.priority` and `capacity."max_lane\n"` (a key holding
+a newline stays on one line).
+
+Order: `capacity` (not a table), else the seven shared keys in the table order
+above; then each project in config order: its capacity (not a table), else
+`[capacity] table missing` when the shared table is absent, then its six keys in
+the table order above; then `pool`, the hours rule before the token rule.
+
+Suppression: one line per key, the first of missing, wrong type, then out of
+range, not a calendar date or exceeds. `exceeds capacity.max_lanes` is checked
+only when both lane caps are valid. A `pool` rule runs only when every value it
+reads is valid: the hours rule reads `capacity.operator_hours_per_week`, every
+project's `paused` and each unpaused project's
+`reserve_operator_hours_per_week`; the token rule reads the three token keys,
+every project's `paused` and each unpaused project's `reserve_tokens_per_week`.
+An absent optional value is valid. With `[capacity]` absent or not a table there
+is no `exceeds` line and no `pool` line; the key-local rules still run. A
+project whose capacity is not a table counts as unpaused with no reservations.
+
+Sums: each unpaused project's reservation is added with `+`, left to right in
+config order, from the integer 0 (never `sum()`, `math.fsum` or decimal). The
+hours sum is refused only when it exceeds `capacity.operator_hours_per_week + 1e-9`:
+the fixed tolerance absorbs binary rounding, so an exactly-full declaration
+(4.4 + 11.8 + 3.8 against 20) passes in any order. The token sum is an exact
+integer and is refused when strictly above the effective budget.
+
+### Warnings
+
+Warnings follow the violations, on exit 0 and on exit 3, and never change the exit:
+
+```
+capacity: warning: <path of the key>: unknown key (ignored)
+capacity: warning: project.<name>: only key is capacity (misspelled project name?)
+```
+
+Unknown keys in `[capacity]` come first, in file order; then, per project, the
+capacity-only line, then its unknown keys.
+
+### Doctor
+
+A bare `/devagent:doctor` (every project) runs the reader after the per-project
+checks and prints a `[capacity]` header, then:
+
+- exit 0: `OK   capacity: not declared (forecasting off)`, or the summary line
+  `OK   capacity: <H> operator h/week, pool of <L> lanes, <T> weighted tokens/week (<binding>)`;
+- exit 3: one `FAIL` row per violation line;
+- each warning: a `WARN capacity: <rest>` row, which adds no error;
+- anything else: `FAIL capacity: reader failed (exit <N>)` with the reader's
+  last stderr line, so a fault never reads as "not declared". An exit 0 with no
+  capacity JSON is `reader failed (exit 0: no capacity document)`, and an exit 3
+  with no violation line is `reader failed (exit 3: no violation lines)`.
+
+`doctor <project>` does not run it.
 
 ## The backend verb contract
 

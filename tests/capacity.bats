@@ -603,3 +603,143 @@ $HOURS_POOL"
   "$CAP" 2>"$BATS_TEST_TMPDIR/err" >/dev/null
   [ "$(wc -l <"$BATS_TEST_TMPDIR/err")" -eq 1 ]
 }
+
+# --- Task 6: documentation and its guards ---
+
+DOC_HOMES=(templates/config.toml.skel docs/configuration.md docs/specs/2026-05-19-devagent-plugin-design.md)
+
+# _capacity_section — docs/configuration.md from "## Capacity" to the next "## " heading.
+_capacity_section() {
+  awk '/^## Capacity$/ { on = 1; print; next } on && /^## / { exit } on { print }' \
+    "$PLUGIN_ROOT/docs/configuration.md"
+}
+
+# _states_limit_size <line> — THE predicate for "a shipped line states a size for the
+# subscription's limits": the line names the limits AND carries a size (a number with a
+# magnitude word or a token unit). Blind spots: a size on a line without the vocabulary
+# (the vocabulary on the line before), and a bare number with neither a magnitude word
+# nor a token unit. Review covers those.
+_states_limit_size() {
+  printf '%s\n' "$1" | grep -qiE 'subscription|usage limit|five-hour|5-hour|weekly cap' || return 1
+  printf '%s\n' "$1" | grep -qiE '[0-9][0-9_,.]*[[:space:]]*((k|m|b|thousand|million|billion)([^_[:alnum:]]|$)|(weighted[[:space:]]+)?(input[- ])?tokens?([^_[:alnum:]]|$))'
+}
+
+@test "docs: configuration.md lists every rule string, type, range and warning" {
+  local section
+  section="$(_capacity_section)"
+  local pins=(
+    'missing required key'
+    'wrong type: expected number'
+    'wrong type: expected integer'
+    'wrong type: expected boolean'
+    'wrong type: expected date'
+    'wrong type: expected table'
+    'out of range: 0 < x <= 168'
+    'out of range: 1 <= x <= 9007199254740991'
+    'out of range: 0 < x <= 9007199254740991'
+    'out of range: 0 < x <= 33.6'
+    'out of range: 0 <= x <= 9007199254740991'
+    'not a calendar date'
+    'exceeds capacity.max_lanes'
+    'reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week'
+    'reserve_tokens_per_week sum exceeds the effective weekly token budget'
+    '[capacity] table missing'
+    'capacity: warning: <path of the key>: unknown key (ignored)'
+    'capacity: warning: project.<name>: only key is capacity (misspelled project name?)'
+    'capacity: config not readable: <path>'
+    'capacity: config is not valid TOML: <path>'
+    'capacity: cannot list projects: <path>'
+    '`capacity_schema`'
+    '`declared`'
+    '`token_unit`'
+    '`shared`'
+    '`effective_tokens_per_week`'
+    '`projects`'
+    '`tokens_per_week`'
+    '`tokens_per_window_x_windows_per_week`'
+    '`"1.0"`'
+    'weighted_input_token_equivalents'
+  )
+  [ "${#pins[@]}" -eq 31 ]
+  local p missing=()
+  for p in "${pins[@]}"; do
+    grep -qF -- "$p" <<<"$section" || missing+=("$p")
+  done
+  [ "${#missing[@]}" -eq 0 ] || { printf 'not in ## Capacity: %s\n' "${missing[@]}" >&2; false; }
+}
+
+@test "docs: every example value is marked, in all three homes" {
+  local home keys
+  for home in "${DOC_HOMES[@]}"; do
+    keys="$(cap_doc_tables "$PLUGIN_ROOT/$home" | grep '=')" || { echo "no tables in $home" >&2; false; }
+    [ "$(wc -l <<<"$keys")" -eq 13 ] || { printf '%s: %s key lines\n' "$home" "$(wc -l <<<"$keys")" >&2; false; }
+    ! grep -v '# example' <<<"$keys" || { echo "unmarked example line in $home" >&2; false; }
+  done
+}
+
+@test "docs: the example tables, uncommented, are a declaration capacity.sh accepts" {
+  local home
+  for home in "${DOC_HOMES[@]}"; do
+    cap_config </dev/null
+    cap_projects alpha
+    cap_doc_tables "$PLUGIN_ROOT/$home" \
+      | sed -E 's/^\[project\.[^]]*\.capacity\]/[project.alpha.capacity]/' | cap_append
+    run --separate-stderr "$CAP"
+    [ "$status" -eq 0 ] || { printf '%s: status %s\n%s\n' "$home" "$status" "$stderr" >&2; false; }
+    [ -z "$stderr" ]
+    jq -e '.declared == true' <<<"$output"
+    jq -e '.projects[0].name == "alpha" and .projects[0].priority.source == "config"' <<<"$output"
+  done
+}
+
+@test "docs: the disclaimer, the priority rule and the optional key are stated" {
+  local home
+  for home in "${DOC_HOMES[@]}"; do
+    grep -qF "devagent does not know the subscription's limits" "$PLUGIN_ROOT/$home" \
+      || { echo "no disclaimer in $home" >&2; false; }
+  done
+  for home in docs/configuration.md docs/specs/2026-05-19-devagent-plugin-design.md; do
+    grep -qF 'ties go to the project holding fewer lanes, then by name' "$PLUGIN_ROOT/$home" \
+      || { echo "no tie rule in $home" >&2; false; }
+    grep -qF 'weight 1/priority' "$PLUGIN_ROOT/$home" || { echo "no weight rule in $home" >&2; false; }
+    grep -qF 'every key except `operator_hours_per_agent_hour` is required' "$PLUGIN_ROOT/$home" \
+      || { echo "no optional-key line in $home" >&2; false; }
+  done
+}
+
+@test "docs: no shipped file states a size for the subscription's limits" {
+  # The predicate trips on each planted sentence...
+  local s
+  for s in 'the weekly cap is 500M tokens' \
+           'a five-hour window holds 220,000 tokens' \
+           'the weekly cap is 500M weighted input tokens' \
+           'the weekly cap is about 500 million.' \
+           'the five-hour window is 220k' \
+           'the weekly cap is 500000000 weighted input-token equivalents'; do
+    _states_limit_size "$s" || { echo "predicate missed: $s" >&2; false; }
+  done
+  # ...and not on the shipped controls: the disclaimer and the skeleton's
+  # tokens_per_window example line.
+  local ctl
+  ctl="$(grep -m1 -F "devagent does not know the subscription's limits" "$PLUGIN_ROOT/templates/config.toml.skel")"
+  [ -n "$ctl" ] && ! _states_limit_size "$ctl"
+  ctl="$(grep -m1 -E '^# tokens_per_window[[:space:]]*=' "$PLUGIN_ROOT/templates/config.toml.skel")"
+  [ -n "$ctl" ] && ! _states_limit_size "$ctl"
+  # The tracked set (#566), this file excluded: it holds the planted sentences.
+  local subjects=0 offenders=() line text
+  while IFS= read -r line; do
+    subjects=$((subjects + 1))
+    text="${line#*:}"; text="${text#*:}"
+    _states_limit_size "$text" && offenders+=("$line")
+  done < <(git -C "$PLUGIN_ROOT" grep -n -I -i -E 'subscription|usage limit|five-hour|5-hour|weekly cap' \
+             -- . ':!tests/capacity.bats')
+  [ "$subjects" -ge 3 ] || { echo "only $subjects subject line(s): the disclaimers are missing" >&2; false; }
+  [ "${#offenders[@]}" -eq 0 ] || { printf 'states a size: %s\n' "${offenders[@]}" >&2; false; }
+}
+
+@test "docs: commands/doctor.md names the reader and its lines" {
+  local p
+  for p in 'scripts/capacity.sh' '[capacity]' 'not declared (forecasting off)' 'reader failed (exit'; do
+    grep -qF -- "$p" "$PLUGIN_ROOT/commands/doctor.md" || { echo "commands/doctor.md lacks: $p" >&2; false; }
+  done
+}

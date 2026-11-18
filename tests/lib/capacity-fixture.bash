@@ -93,11 +93,11 @@ TOML
 }
 
 # cap_doc_tables <file> — a doc home's two commented capacity tables, uncommented: each
-# `# [capacity]` or `# [project.<x>.capacity]` header line and the contiguous
-# `# key = value` lines under it, with the leading `# ` removed.
+# `# [capacity]` or `# [project.<x>.capacity]` header line (a trailing comment allowed)
+# and the contiguous `# key = value` lines under it, with the leading `# ` removed.
 cap_doc_tables() {
   awk '
-    /^# \[(capacity|project\.[^]]*\.capacity)\][[:space:]]*$/ { on = 1; sub(/^# /, ""); print; next }
+    /^# \[(capacity|project\.[^]]*\.capacity)\]([[:space:]]+#.*)?[[:space:]]*$/ { on = 1; sub(/^# /, ""); print; next }
     on && /^# [A-Za-z_]+[[:space:]]*=/ { sub(/^# /, ""); print; next }
     { on = 0 }
   ' "$1"

@@ -68,6 +68,22 @@ ship_as_draft = false
 # host_id = "laptop"            # [A-Za-z0-9._-]+, no "..", not "."; default the hostname (+ "-wsl" under WSL)
 # exclude = ["*scratch*"]       # cwd-slug globs never archived (case-insensitive)
 
+# Operator capacity (#743): what you can give devagent each week, in one shared
+# table plus an optional table per project. scripts/capacity.sh reads it and a
+# bare /devagent:doctor checks it; absent, forecasting is off (planned, #744).
+# devagent does not know the subscription's limits: every value below is an example.
+# Every key except operator_hours_per_agent_hour is required once the table exists.
+# Tokens are weighted input-token equivalents, the unit of the actuals ledger (#729).
+# See docs/configuration.md "Capacity" for the types, ranges and rule strings.
+# [capacity]                    # TOP-LEVEL table: keep it above the first [project.*] header
+# operator_hours_per_week = 20          # example: hours of your attention a week
+# lane_hours_per_week = 40              # example: hours one lane may run a week
+# max_lanes = 3                         # example: lanes running at once, all projects together
+# tokens_per_week = 500000000           # example: weekly token budget
+# tokens_per_window = 60000000          # example: token budget of one rolling window
+# windows_per_week = 10                 # example: windows used a week
+# operator_hours_per_agent_hour = 0.25  # example: optional; your hours per agent hour
+
 [project.{{PROJECT}}]
 source_dir       = "{{SOURCE_DIR}}"
 devdoc_dir       = "{{DEVDOC_DIR}}"
@@ -245,6 +261,19 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # tokens: sonnet opus haiku fable inherit. Hand-editing the marker is the
 # documented post-scaffold path; an existing marker is never stomped.
 # Remove the marker at issue cleanup.
+
+# Per-project capacity (#743), optional; needs the shared [capacity] table above.
+# Priority (planned, #744): lanes go to the lowest priority number first, and
+# ties go to the project holding fewer lanes, then by name. Tokens and operator
+# hours beyond the reservations are shared by weight 1/priority. Default: 5.
+# A paused project takes no capacity, and its reservations leave the pool sums.
+# [project.{{PROJECT}}.capacity]
+# priority = 5                          # example: integer >= 1; a lower number is a higher priority
+# max_lanes = 2                         # example: this project's lane cap, at most capacity.max_lanes
+# paused = false                        # example
+# deadline = 2026-12-31                 # example: a TOML date or a quoted "YYYY-MM-DD"
+# reserve_operator_hours_per_week = 4   # example: your hours set aside for this project
+# reserve_tokens_per_week = 100000000   # example: tokens set aside for this project
 
 # Per-project WORKFLOW override (#120): any checklist template resolves via
 # the §12 registry — drop a checklist-<name>.md in <devdoc>/templates/ or pin

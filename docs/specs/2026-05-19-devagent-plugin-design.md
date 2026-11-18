@@ -122,6 +122,7 @@ devAgent/
 │   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
 │   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
+│   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
@@ -167,6 +168,17 @@ potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pot
 transcripts_dir = "~/private/claude-transcripts"   # absolute after ~ expansion; required; refused inside a git work tree or inside <CLAUDE_CONFIG_DIR>/projects
 host_id         = "laptop"               # partition name [A-Za-z0-9._-]+, no "..", not "."; default hostname (+ "-wsl" under WSL)
 exclude         = ["*scratch*"]          # cwd-slug globs never archived; any other key is refused
+
+# #743: operator capacity, GLOBAL top-level table; absent = forecasting off (planned, #744).
+# devagent does not know the subscription's limits: every value here is an example.
+# [capacity]
+# operator_hours_per_week = 20          # example
+# lane_hours_per_week = 40              # example
+# max_lanes = 3                         # example
+# tokens_per_week = 500000000           # example
+# tokens_per_window = 60000000          # example
+# windows_per_week = 10                 # example
+# operator_hours_per_agent_hour = 0.25  # example (the one optional key)
 
 [project.volk]
 source_dir       = "~/src/volk"
@@ -226,6 +238,14 @@ checking = "opus"                        # improve(5) / review(15) / redmr(16) /
 # thinking = "opus"                      # draft(2) / implement(9) / quality(10) / document(11) / draftmr(14)
 # "15"     = "fable"                     # a numeric per-step override wins over its class tier
 
+# [project.volk.capacity]                # #743: optional; needs [capacity]
+# priority = 5                          # example
+# max_lanes = 2                         # example
+# paused = false                        # example
+# deadline = 2026-12-31                 # example
+# reserve_operator_hours_per_week = 4   # example
+# reserve_tokens_per_week = 100000000   # example
+
 [project.volk.wbs]                       # `wbs init --from-tracker` (#706); see §13.2
 # auto_import_below_pct = 20             # integer 0-100: import every issue when the closed share
                                          # is below this; at or above, init surveys and asks
@@ -262,6 +282,26 @@ other than `T`. "The base" is `default_baseline`'s ref, so a project whose
 value dies naming the key in `mergemr.sh` (at start, whatever `merge_mr` says) and in
 `forward`; `doctor` reports it, and warns on an entry naming no tracked file and on
 `verify = "ci"` with `merge_checks = "if-present"`.
+
+`[capacity]` and `[project.<name>.capacity]` (#743) declare operator capacity: a shared
+top-level table (operator hours, lane hours, the lane pool `max_lanes`, and a token budget
+per week and per rolling window, in weighted input-token equivalents) and, per project,
+`priority` (default 5), a lane cap, `paused`, a `deadline`, and operator-hour and token
+reservations. In `[capacity]`, every key except `operator_hours_per_agent_hour` is required.
+devagent does not know the subscription's limits: every value in the block above is an example.
+`scripts/capacity.sh` (`scripts/lib/capacity.py`) resolves and validates both tables into a
+JSON document (`capacity_schema` `"1.0"`) and exits 0, 2 (any argument), 3 (one stderr line
+per violation, `capacity: <where>: <rule>`) or 4 (config missing, unreadable or not valid
+TOML). A project cap may not exceed `capacity.max_lanes`; unpaused reservations must fit
+the shared operator hours (within `1e-9`) and the effective budget
+`min(tokens_per_week, tokens_per_window * windows_per_week)`. Unknown keys and a
+project table whose only key is `capacity` warn. A bare `doctor` reports it under a
+`[capacity]` header after the per-project checks; `doctor <project>` does not. The priority
+rule is the forecast's (planned, #744): lanes go to the lowest number first, and
+ties go to the project holding fewer lanes, then by name;
+tokens and operator hours beyond the reservations are shared by weight 1/priority.
+The types, ranges, rule strings and document are pinned in `docs/configuration.md`
+"Capacity"; #957 reproduces the rule strings.
 
 ### 3.3 Per-project state (`~/.claude/devagent/state/<project>.toml`)
 
