@@ -14,7 +14,25 @@ the plugin was versioned by git commit SHA with no release cadence (#532,
 ratified 2026-07-20 while the repository was private, re-taken at go-public);
 the README's "Versioning & releases" section has the release procedure.
 
+<!-- Editor note (#1002): a test reads this file. tests/lib/whats-new-check.py
+     (run by tests/docs-site.bats) reads the "## [x.y.z]" section headings and
+     dates, the "- **Added" / "- **Changed" bullet prefixes, and the issue
+     numbers and keywords that docs-site/whats-new-sources.txt names, to tie
+     each What's new item to the release that first added it. Rewording or
+     reclassifying a released bullet can turn that test red. If this file is
+     ever split into one file per change, the checker must follow. -->
+
 ## [Unreleased]
+
+- **Added: the "What's new" page (#1002).** `docs-site/whats-new.md` lists
+  what devagent has gained since 1.0.0, each item linking the first release
+  that has it, and states where it is heading as dated themes with no issue
+  numbers or target dates. `docs-site/whats-new-sources.txt` ties each item to
+  its CHANGELOG bullet; `tests/lib/whats-new-check.py` checks the items against
+  this file and `git tag`, the roadmap's wording, and its "last checked" date,
+  which may not be older than the newest release. README's release steps gain
+  the two-half re-check, and the suite now needs the release tags in the clone
+  (`git fetch --tags`).
 
 - **Changed: the workflow page is now "How it works" (#1001).**
   `docs-site/workflow.md` opens with the idea (plan first, fresh eyes on the

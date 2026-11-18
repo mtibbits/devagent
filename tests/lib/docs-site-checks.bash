@@ -37,7 +37,16 @@
 #        21-step mutation leg, which edits a copy of workflow.md. phases.txt is
 #        read unchanged by check_phase_split, check_loop, check_scripts_off,
 #        check_phase_column and check_phase_bullets.
-#   #1002: none beyond its bullet in the one list.
+#   #1002 (What's new, written): the "## Shipped since 1.0" and "## What's next"
+#        headings and the "- **<label>.**" item shape (whats-new-check.py
+#        shipped/roadmap/checked); the one "last checked <YYYY-MM-DD>" line;
+#        the sidecar's "<label> | <anchor>" lines (whats-new-sources.txt); the
+#        release-link form .../releases/tag/<tag>; in README's "Versioning &
+#        releases", the `gh release create` step, a step before it naming What's
+#        new and "last checked", and a "Re-check the What's new page" step after
+#        it (check_release_recheck); the bats job's checkout fetching tags in
+#        test.yml (check_tag_lane). CHANGELOG.md's "## [x.y.z]" headings and
+#        "- **Added"/"- **Changed" bullet prefixes are read too (its header says so).
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
 . "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
