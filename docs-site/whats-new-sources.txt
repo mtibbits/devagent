@@ -24,5 +24,6 @@ A starter checklist | #989
 A local code backend, no forge needed | #1016
 Token cost per issue and step | kw:cost-report.sh
 Breaks for a fresh session on long runs | kw:phase breaks
+Close-out without a break once the pull request is merged | #933
 devagent's own written requirements | #915
 Model-tier proposals when an issue is captured | #1101

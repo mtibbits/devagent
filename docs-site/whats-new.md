@@ -73,6 +73,10 @@ Each item links the first published release that has it.
   few set points, so you can clear the session and carry on with a smaller
   context.
   [Release 3.0.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.0.0)
+- **Close-out without a break once the pull request is merged.** After the
+  merge, an automatic run carries straight on through the closing steps
+  instead of pausing for a fresh session.
+  [Release 3.3.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.3.0)
 - **devagent's own written requirements.** devagent's requirements are written
   down in the repository, so work can be traced to them.
   [Release 3.1.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.1.0)
