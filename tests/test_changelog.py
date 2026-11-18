@@ -596,3 +596,116 @@ def test_release_write_failure_restores(tool, tmp_path, capsys, monkeypatch):
     )
     assert calls == ["CHANGELOG.md", "CHANGELOG.md"]
     assert _snapshot(tmp_path) == before
+
+
+# --- release --fold ----------------------------------------------------------------
+
+E11 = "- **Added: eleven (#11).** Eleven.\n"
+E_CARRIED = "- **Fixed: carried (#8).** Carried.\n"
+FOLD_SECTION = (
+    HEADING + "\nThe release opens with prose.\n\n- **Added: first (#5).** First.\n"
+)
+FOLD_CHANGELOG = HEADER + "## [Unreleased]\n\n" + E_CARRIED + "\n" + FOLD_SECTION + "\n" + OLDER
+
+
+def test_fold_fixture(tool, tmp_path, capsys):
+    _fixture(tmp_path, changelog=FOLD_CHANGELOG, files={"11.md": E11})
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "--fold")
+    assert (rc, err) == (0, "")
+    assert out == P + "folded 2 entries into ## [9.9.9] — 2026-12-01: 1 entry file deleted\n"
+    assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == (
+        HEADER
+        + "## [Unreleased]\n\n"
+        + HEADING
+        + "\nThe release opens with prose.\n\n"
+        + E11
+        + "\n"
+        + E_CARRIED
+        + "\n- **Added: first (#5).** First.\n\n"
+        + OLDER
+    )
+    assert list((tmp_path / "changelog.d").iterdir()) == []
+    assert (tmp_path / "keep.txt").exists()
+
+
+NOT_NEWEST = "--fold adds only to the newest dated section, which is %s, not %s; release a new version instead"
+FOLD_NOT_NEWEST = {
+    "older": ({}, "1.0.0", NOT_NEWEST % ("9.9.9", "1.0.0")),
+    "absent": ({}, "4.0.0", NOT_NEWEST % ("9.9.9", "4.0.0")),
+    "no-dated-section": (
+        {"changelog": HEADER + "## [Unreleased]\n\n" + E_CARRIED},
+        "9.9.9",
+        NOT_NEWEST % ("none", "9.9.9"),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FOLD_NOT_NEWEST))
+def test_fold_refuses_not_newest(tool, tmp_path, capsys, case):
+    kwargs, version, message = FOLD_NOT_NEWEST[case]
+    kwargs = dict({"changelog": FOLD_CHANGELOG, "files": {"11.md": E11}}, **kwargs)
+    _fixture(tmp_path, **kwargs)
+    before = _snapshot(tmp_path)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", version, "--fold")
+    assert (rc, out, err) == (1, "", P + message + "\n")
+    assert _snapshot(tmp_path) == before
+
+
+def test_fold_section_without_entries(tool, tmp_path, capsys):
+    # The older section has entries: an unbounded first-entry search would land there.
+    changelog = HEADER + "## [Unreleased]\n\n" + HEADING + "\nProse only.\n\n\n" + OLDER
+    _fixture(tmp_path, changelog=changelog, files={"11.md": E11, "docs-pass.md": EDOCS})
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "--fold")
+    assert (rc, err) == (0, "")
+    assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == (
+        HEADER + "## [Unreleased]\n\n" + HEADING + "\nProse only.\n\n" + E11 + "\n" + EDOCS + "\n" + OLDER
+    )
+
+
+def test_fold_empty_section_at_end(tool, tmp_path, capsys):
+    _fixture(tmp_path, changelog=HEADER + "## [Unreleased]\n\n" + HEADING, files={"11.md": E11})
+    rc, out, err = _run(tool, tmp_path, capsys, "release", "9.9.9", "--fold")
+    assert (rc, err) == (0, "")
+    assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == (
+        HEADER + "## [Unreleased]\n\n" + HEADING + "\n" + E11
+    )
+
+
+FOLD_REFUSALS = {
+    "nothing-waiting": (
+        {"changelog": HEADER + "## [Unreleased]\n\n" + FOLD_SECTION, "files": None},
+        "9.9.9",
+        [NOTHING],
+    ),
+    "check-fails": (
+        {"files": {"11.md": E11, "012.md": ENTRY}},
+        "9.9.9",
+        [
+            "changelog.d/012.md: the issue number has a leading zero",
+            "release refused: fix the changelog.d/ problems above",
+        ],
+    ),
+    "version-shape": ({}, "9.9", ["'9.9' is not a plain X.Y.Z version"]),
+    "no-unreleased": (
+        {"changelog": HEADER + FOLD_SECTION},
+        "9.9.9",
+        ["CHANGELOG.md has no '## [Unreleased]' line"],
+    ),
+    "unreleased-prose": (
+        {"changelog": HEADER + "## [Unreleased]\n\nSome prose.\n\n" + FOLD_SECTION},
+        "9.9.9",
+        ["CHANGELOG.md line 7: prose outside an entry under ## [Unreleased]"],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FOLD_REFUSALS))
+def test_fold_refuses(tool, tmp_path, capsys, case):
+    kwargs, version, messages = FOLD_REFUSALS[case]
+    kwargs = dict({"changelog": FOLD_CHANGELOG, "files": {"11.md": E11}}, **kwargs)
+    _fixture(tmp_path, **kwargs)
+    before = _snapshot(tmp_path)
+    rc, out, err = _run(tool, tmp_path, capsys, "release", version, "--fold")
+    assert (rc, out) == (1, "")
+    assert err.splitlines() == [P + m for m in messages]
+    assert _snapshot(tmp_path) == before

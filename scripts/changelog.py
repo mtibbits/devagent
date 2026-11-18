@@ -9,11 +9,29 @@ exactly as they read in CHANGELOG.md; each entry's first line starts
 ``- **<Kind>: `` or ``- **<Kind> (<qualifier>): ``.
 
     python3 scripts/changelog.py check
+    python3 scripts/changelog.py preview
+    python3 scripts/changelog.py release <version> <date> [--intro <file>]
+    python3 scripts/changelog.py release <version> --fold
 
 ``check`` reports every problem in ``changelog.d/`` and exits 1 if it finds
 any. Its universe is the filesystem listing of ``changelog.d/`` (not git's
 list), because release compiles and deletes what is on disk; a missing folder
 reads as empty.
+
+**Waiting** is the entry files, ordered by key (issue numbers from highest to
+lowest, then slugs alphabetically; a file's own order kept), followed by any
+entries still carried under ``## [Unreleased]``. ``preview`` prints the
+``## [Unreleased]`` section that would make. ``release`` writes it as
+``## [<version>] — <date>`` between ``## [Unreleased]`` and the newest dated
+section (``--intro`` puts a file's prose paragraphs first) and deletes the
+entry files it used. ``release <version> --fold`` adds what is waiting to the
+newest dated section, which must be ``<version>``, above its first entry.
+
+Every refusal exits 1 and changes nothing; usage errors exit 2. CHANGELOG.md is
+written in place, UTF-8 with LF, its bytes restored if the write fails. The
+entry files are deleted afterwards, one at a time; if one cannot be, the tool
+exits 3 naming it: the release is written, so delete it by hand and do not
+re-run release or --fold.
 
 This is not a plugin command and not a workflow step: next.sh's role detection
 reads only ``scripts/<step>.sh``. Stdlib only, Python 3.8 or later.
@@ -388,6 +406,44 @@ def release(root, version, date, intro=None):
     )
 
 
+def fold(root, version):
+    """Add everything waiting to the newest dated section, which must be <version>.
+
+    The entries go above the section's first entry and below its opening prose;
+    the date and the prose are unchanged -> a report line."""
+    _check_version(version)
+    path, original, lines = _read_changelog(root)
+    span = _unreleased(lines)
+    if span is None:
+        raise Refusal("CHANGELOG.md has no '%s' line" % UNRELEASED)
+    u, end = span
+    newest = DATED.fullmatch(lines[end]) if end < len(lines) else None
+    if not newest or newest.group("version") != version:
+        raise Refusal(
+            "--fold adds only to the newest dated section, which is %s, not %s; "
+            "release a new version instead" % (newest.group("version") if newest else "none", version)
+        )
+    files, entries = _waiting(root, lines, span, "release")
+    if not entries:
+        raise Refusal(NOTHING_WAITING)
+    nxt = next((i for i in range(end + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    body = lines[end + 1 : nxt]
+    first = next((i for i, line in enumerate(body) if ENTRY_HEAD.match(line)), None)
+    if first is not None:
+        body = body[:first] + _join(entries) + [""] + body[first:]
+    else:
+        while body and not body[-1].strip():
+            body.pop()
+        body = body + [""] + _join(entries) + ([""] if nxt < len(lines) else [])
+    out = lines[:u] + [UNRELEASED, "", lines[end]] + body + lines[nxt:]
+    deleted = _write(root, path, original, out, files)
+    return "folded %s into %s: %s deleted" % (
+        _plural(len(entries), "entry", "entries"),
+        lines[end],
+        _plural(deleted, "entry file", "entry files"),
+    )
+
+
 # --- command line ------------------------------------------------------------------
 
 
@@ -451,7 +507,7 @@ def main(argv=None, root=None):
         elif ns.command == "preview":
             sys.stdout.write(preview(root))
         elif ns.fold:
-            raise Refusal("--fold is not implemented yet")
+            _say(sys.stdout, fold(root, ns.version))
         else:
             _say(sys.stdout, release(root, ns.version, ns.date, ns.intro))
     except Refusal as refusal:
