@@ -736,11 +736,13 @@ check_pre_table() {
 }
 
 # check_stop_section <page> <template> <next-sh> — #1001: the page's "## When it
-# stops" section names, in this order: [?], the word waiting, the [?] label of
-# the template's State key line, [!], the phase break, --through, and each
-# default phase-break step as `<step>`. The defaults are read from the one
-# printf line inside next.sh's phase_breaks() whose argument is a literal word
-# list. Tokens are literals (grep -F): '[?]' is a bracket expression as a regex.
+# stops" section names each of these, checked in this order (the first missing
+# one is reported; their order on the page is not checked): [?], the word
+# waiting, the [?] label of the template's State key line, [!], the phase break,
+# --through, and each default phase-break step as `<step>`. The defaults are read
+# from the one printf line inside next.sh's phase_breaks() whose argument is a
+# literal word list. Tokens are literals (grep -F): '[?]' is a bracket
+# expression as a regex.
 check_stop_section() {
   local page="$1" tmpl="$2" nextsh="$3" region label line re tok rc
   _need "$page" "$tmpl" "$nextsh" || return 2
@@ -810,6 +812,7 @@ _hint_fit() {
 # arguments). Spans are read per source line, so each sits on one line. Each
 # example is checked (R1-R3, _hint_fit) in page order; the subject floor comes
 # last: a /devagent:next example with --through, and a /devagent:unstuck one.
+# Needs skill_frontmatter from tests/lib/bats-helpers.bash, which both callers load.
 check_example_hints() {
   local page="$1" root="$2" spans span name f hint through=0 unstuck=0
   local -a w
@@ -851,7 +854,7 @@ check_example_hints() {
 # line, and its trailing sentence backticks no single lowercase word (it would
 # read as a step).
 check_phase_bullets() {
-  local ph="$1" tmpl="$2" file="$3" region split steps name got want tok num cmd i np total=0
+  local ph="$1" tmpl="$2" file="$3" region split steps name got tok num cmd i np total=0
   local -a bl=() names=() stepsof=() toks=()
   local -A tnum=()
   _need "$ph" "$tmpl" "$file" || return 2

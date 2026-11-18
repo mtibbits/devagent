@@ -7,12 +7,12 @@ files, so any session can pick up an issue where the last one stopped.
 
 ## Five phases
 
-Every issue moves through the same checklist of steps, in five phases:
+A standard issue moves through these steps, in five phases:
 
 - **Plan** — `pull` · `research` · `draft` · `spike` · `scope` · `improve` · `prune` · `tighten`. Write down what to build, and have the plan checked before any code exists.
 - **Build** — `branch` · `implement` · `quality` · `document` · `commit` · `analyze`. Make the change on its own branch, tidy it, and record what was built.
 - **Verify** — `draftmr` · `review` · `redmr` · `preship`. Describe the change, then let fresh readers try to break it.
-- **Ship** — `ship` · `mergetoall` · `mergemr`. Open the merge request, and merge it at the version that was checked.
+- **Ship** — `ship` · `mergetoall` · `mergemr`. Open the merge request, and merge it at the verified head.
 - **Learn** — `updatewbs` · `impact` · `lessonslearned` · `cleanup`. Update the plan of work, measure what changed, and keep the lessons.
 
 Three steps are optional and off unless you turn them on: research, spike and
@@ -43,9 +43,9 @@ Rows in execution order.
 | 15 | `review` | Verify | Run code review on the branch | A code review reads the whole change against the plan before anyone else has to. |
 | 16 | `redmr` | Verify | Red-team adversarial review of the MR before shipping | A hostile reader tries to break the change before a real reviewer or user does. |
 | 17 | `preship` | Verify | Fresh-context verification that the committed branch satisfies the acceptance criteria, after a main-session preflight checks the suite evidence and the MR body's claims | A fresh reader checks the committed branch against the issue's goals, so nothing ships on the author's word alone. |
-| 18 | `ship` | Ship | Push the branch and open the MR | The merge request opens only after the fresh preship check has passed, so reviewers see finished work. |
+| 18 | `ship` | Ship | Push the branch and open the MR | The merge request opens only once the fresh preship check has finished or been deliberately skipped, so reviewers see finished work. |
 | 19 | `mergetoall` | Ship | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR | Merging every open change into one local branch shows early whether they work together. |
-| 20 | `mergemr` | Ship | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged | When devAgent merges, it merges only at the exact version that was checked, so nothing unchecked slips in. |
+| 20 | `mergemr` | Ship | Merge the PR at the verified head (preship's, or forward's on green CI) when `merge_mr = true`; otherwise wait `[?]` until it is merged | When devAgent merges, it merges only at the verified head: the checked version, or a merge-forward of it that keeps the diff and passes CI. |
 | 21 | `updatewbs` | Learn | Update the work-breakdown structure | Updating the plan of work keeps the list of what is left true after each merge. |
 | 22 | `impact` | Learn | Measure and record the real-world impact of the merged change | Measuring what the merged change really did shows whether it solved the problem. |
 | 23 | `lessonslearned` | Learn | Extract reusable lessons from the completed issue | Writing down what went wrong feeds the next plan, so the same mistake is not made twice. |
@@ -83,9 +83,9 @@ Then `/devagent:next` refuses to go on until you read it, fix the cause and run
 stops at each phase break and prints `PHASE BREAK` with a resume command. Run
 `/clear`, then the printed command. The next stretch of work starts in a fresh
 session instead of re-reading the whole issue's history on every call. By
-default the breaks fall before `implement`, `quality` and `updatewbs`. These are
-not the borders between the five phases: they fall where a fresh session helps
-most. To stop a chain early on purpose, give it an end:
+default the breaks fall before `implement`, `quality` and `updatewbs`. They
+fall where a fresh session helps most, not on the five phases' borders; only the
+last happens to sit on one. To stop a chain early on purpose, give it an end:
 `/devagent:next --through <step>` runs up to and including that step, then
 stops. It still stops at any phase break on the way.
 `/devagent:next --auto --no-breaks` runs a chain without them.
