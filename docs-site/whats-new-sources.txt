@@ -13,7 +13,7 @@
 
 Work breakdown built from the tracker | #706
 Portfolio view across projects | #726
-Dependencies that cross projects | #887
+Dependencies that cross projects | #727
 Evidence attested across environments | #655
 Evidence stamps in the merge request body | #894
 Claims and evidence checked before the verifier runs | #1122
@@ -23,6 +23,6 @@ Issues kept as files on disk | #1009
 A starter checklist | #989
 A local code backend, no forge needed | #1016
 Token cost per issue and step | kw:cost-report.sh
-A fresh session at each phase break | kw:phase breaks
+Breaks for a fresh session on long runs | kw:phase breaks
 devagent's own written requirements | #915
 Model-tier proposals when an issue is captured | #1101

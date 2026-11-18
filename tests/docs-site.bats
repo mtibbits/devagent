@@ -1196,6 +1196,22 @@ wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.
   d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '- **Added: the two feature (#200).**' $'- **Added: the two feature (#200).**\n\nProse that mentions #555.'
   edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #555'
   breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'A line with no separator'
+  breaks "not '<label> | <anchor>'" wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '## Shipped since 1.0' '## Shipped'
+  breaks "no '## Shipped since 1.0' heading" wn_ship "$d"
+  d="$(wn_fixture)"; awk '/^## Shipped/{s=1} /^## What/{s=0} !(s && /^(- |  )/)' "$d/page.md" >"$d/p2" && mv "$d/p2" "$d/page.md"
+  breaks 'no items under' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '- **Two feature.** It does two.' '- Two feature. It does two.'
+  breaks 'item has no bold label' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 3.2.0]($u/devagent--v3.0.0)"
+  breaks 'link text' wn_ship "$d"
+  # A tag that exists but predates the first section holding the item, and no
+  # tag after it (the release-PR window, before the new tag is pushed).
+  d="$(wn_fixture)"; printf '%s\n' devagent--v1.0.0 devagent--v3.0.0 >"$d/tags"
+  edit "$d/page.md" "nine. [Release 3.9.0]($u/devagent--v3.9.0)" "nine. [Release 3.0.0]($u/devagent--v3.0.0)"
+  edit "$d/page.md" "wraps. [Release 3.9.0]($u/devagent--v3.9.0)" "wraps. [Release 3.0.0]($u/devagent--v3.0.0)"
+  breaks 'no tag at or after 3.9.0' wn_ship "$d"
   d="$(wn_fixture)"; plant "$d/sources.txt" 'Bad | 200'
   breaks 'bad anchor' wn_ship "$d"
   d="$(wn_fixture)"; edit "$d/page.md" "It does two. [Release 3.0.0]($u/devagent--v3.0.0)" 'It does two.'
@@ -1262,6 +1278,14 @@ wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.
   # No blank line before the footnote: in gfm it is part of the last theme.
   d="$(wn_fixture)"; edit "$d/page.md" $'continuation line.\n\nRoadmap' $'continuation line.\nRoadmap'
   breaks 'inside a theme' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; drop "$d/page.md" 'Roadmap last checked'
+  edit "$d/page.md" 'Still moving.' 'Still moving. Roadmap last checked on 2026-11-20.'
+  breaks "not in What's next" check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; drop "$d/page.md" 'Roadmap last checked'
+  edit "$d/page.md" $'## What\'s next\n\n' $'## What\'s next\n\nRoadmap last checked on 2026-11-20.\n\n'
+  breaks 'not after the roadmap themes' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '## [3.10.0] — 2026-11-20' '## [3.10.0]'
+  breaks 'has no date' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
 }
 
 @test "mutation: tag lane" {
@@ -1279,6 +1303,10 @@ wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.
   f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
   edit "$f" $'\n  bats:\n' $'\n  shards:\n'
   breaks 'no tag fetch' check_tag_lane "$f"
+  f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
+  awk '/^  bats:/{b=1} /^  pytest:/{b=0} b{sub(/uses: actions\/checkout/, "uses: actions/cache")} {print}' "$f" >"$f.new"
+  mv "$f.new" "$f"
+  breaks 'no actions/checkout step' check_tag_lane "$f"
 }
 
 # rr_fixture — a README release section and a drift-policy file that hold.

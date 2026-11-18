@@ -3,7 +3,8 @@
 This directory holds the devAgent onboarding site: its content pages,
 `moved.txt` (old page names and their new homes), `live.txt` (which family
 sites are live, and the counts pages may show), `phases.txt` (the loop's five
-phases and the checklist steps each holds) and the `assets/` folder (the
+phases and the checklist steps each holds), `whats-new-sources.txt` (each What's
+new item's CHANGELOG anchor, read only by the tests) and the `assets/` folder (the
 landing page's `landing.css`, `landing.js` and its placeholder still,
 `drafting-table.svg`). The index is the hand-written landing page,
 `index.html`. The content pages are the index plus the pages its own list

@@ -54,8 +54,9 @@ python3 -m pytest tests/ -v
 ```
 
 The clone needs the release tags: `tests/docs-site.bats` reads `git tag`, so a
-`--depth 1` clone or one with stale tags fails there until you run
-`git fetch --tags`.
+`--depth 1` clone or one with stale tags fails there until you fetch the tags
+from devagent's repository: `git fetch --tags`, or `git fetch --tags upstream`
+in a fork.
 
 The maintainer's runner is `scripts/run-suite.sh`, which pins the hermetic
 environment and refuses to write a result it cannot stand behind. It needs

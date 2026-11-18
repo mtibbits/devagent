@@ -73,6 +73,8 @@ devAgent/
 │                            #   phases.txt, #998: the loop's phases and their steps;
 │                            #   assets/, #998: landing.css, landing.js, the placeholder still;
 │                            #   live.txt, #996: live family sites and count sources;
+│                            #   whats-new.md + whats-new-sources.txt, #1002: the What's new
+│                            #     page and each item's CHANGELOG anchor (tests only);
 │                            #   reference.md links the docs/ reference, #997);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)

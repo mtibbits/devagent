@@ -167,7 +167,7 @@ def cmd_shipped(page, sources, chlog, tagsfile):
     except CannotRun:
         tag_lines = []
     if not tag_lines:
-        raise Broken("git tag is empty: fetch tags (git fetch --tags)")
+        raise Broken("git tag is empty: fetch tags (git fetch --tags from devagent's repository, `upstream` in a fork)")
     tags = {t: tuple(map(int, m.groups())) for t in tag_lines for m in [TAG_RE.match(t)] if m}
 
     src = {}
@@ -212,7 +212,10 @@ def cmd_shipped(page, sources, chlog, tagsfile):
             raise Broken(f"'{label}': {len(links)} release links, want exactly one release link")
         tag = links[0]
         if tag not in tags:
-            raise Broken(f"'{label}': {tag} not in git tag (git fetch --tags if this clone is behind)")
+            raise Broken(f"'{label}': {tag} not in git tag (git fetch --tags from devagent's repository, `upstream` in a fork, if this clone is behind)")
+        shown = re.search(r"\[([^\]]*)\]\(" + re.escape(REL_URL + tag) + r"\)", text)
+        if not shown or shown.group(1) != "Release " + vstr(tags[tag]):
+            raise Broken(f"'{label}': link text '{shown.group(1) if shown else ''}' does not name {tag}; want link text 'Release {vstr(tags[tag])}'")
         anchor = src[label]
         added = [s.version for s in released if s.version > FLOOR
                  and any(b.startswith(("- **Added", "- **Changed")) and anchor_in(anchor, b)
