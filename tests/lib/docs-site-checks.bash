@@ -68,6 +68,32 @@ LANDING_CHECK="$(dirname "${BASH_SOURCE[0]}")/landing-check.py"
 # absence, 2 usage or an unreadable file; diagnostics on stderr).
 landing_py() { python3 -I -X utf8 "$LANDING_CHECK" "$@"; }
 
+# The What's new page's fact reader (#1002), next to this library. Its exit
+# status IS the check's: every check_whats_new_* / check_tag_lane /
+# check_release_recheck wrapper ends on the reader, so its 0/1/2 passes through
+# unchanged (never captured, never collapsed to 2).
+WHATS_NEW_CHECK="$(dirname "${BASH_SOURCE[0]}")/whats-new-check.py"
+whats_new_py() { python3 -I -X utf8 "$WHATS_NEW_CHECK" "$@"; }
+
+# check_whats_new_shipped <page> <sources> <CHANGELOG> <tags-file> — every
+# shipped item ties to a released Added/Changed bullet newer than 1.0.0 and
+# links the first tag holding it. <tags-file> is `git tag` output; an empty or
+# missing one is broken (1), never a skip.
+check_whats_new_shipped() { _need "$1" "$2" "$3" || return 2; whats_new_py shipped "$1" "$2" "$3" "$4"; }
+# check_whats_new_roadmap <page> — >= 3 themes, each "coming"; no issue number,
+# target date or family-site name anywhere in "## What's next".
+check_whats_new_roadmap() { _need "$1" || return 2; whats_new_py roadmap "$1"; }
+# check_whats_new_checked <page> <CHANGELOG> — one "last checked" date after the
+# themes and outside them, not before the newest release's date.
+check_whats_new_checked() { _need "$1" "$2" || return 2; whats_new_py checked "$1" "$2"; }
+# check_tag_lane <test.yml> — the bats job (the lane running docs-site.bats)
+# checks out with fetch-depth: 0 or fetch-tags: true.
+check_tag_lane() { _need "$1" || return 2; whats_new_py tag-lane "$1"; }
+# check_release_recheck <README> <docs-site-README> — the release steps bump the
+# What's new "last checked" date before the publish step and re-check the page
+# after it; the drift policy says to re-check whats-new.md at each release.
+check_release_recheck() { _need "$1" "$2" || return 2; whats_new_py recheck "$1" "$2"; }
+
 # landing_cmds [--article] <page> — the page's install commands (its <code>
 # lines beginning "claude plugin "); 2 when the page cannot be read.
 landing_cmds() {
