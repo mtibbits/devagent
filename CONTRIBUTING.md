@@ -95,6 +95,17 @@ so there is no list to maintain.
   that alters what a requirement states updates `docs/requirements.md` in the
   same PR. Its IDs are never renumbered or reused: a withdrawn requirement is
   deleted and its withdrawal noted in a prose line.
+- **Changelog entries are files.** A change records its changelog entry as
+  `changelog.d/<issue>.md` (or `changelog.d/<slug>.md` when it has no issue)
+  and never edits `## [Unreleased]` in `CHANGELOG.md`. The README's
+  "Versioning & releases" section has the entry format and the release steps;
+  `python3 scripts/changelog.py check` checks the files.
+- **Tests read changelog entries through `changelog_text`.** A test that reads
+  changelog entries sources `tests/lib/changelog-text.bash` and reads
+  `changelog_text`, which is `CHANGELOG.md` followed by every entry file, so
+  it passes before and after the release that moves its entry. A pin on an
+  entry already in a dated section may read `CHANGELOG.md` directly: a
+  released entry never moves again.
 - **Never widen a tool grant.** Command and skill bodies grant
   `Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*")` in the quoted form and
   nothing broader. A change that needs more should be discussed in an issue

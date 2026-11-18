@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -709,3 +711,80 @@ def test_fold_refuses(tool, tmp_path, capsys, case):
     assert (rc, out) == (1, "")
     assert err.splitlines() == [P + m for m in messages]
     assert _snapshot(tmp_path) == before
+
+
+# --- docs --------------------------------------------------------------------------
+
+
+def _flat(text):
+    return " ".join(text.split())
+
+
+def _md_section(path, heading):
+    """The text from the line `heading` to the next line starting `## ` (exclusive)."""
+    lines = path.read_text(encoding="utf-8").split("\n")
+    start = lines.index(heading)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return "\n".join(lines[start:end])
+
+
+def test_docs_state_changelog_rules():
+    # (a) CHANGELOG.md's header paragraph says where new entries go; nothing sits
+    # between it and `## [Unreleased]` but a blank line, and no pointer line follows
+    # the heading (open pull requests insert there).
+    lines = (REPO / "CHANGELOG.md").read_text(encoding="utf-8").split("\n")
+    u = lines.index("## [Unreleased]")
+    header = _flat("\n".join(lines[:u]))
+    assert "changelog.d/" in header
+    assert '"Versioning & releases"' in header
+    assert lines[u - 1] == "" and lines[u + 1] == ""
+    assert [ln for ln in lines[:u] if ln.startswith("## ")] == []
+    # (b) CONTRIBUTING states both rules.
+    contributing = _flat(_md_section(REPO / "CONTRIBUTING.md", "## Conventions every change follows"))
+    assert "changelog.d/" in contributing
+    assert "tests/lib/changelog-text.bash" in contributing
+    # (c) README's release section names the files, the tool and every command.
+    readme = _flat(_md_section(REPO / "README.md", "## Versioning & releases"))
+    for token in (
+        "changelog.d/<issue>.md",
+        "scripts/changelog.py check",
+        "scripts/changelog.py release",
+        "scripts/changelog.py preview",
+        "--fold",
+        "--intro",
+    ):
+        assert token in readme, token
+    # (d) the spec's directory tree has rows for the folder and the tool.
+    spec = (REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md").read_text(encoding="utf-8")
+    tree = spec.split("\n### 3.1 ", 1)[1].split("\n### 3.2 ", 1)[0]
+    assert "├── changelog.d/" in tree
+    assert "changelog.py (#1127)" in tree
+
+
+SUBSTITUTE = {"<version>": "9.9.9", "<date>": "2026-12-01", "<file>": "intro.md", "<issue>": "1"}
+
+
+def _readme_commands():
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    spans = re.findall(r"`(python3\s+scripts/changelog\.py\s[^`]*)`", text)
+    fenced = re.findall(r"^\s*(python3 scripts/changelog\.py .*)$", text, re.M)
+    return [_flat(c) for c in spans + fenced]
+
+
+def test_readme_changelog_commands_parse(tool):
+    commands = _readme_commands()
+    assert len(commands) >= 3, commands
+    kinds = set()
+    for command in commands:
+        for token, value in SUBSTITUTE.items():
+            command = command.replace(token, value)
+        argv = shlex.split(command)[2:]
+        try:
+            ns = tool.validate_args(tool.build_parser().parse_args(argv))
+        except SystemExit:
+            pytest.fail("README command does not parse: %s" % command)
+        if ns.command == "release":
+            kinds.add("fold" if ns.fold else "release")
+        else:
+            kinds.add(ns.command)
+    assert kinds == {"check", "preview", "release", "fold"}

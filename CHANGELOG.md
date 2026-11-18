@@ -12,7 +12,10 @@ whose notes are that section. A marketplace install is pinned to the version
 string and picks up the next release on `claude plugin update`. Until 1.0.0
 the plugin was versioned by git commit SHA with no release cadence (#532,
 ratified 2026-07-20 while the repository was private, re-taken at go-public);
-the README's "Versioning & releases" section has the release procedure.
+the README's "Versioning & releases" section has the release procedure. A pull
+request records its entry as a file in `changelog.d/` rather than editing
+`## [Unreleased]` below (#1127); that README section says how, and each release
+compiles the files into its dated section.
 
 ## [Unreleased]
 
