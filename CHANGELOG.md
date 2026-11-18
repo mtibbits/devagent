@@ -28,6 +28,72 @@ compiles the files into its dated section.
 
 ## [Unreleased]
 
+## [3.3.0] — 2026-11-18
+
+A minor release: new features and one changed default, with no change that
+breaks an existing project's `config.toml`, devdoc layout or command contract.
+Added: changelog entry files (`changelog.d/` and `scripts/changelog.py`) and a
+"What's new" page on the docs site. Changed: under the built-in
+`phase_breaks` default, `--auto` no longer stops before updatewbs once the PR
+is merged, so the close-out steps run in the mergemr session (an explicit
+`phase_breaks` keeps its breaks). Fixed: `next --through` and `--auto` find
+their chain target by name in the active revision block, and
+`/devagent:portfolio` no longer aborts or hangs on a broken schema file,
+over-long step numbers or non-regular checklist files. The install and
+workflow ("How it works") pages were rewritten.
+
+- **Added: changelog entry files (#1127).** A pull request records its
+  changelog entry as `changelog.d/<issue>.md` (or `<slug>.md` for a change
+  with no issue) instead of editing `## [Unreleased]` in `CHANGELOG.md`, so
+  two open pull requests no longer conflict there. `python3
+  scripts/changelog.py check` reports every problem in those files, `preview`
+  prints the section a release would write, and `release <version> <date>`
+  (with `--intro <file>` for the opening paragraph) compiles them into
+  `CHANGELOG.md` and deletes the files it used; `release <version> --fold`
+  adds an entry that merged after the release change was cut. A test that
+  reads changelog entries reads them through `changelog_text`
+  (`tests/lib/changelog-text.bash`), so its pin passes before and after the
+  release that moves the entry.
+
+- **Changed: the release steps (#1127).** README's "Versioning & releases"
+  now has the release change run `python3 scripts/changelog.py release`
+  instead of moving entries by hand, and tags only when `preview` on master
+  prints just the `## [Unreleased]` heading. Entries already under
+  `## [Unreleased]`, and any an older pull request still adds there, ship with
+  the next release.
+
+- **Fixed: portfolio input readers, exits and output rail (#1050).** A broken
+  schema file, an over-long step number, or a FIFO or other non-regular
+  `checklist.md`/`STUCK` no longer aborts or hangs a `/devagent:portfolio` run
+  (a regular file too large to read, and a file swapped for a FIFO between the
+  check and the read, still can). A schema file that cannot be read or linted
+  (or whose major version differs) exits 3 with one
+  `portfolio: self-check: schema:` line, not a traceback. A step number beyond
+  the interpreter's integer-string limit, and a FIFO or other non-regular
+  `checklist.md`/`STUCK` (never opened now), are per-issue
+  `checklist_unreadable`/`stuck_unreadable` entries. An `issue:` value ending
+  in `.` or matching an issue dir only case-insensitively is `issue_not_id` and
+  its dir is not read; on case-insensitive or Win32 hosts such a value now
+  reads `absent` with `issue_not_id` instead of reading the other dir. When the
+  devdoc cannot be listed, a present issue dir is reported unreadable rather
+  than read unverified. A known `key:value` with no space after a missing comma
+  (`{issue: X est:1w}`) is `meta_unreadable`. Inline link bullets
+  (`- [text](url)`) are no longer `near_miss_line`. `--out` under
+  `<source_dir>-wt` (the default worktree root) is refused; portfolio and
+  trust's forbid list now share one rule, `worktree_root_rule` in
+  `scripts/lib/config.sh` (same trust output, no extra config reads).
+
+- **Added: the "What's new" page (#1002).** `docs-site/whats-new.md` lists
+  what devagent has gained since 1.0.0, each item linking the first release
+  that has it, and states where it is heading as themes with no issue numbers or
+  target dates, under the date the roadmap was last checked.
+  `docs-site/whats-new-sources.txt` ties each item to its CHANGELOG bullet;
+  `tests/lib/whats-new-check.py` checks the items against this file and
+  `git tag`, the roadmap's wording, and its "last checked" date,
+  which may not be older than the newest release. README's release steps gain
+  the two-half re-check, and the suite now needs the release tags in the clone
+  (`git fetch --tags`, or `upstream` in a fork).
+
 - **Changed: the workflow page is now "How it works" (#1001).**
   `docs-site/workflow.md` opens with the idea (plan first, fresh eyes on the
   plan and the finished change, a written record), then the five phases read
@@ -41,6 +107,7 @@ compiles the files into its dated section.
   the phase bullets on the page and in README, and the built title and nav
   label. The 1.0 page's anchors `#numbering`, `#step-table` and
   `#checklist-glyphs` are gone; no in-repo link used them.
+
 - **Changed: the install page (#999).** `docs-site/install.md` is now three
   short parts in 60 lines: prerequisites in plain words, the two install
   commands with the optional superpowers commands, and a three-line first run
@@ -52,6 +119,7 @@ compiles the files into its dated section.
   tests now check facts: every tool on the page is in README's Prerequisites,
   and the page shows no issue number. The shellcheck token floor is 13 (was
   14); the Claude Code token floor stays at 5, the measured count.
+
 - **Changed: no phase break after a merged PR (#933).** The built-in
   `phase_breaks` default no longer breaks before updatewbs once the
   active revision's mergemr row is `[x]` (or `[-]` because ship was `[-]`), so
