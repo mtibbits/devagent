@@ -249,7 +249,7 @@ The JSON (UTF-8, LF) has six top-level fields in both forms:
 - `declared`: whether `[capacity]` is present.
 - `token_unit`: `weighted_input_token_equivalents`.
 - `shared`: the seven shared keys, each `{"value": <v>, "source": "config" | "default"}`; `null` when not declared.
-- `effective_tokens_per_week`: `{"value": <n>, "binding": <b>}`, where `value` is `min(tokens_per_week, tokens_per_window * windows_per_week)`, unrounded, and `binding` is `tokens_per_week` or `tokens_per_window_x_windows_per_week` (a tie is `tokens_per_week`); `null` when not declared.
+- `effective_tokens_per_week`: `{"value": <n>, "binding": <b>}`, where `value` is `min(tokens_per_week, tokens_per_window * windows_per_week)` with the product rounded half up to whole tokens (`floor(product + 0.5)`; a product of 2^52 or more is already whole), so `value` is always an integer, and `binding` is `tokens_per_week` or `tokens_per_window_x_windows_per_week` (a tie is `tokens_per_week`); `null` when not declared.
 - `projects`: every project in config order, each with `name` and the six project keys in the same `{"value", "source"}` form. Defaults: `priority` 5, `paused` false, the rest `null`. `deadline.value` is `YYYY-MM-DD` for both spellings.
 
 Declared, for the example tables above (one project, layout abridged):
@@ -375,8 +375,9 @@ Sums: each unpaused project's reservation is added with `+`, left to right in
 config order, from the integer 0 (never `sum()`, `math.fsum` or decimal). The
 hours sum is refused only when it exceeds `capacity.operator_hours_per_week + 1e-9`:
 the fixed tolerance absorbs binary rounding, so an exactly-full declaration
-(4.4 + 11.8 + 3.8 against 20) passes in any order. The token sum is an exact
-integer and is refused when strictly above the effective budget.
+(4.4 + 11.8 + 3.8 against 20) passes in any order. The token sum and the
+effective budget are both integers (60000000 x 4.1 is 246000000, not the double
+245999999.99999997), and the sum is refused when strictly above the budget.
 
 ### Warnings
 

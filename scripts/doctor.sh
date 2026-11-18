@@ -254,7 +254,7 @@ check_capacity() {
   echo "[capacity]"
   out="$(mktemp)"
   err="$(mktemp)"
-  "$PLUGIN_ROOT/scripts/capacity.sh" >"$out" 2>"$err" </dev/null || rc=$?
+  bash "$PLUGIN_ROOT/scripts/capacity.sh" >"$out" 2>"$err" </dev/null || rc=$?
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
     [[ -n "$line" ]] || continue

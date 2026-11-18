@@ -28,7 +28,8 @@ import re
 import sys
 
 # The one config loader (#293: it retries a Windows sharing violation). Loaded at
-# import, so a missing TOML parser crashes (exit 1) rather than reading as exit 4.
+# import, so a missing TOML parser crashes this file (exit 1) rather than reading as
+# exit 4; through capacity.sh, its _toml.py validate pre-check exits 4 first.
 _spec = importlib.util.spec_from_file_location(
     "_capacity_toml", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_toml.py"))
 _toml = importlib.util.module_from_spec(_spec)
@@ -205,11 +206,24 @@ def _project(name, table):
     return out
 
 
+# 2^52: every double at or above it is already whole, and adding 0.5 there can round
+# the sum up to the next integer.
+_WHOLE_DOUBLES = 4503599627370496
+
+
+def _whole_tokens(x):
+    """x rounded half up to an int, as JavaScript's Math.floor(x + 0.5) (#957). A
+    product such as 60000000 * 4.1 is 245999999.99999997 as a double."""
+    if isinstance(x, int) or x >= _WHOLE_DOUBLES:
+        return int(x)
+    return math.floor(x + 0.5)
+
+
 def _effective(cap):
-    """min(tokens_per_week, tokens_per_window * windows_per_week); a tie binds on
-    tokens_per_week."""
+    """min(tokens_per_week, tokens_per_window * windows_per_week), the product rounded
+    to whole tokens; a tie binds on tokens_per_week."""
     week = cap["tokens_per_week"]
-    windows = cap["tokens_per_window"] * cap["windows_per_week"]
+    windows = _whole_tokens(cap["tokens_per_window"] * cap["windows_per_week"])
     if week <= windows:
         return {"value": week, "binding": BINDING_WEEK}
     return {"value": windows, "binding": BINDING_WINDOWS}

@@ -177,6 +177,23 @@ _full() { install_fixture_config capacity/full.toml; }
   jq -e '.effective_tokens_per_week.binding == "tokens_per_window_x_windows_per_week"' <<<"$output"
 }
 
+@test "binding: a product a double cannot hold is rounded to whole tokens" {
+  # As doubles, 60000000 x 4.1 is 245999999.99999997 and 220000 x 4.1 is 901999.9999999999.
+  cap_config </dev/null
+  cap_shared windows_per_week=4.1
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e '.effective_tokens_per_week == {"value":246000000,"binding":"tokens_per_window_x_windows_per_week"}' <<<"$output"
+  run --separate-stderr python3 "$CAPPY" summary <<<"$output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "20 operator h/week, pool of 3 lanes, 246000000 weighted tokens/week (tokens_per_window_x_windows_per_week)" ]
+  cap_config </dev/null
+  cap_shared tokens_per_week=902000 tokens_per_window=220000 windows_per_week=4.1   # a tie
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e '.effective_tokens_per_week == {"value":902000,"binding":"tokens_per_week"}' <<<"$output"
+}
+
 @test "contract: field names, capacity_schema and token_unit" {
   local top='["capacity_schema","declared","effective_tokens_per_week","projects","shared","token_unit"]'
   local proj='[["deadline","max_lanes","name","paused","priority","reserve_operator_hours_per_week","reserve_tokens_per_week"]]'
@@ -501,6 +518,17 @@ _reserving() {
   _expect0
 }
 
+@test "pool: token reservations that exactly fill a rounded window budget pass" {
+  _shared windows_per_week=4.1
+  cap_projects alpha
+  cap_table alpha 'reserve_tokens_per_week = 246000000'
+  _expect0
+  _shared windows_per_week=4.1
+  cap_projects alpha
+  cap_table alpha 'reserve_tokens_per_week = 246000001'
+  _expect3 "$TOKENS_POOL"
+}
+
 @test "paused: a paused project resolves paused and leaves the pool sums" {
   local p
   for p in true false; do
@@ -549,6 +577,35 @@ $TOKENS_POOL"
   _expect3 "capacity: capacity.operator_hours_per_week: missing required key
 capacity: capacity.max_lanes: wrong type: expected integer
 $TOKENS_POOL"
+}
+
+@test "suppression: an invalid paused in any project skips both pool rules" {
+  _shared
+  cap_projects alpha beta
+  cap_table alpha 'paused = "yes"'
+  cap_table beta 'reserve_operator_hours_per_week = 25' 'reserve_tokens_per_week = 600000000'
+  _expect3 "capacity: project.alpha.capacity.paused: wrong type: expected boolean"
+}
+
+@test "suppression: an invalid token reservation skips only the token rule" {
+  _shared
+  cap_projects alpha beta
+  cap_table alpha 'reserve_tokens_per_week = "100000000"'
+  cap_table beta 'reserve_operator_hours_per_week = 25' 'reserve_tokens_per_week = 600000000'
+  _expect3 "capacity: project.alpha.capacity.reserve_tokens_per_week: wrong type: expected integer
+$HOURS_POOL"
+}
+
+@test "order: a project's keys in rule order, then warnings in file order" {
+  _shared max_lane=3
+  cap_projects alpha
+  cap_table alpha 'max_lanes = 0' 'priority = 0'
+  printf '[project.gamma.capacity]\npriorty = 2\n' | cap_append
+  _expect3 "capacity: project.alpha.capacity.priority: out of range: 1 <= x <= 9007199254740991
+capacity: project.alpha.capacity.max_lanes: out of range: 1 <= x <= 9007199254740991
+capacity: warning: capacity.max_lane: unknown key (ignored)
+capacity: warning: project.gamma: only key is capacity (misspelled project name?)
+capacity: warning: project.gamma.capacity.priorty: unknown key (ignored)"
 }
 
 @test "warning: an unknown key in [capacity]" {
