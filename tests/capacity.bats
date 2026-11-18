@@ -120,3 +120,120 @@ TOML
     jq -e '.projects == [] and .declared == false' <<<"$output"
   done
 }
+
+# --- Task 2: declared resolution, the contract test, the summary verb ---
+
+# _full — install the full fixture (all keys declared) as the config.
+_full() { cp "$PLUGIN_ROOT/tests/fixtures/capacity/full.toml" "$CFG"; }
+
+@test "resolve: the full fixture equals the golden" {
+  _full
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  printf '%s\n' "$output" >"$BATS_TEST_TMPDIR/doc.json"
+  jq -n -e --slurpfile a "$BATS_TEST_TMPDIR/doc.json" \
+    --slurpfile b "$PLUGIN_ROOT/tests/fixtures/capacity/full.expected.json" '$a[0] == $b[0]'
+  jq -e '.projects[] | select(.name == "gamma") | [to_entries[] | select(.key != "name") | .value.source] | length == 6 and all(. == "default")' <<<"$output"
+}
+
+@test "resolve: twelve projects and a pool of three are each uncapped at priority 5" {
+  cap_config </dev/null
+  cap_shared
+  cap_healthy_projects 12
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  jq -e '.projects | length == 12' <<<"$output"
+  jq -e 'all(.projects[]; .max_lanes.value == null and .priority.value == 5 and .priority.source == "default")' <<<"$output"
+  jq -e '.shared.max_lanes.value == 3' <<<"$output"
+}
+
+@test "binding: tokens_per_week is the smaller term, and wins a tie" {
+  cap_config </dev/null
+  cap_shared
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e '.effective_tokens_per_week == {"value":500000000,"binding":"tokens_per_week"}' <<<"$output"
+  cap_config </dev/null
+  cap_shared tokens_per_week=600000000   # 60000000 x 10: a tie
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e '.effective_tokens_per_week == {"value":600000000,"binding":"tokens_per_week"}' <<<"$output"
+}
+
+@test "binding: the window product is the smaller term" {
+  cap_config </dev/null
+  cap_shared windows_per_week=5.5
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e '.effective_tokens_per_week.value == 330000000' <<<"$output"
+  jq -e '.effective_tokens_per_week.binding == "tokens_per_window_x_windows_per_week"' <<<"$output"
+}
+
+@test "contract: field names, capacity_schema and token_unit" {
+  local top='["capacity_schema","declared","effective_tokens_per_week","projects","shared","token_unit"]'
+  local proj='[["deadline","max_lanes","name","paused","priority","reserve_operator_hours_per_week","reserve_tokens_per_week"]]'
+  # The declared form.
+  _full
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e --argjson t "$top" 'keys == $t' <<<"$output"
+  jq -e '.shared | keys == ["lane_hours_per_week","max_lanes","operator_hours_per_agent_hour","operator_hours_per_week","tokens_per_week","tokens_per_window","windows_per_week"]' <<<"$output"
+  jq -e '[.shared[] | keys] | unique == [["source","value"]]' <<<"$output"
+  jq -e '.effective_tokens_per_week | keys == ["binding","value"]' <<<"$output"
+  jq -e --argjson p "$proj" '[.projects[] | keys] | unique == $p' <<<"$output"
+  jq -e '[(.shared[] | .source), (.projects[] | to_entries[] | select(.key != "name") | .value.source)] | unique == ["config","default"]' <<<"$output"
+  jq -e '[.projects[] | to_entries[] | select(.key != "name") | .value | keys] | unique == [["source","value"]]' <<<"$output"
+  jq -e '.capacity_schema == "1.0" and .token_unit == "weighted_input_token_equivalents"' <<<"$output"
+  # The not-declared form: the same top level; every source is one of the two values.
+  cap_config </dev/null
+  cap_projects alpha
+  run --separate-stderr "$CAP"
+  [ "$status" -eq 0 ]
+  jq -e --argjson t "$top" 'keys == $t' <<<"$output"
+  jq -e --argjson p "$proj" '[.projects[] | keys] | unique == $p' <<<"$output"
+  jq -e '[.projects[] | to_entries[] | select(.key != "name") | .value.source] | unique - ["config","default"] == []' <<<"$output"
+  jq -e '.capacity_schema == "1.0" and .token_unit == "weighted_input_token_equivalents"' <<<"$output"
+}
+
+@test "summary: the declared line" {
+  cap_config </dev/null
+  cap_shared
+  "$CAP" >"$BATS_TEST_TMPDIR/doc.json"
+  run --separate-stderr python3 "$CAPPY" summary <"$BATS_TEST_TMPDIR/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$output" = "20 operator h/week, pool of 3 lanes, 500000000 weighted tokens/week (tokens_per_week)" ]
+}
+
+@test "summary: an integral float prints with no fraction" {
+  cap_config </dev/null
+  cap_shared windows_per_week=5.5 operator_hours_per_week=17.5
+  "$CAP" >"$BATS_TEST_TMPDIR/doc.json"
+  run --separate-stderr python3 "$CAPPY" summary <"$BATS_TEST_TMPDIR/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$output" = "17.5 operator h/week, pool of 3 lanes, 330000000 weighted tokens/week (tokens_per_window_x_windows_per_week)" ]
+}
+
+@test "summary: the not-declared line" {
+  cap_config </dev/null
+  "$CAP" >"$BATS_TEST_TMPDIR/doc.json"
+  run --separate-stderr python3 "$CAPPY" summary <"$BATS_TEST_TMPDIR/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$output" = "not declared (forecasting off)" ]
+}
+
+@test "summary: anything but a capacity document exits 1" {
+  cap_config </dev/null
+  cap_shared
+  "$CAP" | jq '.capacity_schema = "2.0"' >"$BATS_TEST_TMPDIR/v2.json"
+  local input
+  for input in '' 'null' '[]' '{"declared":"no"}' "$(cat "$BATS_TEST_TMPDIR/v2.json")"; do
+    run --separate-stderr python3 "$CAPPY" summary <<<"$input"
+    [ "$status" -eq 1 ]
+    [ -z "$output" ]
+  done
+  # Control: the same document at major 1 is accepted.
+  run --separate-stderr python3 "$CAPPY" summary < <(jq '.capacity_schema = "1.0"' "$BATS_TEST_TMPDIR/v2.json")
+  [ "$status" -eq 0 ]
+}

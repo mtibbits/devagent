@@ -18,7 +18,9 @@ Syntax stays 3.8-compatible: README.md supports 3.8-3.10 with tomli, and doctor
 always runs this file.
 """
 
+import datetime
 import json
+import math
 import sys
 
 try:
@@ -28,6 +30,20 @@ except ModuleNotFoundError:  # Python 3.8-3.10: the same parser, packaged
 
 CAPACITY_SCHEMA = "1.0"
 TOKEN_UNIT = "weighted_input_token_equivalents"
+
+# The shared keys, in the order the document lists them; every one but the last is
+# required.
+SHARED_KEYS = (
+    "operator_hours_per_week",
+    "lane_hours_per_week",
+    "max_lanes",
+    "tokens_per_week",
+    "tokens_per_window",
+    "windows_per_week",
+    "operator_hours_per_agent_hour",
+)
+BINDING_WEEK = "tokens_per_week"
+BINDING_WINDOWS = "tokens_per_window_x_windows_per_week"
 
 PROJECT_KEYS = (
     "priority",
@@ -47,6 +63,7 @@ PROJECT_DEFAULTS = {
 }
 
 USAGE = "capacity: usage: capacity.py resolve <config> [<project>...] | capacity.py summary"
+NOT_DECLARED = "not declared (forecasting off)"
 
 
 class _ConfigError(Exception):
@@ -75,25 +92,115 @@ def _entry(value, source):
     return {"value": value, "source": source}
 
 
-def _project_defaults(name):
+def _doc_value(value):
+    """A config value as the document writes it: a date as YYYY-MM-DD."""
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    return value
+
+
+def _project(name, table):
+    """One element of `projects`: the six keys from `table` (None: no capacity table)."""
     out = {"name": name}
     for key in PROJECT_KEYS:
-        out[key] = _entry(PROJECT_DEFAULTS[key], "default")
+        if isinstance(table, dict) and key in table:
+            out[key] = _entry(_doc_value(table[key]), "config")
+        else:
+            out[key] = _entry(PROJECT_DEFAULTS[key], "default")
     return out
+
+
+def _effective(cap):
+    """min(tokens_per_week, tokens_per_window * windows_per_week); a tie binds on
+    tokens_per_week."""
+    week = cap["tokens_per_week"]
+    windows = cap["tokens_per_window"] * cap["windows_per_week"]
+    if week <= windows:
+        return {"value": week, "binding": BINDING_WEEK}
+    return {"value": windows, "binding": BINDING_WINDOWS}
 
 
 def resolve(path, names):
     """Return (exit code, document or None)."""
-    _load(path)
+    data = _load(path)
+    project_tables = data.get("project")
+    if not isinstance(project_tables, dict):
+        project_tables = {}
+    projects = []
+    for name in names:
+        ptable = project_tables.get(name)
+        pcap = ptable.get("capacity") if isinstance(ptable, dict) else None
+        projects.append(_project(name, pcap))
+    declared = "capacity" in data
+    shared = None
+    effective = None
+    if declared:
+        cap = data["capacity"]
+        shared = {}
+        for key in SHARED_KEYS:
+            if key in cap:
+                shared[key] = _entry(cap[key], "config")
+            else:
+                shared[key] = _entry(None, "default")
+        effective = _effective(cap)
     doc = {
         "capacity_schema": CAPACITY_SCHEMA,
-        "declared": False,
+        "declared": declared,
         "token_unit": TOKEN_UNIT,
-        "shared": None,
-        "effective_tokens_per_week": None,
-        "projects": [_project_defaults(n) for n in names],
+        "shared": shared,
+        "effective_tokens_per_week": effective,
+        "projects": projects,
     }
     return 0, doc
+
+
+def _is_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _number_text(v):
+    """An integral value with no fraction (330000000.0 -> 330000000); any other
+    float as Python's repr."""
+    if isinstance(v, float):
+        return str(int(v)) if v.is_integer() else repr(v)
+    return str(v)
+
+
+def _reject_constant(name):
+    raise ValueError("non-finite number: " + name)
+
+
+def summary(text):
+    """The one-line summary of a capacity document, or None when `text` is not one:
+    a JSON object with a capacity_schema of major 1, a boolean `declared` and, when
+    declared, the four values the line prints."""
+    try:
+        doc = json.loads(text, parse_constant=_reject_constant)
+    except ValueError:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    schema = doc.get("capacity_schema")
+    if not isinstance(schema, str) or schema.split(".")[0] != "1":
+        return None
+    declared = doc.get("declared")
+    if not isinstance(declared, bool):
+        return None
+    if not declared:
+        return NOT_DECLARED
+    try:
+        hours = doc["shared"]["operator_hours_per_week"]["value"]
+        lanes = doc["shared"]["max_lanes"]["value"]
+        tokens = doc["effective_tokens_per_week"]["value"]
+        binding = doc["effective_tokens_per_week"]["binding"]
+    except (KeyError, TypeError):
+        return None
+    if not (_is_number(hours) and _is_number(lanes) and _is_number(tokens)):
+        return None
+    if not isinstance(binding, str) or not binding:
+        return None
+    return "%s operator h/week, pool of %s lanes, %s weighted tokens/week (%s)" % (
+        _number_text(hours), _number_text(lanes), _number_text(tokens), binding)
 
 
 def _emit(doc):
@@ -117,6 +224,17 @@ def main(argv):
         if rc == 0:
             _emit(doc)
         return rc
+    if argv == ["summary"]:
+        try:
+            text = sys.stdin.buffer.read().decode("utf-8")
+        except (OSError, ValueError):
+            text = ""
+        line = summary(text)
+        if line is None:
+            _say("summary: not a capacity document")
+            return 1
+        print(line)
+        return 0
     print(USAGE, file=sys.stderr)
     return 2
 
