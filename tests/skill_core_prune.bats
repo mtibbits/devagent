@@ -11,8 +11,8 @@ setup() {
 
 # Section body from "## <heading>" to the next "## ", joined to one line.
 section() { awk -v h="## $2" '$0==h{f=1;next} /^## /{f=0} f' "$1" | tr '\n' ' ' | tr -s ' '; }
-# The one-task exception paragraph: from "Exception:" to the next blank line, joined.
-exception() { awk '/Exception:/{f=1} f&&/^[[:space:]]*$/{exit} f' "$1" | tr '\n' ' ' | tr -s ' '; }
+# The one-task exception paragraph inside Skipping policy: from "Exception:" to the next blank line, joined.
+exception() { awk '/^## Skipping policy$/{s=1} s&&/Exception:/{f=1} f&&/^[[:space:]]*$/{exit} f' "$1" | tr '\n' ' ' | tr -s ' '; }
 
 @test "core-prune passes structural checks" {
   run bash "$HARNESS" "$SKILL" "$FIXT"
@@ -48,9 +48,13 @@ exception() { awk '/Exception:/{f=1} f&&/^[[:space:]]*$/{exit} f' "$1" | tr '\n'
   [[ "$s" == *'$NOTE'* ]]
   [[ "$s" == *"empty"* ]]
   [[ "$s" == *"[-]"* ]]
+  [[ "$s" == *'has no `[defer]`'* ]]
+  [[ "$s" == *"create it empty if it is absent, because tighten requires the file"* ]]
+  [[ "$s" == *'non-empty `$NOTE`'* ]]
   p=$(section "$SKILL/SKILL.md" 'Skipping policy')
   [ -n "$p" ]
   [[ "$p" == *"Exception:"* ]]
+  [[ "$p" == *"Never auto-skip a plan of two or more tasks"* ]]
 }
 
 @test "core-prune prunes a one-task plan that carries a [defer] item and marks it [x]" {
@@ -70,6 +74,8 @@ exception() { awk '/Exception:/{f=1} f&&/^[[:space:]]*$/{exit} f' "$1" | tr '\n'
   [[ "$s" == *"[-]"* ]]
   [[ "$s" == *"[x]"* ]]
   [[ "$s" == *'$NOTE'* ]]
+  [[ "$s" == *'non-empty `$NOTE`'* ]]
+  [[ "$s" == *"Never auto-skip a plan of two or more tasks"* ]]
 }
 
 @test "core-prune keeps the zero-task halts" {

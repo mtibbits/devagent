@@ -38,11 +38,12 @@ operator confirmation.
 
 One exception: when the plan has exactly one task, `## Improvements`
 has no `[defer]` item, the Scope evaluation's Out of scope has nothing
-substantive, and `$NOTE` is empty, the skill logs
-`nothing to prune: one-task plan`, and the Completion handoff marks
-`prune -` (`[-]`) without asking and runs exactly one Logging line (the
-skip line). A one-task plan that carries a `[defer]` item or a
-substantive Out-of-scope item is pruned like any other and marked `[x]`.
+substantive, and `$NOTE` is empty, the Completion handoff marks
+`prune -` (`[-]`) without asking, and its one Logging line is the
+skill's skip line, `nothing to prune: one-task plan`. A one-task plan
+that carries a `[defer]` item or a substantive Out-of-scope item is
+pruned like any other and marked `[x]`. With a non-empty `$NOTE`, a
+one-task plan is not skipped: ask, as for a larger plan.
 
 ## Completion handoff
 

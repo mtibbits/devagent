@@ -96,7 +96,8 @@ dismissal record. Log `nothing to prune: one-task plan` (Logging, skip
 line) and report that the step is skipped: the command marks it `[-]`.
 A one-task plan that does carry a `[defer]` item or a substantive
 Out-of-scope item is not skipped: prune it like any other plan, and the
-step is marked `[x]`.
+step is marked `[x]`. With a non-empty `$NOTE`, a one-task plan is not
+skipped either: ask, as for a larger plan.
 
 ## Logging
 
