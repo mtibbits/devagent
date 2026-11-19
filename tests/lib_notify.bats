@@ -72,32 +72,8 @@ special() { printf 'say \x22hi\x22 a\\b c\\\\d\tk=v caf\xc3\xa9 \xe6\x97\xa5 \xe
   [ "$status" -eq 1 ]
 }
 
-# marked_bats <file>: run <file> as a person starts a suite with the marker set:
-# the PATH bats saved before adding its own libexec (so `bats` is the front-end
-# again) and no BATS_* variable inherited from this run. In PR #1173's CI (bats
-# 1.10.0, `--jobs 2 --no-parallelize-within-files`) a nested bats that inherited
-# them gathered no tests (`1..0`).
-marked_bats() {
-  local v path="${BATS_SAVED_PATH:-$PATH}"
-  local -a scrub=()
-  for v in $(compgen -e); do
-    case "$v" in BATS_*) scrub+=(-u "$v") ;; esac
-  done
-  env "${scrub[@]}" PATH="$path" DEVAGENT_UNATTENDED=1 bats --tap "$1"
-}
-
 @test "suite: a bare-setup file started with the marker set sees it unset" {
-  local inner="$BATS_TEST_TMPDIR/inner_bare.bats"
-  cat > "$inner" <<EOF
-#!/usr/bin/env bats
-. "$PLUGIN_ROOT/tests/lib/hermetic-env.bash"
-. "$PLUGIN_ROOT/scripts/lib/paths.sh"
-@test "inner: the marker is unset" {
-  run devagent_unattended
-  [ "\$status" -eq 1 ]
-}
-EOF
-  run marked_bats "$inner"
+  run env DEVAGENT_UNATTENDED=1 bats --tap "$PLUGIN_ROOT/tests/fixtures/notify/marker-bare.bats"
   echo "$output"
   [ "$status" -eq 0 ]
   [ "$(printf '%s\n' "$output" | grep -c '^ok ')" -eq 1 ]
@@ -105,25 +81,7 @@ EOF
 }
 
 @test "suite: a fixtures-loading file started with the marker set sees it unset" {
-  local inner="$BATS_TEST_TMPDIR/inner_fixtures.bats"
-  cat > "$inner" <<EOF
-#!/usr/bin/env bats
-load '$PLUGIN_ROOT/tests/helpers/fixtures'
-setup() {
-  fixture_init toy Issue-1
-  . "$PLUGIN_ROOT/scripts/lib/paths.sh"
-}
-@test "inner: the marker is unset after the fixtures" {
-  run devagent_unattended
-  [ "\$status" -eq 1 ]
-}
-@test "inner: a marker exported after the fixtures survives" {
-  export DEVAGENT_UNATTENDED=1
-  run devagent_unattended
-  [ "\$status" -eq 0 ]
-}
-EOF
-  run marked_bats "$inner"
+  run env DEVAGENT_UNATTENDED=1 bats --tap "$PLUGIN_ROOT/tests/fixtures/notify/marker-fixtures.bats"
   echo "$output"
   [ "$status" -eq 0 ]
   [ "$(printf '%s\n' "$output" | grep -c '^ok ')" -eq 2 ]
