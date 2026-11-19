@@ -67,19 +67,22 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
 
    - **Work in the issue's recorded tree.** That tree is the
      `worktree_path` in this issue's own state entry when it is non-empty,
-     else `source_dir`; an empty or null `worktree_path` means unset. The
-     branch step has already checked the issue branch out there. Worktree
-     preference: work in place. Do not create or enter any other worktree:
-     no `EnterWorktree`, no `git worktree add`, no subagent dispatched with
-     worktree isolation, and no question asking whether to create one. If
+     else `source_dir`; an empty or null `worktree_path` means unset.
+     When the active revision block has a branch step (8), it has already
+     checked the issue branch out there; without one, work on the current
+     tree as item 2 says. Worktree preference: work in place. Do not
+     create or enter any other worktree: no `EnterWorktree`, no
+     `git worktree add`, no subagent dispatched with worktree isolation,
+     and no question asking whether to create one. If
      `superpowers:using-git-worktrees` loads, report that you are working
      in place in the recorded tree, and go on.
    - **Leave the branch to devagent.** Do not run
      `superpowers:finishing-a-development-branch`. Do not merge, push,
      delete the branch or open a PR: devagent's ship and mergemr steps
-     integrate the branch. At the executing skill's Finish stage, report
-     its result, then continue with item 6 and this command's Completion
-     handoff in the same turn; do not end the turn at the skill's report.
+     integrate the branch, where the checklist has them. At the executing
+     skill's Finish stage, report its result, then continue with item 6
+     and this command's Completion handoff in the same turn; do not end
+     the turn at the skill's report.
 5. Implementation happens task-by-task per the wrapped skill's
    conventions. Each task gets its own commit per executing-plans
    defaults.

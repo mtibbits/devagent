@@ -413,6 +413,15 @@ S
   grep -qF "continue with item 6 and this command's Completion handoff in the same turn" <<<"$x"
 }
 
+@test "implement.md's tree and finish rules do not claim a branch step on a checklist without one (#1153 review I-1)" {
+  # The no-draft direct path is the oneshot checklist: no branch, ship or mergemr row.
+  local x; x="$(_impl_item4)"
+  grep -qF 'When the active revision block has a branch step (8), it has already checked the issue branch out there' <<<"$x"
+  grep -qF 'without one, work on the current tree as item 2 says' <<<"$x"
+  grep -qF 'integrate the branch, where the checklist has them' <<<"$x"
+  ! grep -qF 'The branch step has already checked the issue branch out there' <<<"$x"
+}
+
 @test "implement.md's #541 fallback paragraph is unchanged (#1153 AC4)" {
   _fb() { sed -n '/Fallback (superpowers absent)/,/recommended: claude plugin install/p' "$1"; }
   local want; want="$(cat <<'EOF'
