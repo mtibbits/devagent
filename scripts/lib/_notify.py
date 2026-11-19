@@ -162,20 +162,14 @@ def check_rotate_name(name: str) -> None:
 
 
 def build_record(fields: dict) -> dict:
-    """The version-1 object, in the contract's key order."""
-    obj = {
-        "v": 1,
-        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "event": fields.get("event"),
-        "project": fields.get("project"),
-    }
-    if "issue" in fields:
-        obj["issue"] = fields["issue"]
-    else:
-        obj["capture"] = fields.get("capture")
-    obj["step"] = fields.get("step")
-    obj["question"] = fields.get("question")
-    obj["detail"] = fields.get("detail")
+    """The version-1 object: v, ts, then KEYS in order. Of issue and capture only
+    the one given appears (check_fields allows exactly one); an absent step or
+    question is null."""
+    obj = {"v": 1, "ts": datetime.now().astimezone().isoformat(timespec="seconds")}
+    for key in KEYS:
+        if key in ("issue", "capture") and key not in fields:
+            continue
+        obj[key] = fields.get(key)
     return obj
 
 
@@ -200,7 +194,7 @@ def fit(obj: dict) -> bytes:
 
     if len(with_prefix(0)) > MAX_LINE_BYTES:
         raise Refused("too-long", f"the line is longer than {MAX_LINE_BYTES} bytes even with an empty detail")
-    lo, hi = 0, len(detail)
+    lo, hi = 0, min(len(detail), MAX_LINE_BYTES)   # every code point encodes to at least one byte
     while lo < hi:
         mid = (lo + hi + 1) // 2
         if len(with_prefix(mid)) <= MAX_LINE_BYTES:

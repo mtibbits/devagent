@@ -16,6 +16,7 @@ setup() {
   NOTIFY="$PLUGIN_ROOT/scripts/lib/notify.sh"
   . "$NOTIFY"
   NF="$DA_HOME/state/notifications.jsonl"
+  SEED="$BATS_TEST_TMPDIR/seed"
 }
 
 teardown() { teardown_tmp_devagent_home; }
@@ -25,6 +26,10 @@ is_git_bash() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac; re
 # probe <verb> <args...>: tests/helpers/notify_probe.py. A native reader gets file
 # paths only; every expected value is compared here, in bash.
 probe() { python3 -X utf8 "$PLUGIN_ROOT/tests/helpers/notify_probe.py" "$@"; }
+
+# seed: append one line (detail=seed) and copy the file to $SEED, the bytes a
+# later step must leave unchanged.
+seed() { notify_append event=hold project=toy issue=Issue-7 detail=seed; cp "$NF" "$SEED"; }
 
 # lines <file>: the number of \n-ended lines (0 for a missing file).
 lines() { if [ -e "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
@@ -251,6 +256,25 @@ EOF
   [ ! -e "$NF" ]
 }
 
+@test "notify: one cygpath call converts the helper, state and config paths" {
+  # The shims stand in for Git Bash. An identity cygpath that logs each call: one
+  # call converts all three paths and the line is written. A cygpath printing one
+  # line short: 4, nothing written.
+  is_git_bash && skip "the identity shim's POSIX paths are not native on Windows"
+  mkdir -p "$BATS_TEST_TMPDIR/shim" "$BATS_TEST_TMPDIR/short"
+  printf '#!/usr/bin/env bash\necho call >> "%s"\nshift\nprintf "%%s\\n" "$@"\n' "$BATS_TEST_TMPDIR/calls" > "$BATS_TEST_TMPDIR/shim/cygpath"
+  printf '#!/usr/bin/env bash\nshift 2\nprintf "%%s\\n" "$@"\n' > "$BATS_TEST_TMPDIR/short/cygpath"
+  chmod +x "$BATS_TEST_TMPDIR/shim/cygpath" "$BATS_TEST_TMPDIR/short/cygpath"
+  PATH="$BATS_TEST_TMPDIR/shim:$PATH" run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 0 ]
+  [ "$(lines "$BATS_TEST_TMPDIR/calls")" -eq 1 ]
+  [ "$(lines "$NF")" -eq 1 ]
+  PATH="$BATS_TEST_TMPDIR/short:$PATH" run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *'notify: io:'* ]]
+  [ "$(lines "$NF")" -eq 1 ]
+}
+
 # ---- Task 3: refusals, field formats, framing and --check -------------------
 
 # refusal_rows: one refused input per line, `id|arg|arg...`, shared by R1 and R4.
@@ -321,9 +345,7 @@ run_rows() {
 }
 
 @test "refused: each refused input exits 2 with its id and leaves the file unchanged" {
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  SEED="$BATS_TEST_TMPDIR/seed"
-  cp "$NF" "$SEED"
+  seed
   run_rows notify_append
   [ "$ROWS" -eq "$(refusal_rows | wc -l)" ]
   [ "$ROWS" -ge 27 ]
@@ -423,8 +445,7 @@ run_rows() {
 }
 
 @test "refused: usage errors exit 2" {
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  seed
   local n=0 form
   local -a args
   for form in '' 'event=hold' '--rotate=x' '--check|--rotate|x' '--check|event=hold|--rotate|x' \
@@ -442,7 +463,7 @@ run_rows() {
   run --separate-stderr bash "$NOTIFY" --rotate ''
   [ "$status" -eq 2 ]
   [[ "$stderr" == *'(rotate-name)'* ]]
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
   [ "$(find "$DA_HOME/state" -name '-*' | wc -l)" -eq 0 ]
 }
 
@@ -494,13 +515,12 @@ ELL="$(printf '\xe2\x80\xa6')"   # U+2026, the shortening mark
 
 @test "notify: a line too long with an empty detail is refused" {
   local cap
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  seed
   cap="$(head -c 4200 /dev/zero | tr '\0' c)"
   run --separate-stderr notify_append event=notify project=toy "capture=$cap" detail=d
   [ "$status" -eq 2 ]
   [[ "$stderr" == *'(too-long)'* ]]
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
 }
 
 @test "notify: a 200,000-character detail is shortened within 5 seconds" {
@@ -516,12 +536,13 @@ ELL="$(printf '\xe2\x80\xa6')"   # U+2026, the shortening mark
 
 # ---- Task 5: the lock, concurrency, the torn line and I/O failure ------------
 
-# hold_lock <name>: start a holder of the module's own lock; sets HOLDER (pid) and
-# RELEASE (the file that ends it). The holder ends on RELEASE or after 30 s.
+# hold_lock <name> [<verb> <target>]: start a probe holder (default: hold-lock on
+# the state directory, the module's own lock); sets HOLDER (pid) and RELEASE (the
+# file that ends it). The holder ends on RELEASE or after 30 s.
 hold_lock() {
   local ready="$BATS_TEST_TMPDIR/$1.ready" i
   RELEASE="$BATS_TEST_TMPDIR/$1.release"
-  probe hold-lock "$DA_HOME/state" "$ready" "$RELEASE" 3>&- >/dev/null 2>&1 &
+  probe "${2:-hold-lock}" "${3:-$DA_HOME/state}" "$ready" "$RELEASE" 3>&- >/dev/null 2>&1 &
   HOLDER=$!
   for i in $(seq 200); do [ -e "$ready" ] && return 0; sleep 0.05; done
   echo "the holder never became ready" >&2
@@ -532,8 +553,7 @@ hold_lock() {
 release() { touch "$RELEASE"; wait "$HOLDER"; }
 
 @test "notify: with the lock held by another process an append exits 3 after the bounded wait" {
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  seed
   hold_lock c1
   local start end
   start=$(date +%s)
@@ -544,18 +564,17 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   [[ "$stderr" == *'notify: lock-timeout:'* ]]
   [ $((end - start)) -ge 9 ]
   [ $((end - start)) -le 25 ]
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
 }
 
 @test "notify: an append started while the lock is held completes when it is released" {
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  seed
   hold_lock c2
   ( notify_append event=hold project=toy issue=Issue-7 detail=waited; echo $? > "$BATS_TEST_TMPDIR/c2.rc" ) 3>&- >/dev/null 2>&1 &
   local writer=$!
   sleep 1
   kill -0 "$writer"
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
   release
   wait "$writer"
   [ "$(cat "$BATS_TEST_TMPDIR/c2.rc")" = 0 ]
@@ -589,10 +608,10 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   printf '{"v":1,"ts":"torn' >> "$NF"
   local s
   s=$(wc -c < "$NF")
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  cp "$NF" "$SEED"
   run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=after
   [ "$status" -eq 0 ]
-  cmp -n "$s" "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp -n "$s" "$SEED" "$NF"
   [ "$(lines "$NF")" -eq 3 ]
   head -n1 "$NF" | cmp - "$BATS_TEST_TMPDIR/line1"
   [ "$(sed -n 2p "$NF")" = '{"v":1,"ts":"torn' ]
@@ -609,9 +628,9 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   notify_append event=notify project=volk capture=c-1 detail=two
   local s
   s=$(wc -c < "$NF")
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  cp "$NF" "$SEED"
   notify_append event=answered project=toy issue=Issue-7 question=/x/q-03 'detail=answered; resume'
-  cmp -n "$s" "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp -n "$s" "$SEED" "$NF"
   tail -c +"$((s + 1))" "$NF" > "$BATS_TEST_TMPDIR/new"
   run probe count "$BATS_TEST_TMPDIR/new"
   [ "$output" = 1 ]
@@ -622,24 +641,18 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
 @test "notify: an unwritable file exits 4 and is unchanged" {
   is_git_bash && skip "Git Bash has no POSIX file modes"
   [ "$(id -u)" -ne 0 ] || skip "root writes a mode-400 file"
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  seed
   chmod 400 "$NF"
   run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=more
   [ "$status" -eq 4 ]
   [[ "$stderr" == *'notify: io:'* ]]
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
 }
 
 @test "notify: an open refused for sharing is retried until the holder closes" {
   is_git_bash || skip "Windows only: POSIX has no sharing violation"
   notify_append event=hold project=toy issue=Issue-7 detail=seed
-  local ready="$BATS_TEST_TMPDIR/c7.ready" i
-  RELEASE="$BATS_TEST_TMPDIR/c7.release"
-  probe deny-share "$NF" "$ready" "$RELEASE" 3>&- >/dev/null 2>&1 &
-  HOLDER=$!
-  for i in $(seq 200); do [ -e "$ready" ] && break; sleep 0.05; done
-  [ -e "$ready" ]
+  hold_lock c7 deny-share "$NF"
   # The control: a plain open fails while the holder has the file.
   run python3 -c 'import sys; open(sys.argv[1], "ab")' "$NF"
   [ "$status" -ne 0 ]
@@ -659,11 +672,11 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
 @test "rotate: --rotate renames the file in the same directory" {
   notify_append event=hold project=toy issue=Issue-7 detail=one
   notify_append event=hold project=toy issue=Issue-7 detail=two
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  cp "$NF" "$SEED"
   run --separate-stderr bash "$NOTIFY" --rotate notifications-1.jsonl
   [ "$status" -eq 0 ]
   [ -z "$output" ]
-  cmp "$BATS_TEST_TMPDIR/seed" "$DA_HOME/state/notifications-1.jsonl"
+  cmp "$SEED" "$DA_HOME/state/notifications-1.jsonl"
   [ ! -e "$NF" ]
   notify_append event=hold project=toy issue=Issue-7 detail=three
   [ "$(lines "$NF")" -eq 1 ]
@@ -672,7 +685,7 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
 @test "rotate: --rotate waits for the lock and a writer started during it writes one whole line" {
   notify_append event=hold project=toy issue=Issue-7 detail=seed-1
   notify_append event=hold project=toy issue=Issue-7 detail=seed-2
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  cp "$NF" "$SEED"
   local target="$DA_HOME/state/rotated.jsonl" rot app
   hold_lock t2
   bash "$NOTIFY" --rotate rotated.jsonl 3>&- >"$BATS_TEST_TMPDIR/rot.out" 2>&1 &
@@ -681,7 +694,7 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   app=$!
   sleep 1
   [ ! -e "$target" ]
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
   release
   wait "$rot" || { cat "$BATS_TEST_TMPDIR/rot.out" >&2; return 1; }
   wait "$app"
@@ -699,8 +712,7 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
 }
 
 @test "rotate: --rotate refuses a bad name or an existing target" {
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  seed
   local name n=0
   for name in a/b 'a\b' a:b . .. ''; do
     n=$((n + 1))
@@ -714,7 +726,7 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
   [ "$status" -eq 2 ]
   [[ "$stderr" == *'(rotate-exists)'* ]]
   [ "$(cat "$DA_HOME/state/taken.jsonl")" = kept ]
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
 }
 
 @test "rotate: --rotate with no file exits 5" {
@@ -731,14 +743,13 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
 @test "rotate: a failed rename is io and leaves the file" {
   is_git_bash && skip "Git Bash has no POSIX directory modes"
   [ "$(id -u)" -ne 0 ] || skip "root renames in a read-only directory"
-  notify_append event=hold project=toy issue=Issue-7 detail=seed
-  cp "$NF" "$BATS_TEST_TMPDIR/seed"
+  seed
   chmod 500 "$DA_HOME/state"
   run --separate-stderr bash "$NOTIFY" --rotate old.jsonl
   chmod 700 "$DA_HOME/state"
   [ "$status" -eq 4 ]
   [[ "$stderr" == *'notify: io:'* ]]
-  cmp "$BATS_TEST_TMPDIR/seed" "$NF"
+  cmp "$SEED" "$NF"
   [ ! -e "$DA_HOME/state/old.jsonl" ]
 }
 

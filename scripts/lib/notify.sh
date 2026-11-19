@@ -53,24 +53,26 @@ _notify_native() {
 }
 
 # _notify_helper <mode> [<arg>]: run the helper with the state directory and,
-# for append and check, the config path; the fields come on stdin. MSYS path
-# conversion is off, so every argument arrives as written.
+# for append and check, the config path (which replaces <arg>); the fields come
+# on stdin. When cygpath exists, the helper, state and config paths go through
+# ONE `cygpath -m` call, which prints one path per line (a fork is slow on Git
+# Bash). MSYS path conversion is off, so every argument arrives as written.
 _notify_helper() {
-  local mode="$1" helper state cfg
+  local mode="$1" out
+  local -a paths conv
   shift
   command -v python3 >/dev/null 2>&1 || { _notify_io "no python3 on PATH"; return 4; }
   [ -f "$_NOTIFY_PY" ] && [ -r "$_NOTIFY_PY" ] || { _notify_io "helper _notify.py is not readable"; return 4; }
-  helper="$(_notify_native "$_NOTIFY_PY")" || { _notify_io "cygpath failed on the helper path"; return 4; }
-  state="$(_notify_native "$(devagent_home)/state")" || { _notify_io "cygpath failed on the state directory"; return 4; }
-  case "$mode" in
-    append|check)
-      cfg="$(_notify_native "$(config_path)")" || { _notify_io "cygpath failed on the config path"; return 4; }
-      MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' python3 -X utf8 "$helper" "$mode" "$state" "$cfg"
-      ;;
-    *)
-      MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' python3 -X utf8 "$helper" "$mode" "$state" "$@"
-      ;;
-  esac
+  paths=("$_NOTIFY_PY" "$(devagent_home)/state")
+  case "$mode" in append|check) paths+=("$(config_path)") ;; esac
+  if command -v cygpath >/dev/null 2>&1; then
+    out="$(cygpath -m "${paths[@]}")" || { _notify_io "cygpath failed on the helper, state or config path"; return 4; }
+    mapfile -t conv <<< "$out"
+    [ "${#conv[@]}" -eq "${#paths[@]}" ] || { _notify_io "cygpath printed ${#conv[@]} paths for ${#paths[@]}"; return 4; }
+    paths=("${conv[@]}")
+  fi
+  [ "${#paths[@]}" -eq 2 ] || set -- "${paths[2]}"
+  MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' python3 -X utf8 "${paths[0]}" "$mode" "${paths[1]}" "$@"
 }
 
 # _notify_run <append|check> <key>=<value>...: the bash half of both doors.

@@ -45,8 +45,14 @@ def raw_lines(path: str) -> list:
     return parts
 
 
+def nth_raw(path: str, n: str) -> bytes:
+    """Line n without its \\n (n: 1-based, -1 = last)."""
+    i = int(n)
+    return raw_lines(path)[i - 1 if i > 0 else i]
+
+
 def line_obj(path: str, n: str):
-    return json.loads(raw_lines(path)[int(n) - 1 if int(n) > 0 else int(n)].decode("utf-8"))
+    return json.loads(nth_raw(path, n).decode("utf-8"))
 
 
 def out(text: str) -> int:
@@ -139,8 +145,7 @@ def main(argv: list) -> int:
     if verb == "type" and len(args) == 3:
         return cmd_type(*args)
     if verb == "bytes" and len(args) == 2:
-        n = int(args[1])
-        return out(str(len(raw_lines(args[0])[n - 1 if n > 0 else n]) + 1))
+        return out(str(len(nth_raw(*args)) + 1))
     if verb == "prefix-count" and len(args) == 2:
         count = 0
         for raw in raw_lines(args[0]):
