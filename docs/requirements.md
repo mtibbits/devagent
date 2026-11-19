@@ -509,7 +509,9 @@ tracker.
   it from the tracker's epics, children and closed work, asking how far back
   to go and writing nothing until answered when the history is large. A merge
   run adds only the tracker issues missing from an existing file, as new
-  lines, honours exclusion lines, and changes no existing line.
+  lines, honours exclusion lines, and changes no existing line. On request
+  (`wbs exclude`) devagent writes an exclusion line itself: it checks every
+  id first, writes nothing if any is bad, and never removes a leaf.
   {refines: SR-9}
 - FR-66: devagent's work-breakdown update sets each issue leaf's glyph from
   the tracker's issue state and the linked MRs, using the issue's checklist

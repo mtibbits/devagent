@@ -95,7 +95,9 @@ transition_issue = true        # every tracker transition (draft, ship, sync) wr
 backend = "github"             # github | gitlab | jira | custom
 repo    = "you/myproj"
 dir_prefix = "Issue-"          # issue-directory prefix; pull dies without it.
-                               # wbs update also maps leaves to this tracker by it
+                               # wbs update also maps leaves to this tracker by it;
+                               # wbs exclude needs it too, and exits 2 when no
+                               # source has backend, repo and dir_prefix set
 
 [project.myproj.code_source]   # where branches push and MRs file
 backend  = "github"

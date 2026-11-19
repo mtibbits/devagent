@@ -274,6 +274,27 @@ _t1_base() {
   [ -z "$(ls -A "$TMPDEV")" ]
 }
 
+# _readme_names_exclude <readme>: the README's `wbs` row names `exclude`
+_readme_names_exclude() { grep -E '^\| `wbs` \|' "$1" | grep -qF '`exclude`'; }
+
+@test "docs: every wbs exclude home names it (#761)" {
+  local cmd="$REPO/commands/wbs.md" spec="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -qE '^description: .*exclude' "$cmd"
+  grep -qE '^argument-hint: .*exclude' "$cmd"
+  grep -qE '^- `exclude ' "$cmd"
+  grep -F 'To keep a deliberately deleted issue out' "$cmd" | grep -qF '`exclude'
+  sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$spec" | grep -qF '/devagent:wbs exclude'
+  sed -n '/^A directive is/,/^$/p' "$spec" | grep -qF 'wbs exclude'
+  _readme_names_exclude "$REPO/README.md"
+  grep -qF 'wbs exclude' "$REPO/changelog.d/761.md"
+  # planted control: a README copy without the token fails the same predicate
+  sed 's/ \/ `exclude`//' "$REPO/README.md" > "$TMPROOT/README.md"
+  run cmp -s "$REPO/README.md" "$TMPROOT/README.md"
+  [ "$status" -ne 0 ]
+  run _readme_names_exclude "$TMPROOT/README.md"
+  [ "$status" -ne 0 ]
+}
+
 @test "wbs usage names exclude (#761)" {
   run --separate-stderr bash "$REPO/scripts/wbs.sh"
   [ "$status" -eq 2 ]
