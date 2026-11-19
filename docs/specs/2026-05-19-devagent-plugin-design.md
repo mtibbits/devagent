@@ -1352,7 +1352,9 @@ limited to a safe alphabet; a launcher that builds a command from `project`,
 The line is built with `json.dumps` (`ensure_ascii=False`). When the encoded
 line with its `\n` would be longer than 4,096 bytes, `detail` keeps its longest
 prefix that fits with `…` appended; a line still too long with `detail` equal to
-`…` is refused. The helper creates `state/` (0700) when it is missing and the
+`…` is refused. The cut takes the end of `detail`, so a writer keeps any token a
+launcher keys on (such as `; resume`) inside the budget, and a launcher treats a
+`detail` ending in `…` as shortened. The helper creates `state/` (0700) when it is missing and the
 file with mode 0600, and writes under an exclusive lock on
 `notifications.jsonl.lock` (`fcntl.flock` on POSIX, a one-byte
 `msvcrt.locking` on Windows), polled for at most 10 seconds; on Windows an open
@@ -1370,7 +1372,12 @@ value. Callers key on the exit status and the id, never the prose:
 | 4 | `notify: io: <what>` | an unreadable config, a state directory or file that cannot be written, a failed rename, no `python3`, an unreadable helper |
 | 5 | `notify: nothing-to-rotate` | `--rotate` found no file |
 
-Every failure writes nothing. What a writer does then is that writer's rule.
+No failure adds a complete line: a refusal, a lock timeout and a missing file
+write nothing to it, and an I/O fault part-way through a write leaves at most a
+torn fragment, which the next append mends. Sourcing `notify.sh` when
+`devagent_validate_slug` is unavailable prints the `io` line and returns 1
+without defining `notify_append`; a writer maps that to 4. What a writer does
+after a failure is that writer's rule.
 
 **The unattended marker.** A launcher that starts a session without a person
 at the keyboard sets `DEVAGENT_UNATTENDED` in that session's environment, and
