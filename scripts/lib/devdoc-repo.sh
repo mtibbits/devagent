@@ -6,6 +6,12 @@
 # Needs io.sh (die/warn/info). Safe to source multiple times.
 
 : "${DEVAGENT_GIT:=git}"
+# #1148: the devDoc sync reuses the bounded network calls and git's merge parser. Both
+# files define functions only.
+# shellcheck source=/dev/null
+. "$(dirname "${BASH_SOURCE[0]}")/upstream.sh"
+# shellcheck source=/dev/null
+. "$(dirname "${BASH_SOURCE[0]}")/merge-forward.sh"
 
 # devdoc_git_ro <git args…> — a READ-ONLY git call. GIT_OPTIONAL_LOCKS=0 stops
 # `status` from refreshing and rewriting the index (taking index.lock), so a
@@ -212,14 +218,8 @@ _devdoc_lock_timeout() {
 }
 
 # _devdoc_now_us — set _DEVDOC_NOW_US to the wall clock in microseconds
-# (EPOCHREALTIME on bash 5, else whole seconds from date).
-_devdoc_now_us() {
-    if [ -n "${EPOCHREALTIME:-}" ]; then
-        _DEVDOC_NOW_US="${EPOCHREALTIME//[.,]/}"
-    else
-        _DEVDOC_NOW_US=$(( $(date +%s) * 1000000 ))
-    fi
-}
+# (bounded_now_us: EPOCHREALTIME on bash 5, else whole seconds from date).
+_devdoc_now_us() { bounded_now_us; _DEVDOC_NOW_US="$BOUNDED_NOW_US"; }
 
 # devdoc_lock_deadline_start — export DEVAGENT_DEVDOC_LOCK_DEADLINE (epoch
 # seconds) as now + the bound, unless an earlier valid deadline is already

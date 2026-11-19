@@ -29,3 +29,10 @@ _fns() {
     [ -f "$SYNC_B_DOC/WBS.md" ] && [ -f "$SYNC_B/hd/keep1" ] && [ -f "$SYNC_B/.gitignore" ]
     [ "$(git -C "$SYNC_B" config user.email)" = t@example.com ]
 }
+
+_libs() { . "$DEVAGENT_ROOT/scripts/lib/io.sh"; . "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"; }
+
+@test "#1148 sync helpers exist (task 2: the budget primitives, via devdoc-repo.sh)" {
+    _libs
+    _fns bounded_now_us bounded_secs_left _upstream_fetch_branch merge_forward_merge
+}

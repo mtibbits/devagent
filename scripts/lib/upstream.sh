@@ -54,6 +54,30 @@ bounded_call() {
     timeout -k 5 "$secs" "$@"
 }
 
+# bounded_now_us — set BOUNDED_NOW_US to the wall clock in microseconds (#1148):
+# EPOCHREALTIME on bash 5, else whole seconds from date (under bash 4.4 a bound built
+# on it can overrun by under 1 s). SETTER-GLOBAL: call it bare.
+bounded_now_us() {
+    if [ -n "${EPOCHREALTIME:-}" ]; then
+        BOUNDED_NOW_US="${EPOCHREALTIME//[.,]/}"
+    else
+        BOUNDED_NOW_US="$(date +%s)000000"
+    fi
+}
+
+# bounded_secs_left <deadline_us> — set BOUNDED_SECS to the time left before
+# <deadline_us>, as a decimal number of seconds for bounded_call (six places). rc 1
+# with BOUNDED_SECS empty when under 1 s is left: GNU timeout reads a bound of 0 as no
+# bound at all, so no call starts then (#1148 rule 6). SETTER-GLOBAL: call it bare.
+bounded_secs_left() {
+    local left
+    bounded_now_us
+    left=$(( $1 - BOUNDED_NOW_US ))
+    BOUNDED_SECS=""
+    [ "$left" -ge 1000000 ] || return 1
+    printf -v BOUNDED_SECS '%d.%06d' $((left / 1000000)) $((left % 1000000))
+}
+
 # _upstream_bounded <work_dir> <secs> <git args...>   (#660)
 # bounded_call for git: GIT_TERMINAL_PROMPT=0, git's stdout passes through, its stderr is
 # dropped (the caller words its own diagnosis).
@@ -91,7 +115,15 @@ upstream_fetch_base() {
     esac
 }
 
-# upstream_branch_tip <work_dir> <branch> <timeout_secs>   (#660)
+# _upstream_fetch_branch <work_dir> <secs> <branch>   (#660; split out for #1148)
+# The ONE narrow fetch: origin's <branch> into refs/remotes/origin/<branch>, bounded, no
+# FETCH_HEAD, stdout and stderr dropped. Returns git's rc (124/137: the bound expired).
+_upstream_fetch_branch() {
+    _upstream_bounded "$1" "$2" fetch --quiet --no-write-fetch-head origin \
+        "+refs/heads/${3}:refs/remotes/origin/${3}" >/dev/null
+}
+
+# upstream_branch_tip <work_dir> <branch> <timeout_secs> [<deadline_us>]   (#660, #1148)
 # What `origin` says about <branch> right now. SETTER-GLOBALS — never command-substitute
 # this (register Issue-282):
 #   UPSTREAM_TIP      <sha>          origin's <branch>, as its ls-remote printed it
@@ -104,6 +136,13 @@ upstream_fetch_base() {
 #                     "git ls-remote exited <rc>" for
 #                     (unreachable); "the refresh fetch exited <rc>" when a <sha> could not
 #                     be fetched (the caller then cannot compare, and refuses)
+#   UPSTREAM_ASK_RC   the ls-remote's exit code (empty when origin was not asked) (#1148)
+#   UPSTREAM_FETCH_RC the refresh fetch's exit code; empty when no fetch was needed, and
+#                     `budget` when <deadline_us> left under 1 s for it (#1148: the caller
+#                     tells a spent budget from a failed fetch by this code, never by _WHY)
+# With <deadline_us> (bounded_now_us units) the fetch is bounded by what is left of it
+# (bounded_secs_left), not by <timeout_secs>; the ls-remote keeps <timeout_secs>. The
+# 3-argument call is unchanged.
 # One question, by EXIT CODE: a bounded `ls-remote --exit-code origin refs/heads/<branch>`
 # (0 = the tip, 2 = its documented "no matching ref", 124/137 = the bound expired) — the
 # same command the preship verifier runs to attest. Then only when HEAD does not already
@@ -122,10 +161,10 @@ upstream_fetch_base() {
 # does not contain it).
 # Stated blind spot: in a SHALLOW clone a tip older than the shallow boundary is not
 # visible as an ancestor, so the caller's is-ancestor refuses (the fail-closed direction).
-# shellcheck disable=SC2034  # UPSTREAM_TIP/_WHY are the return channel — read by run-suite.sh (#660)
+# shellcheck disable=SC2034  # UPSTREAM_TIP/_WHY/_ASK_RC/_FETCH_RC are the return channel — read by run-suite.sh (#660), devdoc_sync (#1148)
 upstream_branch_tip() {
-    local work_dir="$1" branch="$2" secs="$3" out="" rc=0
-    UPSTREAM_TIP=""; UPSTREAM_TIP_WHY=""
+    local work_dir="$1" branch="$2" secs="$3" deadline="${4:-}" out="" rc=0
+    UPSTREAM_TIP=""; UPSTREAM_TIP_WHY=""; UPSTREAM_ASK_RC=""; UPSTREAM_FETCH_RC=""
     if ! upstream_remote_configured "$work_dir" origin; then
         UPSTREAM_TIP="(no-origin)"
         out="$("$DEVAGENT_GIT" -C "$work_dir" remote 2>/dev/null | tr '\n' ' ')" || out=""
@@ -135,6 +174,7 @@ upstream_branch_tip() {
     fi
     command -v timeout >/dev/null 2>&1 || return 3
     out="$(_upstream_bounded "$work_dir" "$secs" ls-remote --exit-code origin "refs/heads/${branch}")" || rc=$?
+    UPSTREAM_ASK_RC="$rc"
     case "$rc" in
         0)       UPSTREAM_TIP="$(printf '%s\n' "$out" | awk -v r="refs/heads/${branch}" '$2 == r { print $1; exit }')" ;;
         2)       UPSTREAM_TIP="(unpushed)"; return 0 ;;
@@ -147,8 +187,15 @@ upstream_branch_tip() {
     fi
     "$DEVAGENT_GIT" -C "$work_dir" merge-base --is-ancestor "$UPSTREAM_TIP" HEAD 2>/dev/null && return 0
     rc=0
-    _upstream_bounded "$work_dir" "$secs" fetch --quiet --no-write-fetch-head origin \
-        "+refs/heads/${branch}:refs/remotes/origin/${branch}" >/dev/null || rc=$?
+    if [ -n "$deadline" ]; then
+        if ! bounded_secs_left "$deadline"; then
+            UPSTREAM_FETCH_RC=budget; UPSTREAM_TIP_WHY="the time budget left under 1s for the refresh fetch"
+            return 0
+        fi
+        secs="$BOUNDED_SECS"
+    fi
+    _upstream_fetch_branch "$work_dir" "$secs" "$branch" || rc=$?
+    UPSTREAM_FETCH_RC="$rc"
     [ "$rc" -eq 0 ] || UPSTREAM_TIP_WHY="the refresh fetch exited $rc"
     return 0
 }
