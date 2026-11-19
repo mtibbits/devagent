@@ -2,7 +2,7 @@
 # discipline (owned-path commits, the repository lock, read-only git calls).
 # Loaded by tests/cleanup.bats, tests/promote-potholes.bats,
 # tests/statusreport.bats, tests/devdoc-lock.bats and
-# tests/cleanup-concurrency.bats, after helpers/common.
+# tests/cleanup-concurrency.bats, after helpers/common; and by helpers/devdoc-sync.
 # shellcheck disable=SC2034  # variables are read by the bats files that load this helper
 # #338: every loaded setup layer sources the hermetic-env guard (pins / git config / TZ / locale).
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
@@ -52,7 +52,9 @@ devdoc_lock_stub_holder() {
 # to $DEVAGENT_TMP/git-logging and print its path. Every call runs the real git
 # and appends one TAB-separated row to <log>:
 #   <subcommand> <GIT_OPTIONAL_LOCKS or -> <index mtime_ns before> <after> <repo toplevel or ->
-#   <holder pid> <holder issue> <holder cmd> <DEVAGENT_DEVDOC_LOCK_TOKEN or ->
+#   <holder pid> <holder issue> <holder cmd> <DEVAGENT_DEVDOC_LOCK_TOKEN or -> <argv>
+# (<argv>, last, is the call's arguments joined by spaces: #1148 tells one rev-parse
+# from another by it.)
 # The toplevel is the repository the call ran in (cwd, or the -C target), so a
 # test can keep only the devDoc repository's rows. The holder columns are the
 # #749 lock record of that repository at the time of the call (via the real
@@ -75,14 +77,12 @@ devdoc_git_gate_wrapper() {
     _devdoc_git_wrapper "$1/git.log" "$1" "$1/git"
 }
 
-_devdoc_git_wrapper() {
-    local log="$1" ctl="$2" w="$3"
-    cat > "$w" <<EOF
-#!/usr/bin/env bash
-log='$log'
-ctl='$ctl'
-EOF
-    cat >> "$w" <<'EOF'
+# git_wrapper_argv_walk — print the wrapper-script fragment that walks a git argv:
+# $dir is the directory git would run in (every -C applied), $sub the subcommand
+# (the first word that is not an option; -c's value skipped). Shared by every
+# DEVAGENT_GIT stand-in (this file's and devdoc-sync.bash's).
+git_wrapper_argv_walk() {
+    cat <<'EOF'
 dir="$PWD"; sub=""; i=1
 while [ "$i" -le "$#" ]; do
     a="${!i}"
@@ -94,6 +94,18 @@ while [ "$i" -le "$#" ]; do
     esac
     i=$((i + 1))
 done
+EOF
+}
+
+_devdoc_git_wrapper() {
+    local log="$1" ctl="$2" w="$3"
+    cat > "$w" <<EOF
+#!/usr/bin/env bash
+log='$log'
+ctl='$ctl'
+EOF
+    git_wrapper_argv_walk >> "$w"
+    cat >> "$w" <<'EOF'
 top="$(GIT_OPTIONAL_LOCKS=0 git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top=""
 idx="" holder=""
 if [ -n "$top" ]; then
@@ -122,8 +134,8 @@ if [ -n "$ctl" ] && [ "$sub" = commit ] && [ -n "$top" ] && [ "$rc" -eq 0 ] && [
     chmod a-w "$HOME/.claude/devagent/state"
 fi
 after="$(_mt "$idx")"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" \
-    "$h_pid" "$h_issue" "$h_cmd" "${DEVAGENT_DEVDOC_LOCK_TOKEN:--}" >> "$log"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" \
+    "$h_pid" "$h_issue" "$h_cmd" "${DEVAGENT_DEVDOC_LOCK_TOKEN:--}" "${*//$'\t'/ }" >> "$log"
 exit "$rc"
 EOF
     chmod +x "$w"

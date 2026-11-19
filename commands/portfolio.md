@@ -37,8 +37,8 @@ written atomically and, where the platform supports it, is readable by its
 owner only (mode 0600); any directory the command creates is 0700. `--out PATH` chooses another file.
 
 **Privacy.** The document names every configured project, private ones
-included. Keep it outside every devdoc: `cleanup` stages and pushes everything
-under a project's `devdoc_dir`. The command refuses an `--out` under any
+included. Keep it outside every devdoc: every devdoc commit reaches origin at
+the next cleanup (#1148). The command refuses an `--out` under any
 configured `devdoc_dir`, `source_dir` or `worktree_root` (both sides are
 canonicalised first). When `worktree_root` is unset or empty, the rail treats
 `<source_dir>-wt` as the worktree root (the rule trust applies) and refuses

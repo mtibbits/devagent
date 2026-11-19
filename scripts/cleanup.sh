@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/cleanup.sh — step 24. Switch source tree back to default_baseline,
-# commit/push devdoc if permissions.commit_devdoc=true, clear active_issue.
+# commit devdoc and sync it with origin (#1148) if permissions.commit_devdoc=true,
+# clear active_issue.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -12,7 +13,9 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh layer paths (the exclude pathspecs below)
-. "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"        # #749: owned-path commit, read-only git, mid-merge
+. "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"        # #749: owned-path commit, read-only git, mid-merge; #1148 sync
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/ci.sh"                 # #1148: _ci_secs reads DEVAGENT_DEVDOC_SYNC_SECS
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
@@ -152,12 +155,16 @@ fi
 #     tracker calls).
 #   hold 2 (commit_devdoc = true, devdoc in git): the #611 layer lookup, the
 #     unowned report, the owned-path commit, and the state GC; released before
-#     the push. The transcript archive runs last, unheld.
+#     the devDoc sync.
+#   the devDoc sync (#1148; commit_devdoc = true, devdoc in git, an origin):
+#     fetch, merge and push with the network unlocked and one short hold of its
+#     own; a failed sync warns and the close still exits 0. The transcript
+#     archive runs last, unheld.
 # A close that fails after the row is marked never reads as closed: the EXIT
 # trap returns the row to [~], logs a cleanup_open line, keeps the issue's
 # state (the GC runs only after the commit) and exits 1 with a re-run remedy.
 commit_devdoc="$(permission_value "$project" commit_devdoc)"   # #713: the policy alone under trust
-_cleanup_armed=0; _cleanup_closed=0; _cleanup_reason=""; _devdoc_committed=0
+_cleanup_armed=0; _cleanup_closed=0; _cleanup_reason=""
 _cleanup_exit() {
     local rc=$?
     devdoc_lock_release || true
@@ -291,7 +298,6 @@ if [ "$commit_devdoc" = "true" ]; then
         "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
             commit -m "devdoc: $issue_arg cleanup" -- "${DEVDOC_OWNED[@]}" \
             || _cleanup_leave_open "devdoc commit failed"
-        _devdoc_committed=1
     fi
 fi
 
@@ -357,10 +363,10 @@ if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     unset _bk _d
 fi
 
-# Push only a commit this run made, never under the lock (#718 text unchanged).
-if [ "$_devdoc_committed" = 1 ] && "$DEVAGENT_GIT" remote get-url origin >/dev/null 2>&1; then
-    "$DEVAGENT_GIT" push origin HEAD 2>/dev/null || \
-        echo "warning: devdoc push failed; commit retained locally" >&2
+# #1148: the devDoc sync - after the lock release; its own short hold only.
+if [ "$commit_devdoc" = true ] && [ "$devdoc_git" -eq 0 ] && devdoc_sync_repo "$devdoc_dir"; then
+    _ci_secs DEVAGENT_DEVDOC_SYNC_SECS 30                             # read only when a sync can run
+    devdoc_sync "$devdoc_dir" "$issue_arg" "$_CI_SECS" || warn "$DEVDOC_SYNC_LINE"
 fi
 
 

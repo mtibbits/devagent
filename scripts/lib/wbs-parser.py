@@ -80,6 +80,8 @@ with a bounded retry on a sharing violation, #749): `write_markdown` is
 nothing) followed by `write_document`. `write_update` (`wbs update`) and
 `order_file` (`wbs order`) are the order pass's two writers (#803): each
 runs `_order` and accepts its text only when `permuted_only` does.
+`insert_exclusion` (`wbs exclude`, #761) renders text and writes nothing;
+its caller checks the result and writes it with `write_document`.
 
 CLI:
     wbs-parser.py parse <path>          # emits JSON tree to stdout
@@ -106,7 +108,8 @@ and for the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
-scope directive's `SCOPE_KEY` and `SCOPE_TAG`.
+scope directive's `SCOPE_KEY` and `SCOPE_TAG`; and `insert_exclusion`, the
+exclusion-line renderer `wbs exclude` calls (#761).
 """
 
 from __future__ import annotations
@@ -121,7 +124,7 @@ import stat
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from decimal import Context, Decimal
 from pathlib import Path
 
@@ -565,6 +568,41 @@ def _exclusions(
             else:
                 warns.append(NOT_AN_ID.format(ln, tok))
     return ids, warns
+
+
+def insert_exclusion(text: str, ids: Sequence[str]) -> str:
+    """`text` with one `<!-- wbs-exclude: <ids> -->` line inserted (#761).
+
+    Pure: it reads and writes nothing, and prints nothing. The line goes
+    directly after the last well-formed exclusion line outside a fence (one
+    `_directives` reads, even when its tokens are bad), with that line's
+    leading spaces and tabs; with none, it is appended at column 0. The
+    new line takes the file's EOL (`_line_ends`), and the text keeps its
+    final-newline state (#701, `_join`). ValueError for no ids, or an id
+    outside `ID_TOKEN_RE`: the caller validates first, so this is a second
+    line of defence.
+    """
+    if not ids:
+        raise ValueError("insert_exclusion: no ids")
+    for iid in ids:
+        if not isinstance(iid, str) or not ID_TOKEN_RE.fullmatch(iid):
+            raise ValueError(f"insert_exclusion: {iid!r} is not an issue id")
+    lines = text.splitlines(keepends=True)
+    kinds, bodies, _unclosed = _classify_lines(lines)
+    terms, eol = _line_ends(lines, bodies)
+    anchor = None
+    for ln, key, value in _directives(kinds, bodies):
+        if key == EXCLUDE and value is not None:
+            anchor = ln - 1
+    line = f"<!-- {EXCLUDE_KEY} {', '.join(ids)} -->"
+    out = [[body, term] for body, term in zip(bodies, terms)]
+    if anchor is None:
+        out.append([line, eol])
+    else:
+        body = bodies[anchor]
+        indent = body[:len(body) - len(body.lstrip(" \t"))]
+        out.insert(anchor + 1, [indent + line, eol])
+    return _join(out, eol, bool(lines) and not terms[-1])
 
 
 def _scopes(

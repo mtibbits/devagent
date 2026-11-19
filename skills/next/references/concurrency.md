@@ -51,13 +51,17 @@ avoided entirely by a per-session issue pin.
 
 Sessions also share the devDoc REPOSITORY. Since #749 every devagent write
 into it — cleanup's devdoc commit and state GC, the register drain,
-`statusreport`'s commit, and `wbs update`/`order`/`init` — serialises on one
+`statusreport`'s commit, and `wbs update`/`order`/`exclude`/`init` — serialises on one
 lock in the repository's git common dir, and each commit carries only the
 paths its writer owns. A second session waits (one `waiting for devdoc lock`
 line naming the holder) up to `DEVAGENT_DEVDOC_LOCK_TIMEOUT` seconds, then
 stops naming the holder and the stale-lock remedy; a cleanup stopped that way
 leaves its row `[~]` and its state kept, ready to re-run. The lock, the
-holder record and the remedy are specified in spec §3.3. One cleanup's waits
+holder record and the remedy are specified in spec §3.3. At the end of each
+close, cleanup syncs the repository with its `origin` (#1148): the fetch and
+push run unlocked and the merge and move take one short hold, so machines that
+share the devDoc through `origin` stay in step; a failed sync warns and shows
+in `/devagent:status`. One cleanup's waits
 share one deadline, so they total at most the bound; still give `next.sh` a
 long Bash tool timeout (600000 ms), since a timeout that kills a close after
 its mark leaves the row `[x]` with nothing committed.

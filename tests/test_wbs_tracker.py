@@ -331,3 +331,62 @@ def test_jira_keyprefix_env_then_repo(env, want):
 ])
 def test_jira_key_split(key, want):
     assert wbs_tracker.jira_key_split(key) == want
+
+
+# --- same_issue: the one equivalence rule (#761) ------------------------------
+def test_same_issue_uses_the_given_resolver(monkeypatch):
+    seen = []
+
+    def resolve(iid):
+        seen.append(iid)
+        return None
+
+    def no_parse_leaf(*_a, **_k):
+        raise AssertionError("parse_leaf called despite a resolver")
+
+    monkeypatch.setattr(wbs_tracker, "parse_leaf", no_parse_leaf)
+    assert wbs_tracker.same_issue(WORKED, "Issue-12", "Issue-PROJ-12", resolve=resolve) is False
+    assert seen == ["Issue-12", "Issue-PROJ-12"]
+
+
+def test_same_issue_exact_spelling_needs_no_source():
+    assert wbs_tracker.same_issue([], "Issue-12", "Issue-12") is True
+    assert wbs_tracker.same_issue([], "Issue-12", "Issue-PROJ-12") is False
+
+
+def test_same_issue_reads_jira_number_and_key_alike():
+    jira = [_src("Issue-", "jira", "PROJ")]
+    assert wbs_tracker.same_issue(jira, "Issue-12", "Issue-PROJ-12") is True
+    assert wbs_tracker.same_issue(jira, "Issue-12", "Issue-13") is False
+    assert wbs_tracker.same_issue(jira, "Issue-12", "Issue-OTHER-12") is False
+
+
+def test_same_issue_needs_the_same_source_object():
+    origin, fork = _src("Issue-", "github"), _src("Issue-F", "github")
+    assert wbs_tracker.same_issue([origin, fork], "Issue-1", "Issue-F1") is False
+
+
+def test_same_issue_unreadable_or_non_string_ids_differ():
+    gh = [_src("Issue-", "github")]
+    assert wbs_tracker.same_issue(gh, "Foo-1", "Foo-1") is True
+    assert wbs_tracker.same_issue(gh, "Foo-1", "Foo-01") is False
+    assert wbs_tracker.same_issue(gh, None, "Issue-1") is False
+    assert wbs_tracker.same_issue(gh, 12, "Issue-12") is False
+
+
+def test_names_issue_delegates_to_same_issue():
+    """wbs update's names_issue is a call to same_issue, not a second copy
+    of the rule (#761): the first heredoc's names_issue calls the attribute
+    same_issue and compares nothing with `is`."""
+    import ast
+    lines = (REPO / "scripts" / "wbs-update.sh").read_text(encoding="utf-8").splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.rstrip().endswith("<<'PY'"))
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == "PY")
+    tree = ast.parse("\n".join(lines[start + 1:end]))
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "names_issue")
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute) and n.func.attr == "same_issue"]
+    assert calls, "names_issue does not call same_issue"
+    assert not [n for n in ast.walk(fn) if isinstance(n, ast.Compare)
+                and any(isinstance(op, ast.Is) for op in n.ops)]

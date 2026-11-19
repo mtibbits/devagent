@@ -133,7 +133,7 @@ _from_a() {
     bash $*"
 }
 
-@test "#572 AC2 leg 1: all 15 PROTECTED sites complete bare against populated B at HEAD (override)" {
+@test "#572 AC2 leg 1: all 16 PROTECTED sites complete bare against populated B at HEAD (override)" {
   # 1. checklist-init — scaffolds a checklist via B's template registry
   mkdir -p "$DOC_B/Issue-9x"
   _from_a override "'$REPO/scripts/checklist-init.sh' '$DOC_B/Issue-9x'"
@@ -149,6 +149,10 @@ _from_a() {
   _from_a override "'$REPO/scripts/wbs-order.sh'"
   [ "$status" -eq 0 ]
   [[ "$output" == *"wbs order: already in order"* ]]
+  # 3c. wbs-exclude (#761) — adds an exclusion line to B's WBS
+  _from_a override "'$REPO/scripts/wbs-exclude.sh' Issue-12"
+  [ "$status" -eq 0 ] || { echo "wbs-exclude.sh failed rc=$status: $output"; false; }
+  run grep -cxF '<!-- wbs-exclude: Issue-12 -->' "$DOC_B/WBS.md"; [ "$output" -eq 1 ]
   # 4. born-red — B has no new tests: writes the NO-NEW-TESTS artifact
   _from_a override "'$REPO/scripts/born-red.sh'"
   [ "$status" -eq 0 ]
@@ -194,7 +198,7 @@ _from_a() {
   run bash -c "ls '$DOC_B/StatusReports/'*.md"; [ "$status" -eq 0 ]
 }
 
-@test "#572 AC2 leg 2: all 15 bare invocations refuse, naming both projects, both issues, and the source" {
+@test "#572 AC2 leg 2: all 16 bare invocations refuse, naming both projects, both issues, and the source" {
   local checked=0 cmd
   mkdir -p "$DOC_B/Issue-9x"
   for cmd in \
@@ -213,6 +217,7 @@ _from_a() {
     "'$REPO/scripts/wbs-init.sh'" \
     "'$REPO/scripts/wbs-update.sh'" \
     "'$REPO/scripts/wbs-order.sh'" \
+    "'$REPO/scripts/wbs-exclude.sh' Issue-12" \
   ; do
     # #659: pin run-suite's ISSUE so only the SCOPE guard can stop it. Unpinned, the
     # issue refusal alone would keep B unchanged even with no scope guard (leg 3 vacuous).
@@ -230,7 +235,7 @@ _from_a() {
     checked=$((checked + 1))
   done
   # floor: every PROTECTED row was exercised (register: Issue-151)
-  [ "$checked" -eq 15 ]
+  [ "$checked" -eq 16 ]
   # and nothing was fired at the stub tracker/backend by any refused run
   devagent_refute_logged "issue/github"
   devagent_refute_logged "code "
@@ -249,6 +254,7 @@ _from_a() {
   for cmd in \
     "'$REPO/scripts/wbs-update.sh'" \
     "'$REPO/scripts/wbs-order.sh'" \
+    "'$REPO/scripts/wbs-exclude.sh' Issue-12" \
     "'$REPO/scripts/statusreport.sh'" \
     "'$REPO/scripts/revise.sh'" \
     "'$REPO/scripts/comments.sh'" \

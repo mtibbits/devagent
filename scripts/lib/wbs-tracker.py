@@ -12,7 +12,8 @@ it applies a leaf's linked-MR state (scripts/lib/mr-link.py) on top of
 the tracker phase's result. `leaf_for` and `parse_leaf` are the one rule
 between a WBS leaf's `issue` id and a tracker issue (#792): `wbs init`
 writes leaves with the first, and it and `wbs update` read them with the
-second.
+second. `same_issue` is the one rule for "do two leaf ids name the same
+issue" (#761), built on `parse_leaf`: `wbs update` and `wbs exclude` call it.
 
 CLI:
   wbs-tracker.py check   read state-list output on stdin; print the issue
@@ -24,7 +25,7 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 CLASSES = ("done", "not_planned", "in_progress", "open", "other")
@@ -133,6 +134,27 @@ def parse_leaf(
         else:
             return (src, rest)
     return None
+
+
+def same_issue(
+    sources: Sequence[Mapping[str, str]],
+    a: object,
+    b: object,
+    resolve: Callable[[str], object] | None = None,
+) -> bool:
+    """Whether two leaf ids name one issue (#761): the same spelling, or
+    two strings that `resolve` reads as the very same source mapping and
+    the same record id. `resolve` defaults to `parse_leaf` over `sources`;
+    a caller passes a memoised one to read each id once. `wbs update`
+    (finding the active issue's leaf, keeping an excluded one out) and
+    `wbs exclude` (skipping an id already listed) share this rule."""
+    if a == b:
+        return True
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    look = resolve if resolve is not None else (lambda iid: parse_leaf(sources, iid))
+    ra, rb = look(a), look(b)
+    return ra is not None and rb is not None and ra[0] is rb[0] and ra[1] == rb[1]
 
 
 # Step row `- [<glyph>] <num>. <name>`: _checklist_line_re
