@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat >&2 <<'EOF'
-usage: /devagent:wbs <init|update|order|show> [project] [args]
+usage: /devagent:wbs <init|update|order|exclude|show> [project] [args]
 
   init [--force]                        scaffold <devdoc>/WBS.md from the template
   init --from-tracker [--all | --since <date|issue-id> | --open-only | --epic <issue-id>]
@@ -32,6 +32,8 @@ usage: /devagent:wbs <init|update|order|show> [project] [args]
                                         unless a wbs-exclude line lists it, then sort each parent's children
                                         (order_on_update = false turns the sort off)
   order [--dry-run]                     sort each parent's children by dependency, then priority
+  exclude <issue-id>...                 add the ids to one <!-- wbs-exclude: ... --> line (after the last one,
+                                        else at the end); ids already listed are skipped; a bad id writes nothing
   show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes);
                                         node parse warnings on stderr
 EOF
@@ -45,6 +47,7 @@ case "$sub" in
   init)   exec bash "$SCRIPT_DIR/wbs-init.sh"   "$@" ;;
   update) exec bash "$SCRIPT_DIR/wbs-update.sh" "$@" ;;
   order)  exec bash "$SCRIPT_DIR/wbs-order.sh"  "$@" ;;
+  exclude) exec bash "$SCRIPT_DIR/wbs-exclude.sh" "$@" ;;
   show)   exec bash "$SCRIPT_DIR/wbs-show.sh"   "$@" ;;
   *)      usage ;;
 esac
