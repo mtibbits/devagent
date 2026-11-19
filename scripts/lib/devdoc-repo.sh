@@ -349,8 +349,7 @@ devdoc_mid_operation() {
     local d out=""
     DEVDOC_MID_OP=""
     if devdoc_mid_merge "$1"; then DEVDOC_MID_OP=merge; return 0; fi
-    out="$(devdoc_git_ro -C "$1" rev-parse --path-format=absolute \
-        --git-path rebase-merge --git-path rebase-apply 2>/dev/null)" || out=""
+    out="$(devdoc_git_ro -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply 2>/dev/null)" || out=""
     while IFS= read -r d; do
         if [ -n "$d" ] && [ -e "$d" ]; then DEVDOC_MID_OP=rebase; return 0; fi
     done <<< "$out"
