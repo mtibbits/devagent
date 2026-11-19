@@ -409,7 +409,6 @@ S
   grep -qF 'no `EnterWorktree`, no `git worktree add`, no subagent dispatched with worktree isolation' <<<"$x"
   grep -qF 'Do not run `superpowers:finishing-a-development-branch`.' <<<"$x"
   grep -qF 'Do not merge, push, delete the branch or open a PR' <<<"$x"
-  grep -qF "devagent's ship and mergemr steps integrate the branch" <<<"$x"
   grep -qF "continue with item 6 and this command's Completion handoff in the same turn" <<<"$x"
 }
 
@@ -418,7 +417,7 @@ S
   local x; x="$(_impl_item4)"
   grep -qF 'When the active revision block has a branch step (8), it has already checked the issue branch out there' <<<"$x"
   grep -qF 'without one, work on the current tree as item 2 says' <<<"$x"
-  grep -qF 'integrate the branch, where the checklist has them' <<<"$x"
+  grep -qF "devagent's ship and mergemr steps integrate the branch, where the checklist has them" <<<"$x"
   ! grep -qF 'The branch step has already checked the issue branch out there' <<<"$x"
 }
 
