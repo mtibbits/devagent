@@ -144,8 +144,8 @@ def check_fields(fields: dict, config_path: str) -> None:
         raise Refused("issue", "issue is outside [A-Za-z0-9][A-Za-z0-9._-]{0,63}")
     if "capture" in fields:
         capture = fields["capture"]
-        if not capture or any(ch == " " or unicodedata.category(ch) == "Cc" for ch in capture):
-            raise Refused("capture", "capture is empty or holds a space or a control character")
+        if not capture or capture.startswith("-") or any(ch == " " or unicodedata.category(ch) == "Cc" for ch in capture):
+            raise Refused("capture", "capture is empty, starts with -, or holds a space or a control character")
     if "step" in fields and not STEP_RE.fullmatch(fields["step"]):
         raise Refused("step", "step is outside [A-Za-z][A-Za-z0-9_-]{0,63}")
     if "question" in fields and not is_absolute(fields["question"]):
@@ -158,8 +158,11 @@ ROTATE_USAGE = "_notify.py rotate <state-dir> <new-name>"
 
 
 def check_rotate_name(name: str) -> None:
-    if not name or name in (".", "..") or any(ch in name for ch in "/\\:"):
-        raise Refused("rotate-name", "the new name must be a bare file name: no /, \\ or :, not . or ..")
+    """A bare file name devagent will not read back: not *.toml (project state,
+    _state_list_projects) and not *.lock (a lock sidecar)."""
+    if (not name or name in (".", "..") or any(ch in name for ch in "/\\:")
+            or name.endswith((".toml", ".lock"))):
+        raise Refused("rotate-name", "the new name must be a bare file name: no /, \\ or :, not . or .., not ending in .toml or .lock")
 
 
 def build_record(fields: dict) -> dict:

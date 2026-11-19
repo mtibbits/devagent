@@ -350,6 +350,7 @@ refusal_rows() {
     "issue|$b|issue=$l65|$d" \
     "issue|$b|issue=|$d" \
     "capture|$b|capture=.zzdot|$d" \
+    "capture|$b|capture=-zzdash|$d" \
     "capture|$b|capture=zz/yy|$d" \
     "capture|$b|capture=zz yy|$d" \
     "capture|$b|capture=|$d" \
@@ -763,13 +764,13 @@ release() { touch "$RELEASE"; wait "$HOLDER"; HOLDER=; }
 @test "rotate: --rotate refuses a bad name or an existing target" {
   seed
   local name n=0
-  for name in a/b 'a\b' a:b . .. ''; do
+  for name in a/b 'a\b' a:b . .. '' x.toml x.lock; do
     n=$((n + 1))
     run --separate-stderr bash "$NOTIFY" --rotate "$name"
     [ "$status" -eq 2 ] || { echo "name <$name>: $status $stderr" >&2; return 1; }
     [[ "$stderr" == *'(rotate-name)'* ]] || { echo "name <$name>: $stderr" >&2; return 1; }
   done
-  [ "$n" -eq 6 ]
+  [ "$n" -eq 8 ]
   run --separate-stderr bash "$NOTIFY" --rotate "$(printf 'a\nb')"
   [ "$status" -eq 2 ]
   [[ "$stderr" == *'(newline)'* ]]

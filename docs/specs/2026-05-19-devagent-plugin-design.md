@@ -1315,11 +1315,11 @@ the file with read, write and delete sharing, so it never blocks a writer or a
 rotation. A launcher that rotates the file runs `notify.sh --rotate
 <new-name>`, which renames it under the appender's lock to a bare name in the
 same directory, so a launcher in another language need not take the lock. The
-name holds no `/`, `\` or `:` and is not `.` or `..` (`rotate-name`), does not
-start with `-` (`usage`), and does not already exist (`rotate-exists`). A
-rotation name should not end in `.toml` or `.lock`: devagent reads every
-`*.toml` in `state/` as project state (`_state_list_projects`,
-`scripts/lib/state.sh`).
+name holds no `/`, `\` or `:`, is not `.` or `..`, and does not end in `.toml`
+or `.lock` (`rotate-name`: devagent reads every `*.toml` in `state/` as project
+state, `_state_list_projects` in `scripts/lib/state.sh`, and a `.lock` is a
+sidecar); it does not start with `-` (`usage`), and does not already exist
+(`rotate-exists`).
 
 **One appender.** `scripts/lib/notify.sh` is the only way any devagent script
 writes the file:
@@ -1340,8 +1340,8 @@ as arguments or environment values, which Git Bash rewrites. The helper
 refuses, in this order: a CR, input that is not UTF-8, a line without `=`, an
 unknown field, a duplicate key, an unknown `event`, a `project` that is not a
 configured project, both or neither of `issue` and `capture`, an `issue`
-outside `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, a `capture` that is empty or holds a
-space or a control character, a `step` outside `[A-Za-z][A-Za-z0-9_-]{0,63}`, a
+outside `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, a `capture` that is empty, starts
+with `-`, or holds a space or a control character, a `step` outside `[A-Za-z][A-Za-z0-9_-]{0,63}`, a
 relative `question`, and an empty `detail`. An input with one fault gets one
 id. `notify_check` and `notify.sh --check` run the same checks and write
 nothing; a writer that appends last runs one first, so a line refused for its
