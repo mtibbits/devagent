@@ -252,9 +252,14 @@ conflict is found before anything is written) and the move (`merge --ff-only
 sync read, and nothing local is lost whatever the git config: an edited,
 staged, untracked or ignored file stays as it was.
 
-**Refusals** name the reason and change nothing, except that a push refused or
-skipped after a merge leaves the merge commit on this machine for the next close
-to push: a conflict (the paths); files in the way of origin's changes (an edited
+**Refusals** name the reason and change nothing, with two exceptions. A push
+refused or skipped after a merge leaves the merge commit on this machine for the
+next close to push. And a commit that another process lands on the branch while
+the move itself runs (a writer that does not take the devDoc lock) is refused as
+"HEAD moved" but can leave origin's changes staged: the late commit is kept and
+nothing local is lost, and the next close usually clears it, but if origin changes
+one of those files first, that close names it as a file in the way. The refusals
+are: a conflict (the paths); files in the way of origin's changes (an edited
 file, or a tracked file deleted without staging that origin still has: commit the
 edits, or let the session that owns them close; an
 untracked or ignored file: move it aside, since origin now tracks that path,
