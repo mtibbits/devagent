@@ -288,6 +288,7 @@ _stub_holder() {
 @test "#1148 busy lock: skipped for this close" {
     sync_commit "$SYNC_B" b.txt b 'B: b'
     _stub_holder "$(_lockdir)"
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=60                           # only the deadline can end the wait in time
     export DEVAGENT_DEVDOC_LOCK_DEADLINE=1                           # in the past: one attempt
     local t0=$SECONDS
     _refuses lock-busy
@@ -476,6 +477,15 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     DEVAGENT_GIT="$(sync_git_wrapper "$R/b/w" push-race-fetched)"
     _refuses origin-moved --no-origin
     [[ "$SYNC_LINE" == *"(non-fast-forward)"* ]]
+}
+
+@test "#1148 a push that lost origin's ref-lock race is origin-moved, not remote-refused" {
+    sync_commit "$SYNC_B" b.txt b 'B: b'
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" push-lockref)"
+    _refuses origin-moved --no-origin
+    [[ "$SYNC_LINE" == *"origin/main moved during the push (another push updated it first): ! [remote rejected] main -> main (failed to update ref)."* ]]
+    [[ "$SYNC_LINE" == *"The next close retries."* ]]
+    [[ "$SYNC_LINE" != *"Fix what the remote names"* ]]
 }
 
 @test "#1148 remote refusal quotes the remote: line" {

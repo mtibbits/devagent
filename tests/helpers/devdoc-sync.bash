@@ -118,6 +118,10 @@ sync_run() {
 #   fetch-fail-always       every fetch exits 128
 #   push-race               push from A, then the real push
 #   push-race-fetched       push from A, fetch in B, then the real push
+#   push-lockref            push from A, then print what a receive-pack that lost
+#                           the ref-lock race prints (`remote: error: cannot lock
+#                           ref … but expected …`, `[remote rejected] … (failed to
+#                           update ref)`) and exit 1, without the real push
 #   switch-before-lock      after ls-remote: checkout -q -b other in the repo
 #   lock-at-merge           on merge: create <git dir>/index.lock, then the real merge
 #   slow:<sub>=<s>[,…]      sleep <s> on <sub>; slow:<s> sleeps on every network call.
@@ -186,6 +190,17 @@ for m in "${ms[@]}"; do
         fetch-fail-always) [ "$sub" = fetch ] && { echo "fatal: synthetic fetch failure" >&2; _fin 128; } ;;
         push-race) [ "$sub" = push ] && _race_push ;;
         push-race-fetched) [ "$sub" = push ] && { _race_push; _real -C "$dir" fetch -q origin; } ;;
+        push-lockref)
+            if [ "$sub" = push ]; then
+                _race_push
+                {
+                    printf "remote: error: cannot lock ref 'refs/heads/main': is at %s but expected %s\n" \
+                        "$(_real -C "$other" rev-parse HEAD)" "$(_real -C "$other" rev-parse HEAD~1)"
+                    printf 'To %s\n ! [remote rejected] main -> main (failed to update ref)\n' "$other"
+                    printf "error: failed to push some refs to '%s'\n" "$other"
+                } >&2
+                _fin 1
+            fi ;;
         switch-before-lock) [ "$sub" = ls-remote ] && post=switch ;;
         lock-at-merge) [ "$sub" = merge ] && : > "$(_real -C "$dir" rev-parse --absolute-git-dir)/index.lock" ;;
         slow:*)

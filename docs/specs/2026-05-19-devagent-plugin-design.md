@@ -1121,7 +1121,9 @@ read from local refs only (no network call):
 `devDoc <repo>: HEAD is detached, so the devDoc sync cannot run`. A repository is
 in scope when it has an `origin` and at least one configured project with
 `commit_devdoc = true` uses it (the sync's own scope, by repository); a shared
-repository prints once. It is the lasting signal of a failed or skipped sync,
+repository prints once. Status reads the `commit_devdoc` config key, not a trust
+policy, so under a trust policy that sets it differently its scope can differ from
+the sync's. It is the lasting signal of a failed or skipped sync,
 whose cleanup still exits 0.
 
 ## 7. Chaining

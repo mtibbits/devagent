@@ -261,8 +261,8 @@ or let its session close); HEAD moved while the sync ran; a repository
 mid-merge, -rebase, -cherry-pick or -revert (finish it, or let the session that
 started it finish); a detached HEAD; no shared history with origin's branch;
 another git process holding `index.lock`; a failed fetch (git's exit code);
-origin moved before the push (`fetch first` or `non-fast-forward`, never
-retried within the close); the remote refused the push (its `remote:` lines
+origin moved before or during the push (`fetch first`, `non-fast-forward`, or
+another push winning origin's ref lock; never retried within the close); the remote refused the push (its `remote:` lines
 quoted); a git command that failed. **Skips** leave the next close to retry: a
 busy devDoc lock (the wait is the rest of the close's shared lock deadline,
 possibly one attempt), a lock location that cannot be determined, a spent time

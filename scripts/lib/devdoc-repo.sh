@@ -668,7 +668,7 @@ _devdoc_sync_undo() {
     _ds_git_failed merge "$mrc" "$_DS_ERR"; detail="$_DS_WHY"     # kept for the no-change case
     "$DEVAGENT_GIT" -C "$top" diff --cached --no-renames --name-only -z "$X" >"$_DS_LIST" 2>/dev/null || r=$?
     while IFS= read -r -d '' p; do cached[$p]=1; done <"$_DS_LIST"
-    devdoc_git_ro -C "$top" diff --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
+    devdoc_git_ro -C "$top" diff --no-renames --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
     while IFS= read -r -d '' p; do w1[$p]=1; done <"$_DS_LIST"
     for p in "${D[@]}"; do
         [ "$r" -ne 0 ] || [ -n "${cached[$p]+x}" ] || continue       # skip: index = target
@@ -683,7 +683,7 @@ _devdoc_sync_undo() {
         printf '%s\0' "${restore[@]}" >"$_DS_LIST"
         GIT_LITERAL_PATHSPECS=1 "$DEVAGENT_GIT" -C "$top" checkout --pathspec-from-file=- --pathspec-file-nul \
             <"$_DS_LIST" >/dev/null 2>&1 || true
-        r=0; devdoc_git_ro -C "$top" diff --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
+        r=0; devdoc_git_ro -C "$top" diff --no-renames --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
         while IFS= read -r -d '' p; do w2[$p]=1; done <"$_DS_LIST"
         for p in "${restore[@]}"; do
             if [ "$r" -ne 0 ] || [ -n "${w2[$p]+x}" ]; then bad+=("$p"); fi
@@ -866,14 +866,17 @@ _devdoc_sync_body() {
 
 # _ds_push_failed <rc> — classify a failed push from git's stderr (LC_ALL=C), in
 # order: the bound expired; origin moved (` ! [rejected] … (fetch first|non-fast-forward)`);
-# the remote refused it (` ! [remote rejected] `, quoting up to 3 `remote:` lines
-# with their padding stripped); anything else is git-failed.
+# origin moved DURING the push (another push won receive-pack's ref lock: `cannot lock
+# ref … but expected …` in the reject reason or a `remote:` line); the remote refused
+# it (` ! [remote rejected] `, quoting up to 3 `remote:` lines with their padding
+# stripped); anything else is git-failed.
 _ds_push_failed() {
-    local line t rej="" rrej="" kind="" rl=""
+    local line t rej="" rrej="" kind="" rl="" race=""
     local -a remote=()
     case "$1" in 124|137) _ds_budget; return 0 ;; esac
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%$'\r'}"
+        case "$line" in *"cannot lock ref"*"but expected"*) race=1 ;; esac
         if [ -z "$rej" ] && [[ "$line" =~ ^\ !\ \[rejected\]\ .*\((fetch\ first|non-fast-forward)\)$ ]]; then
             rej="${line# }"; kind="${BASH_REMATCH[1]}"
         elif [ -z "$rrej" ] && [[ "$line" =~ ^\ !\ \[remote\ rejected\]\  ]]; then
@@ -886,6 +889,9 @@ _ds_push_failed() {
     if [ -n "$rej" ]; then
         _ds_cap "$rej"
         _ds_set refused origin-moved "origin/$DEVDOC_SYNC_BRANCH moved before the push ($kind): $_DS_CAPPED"
+    elif [ -n "$rrej" ] && [ -n "$race" ]; then
+        _ds_cap "$rrej"
+        _ds_set refused origin-moved "origin/$DEVDOC_SYNC_BRANCH moved during the push (another push updated it first): $_DS_CAPPED"
     elif [ -n "$rrej" ]; then
         if [ "${#remote[@]}" -gt 0 ]; then
             printf -v rl '%s; ' "${remote[@]}"
@@ -922,5 +928,5 @@ _devdoc_sync_line() {
     else
         br="(branch unknown)"
     fi
-    DEVDOC_SYNC_LINE="devDoc sync $verb for $DEVDOC_SYNC_REPO $br: $_DS_WHY.$count $_DS_NEXT${_DS_ALSO:+ Also: $_DS_ALSO}"
+    DEVDOC_SYNC_LINE="devDoc sync $verb for $DEVDOC_SYNC_REPO $br: ${_DS_WHY%.}.$count $_DS_NEXT${_DS_ALSO:+ Also: $_DS_ALSO}"
 }

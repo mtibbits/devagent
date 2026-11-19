@@ -16,8 +16,9 @@ commits not on origin (#1148), from local refs only:
 `devDoc <repo>: <N> commits not on origin/<branch>, oldest <author date>`, or
 `devDoc <repo>: branch <branch> is not on origin` (also: the count could not be
 read; HEAD is detached). Only repositories that at least one project with
-`commit_devdoc = true` uses are shown, each once. See `commands/cleanup.md`,
-"The devDoc sync".
+`commit_devdoc = true` uses are shown, each once. That key is read from the
+config, not from a trust policy, so under a trust policy the shown set can differ
+from the repositories cleanup syncs. See `commands/cleanup.md`, "The devDoc sync".
 
 For WBS structure, estimates and progress across every project, see
 `/devagent:portfolio`, which writes one JSON document over all of them; its
