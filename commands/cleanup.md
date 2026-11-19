@@ -103,7 +103,7 @@ identity (`-s`) as
 `chore: promote pothole-register entries from #N`, scoped to that ONE path —
 never through cleanup's own devdoc commit, which carries only the paths the
 cleanup owns (#749, below). The staging file flips to `status: applied <sha>[,<sha>]`
-(one sha per layer file committed). Nothing is pushed.
+(one sha per layer file committed). The drain pushes nothing; the devDoc sync at the end of the same close carries its commits.
 
 rc 3 is a DEFERRAL: cleanup warns, completes, and the file stays
 `status: pending` — `promote-potholes.sh <project> --list-pending` lists the
@@ -187,7 +187,10 @@ After the gates and the source-tree restore, cleanup runs in this order:
 - **The devdoc commit and the state GC** — under the lock again: the
   register-layer lookup, the unowned report, the owned-path commit, then the
   state GC (the issue's `[context]` table, the shared slot it owns). The lock
-  is released before the push; the transcript archive runs last, unheld.
+  is released before the devDoc sync.
+- **The devDoc sync (#1148)** — with `commit_devdoc = true`, the devDoc in git
+  and an `origin`: fetch, merge and push, with the network unlocked and one
+  short hold of its own (below). The transcript archive runs last, unheld.
 
 No network call ever runs under the lock. With `commit_devdoc = false`, or a
 devDoc outside git, cleanup takes no lock (the drain defers as before) and
@@ -209,12 +212,84 @@ failed register-layer lookup no longer refuses the commit: it warns, the
 commit still takes only the owned paths, and the unowned report may then list
 a layer file.
 
-One close can wait on the lock up to three times (hold 1, the reconcile's
-write, hold 2). All three share one deadline (spec §3.3), so together they
-wait at most the bound and finish inside a 120 s command timeout. A command
+One close can wait on the lock up to four times (hold 1, the reconcile's
+write, hold 2, the devDoc sync's hold). All four share one deadline (spec
+§3.3), so together they wait at most the bound. The bounded parts of a close
+then stay inside a 120 s command timeout: 60 s of lock waits plus 35 s of
+devDoc sync (its 30 s default budget plus 5 s kill grace), which leaves 25 s
+for the WBS reconcile's tracker calls; those are not bounded. A command
 timeout that still kills a close after the mark (a forced kill skips the EXIT
 trap) leaves the row `[x]` with nothing committed; re-run cleanup. When you
 run it yourself, give the Bash call a long timeout (600000 ms).
+
+## The devDoc sync (#1148)
+
+Three machines commit to one devDoc repository and share it through its
+`origin`. At the end of every close with `commit_devdoc = true`, a devDoc in
+git and an `origin`, cleanup syncs that repository with origin's branch of the
+local branch's name (where `git push origin HEAD` went; `branch.<name>.merge`
+is not read). It runs whether or not this close committed, so commits from
+`statusreport.sh`, `promote-potholes.sh`, a hand commit or an earlier failed
+sync go out too. With `commit_devdoc = false` or no `origin` nothing changes
+and no network call runs. This is unrelated to `/devagent:sync`, which detects
+merged MRs.
+
+| Local branch compared with origin's | What the sync does |
+|---|---|
+| origin has no such branch | push HEAD as it is |
+| the same | nothing (a lagging `origin/<branch>` ref catches up) |
+| ahead only (merge commits included) | push HEAD as it is |
+| behind only | fast-forward this machine; nothing to push |
+| diverged | one merge commit of origin's branch into HEAD, authored and committed as `devagent <devagent@local>`, `devdoc: merge origin/<branch> into <branch> (<issue> cleanup)`; move to it and push |
+
+It merges, never rebases: devDoc records commit SHAs (`status: applied <sha>`),
+and no existing commit is rewritten. The ask (`ls-remote`), the one-branch fetch
+and the push run without the devDoc lock. One short hold covers the re-check,
+the HEAD read, the merge (`merge-tree --write-tree` + `commit-tree`, so a
+conflict is found before anything is written) and the move (`merge --ff-only
+--no-autostash --no-overwrite-ignore`). The branch moves only from the HEAD the
+sync read, and nothing local is lost whatever the git config: an edited,
+staged, untracked or ignored file stays as it was.
+
+**Refusals** change nothing and name the reason: a conflict (the paths); files
+in the way of origin's changes (an edited file, or a tracked file deleted
+without staging: commit the edits, or let the session that owns them close; an
+untracked or ignored file: move it aside, since origin now tracks that path,
+or let its session close); HEAD moved while the sync ran; a repository
+mid-merge, -rebase, -cherry-pick or -revert (finish it, or let the session that
+started it finish); a detached HEAD; no shared history with origin's branch;
+another git process holding `index.lock`; a failed fetch (git's exit code);
+origin moved before the push (`fetch first` or `non-fast-forward`, never
+retried within the close); the remote refused the push (its `remote:` lines
+quoted); a git command that failed. **Skips** leave the next close to retry: a
+busy devDoc lock (the wait is the rest of the close's shared lock deadline,
+possibly one attempt), a spent time budget, or `timeout(1)` missing from PATH.
+No remedy printed is destructive: none says to discard a file or to `add -f`.
+
+On Windows a move can stop part-way when another program holds a file open.
+The sync then undoes what the move wrote, from the index (which the move did
+not change): it restores the paths it changed or deleted and removes the ones
+it created, leaving alone a path whose staged content already equals origin's.
+The warning names the held path with git's own reason (for example
+`hd/keep1: Permission denied`); a path that could not be restored is named as
+holding origin's content, not a local edit. When the only held file is one
+origin deleted, git finishes the move: the sync still pushes and warns that the
+file is now an untracked copy of the version in the old HEAD (nothing is lost;
+delete it once access is fixed).
+
+A failed or skipped sync prints ONE line:
+`cleanup.sh: WARNING: devDoc sync <refused|skipped|finished> for <repo> (<branch>): <reason>. <N> commits not on origin/<branch>, … <next step>`
+(`(detached HEAD)` and no count when HEAD has no branch). Cleanup still exits 0:
+the issue is closed by then, and exit 1 means "not closed" to the re-run
+contract. The lasting signal is `/devagent:status`'s not-pushed line for that
+repository (spec §6.5).
+
+The network calls share one budget, `DEVAGENT_DEVDOC_SYNC_SECS` (1-99999
+seconds, default 30). Each call is bounded by what is left of it, measured
+finer than whole seconds; lock waits do not spend it; no call starts with under
+1 s left. A call that hits its bound gets 5 s more to exit, so allow the knob
+plus 5 s (under bash older than 5 the clock is whole seconds and can overrun by
+under 1 s).
 
 ## Transcript archive (#731)
 

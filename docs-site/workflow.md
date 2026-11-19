@@ -49,7 +49,7 @@ Rows in execution order.
 | 21 | `updatewbs` | Learn | Update the work-breakdown structure | Updating the plan of work keeps the list of what is left true after each merge. |
 | 22 | `impact` | Learn | Measure and record the real-world impact of the merged change | Measuring what the merged change really did shows whether it solved the problem. |
 | 23 | `lessonslearned` | Learn | Extract reusable lessons from the completed issue | Writing down what went wrong feeds the next plan, so the same mistake is not made twice. |
-| 24 | `cleanup` | Learn | Restore the tree, commit the devdoc, clear the active issue | Restoring the tree and saving the record gives the next issue a clean start. |
+| 24 | `cleanup` | Learn | Restore the tree, commit the devdoc and sync it with origin, clear the active issue | Restoring the tree and saving the record gives the next issue a clean start. |
 
 Every issue's `checklist.md` tracks step state with this key:
 

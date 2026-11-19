@@ -549,3 +549,13 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     unset DEVAGENT_GIT
     _done part-way
 }
+
+@test "#1148 docs name the knob and the new commit_devdoc meaning" {
+    local R0="$BATS_TEST_DIRNAME/.."
+    grep -q 'DEVAGENT_DEVDOC_SYNC_SECS' "$R0/commands/cleanup.md"
+    grep -q 'DEVAGENT_DEVDOC_SYNC_SECS' "$R0/docs/specs/2026-05-19-devagent-plugin-design.md"
+    grep -q 'commit_devdoc .*syncs it' "$R0/docs/configuration.md"
+    grep -q "devDoc sync (#1148)" "$R0/docs/specs/2026-05-19-devagent-plugin-design.md"
+    grep -q 'commits not on origin/<branch>, oldest' "$R0/commands/status.md"
+    [ -f "$R0/changelog.d/1148.md" ]
+}
