@@ -19,7 +19,7 @@ def _load(name, path):
 
 
 wbs_exclude = _load("wbs_exclude", LIB)
-P = wbs_exclude._parser()
+P = wbs_exclude.psr
 
 
 def _src(prefix, backend, keyprefix=""):

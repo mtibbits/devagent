@@ -55,18 +55,7 @@ def _load(name: str, path: Path) -> ModuleType:
     return module
 
 
-_PARSER: ModuleType | None = None
-
-
-def _parser() -> ModuleType:
-    """wbs-parser.py, loaded once. Every render, check and write is looked up
-    on it at call time, so a test can replace one."""
-    global _PARSER
-    if _PARSER is None:
-        _PARSER = _load("wbs_parser", HERE / "wbs-parser.py")
-    return _PARSER
-
-
+psr = _load("wbs_parser", HERE / "wbs-parser.py")
 trk = _load("wbs_tracker", HERE / "wbs-tracker.py")
 
 
@@ -109,7 +98,7 @@ def check_ids(sources: Sequence[Mapping[str, str]], ids: Sequence[str],
     out = []
     gap = False
     for iid in ids:
-        if not _parser().ID_TOKEN_RE.fullmatch(iid):
+        if not psr.ID_TOKEN_RE.fullmatch(iid):
             out.append(f"{ascii(iid)} is not an issue id")
         elif not sources:
             gap = True
@@ -135,35 +124,33 @@ def _unnumbered(warnings: Sequence[str]) -> Counter:
 
 def exclude(path: str, ids: list[str], sources: list[dict]) -> tuple[int, list[str]]:
     """Add the ids WBS.md does not yet list: `(rc, report lines unprefixed)`."""
-    dest = str(path)
-    parser = _parser()
     try:
-        text = Path(path).read_bytes().decode("utf-8")
+        old = psr.parse_file(path)
     except (OSError, UnicodeDecodeError) as e:
-        return 1, [f"cannot read {dest}: {e}"]
-    old = parser.parse_text(text)
+        return 1, [f"cannot read {path}: {e}"]
+    text = old["source_text"]
     old_ids = [iid for _ln, iid in old["exclusions"]]
     wanted = fold(sources, ids)
     listed = [i for i in wanted if any(trk.same_issue(sources, x, i) for x in old_ids)]
     new_ids = [i for i in wanted if i not in listed]
     if not new_ids:
         return 0, [f"nothing to exclude; {', '.join(listed)} already listed"]
-    new = parser.insert_exclusion(text, new_ids)
-    if not parser.inserted_only(text, new):
-        return 1, [f"refusing to write {dest}: an existing line would change "
+    new = psr.insert_exclusion(text, new_ids)
+    if not psr.inserted_only(text, new):
+        return 1, [f"refusing to write {path}: an existing line would change "
                    "(a bug; please report); nothing written"]
     with contextlib.redirect_stderr(io.StringIO()):
-        after = parser.parse_text(new)
+        after = psr.parse_text(new)
     took = Counter(i for _ln, i in after["exclusions"]) == Counter(old_ids) + Counter(new_ids)
     if not took or (_unnumbered(after["exclusion_warnings"])
                     != _unnumbered(old["exclusion_warnings"])):
-        return 1, [f"refusing to write {dest}: the new line would not take effect "
+        return 1, [f"refusing to write {path}: the new line would not take effect "
                    "(a bug; please report); nothing written"]
     try:
-        parser.write_document(path, new)
+        psr.write_document(path, new)
     except OSError as e:
-        return 1, [f"cannot write {dest}: {e}"]
-    report = f"excluded {', '.join(new_ids)} in {dest}"
+        return 1, [f"cannot write {path}: {e}"]
+    report = f"excluded {', '.join(new_ids)} in {path}"
     if listed:
         report += f"; {', '.join(listed)} already listed"
     return 0, [report]

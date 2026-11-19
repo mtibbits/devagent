@@ -84,7 +84,7 @@ if ! config_is_project "$project"; then
   exit 2
 fi
 active_guard_scope "wbs exclude"
-devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir 2>/dev/null || true)")"
+devdoc_dir="$(config_get_project_field "$project" devdoc_dir 2>/dev/null || true)"
 if [[ -z "$devdoc_dir" ]]; then
   printf 'wbs exclude: devdoc_dir not configured for %s\n' "$project" >&2
   exit 2
@@ -101,7 +101,7 @@ done
 entry="$SCRIPT_DIR/lib/wbs-exclude.py"
 # Ids travel NUL-terminated on stdin: a command line splits an id holding a
 # newline, and stdin keeps every byte.
-printf '%s\0' "${ids[@]}" | env "${src_env[@]}" python3 "$entry" validate || exit $?
+printf '%s\0' "${ids[@]}" | env "${src_env[@]}" python3 "$entry" validate
 
 wbs="$devdoc_dir/WBS.md"
 [[ -f "$wbs" ]] || die "wbs exclude: $wbs missing; run /devagent:wbs init first"
@@ -109,6 +109,4 @@ wbs="$devdoc_dir/WBS.md"
 trap devdoc_lock_release EXIT
 devdoc_lock_acquire "$devdoc_dir" - "/devagent:wbs exclude $project ${ids[*]}" || exit 1
 
-rc=0
-printf '%s\0' "${ids[@]}" | env "${src_env[@]}" WBS_PATH="$wbs" python3 "$entry" write || rc=$?
-exit "$rc"
+printf '%s\0' "${ids[@]}" | env "${src_env[@]}" WBS_PATH="$wbs" python3 "$entry" write

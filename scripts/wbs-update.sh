@@ -112,8 +112,8 @@
 #
 # Plus: if the project's active_issue is set and is not yet present in
 # the WBS (a leaf is present when it spells the issue exactly, or when the
-# rule above reads both as the same source's same key: `wbs-tracker.py`
-# `same_issue`, online or --offline), append it under a synthetic "Unassigned" top-level node so
+# rule above (`same_issue`) reads both as the same source's same key, online
+# or --offline), append it under a synthetic "Unassigned" top-level node so
 # newly-pulled issues auto-appear. Its glyph goes through the same
 # precedence (local checklist only when the tracker phase aborted); with no
 # signal it is written as `[ ]` with no status_src. An active issue that a
