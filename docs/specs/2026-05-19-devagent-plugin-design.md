@@ -64,7 +64,7 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-│   ├── resolver-scope-triage.md     # #572: the 22 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
+│   ├── resolver-scope-triage.md     # #572: the 23 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
 │   ├── disk-issues.md               # #1008: the disk issue file format (<N>.md), its writer rules, JSON fields, exit codes
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
@@ -1092,7 +1092,7 @@ omits.
 | `/devagent:template list\|show <name>` | Inspect resolved artifact templates |
 | `/devagent:sync [project\|--all]` | Async merge detection; transitions issues whose MRs were merged outside our session, unblocks `[?]` closeout steps, and prints a `CLOSEOUT:` nudge routing to `/devagent:next --auto` (#363; executes no closeout steps itself) |
 | `/devagent:statusreport [project]` | Generates status report, advances pin, commits to devdoc |
-| `/devagent:wbs <init\|update\|show>` | WBS authoring/render (see §13) |
+| `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
@@ -1488,7 +1488,7 @@ bare while the pointer names a different project acts on the pointer's
 project — both Issue-553 misfires (`wbs.sh update` writing another project's
 WBS; `preship-evidence.sh` resolving another project's issue) were this shape.
 Since #572, every PROTECTED resolving script (triage: the normative
-`docs/resolver-scope-triage.md`, 15 PROTECTED / 4 EXEMPT of the 19-member
+`docs/resolver-scope-triage.md`, 19 PROTECTED / 4 EXEMPT of the 23-member
 universe, pinned by `tests/resolver-scope-triage.bats`) calls
 `active_guard_scope` after its own validation and before any read, write, cd,
 or network call. The guard is tri-state:
@@ -2988,18 +2988,18 @@ returns the text a write would produce, or raises, and writes nothing.
 and `check(old, new)` can veto it (`wbs init --merge` passes
 wbs-parser.py's `inserted_only`). The bytes go through `write_document(path, text, *,
 exclusive=False)`, the one function that writes `WBS.md`: `wbs update`,
-`wbs order`, `wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
+`wbs order`, `wbs exclude` (#761), `wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
 plain `wbs init` (`exclusive=True`) and `--force` all call it. It writes
 atomically (#749): the bytes go to `.devagent-wbs-tmp.<name>` beside the
 target (a leftover is removed first), the temp takes an existing target's
 mode, and `os.replace` puts it in place, so a killed write leaves the old
 file whole; a symlinked `WBS.md` is written through (`os.path.realpath`) and
 the link kept. The replace retries a sharing violation for about 8 s (§3.3);
-exhausted, nothing is written and `wbs update`/`wbs init` exit `1` naming the
-file. Any new
+exhausted, nothing is written and `wbs update`/`wbs exclude`/`wbs init` exit `1`
+naming the file. Any new
 `WBS.md` writer must write through `write_markdown` or `write_document`.
-A test guards this over `wbs-import.py`, `wbs-init.sh`, `wbs-update.sh`
-and `wbs-order.sh`, and over `wbs-parser.py`'s own writers (`write_update`
+A test guards this over `wbs-import.py`, `wbs-init.sh`, `wbs-update.sh`,
+`wbs-order.sh`, `wbs-exclude.sh` and `lib/wbs-exclude.py` (#761), and over `wbs-parser.py`'s own writers (`write_update`
 for `wbs update` and `order_file` for `wbs order`, #803), whose only direct
 write is `write_document`; a new writer file must join that list. Plain `wbs init`
 now runs `python3`, like `show` and `update`. The `source_text` field
@@ -3067,7 +3067,8 @@ below). `wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
 (`[[line, id], ...]`) and `exclusion_warnings`; each node also carries
 `parse_warnings` (#865) and `depends_on` (#887). Like any comment a
 directive line is kept byte-for-byte; the commands read it and never
-write one, except `--from-tracker`, which writes the scope line once.
+write one, except `--from-tracker`, which writes the scope line once,
+and `wbs exclude` (#761), which inserts an exclusion line.
 There are two keys. `wbs-exclude`: the line
 `<!-- wbs-exclude: Issue-12, Issue-40 -->` lists issues not to add
 (#707). Its ids are split on commas and whitespace, and several lines
@@ -3238,6 +3239,42 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   `devdoc_dir`, or an invalid `order_on_update` or `completed_last`. The
   write runs under the devDoc repository lock (§3.3, #749); a lock held
   past its bound exits `1`, and `--dry-run` takes none.
+- `/devagent:wbs exclude [project] <issue-id>...` (#761) — add the ids
+  to one `<!-- wbs-exclude: ... -->` line (§13.1), the supported way to
+  keep deliberately deleted issues out of `wbs init --merge` and
+  `wbs update`. The first word is the project only when it names a
+  configured one (§6.1); there are no flags, and any `--` word is
+  refused. Every id is checked before `WBS.md` is read: it must be one
+  exclusion-grammar token (`ID_TOKEN_RE`; an id holding whitespace, a
+  newline, a comma or `>` is refused), and `wbs-tracker.py` `parse_leaf`
+  must read it as an issue of a configured source (backend, repo and
+  `dir_prefix` set). No tracker is called. `scripts/wbs-exclude.sh`
+  passes the ids to `scripts/lib/wbs-exclude.py` NUL-terminated on
+  stdin, so the hop from bash to Python keeps each id whole. Ids that
+  `same_issue` reads as one issue are written once, in their first
+  spelling, and ids an existing exclusion line already lists by the same
+  rule (the one `wbs update` reads exclusions with) are skipped. The new
+  line goes directly after the last well-formed exclusion line outside a
+  fence, with that line's leading spaces and tabs, else at the end at
+  column 0, with the file's line ending and final-newline state (#701;
+  `insert_exclusion`). Two postconditions gate its one `write_document`
+  call: `inserted_only` holds, and a re-parse lists the old ids plus
+  exactly the new ones with no new `exclusion_warnings` entry (line
+  numbers aside). It never removes or re-glyphs a leaf, and never prints
+  existing exclusion warnings (`wbs init --merge` reports them). Output,
+  on stderr: `wbs exclude: excluded <ids> in <dest>`, with
+  `; <ids> already listed` when some were; `wbs exclude: nothing to
+  exclude; <ids> already listed`; or one line per refused id
+  (`wbs exclude: '<id>' is not an issue id` or `wbs exclude: '<id>'
+  names no configured issue source`; with no usable source, once,
+  `wbs exclude: no issue source of <p> has backend, repo and dir_prefix
+  set`), then `wbs exclude: nothing written`. Exit `0` written or
+  nothing to do; `1` a missing, unreadable or non-UTF-8 `WBS.md`, a
+  failed postcondition (nothing written) or a failed write; `2` a
+  refused id, no id, an unknown flag, an unknown project or an unset
+  `devdoc_dir`. The ids are checked before the lock; the read and the
+  write run under the devDoc repository lock (§3.3, #749), and a lock
+  held past its bound, or whose location cannot be determined, exits `1`.
 - `/devagent:wbs show [--depth N] [--milestone X]` — the file as
   written; `--depth`/`--milestone` print the title and matching nodes only;
   parse warnings on stderr, each once, whatever the filter (#865)

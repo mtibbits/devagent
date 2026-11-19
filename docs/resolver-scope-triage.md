@@ -1,6 +1,6 @@
 # Resolver-scope triage (#572)
 
-The 22 scripts that resolve the active project — the 21 call sites of
+The 23 scripts that resolve the active project — the 22 call sites of
 `active_resolve_project` plus `next.sh`, which calls
 `active_resolve_project_src` directly — classified PROTECTED (a wrong scope
 writes, verifies, or transitions against the wrong project; the site calls
@@ -8,19 +8,20 @@ writes, verifies, or transitions against the wrong project; the site calls
 Line anchors are at the pre-change baseline `86efe8c`, except the `rederive.sh`
 row, re-anchored after #590 moved its guard, and the `evidence-stamp.sh`,
 `quarantine-check.sh` and `claims-check.sh` rows, added by #894, #714 and #1122 at
-their own commits.
+their own commits, and the `wbs-exclude.sh` row, added by #761 at its own commit.
 
 Derivation (the sweep test `tests/resolver-scope-triage.bats` re-runs this and
 diffs it against the rows below):
 
 ```bash
 grep -rln 'active_resolve_project' scripts/ \
-  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 22 files
+  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 23 files
 ```
 
 Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 `scripts/wbs.sh` (comment-only match at `:5`; a pure dispatcher that `exec`s
-`wbs-init.sh` / `wbs-update.sh` / `wbs-order.sh` / `wbs-show.sh`, all listed).
+`wbs-init.sh` / `wbs-update.sh` / `wbs-order.sh` / `wbs-exclude.sh` / `wbs-show.sh`,
+all listed).
 
 | script | class | reason | `config_is_project` |
 |---|---|---|---|
@@ -42,12 +43,13 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `statusreport.sh` | PROTECTED | writes `StatusReports/<date>.md`, then `git add` + `git commit -s` in another project's devdoc repo and pins its state | validates (`:46`) |
 | `template.sh` | EXEMPT | read-only resolver/printer; the `# === template <key> (layer=<L>) ===` banner names the resolved file, so a wrong scope is self-identifying — and it is the workflow's hottest script, called with `--project` at five sites | no-validation |
 | `transition-draft-start.sh` | PROTECTED | the only OFF-MACHINE effect: fires a real `on_draft_start` tracker transition for `transition_issue = true` projects | no-validation |
+| `wbs-exclude.sh` | PROTECTED | inserts a `wbs-exclude` line into another project's committed `WBS.md` (#761) | validates (`:82`) |
 | `wbs-init.sh` | PROTECTED | scaffolds `<devdoc>/WBS.md` in another project | validates (`:36`) |
 | `wbs-order.sh` | PROTECTED | reorders another project's committed `WBS.md` (#803; the same write as `wbs-update.sh`'s order pass) | validates (`:67`) |
 | `wbs-show.sh` | EXEMPT | read-only render of another project's WBS; no write, no verdict | validates (`:39`) |
 | `wbs-update.sh` | PROTECTED | rewrites another project's committed `WBS.md` (#572's first observed misfire) | validates (`:53`) |
 
-Counts: **18 PROTECTED, 4 EXEMPT; 14 validate, 8 no-validation.** The eight
+Counts: **19 PROTECTED, 4 EXEMPT; 15 validate, 8 no-validation.** The eight
 non-validating sites are `checklist-init`, `comments`, `depends`, `grep`,
 `history`, `revise`, `template`, `transition-draft-start`. Four of those eight
 are PROTECTED (`checklist-init`, `comments`, `revise`,

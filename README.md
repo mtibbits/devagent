@@ -159,7 +159,7 @@ All commands live under the `/devagent:` namespace.
 ### WBS & reporting
 | Command | Purpose |
 |---------|---------|
-| `wbs` | Work-breakdown-structure authoring and rendering (`init` / `update` / `order` / `show`) |
+| `wbs` | Work-breakdown-structure authoring and rendering (`init` / `update` / `order` / `exclude` / `show`) |
 | `statusreport` | Generate a per-project status report and advance the report pin |
 | `portfolio` | Write one portfolio JSON document over every configured project's WBS, with a parse report, or list every project's ready leaves with `--ready` (read-only) |
 

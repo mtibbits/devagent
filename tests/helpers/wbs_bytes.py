@@ -7,6 +7,7 @@ derived independently of the code under test.
     wbs_bytes.py variant <src> <lf|crlf|lf-nofinal|crlf-nofinal> <dst>
     wbs_bytes.py glyph-offset <file> <needle>
     wbs_bytes.py insert-after <src> <dst> <anchor> <lf|crlf> <line>...
+    wbs_bytes.py append <src> <dst> <lf|crlf> <line>
     wbs_bytes.py patch-leaf <src> <dst> <needle> <glyph> <status_src>
 """
 
@@ -89,6 +90,21 @@ def insert_after(src: str, dst: str, anchor: str, eol: str, lines: list[str]) ->
     return 0
 
 
+def append(src: str, dst: str, eol: str, line: str) -> int:
+    """Expected bytes for one line appended at the end (#761, #701's rule):
+    src, then one terminator when src is non-empty and lacks a final LF, then
+    the line, then a terminator only when src ended in LF or was empty."""
+    if eol not in ("lf", "crlf"):
+        print(f"wbs_bytes: unknown eol '{eol}'", file=sys.stderr)
+        return 2
+    term = CRLF if eol == "crlf" else LF
+    data = Path(src).read_bytes()
+    closed = not data or data.endswith(LF)
+    out = data + (b"" if closed else term) + line.encode("utf-8") + (term if closed else b"")
+    Path(dst).write_bytes(out)
+    return 0
+
+
 def patch_leaf(src: str, dst: str, needle: str, glyph: str, status_src: str) -> int:
     """Expected bytes for a #703 reconcile of the `- [g] <needle>` line.
 
@@ -139,6 +155,8 @@ def main(argv: list[str]) -> int:
         return glyph_offset(argv[2], argv[3])
     if len(argv) >= 7 and argv[1] == "insert-after":
         return insert_after(argv[2], argv[3], argv[4], argv[5], argv[6:])
+    if len(argv) == 6 and argv[1] == "append":
+        return append(argv[2], argv[3], argv[4], argv[5])
     if len(argv) == 7 and argv[1] == "patch-leaf":
         return patch_leaf(argv[2], argv[3], argv[4], argv[5], argv[6])
     print(__doc__, file=sys.stderr)

@@ -716,6 +716,29 @@ _not_added() {
   [ "$(grep -c '{issue: Issue-12, est: ?w' "$TMPDEV/WBS.md")" = 1 ]
 }
 
+@test "#761: a line wbs exclude wrote keeps the active issue out of wbs update (Jira key form)" {
+  local out
+  _config jira PROJ no
+  _list_on jira PROJ $'PROJ-12\topen'
+  _active Issue-12
+  printf '%s\n' '# testproj WBS' '' 'Some prose.' > "$TMPROOT/base"
+  # control on a copy: with no exclusion line, update adds Issue-12
+  cp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  _update
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(grep -c '{issue: Issue-12, est: ?w' "$TMPDEV/WBS.md")" = 1 ]
+  # wbs exclude appends the line at line 4; update then keeps Issue-12 out
+  cp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" exclude testproj Issue-PROJ-12
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(sed -n 4p "$TMPDEV/WBS.md")" = '<!-- wbs-exclude: Issue-PROJ-12 -->' ]
+  _update
+  out="$output"
+  [ "$status" -eq 0 ] || { echo "$out"; false; }
+  [ "$(grep -c Unassigned "$TMPDEV/WBS.md")" = 0 ]
+  [ "$(grep -cxF "$(_not_added Issue-12 4)" <<<"$out")" = 1 ]
+}
+
 @test "an excluded issue that has a leaf is still reconciled (#780)" {
   printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-12 -->' \
     '- [ ] Twelve {issue: Issue-12, est: 1w}' > "$TMPDEV/WBS.md"

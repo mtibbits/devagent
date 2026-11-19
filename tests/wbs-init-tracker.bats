@@ -643,6 +643,32 @@ _swap() {
   grep -qFx -- '  - [ ] Task 13 {issue: Issue-13}' "$TMPDEV/WBS.md"
 }
 
+@test "#761: after wbs exclude Issue-12, --merge --all does not add it and counts it excluded" {
+  _merge_setup lf
+  # the stripped base: base.md without its :23 exclusion line (the reset copy)
+  grep -vxF -- '<!-- wbs-exclude: Issue-12, Issue-1 -->' "$TMPROOT/base" > "$TMPROOT/stripped" || true
+  [ "$(grep -c '' "$TMPROOT/stripped")" -eq "$(( $(grep -c '' "$TMPROOT/base") - 1 ))" ]
+  # control: with no exclusion line, --merge --all adds Issue-12
+  cp "$TMPROOT/stripped" "$TMPDEV/WBS.md"
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(_issues | grep -cx Issue-12)" = 1 ]
+  [[ "$stderr" == *"; 5 already present, 0 excluded" ]]
+  # wbs exclude writes the line at the end
+  cp "$TMPROOT/stripped" "$TMPDEV/WBS.md"
+  run --separate-stderr bash "$REPO/scripts/wbs.sh" exclude testproj Issue-12
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$stderr" = "wbs exclude: excluded Issue-12 in $TMPDEV/WBS.md" ]
+  [ "$(grep -c '' "$TMPDEV/WBS.md")" -eq "$(( $(grep -c '' "$TMPROOT/stripped") + 1 ))" ]
+  [ "$(tail -n 1 "$TMPDEV/WBS.md")" = '<!-- wbs-exclude: Issue-12 -->' ]
+  _merge_expected "$TMPDEV/WBS.md" "$TMPROOT/want" lf
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(_issues | grep -cx Issue-12)" = 0 ]
+  [ "$stderr" = "wbs init --merge: added 10 issues to $TMPDEV/WBS.md (3 under existing nodes, 7 in new top-level nodes); 5 already present, 1 excluded" ]
+  cmp "$TMPROOT/want" "$TMPDEV/WBS.md"
+}
+
 # _shaped_import_cut: a #706 --all import of the shaped fixture in
 # $TMPROOT/import, and WBS.md = that import less Issue-9 and its Unparented block
 _shaped_import_cut() {
