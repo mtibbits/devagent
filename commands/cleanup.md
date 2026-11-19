@@ -1,5 +1,5 @@
 ---
-description: "Step 24: restore tree, commit devdoc, clear active_issue."
+description: "Step 24: restore tree, commit devdoc and sync it with origin, clear active_issue."
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [issue-dir]"
 ---
@@ -251,7 +251,9 @@ conflict is found before anything is written) and the move (`merge --ff-only
 sync read, and nothing local is lost whatever the git config: an edited,
 staged, untracked or ignored file stays as it was.
 
-**Refusals** change nothing and name the reason: a conflict (the paths); files
+**Refusals** name the reason and change nothing, except that a push refused
+after a merge leaves the merge commit on this machine for the next close to
+push: a conflict (the paths); files
 in the way of origin's changes (an edited file, or a tracked file deleted
 without staging: commit the edits, or let the session that owns them close; an
 untracked or ignored file: move it aside, since origin now tracks that path,
@@ -263,7 +265,9 @@ origin moved before the push (`fetch first` or `non-fast-forward`, never
 retried within the close); the remote refused the push (its `remote:` lines
 quoted); a git command that failed. **Skips** leave the next close to retry: a
 busy devDoc lock (the wait is the rest of the close's shared lock deadline,
-possibly one attempt), a spent time budget, or `timeout(1)` missing from PATH.
+possibly one attempt), a lock location that cannot be determined, a spent time
+budget, `timeout(1)` missing from PATH, or a temporary directory that could not
+be created.
 No remedy printed is destructive: none says to discard a file or to `add -f`.
 
 On Windows a move can stop part-way when another program holds a file open.
