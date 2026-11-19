@@ -7,20 +7,20 @@
 # `--` argument is refused. The first argument is the project only when it
 # names a configured project; every other argument is an issue id.
 #
-# Every id is checked before anything is read or written: it must match the
-# exclusion grammar (letters, digits, `_`, `.` and `-`; so no whitespace,
-# newline, comma or `>`), and the shared resolver (wbs-tracker.py
-# `parse_leaf`) must read it as an issue of a configured source (a source
-# needs backend, repo and dir_prefix). No tracker is called. One bad id
-# refuses the whole run. Ids that name one issue are folded, and ids an
-# existing exclusion line already lists, by `wbs update`'s rule
-# (wbs-tracker.py `same_issue`), are skipped. The new line goes directly after
-# the last exclusion line outside a fence, with its indentation, else at the
-# end at column 0, in the file's line-ending style. It is written only when
-# the file gains whole lines and a re-parse lists exactly the new ids; the
-# write is wbs-parser.py `write_document`. It never removes or re-glyphs a
-# leaf, and never reports existing malformed exclusion lines
-# (`wbs init --merge` does). The work is scripts/lib/wbs-exclude.py.
+# Every id is checked before WBS.md is read or anything is written: it must
+# match the exclusion grammar (letters, digits, `_`, `.` and `-`, led by a
+# letter or digit; so no whitespace, newline, comma or `>`), and the shared
+# resolver (wbs-tracker.py `parse_leaf`) must read it as an issue of a
+# configured source (a source needs backend, repo and dir_prefix). No tracker
+# is called. One bad id refuses the whole run. Ids that name one issue are
+# folded, and ids an existing exclusion line already lists, by `wbs update`'s
+# rule (wbs-tracker.py `same_issue`), are skipped. The new line goes directly
+# after the last exclusion line outside a fence, with its indentation, else
+# at the end at column 0, in the file's line-ending style. It is written only
+# when the file gains whole lines and a re-parse lists exactly the new ids;
+# the write is wbs-parser.py `write_document`. It never removes or re-glyphs
+# a leaf, and never reports existing malformed exclusion lines (`wbs init
+# --merge` does). The work is scripts/lib/wbs-exclude.py.
 #
 # Output (stderr): `wbs exclude: excluded <ids> in <dest>`, with
 # `; <ids> already listed` when some were; `wbs exclude: nothing to exclude;

@@ -1594,7 +1594,7 @@ def _heredoc(sh, delim="PY"):
 
 
 def test_no_writer_bypasses_write_document():
-    """The guard's universe is the five WBS.md writer files: wbs-import.py,
+    """The guard's universe is the six WBS.md writer files: wbs-import.py,
     wbs-init.sh, wbs-update.sh, wbs-order.sh (each script's heredoc
     Python, plus redirects to its path variables), and wbs-exclude.sh with
     its entry point lib/wbs-exclude.py (#761), and the parser's own
