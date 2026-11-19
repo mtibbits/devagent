@@ -112,8 +112,8 @@
 #
 # Plus: if the project's active_issue is set and is not yet present in
 # the WBS (a leaf is present when it spells the issue exactly, or when the
-# rule above reads both as the same source's same key, online or
-# --offline), append it under a synthetic "Unassigned" top-level node so
+# rule above reads both as the same source's same key: `wbs-tracker.py`
+# `same_issue`, online or --offline), append it under a synthetic "Unassigned" top-level node so
 # newly-pulled issues auto-appear. Its glyph goes through the same
 # precedence (local checklist only when the tracker phase aborted); with no
 # signal it is written as `[ ]` with no status_src. An active issue that a
@@ -504,12 +504,7 @@ def names_issue(iid, issue) -> bool:
     shared codec reads both as the same source's same key (#792). The
     source table is built from config alone, so this holds online, under
     --offline and on an aborted tracker phase."""
-    if iid == issue:
-        return True
-    if not isinstance(iid, str):
-        return False
-    a, b = leaf_hit(iid), leaf_hit(issue)
-    return a is not None and b is not None and a[0] is b[0] and a[1] == b[1]
+    return trk.same_issue(sources, iid, issue, resolve=leaf_hit)
 
 
 def find_issue_node(node, issue):
