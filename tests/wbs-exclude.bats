@@ -267,6 +267,22 @@ _t1_base() {
   [ "$(tail -n 1 "$TMPDEV/WBS.md")" = "$L12" ]
 }
 
+@test "a failed write under the lock exits 1, keeps the bytes and frees the lock (#761)" {
+  printf '%s\n' '# testproj WBS' '' 'Some prose.' > "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/old"
+  export DEVAGENT_TEST_WBS_REPLACE_FAILS=20 DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+  _ex Issue-12
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == "wbs exclude: cannot write $TMPDEV/WBS.md: "* ]] || { echo "$stderr"; false; }
+  cmp "$TMPROOT/old" "$TMPDEV/WBS.md"
+  [ "$(ls -A "$TMPDEV")" = WBS.md ]
+  # the EXIT trap freed the lock: a leaked one would fail this run within 1 s
+  unset DEVAGENT_TEST_WBS_REPLACE_FAILS
+  _ex Issue-12
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(tail -n 1 "$TMPDEV/WBS.md")" = "$L12" ]
+}
+
 @test "a missing WBS.md exits 1 and creates nothing (#761)" {
   _ex Issue-12
   [ "$status" -eq 1 ]

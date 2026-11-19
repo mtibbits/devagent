@@ -25,7 +25,7 @@
 # Output (stderr): `wbs exclude: excluded <ids> in <dest>`, with
 # `; <ids> already listed` when some were; `wbs exclude: nothing to exclude;
 # <ids> already listed`; or one line per refused id, then `wbs exclude:
-# nothing written`.
+# nothing written`; plus wbs-parser's unclosed-fence warning, if any.
 #
 # Exit: 0 written, or nothing to do; 1 a missing, unreadable or non-UTF-8
 # WBS.md, a failed postcondition, or a failed write (nothing written), or

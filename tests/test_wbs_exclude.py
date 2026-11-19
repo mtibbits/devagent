@@ -291,6 +291,15 @@ def test_main_write_refuses_a_bad_id_before_reading(tmp_path, monkeypatch, capsy
     assert writes == []
 
 
+def test_main_refuses_an_empty_id_list(tmp_path, monkeypatch, capsys, writes):
+    p = _wbs(tmp_path, BASE)
+    _main_env(monkeypatch, p, [])
+    assert wbs_exclude.main(["wbs-exclude.py", "write"]) == 2
+    assert capsys.readouterr().err == "wbs exclude: no issue id given\n"
+    assert p.read_bytes() == BASE.encode("utf-8")
+    assert writes == []
+
+
 def test_main_rejects_an_unknown_mode(monkeypatch, capsys):
     usage = "usage: wbs-exclude.py validate|write  (NUL-terminated ids on stdin)\n"
     assert wbs_exclude.main(["x", "frob"]) == 2

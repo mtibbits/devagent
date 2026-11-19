@@ -23,7 +23,8 @@ a re-parse lists the old ids plus exactly the new ones, with no new grammar
 warning. The one write is wbs-parser.py `write_document`. It never prints
 the existing `exclusion_warnings`: `wbs init --merge` reports those.
 
-Output: stderr only, ASCII, each line prefixed `wbs exclude: `; stdout stays
+Output: stderr only, ASCII, each line prefixed `wbs exclude: `, except the
+parser's own `wbs-parser: unclosed code fence ...` warning; stdout stays
 empty. Exit: 0 written, or nothing to do; 1 a WBS.md that cannot be read or
 is not UTF-8, a failed postcondition, or a failed write (nothing written);
 2 a refused id or a usage error.
