@@ -14,6 +14,7 @@ setup() {
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME"
   NOTIFY="$PLUGIN_ROOT/scripts/lib/notify.sh"
+  # shellcheck source=../scripts/lib/notify.sh
   . "$NOTIFY"
   NF="$DA_HOME/state/notifications.jsonl"
   SEED="$BATS_TEST_TMPDIR/seed"
