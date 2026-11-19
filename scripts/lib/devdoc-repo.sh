@@ -666,10 +666,12 @@ _devdoc_sync_move() {
 # paths, deleted some and created some, with HEAD and the index unmoved. Put them
 # back from the index, which the move did not change. Called by _devdoc_sync_move,
 # whose D, existed and w0 it reads (bash's dynamic scope). Never keyed on one phrase
-# (L318). Paths git named (it did not write them) and skip paths (the index already
-# equals the target, so git moved past them: rule 3 keeps a further edit) are left
-# alone. Lossless: after the pre-move refusal W0 ∩ D holds only skip paths, so every
-# restored path matched the index before the move.
+# (L318). Paths git named are named in the warning but NOT exempt: git may have
+# unlinked one before it failed to create its replacement, and a held file it never
+# touched does not differ from the index, so it is not restored. Skip paths (the
+# index already equals the target, so git moved past them: rule 3 keeps a further
+# edit) are left alone. Lossless: after the pre-move refusal W0 ∩ D holds only skip
+# paths, so every restored path matched the index before the move.
 _devdoc_sync_undo() {
     local top="$1" X="$2" mrc="$3" p line r=0 detail=""
     local -a named=() restore=() removed=() bad=() pairs=()
@@ -691,7 +693,6 @@ _devdoc_sync_undo() {
     devdoc_git_ro -C "$top" diff --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
     while IFS= read -r -d '' p; do w1[$p]=1; done <"$_DS_LIST"
     for p in "${D[@]}"; do
-        [ -z "${why[$p]+x}" ] || continue                            # named: git did not write it
         [ "$r" -ne 0 ] || [ -n "${cached[$p]+x}" ] || continue       # skip: index = target
         if [ "$r" -ne 0 ]; then bad+=("$p"); continue; fi            # cannot tell what changed
         if [ -n "${w1[$p]+x}" ] && [ -z "${w0[$p]+x}" ]; then restore+=("$p"); fi

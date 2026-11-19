@@ -264,7 +264,7 @@ _stub_holder() {
     sync_fixture "$R/g"; sync_commit "$SYNC_B" b.txt b 'B: b'; : > "$SYNC_B/.git/index.lock"
     export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$R/g/w" log)"
     _refuses index-lock
-    [[ "$SYNC_LINE" == *"another git process holds $SYNC_B/.git/index.lock"* ]]
+    [[ "$SYNC_LINE" == *"another git process holds "*"/.git/index.lock."* ]]   # git's absolute form (C:/… under Git Bash)
     [ "$(_calls "$R/g/w" push)" = 0 ]
     unset DEVAGENT_GIT
     _leg h; sync_commit "$SYNC_B" a.txt 'B a' 'B: a.txt'; : > "$SYNC_B/.git/index.lock"
@@ -340,6 +340,17 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     [[ "$SYNC_LINE" == *"Free or fix access to hd/keep1"* ]]
     cmp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
     [ ! -e "$SYNC_B/add4" ]
+}
+
+@test "#1148 part-way: a named path git already deleted is restored, not exempt" {
+    _partway_fixture
+    cp "$SYNC_B/mod2" "$BATS_TEST_TMPDIR/mod2"
+    p0="$(_porcelain)"
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" partway:mod2:create)"
+    _refuses part-way
+    [ "$(_porcelain)" = "$p0" ]
+    [[ "$SYNC_LINE" == *"stopped part-way at mod2: Permission denied; the move was undone"* ]]
+    cmp "$SYNC_B/mod2" "$BATS_TEST_TMPDIR/mod2"
 }
 
 @test "#1148 part-way keeps an unstaged edit on a staged-equals-origin path" {
@@ -480,8 +491,8 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
 @test "#1148 push bounded by what is left of the budget" {
     sync_commit "$SYNC_B" b.txt b 'B: b'
     o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
-    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" slow:ls-remote=2,push=3)"
-    sync_run "$SYNC_B_DOC" Issue-7 4
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" slow:ls-remote=2,push=4)"
+    sync_run "$SYNC_B_DOC" Issue-7 5                                 # ~3 s left for a 4 s push; the full knob (5 s) would let it finish
     [ "$SYNC_REASON" = budget ] || { echo "$SYNC_LINE" >&2; false; }
     grep -q '^end push .* term$' "$BATS_TEST_TMPDIR/w/calls"
     [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]

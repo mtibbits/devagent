@@ -104,9 +104,11 @@ sync_run() {
 # Modes:
 #   log                     record only
 #   commit-before-merge     on merge: commit late.txt, then the real merge
-#   partway:<held>[:skip=<p>]  on merge: write the M/A paths of HEAD..<target> and
-#                           delete the D paths (except <held> and <p>), then print
-#                           git's unlink error for <held> and exit 1
+#   partway:<held>[:skip=<p>][:create]  on merge: write the M/A paths of
+#                           HEAD..<target> and delete the D paths (except <held> and
+#                           <p>), then print git's unlink error for <held> and exit 1;
+#                           with :create, <held> is deleted first and the error is
+#                           git's `unable to create file` (unlinked, not rewritten)
 #   unlink-warn:<p>         the real merge, then <p> recreated from ORIG_HEAD and
 #                           git's unlink warning; exit 0
 #   checkout-fail           on checkout: exit 1, do nothing
@@ -164,8 +166,11 @@ for m in "${ms[@]}"; do
             fi ;;
         partway:*)
             [ "$sub" = merge ] || continue
-            spec="${m#partway:}"; held="${spec%%:*}"; skip=""
-            case "$spec" in *:skip=*) skip="${spec#*:skip=}" ;; esac
+            spec="${m#partway:}"; held="${spec%%:*}"; skip=""; create=0
+            IFS=':' read -r -a opts <<< "${spec#"$held"}"
+            for o in "${opts[@]}"; do
+                case "$o" in skip=*) skip="${o#skip=}" ;; create) create=1 ;; esac
+            done
             while IFS=$'\t' read -r st p; do
                 [ "$p" = "$held" ] || [ "$p" = "$skip" ] && continue
                 case "$st" in
@@ -173,7 +178,12 @@ for m in "${ms[@]}"; do
                     D) rm -f -- "$dir/$p" ;;
                 esac
             done < <(_real -C "$dir" diff --no-renames --name-status HEAD "$target")
-            printf "error: unable to unlink old '%s': Permission denied\n" "$held" >&2
+            if [ "$create" = 1 ]; then
+                rm -f -- "$dir/$held"
+                printf 'error: unable to create file %s: Permission denied\n' "$held" >&2
+            else
+                printf "error: unable to unlink old '%s': Permission denied\n" "$held" >&2
+            fi
             _fin 1 ;;
         unlink-warn:*) [ "$sub" = merge ] && post="$m" ;;
         checkout-fail) [ "$sub" = checkout ] && _fin 1 ;;

@@ -52,7 +52,9 @@ devdoc_lock_stub_holder() {
 # to $DEVAGENT_TMP/git-logging and print its path. Every call runs the real git
 # and appends one TAB-separated row to <log>:
 #   <subcommand> <GIT_OPTIONAL_LOCKS or -> <index mtime_ns before> <after> <repo toplevel or ->
-#   <holder pid> <holder issue> <holder cmd> <DEVAGENT_DEVDOC_LOCK_TOKEN or ->
+#   <holder pid> <holder issue> <holder cmd> <DEVAGENT_DEVDOC_LOCK_TOKEN or -> <argv>
+# (<argv>, last, is the call's arguments joined by spaces: #1148 tells one rev-parse
+# from another by it.)
 # The toplevel is the repository the call ran in (cwd, or the -C target), so a
 # test can keep only the devDoc repository's rows. The holder columns are the
 # #749 lock record of that repository at the time of the call (via the real
@@ -122,8 +124,8 @@ if [ -n "$ctl" ] && [ "$sub" = commit ] && [ -n "$top" ] && [ "$rc" -eq 0 ] && [
     chmod a-w "$HOME/.claude/devagent/state"
 fi
 after="$(_mt "$idx")"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" \
-    "$h_pid" "$h_issue" "$h_cmd" "${DEVAGENT_DEVDOC_LOCK_TOKEN:--}" >> "$log"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" \
+    "$h_pid" "$h_issue" "$h_cmd" "${DEVAGENT_DEVDOC_LOCK_TOKEN:--}" "${*//$'\t'/ }" >> "$log"
 exit "$rc"
 EOF
     chmod +x "$w"
