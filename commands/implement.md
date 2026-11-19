@@ -73,16 +73,17 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
      tree as item 2 says. Worktree preference: work in place. Do not
      create or enter any other worktree: no `EnterWorktree`, no
      `git worktree add`, no subagent dispatched with worktree isolation,
-     and no question asking whether to create one. If
+     and no question asking whether to create one. devagent's own scripts
+     are exempt, such as born-red.sh's ephemeral baseline tree. If
      `superpowers:using-git-worktrees` loads, report that you are working
      in place in the recorded tree, and go on.
    - **Leave the branch to devagent.** Do not run
      `superpowers:finishing-a-development-branch`. Do not merge the issue
      branch, push it, delete it or open a PR from it: devagent's ship and
-     mergemr steps integrate it, where the checklist has them. A push,
-     merge or PR that the issue body names as the work (a one-shot action)
-     is that work, not branch integration. At the executing
-     skill's Finish stage, report its result, then continue with item 6
+     mergemr steps integrate it, where the checklist has them. When the
+     active revision block has no branch step (8), a push, merge or PR that
+     the issue body names as the work is that work, not branch
+     integration. At the executing skill's Finish stage, report its result, then continue with item 6
      and this command's Completion handoff in the same turn; do not end
      the turn at the skill's report.
 5. Implementation happens task-by-task per the wrapped skill's
