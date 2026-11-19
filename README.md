@@ -68,12 +68,12 @@ scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (J
 as appropriate for your backend.
 
 **Supported platforms.** devAgent is developed and tested on **Linux**, including
-WSL on Windows; CI runs the full suite on Linux, and runs the `gitbash`-tagged test
-files under Git Bash on Windows. macOS is currently untested: the scripts
-assume GNU coreutils (`stat -c`, GNU `sed -i`, `readlink -f`). Native Git Bash on
-Windows can run the plugin, but the full suite needs a filesystem where `chmod`
-works, which Git Bash's default `noacl` mounts are not; the `gitbash`-tagged files
-run on Windows CI (see [Running the test suite](#running-the-test-suite)).
+WSL on Windows. Native Git Bash on Windows can run the plugin.
+macOS is currently untested: the scripts assume GNU coreutils (`stat -c`, GNU
+`sed -i`, `readlink -f`). CI runs the full suite on Linux, and runs the
+`gitbash`-tagged test files under Git Bash on Windows; the full suite needs a
+filesystem where `chmod` works, which Git Bash's default `noacl` mounts are not
+(see [Running the test suite](#running-the-test-suite)).
 
 **Claude Code version.** Developed and verified against Claude Code **2.1.223**;
 earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,
@@ -101,9 +101,13 @@ configuring `all_prs_branch`. A normal issue's checklist reads top-to-bottom
 with those rows pre-marked `[-]` (skipped):
 
 - **Plan** — `0 pull` · `1 research` _(optional, flagged)_ · `2 draft` · `3 spike` _(optional, flagged)_ · `4 scope` · `5 improve` · `6 prune` · `7 tighten`
-- **Implement** — `8 branch` · `9 implement` · `10 quality` · `11 document` · `12 commit` · `13 analyze`
-- **Ship** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship` · `18 ship`
-- **Integrate & close** — `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 mergemr` · `21 updatewbs` · `22 impact` · `23 lessonslearned` · `24 cleanup`
+- **Build** — `8 branch` · `9 implement` · `10 quality` · `11 document` · `12 commit` · `13 analyze`
+- **Verify** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship`
+- **Ship** — `18 ship` · `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 mergemr`
+- **Learn** — `21 updatewbs` · `22 impact` · `23 lessonslearned` · `24 cleanup`
+
+The phases are the site's, from `docs-site/phases.txt`; a test holds these
+bullets to that file.
 
 `20 mergemr` merges the PR only when the project sets `permissions.merge_mr =
 true`, and only at the head the last passing `preship` verified; otherwise it
@@ -616,6 +620,16 @@ it, and `.github/workflows/publish-docs-site.yml` installs pandoc, runs the
 file, and additionally fails if anything in it skips;
 `docs/pages-deployment.md` has the local build command.
 
+**The release tags, for one test (required).** `tests/docs-site.bats` checks
+that every item on the What's new page links a release tag that exists, by
+reading `git tag` in the checkout. A clone without the `devagent--v*` tags, or
+with tags older than the newest release (a `--depth 1` clone, or one fetched
+per branch), fails that test with `git tag is empty` or `not in git tag`; fetch
+them from devagent's repository first (`git fetch --tags`, or
+`git fetch --tags upstream` in a fork, whose own tags lag). `run-suite.sh`
+neither enforces nor records this. CI checks out with `fetch-depth: 0`, which a
+test in the same file pins.
+
 **Parallel bats (optional).** `suite_jobs = N` in `[project.<name>]` runs bats test
 FILES N at a time (`bats --jobs N --no-parallelize-within-files`; the tests inside a
 file still run in order), which cut this repo's bats leg from ~9 minutes to well under
@@ -727,15 +741,46 @@ longer reaches installed users by itself — a release does. A marketplace added
 from a local checkout (`claude plugin marketplace add <path>`) loads that
 checkout in place and is not pinned.
 
+**Changelog entries (#1127).** A pull request records its changelog entry as
+a file, `changelog.d/<issue>.md`, instead of editing `## [Unreleased]` in
+`CHANGELOG.md`, so two open pull requests never edit the same lines. A change
+with no issue uses `changelog.d/<slug>.md`; the slug starts with a lowercase
+letter and uses only lowercase letters, digits and single hyphens. The file
+holds one or more entries in the format and kinds `CHANGELOG.md` already uses:
+each entry's first line starts `- **<Kind>: ` or `- **<Kind> (<qualifier>): `,
+as in `- **Changed (breaking): `, and entries are separated by a blank line.
+One issue has one file; a later pull request for the same issue edits it.
+Entries still under `## [Unreleased]` ship with the next release as well.
+`python3 scripts/changelog.py check` reports every problem in `changelog.d/`,
+naming the file.
+
 Cutting a release, all on a clean `master`:
 
 1. Bump `version` in `.claude-plugin/plugin.json`. Patch for fixes; minor for
    added commands, steps or options; major for a change that breaks an
    existing project's `config.toml`, devdoc layout or command contract.
-2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new
-   `## [<version>] — <date>` heading; `tests/test_plugin_versioning.py` fails
-   until the section for the manifest version exists.
-3. Merge that change, then run `claude plugin tag --push`. It validates the
+2. Run `python3 scripts/changelog.py release <version> <date>`. It writes the
+   `## [<version>] — <date>` section above the newest one from every entry
+   file (issue numbers from highest to lowest, then slugs) and any entries
+   still under `## [Unreleased]`, then deletes the files it used. A dated
+   section opens with a prose paragraph: write it to a file and run
+   `python3 scripts/changelog.py release <version> <date> --intro <file>`
+   instead, or add the paragraph by hand in the same change. `release`
+   compiles every file on disk in `changelog.d/`, so run it on a clean
+   `master` (`git status --short changelog.d` prints nothing): `check` reports
+   a file that is not an entry (a bad name or a non-`.md` file), but it cannot
+   see that a valid entry file is untracked. `tests/test_plugin_versioning.py`
+   fails until the section for the manifest version exists. In the same change,
+   re-derive the What's new page's roadmap from the open epics and set its
+   "last checked" date to today: `tests/docs-site.bats` fails while that date
+   is older than the newest release.
+3. Merge that change. Tag only when `python3 scripts/changelog.py preview` on
+   the updated `master` exits 0 and prints only the `## [Unreleased]` heading:
+   an entry file merged while the release change was open would otherwise be
+   in the tagged code but missing from its notes. If it prints entries, add
+   them with `python3 scripts/changelog.py release <version> --fold` in a new
+   change (they join the newest section, which keeps its date), or cut a new
+   version. Then run `claude plugin tag --push`. It validates the
    plugin, checks that plugin.json and the marketplace entry agree, refuses a
    dirty tree or an existing tag, and pushes the annotated
    `devagent--v<version>` tag — the name Claude Code's dependency resolver
@@ -743,9 +788,14 @@ Cutting a release, all on a clean `master`:
 4. Publish the GitHub release on that tag with the CHANGELOG section as its
    notes: `gh release create devagent--v<version> --title "devagent <version>"
    --notes-file <section>`.
+5. Re-check the What's new page (`docs-site/whats-new.md`; the rule is in
+   `docs-site/README.md`): add the release's new features, each linked to the
+   tag just pushed, with a line in `docs-site/whats-new-sources.txt`.
 
 Guards: `tests/test_plugin_versioning.py` (CI) requires a semver `version` in
 plugin.json, none in the marketplace entry, and a matching CHANGELOG section.
+`tests/test_changelog.py` (CI) runs `python3 scripts/changelog.py check` on the
+repository, so a malformed entry file fails the pull request that adds it.
 `tests/plugin-validate.bats` (local-only — CI has no claude CLI) runs
 `claude plugin validate --strict` (rc=0 once the version landed, measured on
 2.1.223; it was documented-red on the missing version before) and

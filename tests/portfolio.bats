@@ -243,6 +243,31 @@ _hashes() {
   [ ! -e "$D/alpha/sub" ]
 }
 
+@test "portfolio: --out under the default worktree root (source_dir-wt) is refused" {
+  # #1050 item 6: with worktree_root unset or empty, <source_dir>-wt is railed.
+  cat >> "$DA_HOME/config.toml" <<TOML
+
+[project.kappa]
+source_dir = "$T/src/kappa"
+worktree_root = ""
+TOML
+  run bash "$PORTFOLIO" --out "$T/src/delta-wt/p.json"
+  echo "delta: $output"
+  [ "$status" -eq 2 ]
+  [ "$output" = "portfolio: refusing to write under the worktree_root of project 'delta' ($T/src/delta-wt); choose an --out outside every devdoc_dir, source_dir and worktree_root" ]
+  [ ! -e "$T/src/delta-wt" ]
+  run bash "$PORTFOLIO" --out "$T/src/kappa-wt/p.json"
+  echo "kappa: $output"
+  [ "$status" -eq 2 ]
+  [ "$output" = "portfolio: refusing to write under the worktree_root of project 'kappa' ($T/src/kappa-wt); choose an --out outside every devdoc_dir, source_dir and worktree_root" ]
+  [ ! -e "$T/src/kappa-wt" ]
+  # Control: alpha sets worktree_root, so its <source_dir>-wt is not a root.
+  run bash "$PORTFOLIO" --out "$T/src/alpha-wt/p.json"
+  echo "alpha-wt: $output"
+  [ "$status" -eq 0 ]
+  [ -f "$T/src/alpha-wt/p.json" ]
+}
+
 @test "portfolio: usage errors exit 2" {
   local args
   for args in "--bogus" "--out" "--out|" "--out=" "positional"; do

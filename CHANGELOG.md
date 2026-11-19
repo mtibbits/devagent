@@ -12,19 +12,168 @@ whose notes are that section. A marketplace install is pinned to the version
 string and picks up the next release on `claude plugin update`. Until 1.0.0
 the plugin was versioned by git commit SHA with no release cadence (#532,
 ratified 2026-07-20 while the repository was private, re-taken at go-public);
-the README's "Versioning & releases" section has the release procedure.
+the README's "Versioning & releases" section has the release procedure. A pull
+request records its entry as a file in `changelog.d/` rather than editing
+`## [Unreleased]` below (#1127); that README section says how, and each release
+compiles the files into its dated section.
+
+<!-- Editor note (#1002): a test reads this file. tests/lib/whats-new-check.py
+     (run by tests/docs-site.bats) reads the "## [x.y.z]" section headings and
+     dates, the "- **Added" / "- **Changed" bullet prefixes, and the issue
+     numbers and keywords that docs-site/whats-new-sources.txt names, to tie
+     each What's new item to the release that first added it. Rewording or
+     reclassifying a released bullet can turn that test red. The checker reads
+     only the dated sections here, never changelog.d/ or [Unreleased]; if
+     released entries ever leave this file, the checker must follow. -->
 
 ## [Unreleased]
 
-- **Added: a launcher notifications file and an unattended marker (#961).**
-  `scripts/lib/notify.sh` is the one appender of
-  `$(devagent_home)/state/notifications.jsonl`: `notify_append` writes one
-  version-1 JSON line under a lock (10 s bound), `notify.sh --check` runs the
-  same field checks without writing, and `notify.sh --rotate <new-name>`
-  renames the file under the lock. `devagent_unattended` in
-  `scripts/lib/paths.sh` reads the `DEVAGENT_UNATTENDED` marker a launcher
-  sets; the test suite unsets it. No script writes a line yet: the writers
-  arrive with #962, #964, #965, #966 and #972. Spec §7.3 has the contract.
+## [3.3.0] — 2026-11-18
+
+A minor release: new features and one changed default, with no change that
+breaks an existing project's `config.toml`, devdoc layout or command contract.
+Added: changelog entry files (`changelog.d/` and `scripts/changelog.py`) and a
+"What's new" page on the docs site. Changed: under the built-in
+`phase_breaks` default, `--auto` no longer stops before updatewbs once the PR
+is merged, so the close-out steps run in the mergemr session (an explicit
+`phase_breaks` keeps its breaks). Fixed: `next --through` and `--auto` find
+their chain target by name in the active revision block, and
+`/devagent:portfolio` no longer aborts or hangs on a broken schema file,
+over-long step numbers or non-regular checklist files. The install and
+workflow ("How it works") pages were rewritten.
+
+- **Added: changelog entry files (#1127).** A pull request records its
+  changelog entry as `changelog.d/<issue>.md` (or `<slug>.md` for a change
+  with no issue) instead of editing `## [Unreleased]` in `CHANGELOG.md`, so
+  two open pull requests no longer conflict there. `python3
+  scripts/changelog.py check` reports every problem in those files, `preview`
+  prints the section a release would write, and `release <version> <date>`
+  (with `--intro <file>` for the opening paragraph) compiles them into
+  `CHANGELOG.md` and deletes the files it used; `release <version> --fold`
+  adds an entry that merged after the release change was cut. A test that
+  reads changelog entries reads them through `changelog_text`
+  (`tests/lib/changelog-text.bash`), so its pin passes before and after the
+  release that moves the entry.
+
+- **Changed: the release steps (#1127).** README's "Versioning & releases"
+  now has the release change run `python3 scripts/changelog.py release`
+  instead of moving entries by hand, and tags only when `preview` on master
+  prints just the `## [Unreleased]` heading. Entries already under
+  `## [Unreleased]`, and any an older pull request still adds there, ship with
+  the next release.
+
+- **Fixed: portfolio input readers, exits and output rail (#1050).** A broken
+  schema file, an over-long step number, or a FIFO or other non-regular
+  `checklist.md`/`STUCK` no longer aborts or hangs a `/devagent:portfolio` run
+  (a regular file too large to read, and a file swapped for a FIFO between the
+  check and the read, still can). A schema file that cannot be read or linted
+  (or whose major version differs) exits 3 with one
+  `portfolio: self-check: schema:` line, not a traceback. A step number beyond
+  the interpreter's integer-string limit, and a FIFO or other non-regular
+  `checklist.md`/`STUCK` (never opened now), are per-issue
+  `checklist_unreadable`/`stuck_unreadable` entries. An `issue:` value ending
+  in `.` or matching an issue dir only case-insensitively is `issue_not_id` and
+  its dir is not read; on case-insensitive or Win32 hosts such a value now
+  reads `absent` with `issue_not_id` instead of reading the other dir. When the
+  devdoc cannot be listed, a present issue dir is reported unreadable rather
+  than read unverified. A known `key:value` with no space after a missing comma
+  (`{issue: X est:1w}`) is `meta_unreadable`. Inline link bullets
+  (`- [text](url)`) are no longer `near_miss_line`. `--out` under
+  `<source_dir>-wt` (the default worktree root) is refused; portfolio and
+  trust's forbid list now share one rule, `worktree_root_rule` in
+  `scripts/lib/config.sh` (same trust output, no extra config reads).
+
+- **Added: the "What's new" page (#1002).** `docs-site/whats-new.md` lists
+  what devagent has gained since 1.0.0, each item linking the first release
+  that has it, and states where it is heading as themes with no issue numbers or
+  target dates, under the date the roadmap was last checked.
+  `docs-site/whats-new-sources.txt` ties each item to its CHANGELOG bullet;
+  `tests/lib/whats-new-check.py` checks the items against this file and
+  `git tag`, the roadmap's wording, and its "last checked" date,
+  which may not be older than the newest release. README's release steps gain
+  the two-half re-check, and the suite now needs the release tags in the clone
+  (`git fetch --tags`, or `upstream` in a fork).
+
+- **Changed: the workflow page is now "How it works" (#1001).**
+  `docs-site/workflow.md` opens with the idea (plan first, fresh eyes on the
+  plan and the finished change, a written record), then the five phases read
+  from `docs-site/phases.txt`. The step table's Phase column uses those phases,
+  and a new Why column gives one sentence per step on why that gate exists. A
+  new "When it stops" section covers waiting `[?]`, stuck `[!]`, phase breaks
+  and `--through`; the numbering, merge and other-stop mechanics move to a
+  closing Details section. README's step groups move to the same five phases.
+  New checks hold the Phase and Why columns, the text before the table (no issue
+  numbers or config keys), the stop section and its commands' argument hints,
+  the phase bullets on the page and in README, and the built title and nav
+  label. The 1.0 page's anchors `#numbering`, `#step-table` and
+  `#checklist-glyphs` are gone; no in-repo link used them.
+
+- **Changed: the install page (#999).** `docs-site/install.md` is now three
+  short parts in 60 lines: prerequisites in plain words, the two install
+  commands with the optional superpowers commands, and a three-line first run
+  that sends setup to the Quickstart and ends on `/devagent:doctor <project>`.
+  Contributor facts moved to `CONTRIBUTING.md` (the pytest-interpreter rule is
+  new there), and the grant forms and version ranges stay on README, linked.
+  README's Supported platforms paragraph is reordered, same facts, user claims
+  first; the page copies that prefix word for word, by test. The install-page
+  tests now check facts: every tool on the page is in README's Prerequisites,
+  and the page shows no issue number. The shellcheck token floor is 13 (was
+  14); the Claude Code token floor stays at 5, the measured count.
+
+- **Changed: no phase break after a merged PR (#933).** The built-in
+  `phase_breaks` default no longer breaks before updatewbs once the
+  active revision's mergemr row is `[x]` (or `[-]` because ship was `[-]`), so
+  `--auto` runs steps 21-24 (updatewbs, impact, lessonslearned, cleanup) in
+  the mergemr session. A checklist with no mergemr row (older than #899), a
+  mergemr not yet done, or an abandoned PR keeps the break. An explicit
+  `phase_breaks` in a project or `[defaults]`, including a copied
+  `"implement quality updatewbs"`, keeps the break as before; `""` and
+  `--no-breaks` still disable all breaks. Cost: one session now carries its
+  history through the close-out; #670 measured steps 21-24 of Issue-660 at
+  5.0M input-token equivalents.
+
+- **Fixed: `next --through` and `--auto` find the chain target by name in the
+  active revision block (#1029).** The chain-target check took the target's
+  number from its first row in the file and read that number's glyph in the
+  active block. On a checklist whose older block numbers the target differently
+  (an unmigrated block from before a renumber, then a revision), that number
+  lands on another step. A done row stopped the chain early (`--auto` stopped
+  before `cleanup`), and a pending one let it run past the target into `ship`
+  and `mergemr`. Both the `--through` validation and the per-step check now
+  read the target's own row in the active block, matching the name exactly
+  rather than as a regex, so a hand-annotated row (`24. cleanup: note`) is now
+  a valid target. A `--through` step that is only in an older revision block,
+  such as `spike` on a revised checklist, is now refused: pick a step from the
+  active revision, or, if that older row is still pending, run
+  `/devagent:<step> <project>` directly. It used to stop or run on according to
+  that older row. Under a bare `--auto` the refusal names `--auto`, not the
+  `--through cleanup` it implies.
+
+## [3.2.0] — 2026-11-17
+
+A minor release: new options and features, with no change that breaks an
+existing project's `config.toml`, devdoc layout or command contract. Added:
+the local code backend, capture-time model-tier proposals, the WBS estimate
+contract (`est` units and ranges, the `tok` key), and accepting a
+merge-forward that leaves the branch diff unchanged. `/devagent:preship` now
+runs an evidence and MR-claims preflight before the verifier, and the docs
+site moved to the shared family template with a new landing page. `local` is
+now a built-in code backend name, so a custom backend saved as
+`scripts/code/local.sh` should be renamed.
+
+- **Added: the WBS estimate contract (#737).** The template note and spec
+  §13.1 now say what `est` measures: agent time, in `h`, `d` and `w` units of
+  1, 8 and 40 agent hours. A new `tok` key holds the token estimate, in
+  cost-report's input-token equivalents with a `k` or `M` suffix, and is a
+  known key (no longer listed in `meta_unknown_keys`). Either key takes a
+  `low-high` range with one trailing unit (`est: 2-4d`, `tok: 1-3M`). Each
+  value falls in one class per key: absent, placeholder, time, non-time or
+  unparseable for `est`, and absent, placeholder, tokens or unparseable for
+  `tok`. `classify_estimate` in `scripts/lib/wbs-parser.py` is the one
+  classifier. The portfolio now classifies through it, so a range reads
+  `time` with two bounds instead of `unparseable`, and it reports an
+  unparseable `tok` as `tok_unparseable`. The template's example estimate
+  `0w` is now the placeholder `?w`.
 
 - **Added: accept a merge-forward that leaves the branch diff unchanged (#1125).**
   A project that sets `[project.<name>.merge_forward] verify = "ci"` can re-record

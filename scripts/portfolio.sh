@@ -15,8 +15,10 @@
 #
 # The projects reach scripts/lib/portfolio.py as indexed environment variables
 # (PORTFOLIO_PROJECT_COUNT, PORTFOLIO_NAME_<i>, and PORTFOLIO_DEVDOC_<i>,
-# PORTFOLIO_SOURCE_<i>, PORTFOLIO_WORKTREE_<i> when configured), so no path can
-# collide with a delimiter. #890 adds PORTFOLIO_MODEL_THINKING_<i>,
+# PORTFOLIO_SOURCE_<i>, PORTFOLIO_WORKTREE_<i> when configured; #1050:
+# PORTFOLIO_WORKTREE_<i> is also set to <source_dir>-wt when worktree_root is
+# unset or empty, by worktree_root_rule), so no path can collide with a
+# delimiter. #890 adds PORTFOLIO_MODEL_THINKING_<i>,
 # PORTFOLIO_MODEL_CHECKING_<i> and PORTFOLIO_MODEL_DEFAULT_<i>, the project's
 # raw step_models.thinking/.checking/.default (set when the key exists, even
 # empty; a key whose value is not a string, e.g. a table, is exported as
@@ -103,6 +105,12 @@ while IFS= read -r p; do
       [[ $rc -eq 1 ]] || die "cannot read $field of project '$p' (rc $rc)"
     fi
   done
+  # #1050 item 6: the worktree root trust applies, so an unset or empty
+  # worktree_root rails <source_dir>-wt.
+  wt="PORTFOLIO_WORKTREE_$i" src="PORTFOLIO_SOURCE_$i"
+  if v="$(worktree_root_rule "${!wt-}" "${!src-}")"; then
+    export "$wt=$v"
+  fi
   # Stderr-quiet, as step_models_tier reads them. With no step_models table no
   # key exists, so the table is probed first. list-keys of the table names its
   # scalar and array keys; _toml.py get exits 1 on an array of tables, and a

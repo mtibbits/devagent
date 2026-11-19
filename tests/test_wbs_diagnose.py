@@ -9,8 +9,12 @@ node gained the additive `parse_warnings` field (LF; no other change), and
 again on the #887 branch, when every node gained the additive `depends_on`
 field (LF; no other change), and once more there for the #887 malformed-prefix
 check: one added `parse_warnings` string on the plant-unmatched-bracket node.
+unknown_keys.parse.json (#737) is the same recipe on unknown_keys.md: `python3
+scripts/lib/wbs-parser.py parse tests/fixtures/wbs/unknown_keys.md`, LF, cut on
+the tree before `tok` joined KNOWN_META_KEYS, and never hand-edited.
 """
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -53,6 +57,30 @@ def test_diagnose_fixture_cli_unchanged(tmp_path):
     assert _cli("render", str(FIX / "diagnose.parse.json")) == DIAG.read_bytes()
 
 
+UNKNOWN = FIX / "unknown_keys.md"
+
+
+def _walk(tree):
+    for child in tree["children"]:
+        yield child
+        yield from _walk(child)
+
+
+def test_parse_cli_unchanged_without_tok():
+    # AC4 (#737): parse output for a file without `tok` is byte-identical to
+    # the golden cut before `tok` became a known key, and the golden exercises
+    # the meta_unknown_keys path that change edits.
+    for subject in (UNKNOWN, DIAG):
+        tree = wbs_parser.parse_file(str(subject))
+        nodes = list(_walk(tree))
+        assert nodes, subject
+        assert not any("tok" in n["meta"] for n in nodes), subject
+    golden = (FIX / "unknown_keys.parse.json").read_bytes()
+    assert _lf(_cli("parse", str(UNKNOWN))) == golden
+    flat = [k for n in _walk(json.loads(golden)) for k in n["meta_unknown_keys"]]
+    assert flat == ["jira", "severity", "custom_field"]
+
+
 # --- additive diagnostics ---------------------------------------------------
 
 UNREADABLE = wbs_parser.META_UNREADABLE
@@ -78,6 +106,7 @@ WALK_BODIES = [
     "depends_on: [ a , , 'b', ], owner: 'ann', milestone: M1 ",
     " , ,\t",
     "k: \"v\", j: [x], z: y",
+    "issue: X est:1w",
 ]
 
 
@@ -104,6 +133,8 @@ META_ROWS = [
      "duplicate", "key 'est' appears more than once; the last value is kept"),
     ("swallowed-pair", "{issue: Issue-1 est: 1w}",
      "unreadable", "'issue' value holds ': '; a ',' may be missing and the next pair read as its value"),
+    ("swallowed-pair-nospace", "{issue: X est:1w}",
+     "unreadable", "'issue' value holds 'est:'; a ',' may be missing and the next pair read as its value"),
     ("unclosed-brace", "{issue: Issue-1, est: 1w",
      "unreadable", "'{' with no closing '}'; the text after it is item text, not metadata"),
 ]
@@ -114,6 +145,28 @@ def test_meta_problem(name, meta, code, message):
     code = {"unreadable": UNREADABLE, "duplicate": DUPLICATE}[code]
     text = f"# T\n- [ ] item {meta}\n"
     assert wbs_parser.diagnose_text(text)["meta_problems"] == [(2, code, message)]
+
+
+def test_swallowed_pair_both_spellings():
+    # #1050 item 5: a missing comma before `key:value` (no space) is reported too.
+    assert wbs_parser._parse_meta_walk("issue: X est:1w") == (
+        {"issue": "X est:1w"},
+        [(UNREADABLE, "'issue' value holds 'est:'; a ',' may be missing "
+                      "and the next pair read as its value")])
+    assert wbs_parser._parse_meta_walk("issue: X est: 1w") == (
+        {"issue": "X est: 1w"},
+        [(UNREADABLE, "'issue' value holds ': '; a ',' may be missing "
+                      "and the next pair read as its value")])
+
+
+@pytest.mark.parametrize("body", [
+    "issue: devagent:Issue-1", "objective: see https://example.com/x", "start: 2026-11-17 10:30",
+    "issue: Issue-1, est: 1w", "objective: see localhost:8080", "objective: see mailto:a@b",
+    "objective: see C:\\x", "objective: see RFC:7231", "objective: see doc:intro",
+    "issue: X fleet:Issue-2",
+])
+def test_swallowed_pair_controls_not_reported(body):
+    assert wbs_parser._parse_meta_walk(body)[1] == []
 
 
 def test_meta_problem_clean_block():
@@ -148,6 +201,15 @@ def test_near_miss_shapes():
     assert got == [(ln, lines[ln - 1]) for ln in want_lines]
     for control in ("plant-title", "plant-fenced", "plant-node", "plant-plain", "plant-dashdash"):
         assert _line_of(text, control) not in {ln for ln, _ in got}, control
+
+
+def test_near_miss_link_bullet_not_reported():
+    # #1050 item 7: an inline link bullet is not a node shape; a bracket holding
+    # nothing or one checkbox glyph, even before `(`, still is.
+    text = ("# T\n\n- [ ] 1. a\n- [docs](https://example.com)\n* [a b](x)\n- [x]1. a\n"
+            "- [x](optional) write docs\n- [ ](see #12) fix\n")
+    assert wbs_parser.diagnose_text(text)["near_misses"] == [
+        (6, "- [x]1. a"), (7, "- [x](optional) write docs"), (8, "- [ ](see #12) fix")]
 
 
 def test_near_miss_comment_span_at_head():

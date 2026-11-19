@@ -3,7 +3,8 @@
 Thank you for looking under the hood. devAgent is a Claude Code plugin written
 almost entirely in bash, with a bats test suite and a small pytest suite. This
 page covers what you need installed, how the suite runs, and the conventions
-every change is held to. The README's "Running the test suite" section is the
+every change is held to. The README's
+[Running the test suite](README.md#running-the-test-suite) section is the
 authority on the suite's environmental requirements; this page points at it
 rather than repeating it.
 
@@ -34,6 +35,10 @@ Bash on Windows provides neither by default, so it can run the plugin and
 individual scripts but not the full suite. On Windows, develop in a WSL clone
 on a native Linux filesystem, not under `/mnt/c`. The README section named above
 explains the mechanism behind both requirements.
+For a tree with `tests/test_*.py`, `scripts/run-suite.sh` prefers
+`<tree>/.venv/bin/python` over `python3`; if no candidate can run pytest, the
+artifact records `pytest: (error)` and `scripts/preship-evidence.sh` refuses it.
+Set `DEVAGENT_PYTEST_PYTHON` to name any other interpreter.
 Every suite-count artifact records the platform it was produced on
 (`platform:`). The maintainer who runs preship can set `evidence_platforms` in
 their `config.toml`, so that evidence from any other platform fails instead of
@@ -47,6 +52,11 @@ With nothing but a clone, run the suites directly and pin the locale yourself:
 LC_ALL=C.UTF-8 bats tests/                  # or one file: bats tests/some-file.bats
 python3 -m pytest tests/ -v
 ```
+
+The clone needs the release tags: `tests/docs-site.bats` reads `git tag`, so a
+`--depth 1` clone or one with stale tags fails there until you fetch the tags
+from devagent's repository: `git fetch --tags`, or `git fetch --tags upstream`
+in a fork.
 
 The maintainer's runner is `scripts/run-suite.sh`, which pins the hermetic
 environment and refuses to write a result it cannot stand behind. It needs
@@ -90,6 +100,18 @@ so there is no list to maintain.
   that alters what a requirement states updates `docs/requirements.md` in the
   same PR. Its IDs are never renumbered or reused: a withdrawn requirement is
   deleted and its withdrawal noted in a prose line.
+- **Changelog entries are files.** A change records its changelog entry as
+  `changelog.d/<issue>.md` (or `changelog.d/<slug>.md` when it has no issue)
+  and never edits `## [Unreleased]` in `CHANGELOG.md` by hand; only a release
+  change does, through `scripts/changelog.py release` or `--fold`. The README's
+  "Versioning & releases" section has the entry format and the release steps;
+  `python3 scripts/changelog.py check` checks the files.
+- **Tests read changelog entries through `changelog_text`.** A test that reads
+  changelog entries sources `tests/lib/changelog-text.bash` and reads
+  `changelog_text`, which is `CHANGELOG.md` followed by every entry file, so
+  it passes before and after the release that moves its entry. A pin on an
+  entry already in a dated section may read `CHANGELOG.md` directly: a
+  released entry never moves again.
 - **Never widen a tool grant.** Command and skill bodies grant
   `Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*")` in the quoted form and
   nothing broader. A change that needs more should be discussed in an issue

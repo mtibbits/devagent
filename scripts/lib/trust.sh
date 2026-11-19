@@ -19,7 +19,8 @@ source "$_TRUST_LIB_DIR/refusals.sh"
 # shellcheck source=/dev/null
 declare -F plugin_root >/dev/null || source "$_TRUST_LIB_DIR/paths.sh"
 # shellcheck source=/dev/null
-declare -F config_get_project_field >/dev/null || source "$_TRUST_LIB_DIR/config.sh"
+{ declare -F config_get_project_field && declare -F worktree_root_rule; } >/dev/null \
+  || source "$_TRUST_LIB_DIR/config.sh"
 # shellcheck source=/dev/null
 declare -F transition_gate_open >/dev/null || source "$_TRUST_LIB_DIR/transition.sh"
 
@@ -64,13 +65,14 @@ _trust_forbid_roots() {
   printf '%s\n' --forbid "$(devagent_home)" --forbid "$(plugin_root)"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    for f in devdoc_dir source_dir worktree_root; do
+    for f in devdoc_dir source_dir; do
       v="$(config_get_project_field "$p" "$f" 2>/dev/null || true)"
-      if [ "$f" = worktree_root ] && [ -z "$v" ] && [ -n "$src" ]; then v="$src-wt"; fi
       [ "$f" = source_dir ] && src="$v"
       [ -n "$v" ] && printf '%s\n' --forbid "$v"
     done
-    src=""
+    # #1050: the worktree root (configured or <source_dir>-wt) by config.sh's rule.
+    v="$(config_get_project_field "$p" worktree_root 2>/dev/null || true)"
+    if v="$(worktree_root_rule "$v" "$src")"; then printf '%s\n' --forbid "$v"; fi
   done < <(config_list_projects 2>/dev/null || true)
 }
 

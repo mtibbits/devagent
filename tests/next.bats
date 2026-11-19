@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
 load 'lib/bats-helpers'
+load 'helpers/common'
 
 setup() {
   setup_tmp_devagent_home
@@ -859,7 +860,45 @@ _mm_calls() { grep -cx "$1" "$MM_CALLS" || true; }
 _mm_row()   { grep -qxF -- "- [$1] $2. $3" "$DEVDOC/Issue-676/checklist.md"; }
 MM_WAIT="WAITING at step 20 (mergemr): the PR is not merged yet; state is on disk. Re-check later: /devagent:next volk"
 
-@test "#885 --auto from ship runs ship, mergetoall, mergemr, then PHASE BREAK before updatewbs" {
+# --- #933: the break before updatewbs under the built-in default -----------------
+# _mm_mark N G: set row N of Issue-676's checklist to glyph G (fails if no row N).
+_mm_mark() { mark_step "$DEVDOC/Issue-676/checklist.md" "$1" "$2"; }
+# _mm_done_through N: rows 17..N [x] (19 mergetoall stays [-]), so step N+1 is current.
+# Checklist rows only: never touches state/volk.toml or config.toml.
+_mm_done_through() {
+  local n
+  for n in $(seq 17 "$1"); do
+    (( n == 19 )) && continue
+    _mm_mark "$n" x || return 1
+  done
+}
+# Config writes go AFTER _mm_window (which rewrites config.toml).
+_mm_cfg() { devagent_config_set "$DA_HOME/config.toml" "$1" "$2"; }
+_no_break() { [ "$(grep -c 'PHASE BREAK' <<<"$output" || true)" -eq 0 ]; }
+_breaks_at_updatewbs() {
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+}
+# _mm_two_revisions [ROW]: revision 1 merged through cleanup; revision 2 shipped,
+# with ROW (e.g. `- [-] 20. mergemr`) as its mergemr row, or none when omitted.
+_mm_two_revisions() {
+  local rows="- [x] 17. preship
+- [x] 18. ship
+- [-] 19. mergetoall"
+  {
+    printf 'Active revision: 2\n\n## Revision 1\n\n%s\n' "$rows"
+    printf '%s\n' "- [x] 20. mergemr" "- [x] 21. updatewbs" "- [x] 22. impact" \
+      "- [x] 23. lessonslearned" "- [x] 24. cleanup"
+    printf '\n## Revision 2\n\n%s\n' "$rows"
+    [ -z "${1:-}" ] || printf '%s\n' "$1"
+    printf '%s\n' "- [ ] 21. updatewbs" "- [ ] 22. impact" "- [ ] 23. lessonslearned" \
+      "- [ ] 24. cleanup"
+    printf '\n## Log\n'
+  } > "$DEVDOC/Issue-676/checklist.md"
+}
+
+@test "#885 #933 --auto from ship runs ship, mergetoall, mergemr, then continues to updatewbs" {
   _mm_window false
   # Precondition: ship not run yet, nothing recorded; the branch carries one commit
   # past the baseline; mergetoall auto-skips (no all_prs_branch); the PR is merged,
@@ -883,8 +922,9 @@ MM_WAIT="WAITING at step 20 (mergemr): the PR is not merged yet; state is on dis
   _mm_row - 19 mergetoall
   _mm_row x 20 mergemr
   _mm_row ' ' 21 updatewbs
-  [[ "$output" == *"step 18 (ship), script-backed"*"step 19 (mergetoall), script-backed"*"step 20 (mergemr), script-backed"*"PHASE BREAK before step 21 (updatewbs)"* ]]
-  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+  [[ "$output" == *"step 18 (ship), script-backed"*"step 19 (mergetoall), script-backed"*"step 20 (mergemr), script-backed"*"→ Run /devagent:updatewbs volk"* ]]
+  _no_break
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto --through cleanup --chained"* ]]
   grep -qE '^mr_url = "https://github.com/acme/volk/pull/9"' "$DA_HOME/state/volk.toml"
   [ "$(_mm_calls mr-checks)" -eq 0 ]
   [ ! -e "$MM_MERGES" ]
@@ -969,4 +1009,421 @@ MM_WAIT="WAITING at step 20 (mergemr): the PR is not merged yet; state is on dis
   [[ "$output" != *"dispatch:"* ]]
   [[ "$output" != *"WAITING"* ]]
   [ "$(_mm_rows)" = "$before" ]
+}
+
+@test "#933 each --chained hop at rows 21-24 prints its dispatch line and no PHASE BREAK (built-in default, mergemr [x])" {
+  _mm_window false
+  local hop n name
+  for hop in 21:updatewbs 22:impact 23:lessonslearned 24:cleanup; do
+    n="${hop%%:*}" name="${hop#*:}"
+    _mm_done_through $((n - 1))
+    run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+    echo "--- hop $n: $output"
+    [[ "$output" == *"dispatch: volk/Issue-676 — step $n ($name),"* ]]
+    _no_break
+    if (( n < 24 )); then
+      [ "$status" -eq 0 ]
+      [[ "$output" == *"→ Run /devagent:$name volk"* ]]
+    else
+      # cleanup.sh is script-backed: it stops at its lessons gate (no
+      # lessonsLearned.md is seeded) before any git side effect.
+      [[ "$output" == *"lessonslearned is [x] but there is no lessonsLearned.md"* ]]
+    fi
+  done
+}
+
+@test "#933 an explicit project or [defaults] phase_breaks naming updatewbs still breaks with mergemr [x]" {
+  _mm_window false
+  _mm_done_through 20
+  local key
+  for key in project.volk.phase_breaks defaults.phase_breaks; do
+    _mm_cfg "$key" "implement quality updatewbs"
+    run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+    echo "--- $key: $output"
+    _breaks_at_updatewbs
+    devagent_config_unset "$DA_HOME/config.toml" "$key"
+  done
+}
+
+@test "#933 phase_breaks = \"\" and --no-breaks run through updatewbs where the default would break" {
+  _mm_window false
+  _mm_done_through 20
+  _mm_mark 20 -        # ship [x], mergemr [-]: abandoned PR, where the default breaks (guard test)
+  # (ii) --no-breaks under the built-in config.
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained --no-breaks
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  _no_break
+  # (i) phase_breaks = "".
+  _mm_cfg project.volk.phase_breaks ""
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  _no_break
+}
+
+@test "#933 guard: zero-diff mergemr [-] with ship [-] passes; [-] after a real ship keeps the break" {
+  _mm_window false
+  _mm_done_through 20
+  # (ii) ship [x], mergemr [-]: an abandoned PR keeps the break.
+  _mm_mark 20 -
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 21 (updatewbs)"* ]]
+  grep -qxF "  Resume: run /clear, then /devagent:next volk --auto" <<<"$output"
+  # (i) ship, mergetoall and mergemr all [-]: no PR existed (mergemr rule 1).
+  _mm_mark 18 -
+  _mm_mark 19 -
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  _no_break
+}
+
+@test "#933 guard reads the active revision only" {
+  _mm_window false
+  # Revision 1 merged; revision 2's mergemr is [-] after a real ship (no merge).
+  # A file-wide first-match read would see revision 1's [x] and skip the break.
+  _mm_two_revisions "- [-] 20. mergemr"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  _breaks_at_updatewbs
+}
+
+@test "#933 built-in default still breaks before implement and quality when mergemr is [x]" {
+  _mm_window false
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x]  0. pull
+- [x]  2. draft
+- [x]  4. scope
+- [x]  5. improve
+- [x]  6. prune
+- [x]  7. tighten
+- [x]  8. branch
+- [ ]  9. implement
+- [ ] 10. quality
+- [ ] 18. ship
+- [x] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 24. cleanup
+
+## Log
+EOC
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 9 (implement)"* ]]
+  sed -i -E 's/^- \[ \]  9\./- [x]  9./' "$DEVDOC/Issue-676/checklist.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 10 (quality)"* ]]
+}
+
+# _guard_home FILE: some single line carrying both `mergemr` and `[x]` lies in the
+# phase-breaks passage (the 12 lines from the first phase_breaks/PHASE BREAK line).
+_guard_home() {
+  awk '!s && tolower($0) ~ /phase_breaks|phase break/ { s = NR }
+       s && NR <= s + 12 && index($0, "mergemr") && index($0, "[x]") { ok = 1 }
+       END { exit (ok ? 0 : 1) }' "$1"
+}
+
+@test "#933 every phase_breaks home states the mergemr guard" {
+  local homes=(docs/specs/2026-05-19-devagent-plugin-design.md docs-site/workflow.md
+               docs/configuration.md templates/config.toml.skel)
+  local h passed=0 planted=0 copy
+  for h in "${homes[@]}"; do
+    if _guard_home "$PLUGIN_ROOT/$h"; then passed=$((passed + 1)); else echo "no guard line: $h"; fi
+    # Planted control: the same home without its guard lines must fail.
+    copy="$BATS_TEST_TMPDIR/planted-${h//\//_}"
+    awk '!(index($0, "mergemr") && index($0, "[x]"))' "$PLUGIN_ROOT/$h" > "$copy"
+    if _guard_home "$copy"; then planted=$((planted + 1)); fi
+  done
+  [ "$planted" -eq 0 ]
+  [ "$passed" -eq "${#homes[@]}" ]
+}
+
+@test "#933 guard: an active revision with no mergemr row keeps the break despite an older revision's [x]" {
+  _mm_window false
+  # A revision block from a pre-#899 template override has no mergemr row; the
+  # by-name read's file-wide fallback must not borrow revision 1's merge.
+  _mm_two_revisions
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  echo "$output"
+  _breaks_at_updatewbs
+}
+
+# --- #1029: chain target resolved by name in the active revision ---
+# The chain-target guard and the --through validation read the target's OWN row
+# in the active revision block, by name. An older block that numbers the target
+# differently must neither stop the chain early nor let it run past the target.
+
+# _1029_root: a copied plugin root (scripts/ + templates/) with every step-named
+# executable script replaced by a stub that prints STUB-<name> and exits 0
+# without marking. Sets the GLOBAL `root`. The step set comes from the shipped
+# standard template, not a hand-kept list.
+_1029_root() {
+  root="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$root/scripts"
+  cp -r "$PLUGIN_ROOT/scripts/." "$root/scripts/"
+  cp -r "$PLUGIN_ROOT/templates" "$root/"
+  local _num n
+  while read -r _num n; do
+    if [[ -x "$root/scripts/$n.sh" ]]; then
+      printf '#!/usr/bin/env bash\necho STUB-%s\nexit 0\n' "$n" > "$root/scripts/$n.sh"
+    fi
+  done < <(canonical_steps)
+}
+
+# Issue-9 shape: the older block numbers cleanup 23; the active block numbers it 24.
+_1029_issue9() {
+  local active_cleanup="${1:- }"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
+# Issue-9
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [$active_cleanup] 24. cleanup
+EOC
+}
+
+# Spike shape: spike exists only in the older block (done there unless given).
+_1029_spike() {
+  local old_spike="${1:-x}"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
+- [x]  0. pull
+- [$old_spike]  3. spike
+- [ ]  4. scope
+- [ ] 24. cleanup
+
+## Revision 2
+
+- [x]  2. draft
+- [ ]  4. scope
+- [ ] 24. cleanup
+EOC
+}
+
+@test "#1029 AC1: --auto on a renumbered Revision 2 dispatches cleanup instead of false-stopping" {
+  _1029_root
+  _1029_issue9
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
+  [[ "$output" != *"Chain target 'cleanup' is complete"* ]]
+  ! grep -qxE '[ x~?!P-]' <<<"$output" || false
+}
+
+@test "#1029 AC2: a done target in the active block stops though the older block's twin is pending" {
+  _1029_root
+  _1029_issue9 x
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"Chain target 'cleanup' is complete; stopping."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  [[ "$output" != *"STUB-"* ]]
+}
+
+@test "#1029 AC3: --through preship on a renumbered Revision 2 stops instead of dispatching ship" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+# Issue-8
+- [x] 14. redmr
+- [ ] 21. preship
+- [ ] 15. ship
+
+## Revision 2
+
+- [x] 16. redmr
+- [x] 17. preship
+- [ ] 18. ship
+- [-] 19. mergetoall
+- [ ] 20. mergemr
+- [ ] 21. updatewbs
+EOC
+  cp "$DEVDOC/Issue-676/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  run bash "$root/scripts/next.sh" volk --through preship
+  echo "$output"
+  [[ "$output" == *"Chain target 'preship' is complete; stopping."* ]]
+  [[ "$output" != *"STUB-ship"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  cmp "$BATS_TEST_TMPDIR/before.md" "$DEVDOC/Issue-676/checklist.md"
+}
+
+# Uniform shape: both blocks number cleanup 24; the older one is done.
+_1029_uniform() {
+  local active_cleanup="$1"
+  cat > "$DEVDOC/Issue-676/checklist.md" <<EOC
+## Revision 1
+
+- [x] 21. updatewbs
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [x] 24. cleanup
+
+## Revision 2
+
+- [x] 21. updatewbs
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [$active_cleanup] 24. cleanup
+EOC
+}
+
+@test "#1029 AC4 case A: identically numbered blocks, done target stops as today" {
+  _1029_root
+  _1029_uniform x
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"Chain target 'cleanup' is complete; stopping."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029 AC4 case B: identically numbered blocks, pending target dispatches as today" {
+  _1029_root
+  _1029_uniform ' '
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
+}
+
+@test "#1029: --through a step only in an older block is refused with a remedy, nothing dispatched" {
+  _1029_root
+  _1029_spike
+  cp "$DEVDOC/Issue-676/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  run bash "$root/scripts/next.sh" volk --through spike
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
+  [[ "$output" == *"where it is already done. Choose a --through step from the active revision."* ]]
+  [[ "$output" != *"Run /devagent:spike"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  [[ "$output" != *"STUB-"* ]]
+  cmp "$BATS_TEST_TMPDIR/before.md" "$DEVDOC/Issue-676/checklist.md"
+}
+
+@test "#1029: --through a step pending only in an older block offers to run it directly" {
+  _1029_root
+  _1029_spike ' '
+  run bash "$root/scripts/next.sh" volk --through spike
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
+  [[ "$output" == *"Run /devagent:spike volk directly, or choose a --through step from the active revision."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: --auto whose cleanup is only in an older block names --auto in the refusal" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [ ] 23. lessonslearned
+EOC
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--auto (implies --through 'cleanup'): that step is only in an older revision block of"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: a hand-annotated target row in the active block is the chain target" {
+  _1029_root
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [x] 22. impact
+- [x] 23. lessonslearned
+- [ ] 24. cleanup: note
+EOC
+  run bash "$root/scripts/next.sh" volk --auto
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" == *"STUB-cleanup"* ]]
+}
+
+@test "#1029: --through a name absent from the whole file keeps the unknown-step message" {
+  _1029_root
+  _1029_spike
+  run bash "$root/scripts/next.sh" volk --through nonsense
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown step 'nonsense' (not present in"* ]]
+  [[ "$output" != *"older revision block"* ]]
+}
+
+@test "#1029: --through is matched by exact name, not as a regex" {
+  _1029_root
+  run bash "$root/scripts/next.sh" volk --through 'clean.*'
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown step 'clean.*' (not present in"* ]]
+  [[ "$output" != *"older revision block"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#1029: explicit --through cleanup on a renumbered Revision 2 dispatches cleanup" {
+  _1029_root
+  _1029_issue9
+  run bash "$root/scripts/next.sh" volk --through cleanup
+  echo "$output"
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 24 (cleanup)"* ]]
+  [[ "$output" != *"unknown step"* ]]
+  [[ "$output" != *"older revision block"* ]]
+}
+
+@test "#1029: a target that leaves the active block mid-chain stops the chain with the refusal" {
+  _1029_root
+  local cl="$DEVDOC/Issue-676/checklist.md"
+  cat > "$cl" <<'EOC'
+## Revision 1
+
+- [ ]  0. pull
+- [ ]  3. spike
+- [ ]  4. scope
+- [ ] 24. cleanup
+EOC
+  cat > "$BATS_TEST_TMPDIR/after.md" <<'EOC'
+## Revision 1
+
+- [x]  0. pull
+- [ ]  3. spike
+- [ ]  4. scope
+- [ ] 24. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+- [ ] 24. cleanup
+EOC
+  # pull's stub starts a new revision that lacks the target, as a mid-chain
+  # /devagent:revise would.
+  printf '#!/usr/bin/env bash\ncp "%s" "%s"\necho STUB-pull\nexit 0\n' \
+    "$BATS_TEST_TMPDIR/after.md" "$cl" > "$root/scripts/pull.sh"
+  run bash "$root/scripts/next.sh" volk --through spike
+  echo "$output"
+  [[ "$output" == *"STUB-pull"* ]]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
+  [[ "$output" != *"dispatch: volk/Issue-676 — step 2 (draft)"* ]]
 }

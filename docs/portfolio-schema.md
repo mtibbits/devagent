@@ -215,8 +215,8 @@ carried as written and never summed.
 | `projects[].issues[].issue` | string | req | The issue id as written on its nodes. |
 | `projects[].issues[].nodes` | array | req | Ids of every node carrying the issue, in order. Two or more means a duplicate within the project. |
 | `projects[].issues[].nodes[]` | string | — | One node id. |
-| `projects[].issues[].stuck` | Stuck\|null | req | Non-null exactly when the issue dir has a `STUCK` file. |
-| `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, or no `checklist.md`. `open`: a step is still to do. `complete`: every step is done or skipped. |
+| `projects[].issues[].stuck` | Stuck\|null | req | Non-null when the issue dir has a `STUCK` file, or when the issue dir is present but cannot be read or verified (all-null fields; see `stuck_unreadable`). Null when the issue dir is not read (`issue_not_id`). |
+| `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, no `checklist.md`, the issue dir is not read (`issue_not_id`), or `checklist.md` cannot be read (`checklist_unreadable`). `open`: a step is still to do. `complete`: every step is done or skipped. |
 | `projects[].issues[].next_step` | string\|null | req | The name of the first step not `[x]`/`[-]` in the **active revision block** (the rule `next.sh` uses, `checklist_current_step` in `scripts/lib/checklist.sh`). Null unless `open`. |
 | `projects[].issues[].next_step_number` | integer\|null | req | That step's number. Null unless `open`. |
 | `projects[].issues[].actuals` | slot (#729) | opt | Reserved. |
@@ -313,6 +313,11 @@ not a key list, and readers must not treat it as one.
 producer would report n5's `h` (`h_malformed`) and n6's `est`
 (`est_unparseable`). The example is not wrong; do not "fix" it to match.
 
+**Estimate classes.** The WBS key contract owns range syntax and unit
+factors (spec §13.1, `classify_estimate`, #737); the schema carries the result
+and converts nothing. `low_hours` and `high_hours` are agent hours. A range
+such as `2-4d` is `time`, with `high_hours` its high bound.
+
 **Models** (#890). On each leaf, `models.thinking` and `models.checking` are
 the leaf's own key when it is one `model_token_allowlist` token (`source:
 wbs`); else the project's `step_models` class key, then `default` (`source:
@@ -328,7 +333,7 @@ dispatch is read.
 | Field or member | Writer |
 |---|---|
 | Every field, at generation time | #726 (the producer) |
-| `est.class`, `est.low_hours`, `est.high_hours`, `est.quantity`, `est.unit` | #726, through #737's classifier and its hour factors. Until #737 lands, #726 uses an interim classifier with provisional working-time factors (`h` = 1, `d` = 8, `w` = 40; exact units, ranges `unparseable`), which #737's helper replaces ([obligation on #737](https://github.com/mtibbits/devagent/issues/737#issuecomment-6670452997)) |
+| `est.class`, `est.low_hours`, `est.high_hours`, `est.quantity`, `est.unit` | #726, through the WBS key contract's `classify_estimate` (`scripts/lib/wbs-parser.py`, #737; units, factors and range syntax in spec §13.1); a range gives a low and a high bound |
 | `est.src` (`confirmed`, `derived`, null) | #726, from `meta.est_src` (#754). A value other than `confirmed`/`derived` reads as null; #726 also reports it in `parse_report` under a kind it names. |
 | `satisfies`, `h` | #726, from the known keys #888 adds |
 | `models` | #890, from the leaf's `thinking`/`checking` keys, else the project's `step_models` class then `default`, read by `portfolio.sh` through `config_get_project_field` |
@@ -409,31 +414,31 @@ they do not know. A project's status is not repeated in the report.
 | Kind | `source_line` | When |
 |---|---|---|
 | `leaf_no_issue` | node | A leaf has no `issue:` key, or it is `""`. A non-string `issue` gives only `issue_malformed`. |
-| `issue_not_id` | node | `issue` is a string that is not an issue id (`ID_TOKEN_RE`); its issue dir is not read. |
+| `issue_not_id` | node | `issue` is a string that is not an issue id (`ID_TOKEN_RE`), ends in `.`, or matches an issue dir in the devdoc's listing only case-insensitively; its issue dir is not read. |
 | `dep_unresolved` | node | One per `depends_on` entry that names no issue: none in this project, a project that is not configured, a project whose WBS was not read, or no such issue in the named project. |
 | `dep_skipped` | node | One per `depends_on` entry that resolves to a skipped row; leaves that depend on it are not ready. |
 | `dep_cycle` | node | One per dependency cycle (effective dependencies, ancestors' included), at its first member; the message names every member; its leaves are not ready. |
 | `parent_done_leaf_pending` | node | A node marked done with pending leaves under it; those leaves can still be ready. |
 | `duplicate_issue` | node | Each later node carrying an issue already seen in the project; the message names the first line. |
 | `est_unparseable` | node | The estimate class is `unparseable`. |
+| `tok_unparseable` | node | The `tok` value's class is `unparseable`. |
 | `est_src_invalid` | node | `est_src` is present but not `confirmed` or `derived` (`est.src` reads as null). |
 | `h_malformed` | node | `h` is present but not one digit 0–4 (`h` reads as null). |
 | `bad_model` | node or null | A model value that is not one `model_token_allowlist` token (#890). At a leaf's line: its `thinking` or `checking` key, once per class (the key counts as absent and the project rung applies); a parent's key is not reported. With a null line: a project `step_models` value a class resolves to, once per (project, class); that class is null, with no fall-through to `default`, and a bad `default` no class reaches is not reported. |
 | `issue_malformed` | node | `issue` is present but not a string (the node carries no issue). |
 | `unknown_meta_key` | node | One per `meta_unknown_keys` key that the producer does not consume (`est_src`, `satisfies`, `h`, `thinking` and `checking` are consumed). |
-| `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
+| `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a value holding a known key followed by `:` with no space (`est:1w`, a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
 | `meta_duplicate_key` | node | A metadata key that appears twice; the last value is kept. |
-| `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. |
+| `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. An inline link bullet (`- [text](url)`) is not reported; a bracket holding nothing or one checkbox glyph before `(` still is. |
 | `parser_warning` | line or null | A warning the parser printed on stderr, at the line it names. |
 | `directive_warning` | line | A malformed `wbs-exclude` or `wbs-scope` directive line. |
-| `checklist_unreadable` | null | An issue dir, or its `checklist.md`, is present but unreadable, or `checklist.md` has no step rows in its active revision block (`checklist` reads `absent`). |
-| `stuck_unreadable` | null | An issue dir, or its `STUCK`, is present but unreadable (`stuck` has all-null fields). |
+| `checklist_unreadable` | null | An issue dir or its `checklist.md` cannot be read, `checklist.md` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), it holds a step number beyond the interpreter's integer-string limit, it has no step rows in its active revision block, or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`checklist` reads `absent`). |
+| `stuck_unreadable` | null | An issue dir or its `STUCK` cannot be read, `STUCK` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`stuck` has all-null fields). |
 <!-- report-kinds:end -->
 
 ## Deferred
 
-- **Token estimates.** #737 has not settled its token key's name. Its
-  classification and a `tokens_src` provenance key arrive in a later minor bump
-  when #737 lands (owner #737).
-- **Range syntax and unit factors** for `est` belong to #737; the schema
-  carries the result and converts nothing.
+- **Token estimates.** The key is `tok` (#737); `classify_estimate("tok", …)`
+  classifies the value a node's `meta` carries, and the producer reports an
+  unparseable one as `tok_unparseable`. A typed field and a `tok_src`
+  provenance key arrive in a later minor bump (owner #941).

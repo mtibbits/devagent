@@ -737,9 +737,10 @@ Partly delivered. A requirement here that is not built yet starts with
   checklists, the tracker and MRs. {refines: SR-19}
 - FR-112: (Planned.) devagent publishes per-issue actuals as a source the portfolio
   document reads. {refines: SR-19}
-- FR-113: devagent's work-breakdown key contract classifies every estimate
-  value as absent, placeholder, time, non-time or unparseable, and (planned)
-  defines an agent-time estimate, a token estimate and a range form.
+- FR-113: devagent's work-breakdown key contract classifies every `est`
+  value as absent, placeholder, time, non-time or unparseable and every `tok`
+  value as absent, placeholder, tokens or unparseable, and defines an
+  agent-time estimate, a token estimate and a range form.
   {refines: SR-19}
 - FR-114: (Planned.) devagent records a structured estimate at the scope step, confirms
   it at the tighten step, copies it onto the issue's leaf, and compares it
@@ -751,10 +752,10 @@ Partly delivered. A requirement here that is not built yet starts with
   closed work and writes it only after the operator approves; it records
   provenance per estimate key and never rewrites an estimate the operator
   wrote. {refines: SR-19}
-- FR-117: (Planned.) devagent reads the operator's declared capacity (operator hours, a
+- FR-117: devagent reads the operator's declared capacity (operator hours, a
   token budget, a shared lane pool, and each project's priority, lane cap,
-  paused flag, deadline and reservations), and doctor fails on an invalid
-  declaration, naming the key. {refines: SR-19}
+  paused flag, deadline and reservations), and a bare doctor (every project)
+  fails on an invalid declaration, naming the key. {refines: SR-19}
 - FR-118: (Planned.) devagent forecasts each project's completion by simulation over
   dependencies and declared capacity, reports a median and a conservative
   date or the reason it cannot, and names the resource that binds the

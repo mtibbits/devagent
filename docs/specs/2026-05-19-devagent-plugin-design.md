@@ -57,6 +57,9 @@ audited, and reproduced from a small set of on-disk artifacts.
 devAgent/
 ├── .claude-plugin/marketplace.json
 ├── README.md
+├── changelog.d/             # #1127: one changelog entry file per change (<issue>.md or <slug>.md);
+│                            #   scripts/changelog.py compiles them into CHANGELOG.md at release;
+│                            #   absent between a release and the next entry (git keeps no empty folder)
 ├── docs/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
@@ -73,6 +76,8 @@ devAgent/
 │                            #   phases.txt, #998: the loop's phases and their steps;
 │                            #   assets/, #998: landing.css, landing.js, the placeholder still;
 │                            #   live.txt, #996: live family sites and count sources;
+│                            #   whats-new.md + whats-new-sources.txt, #1002: the What's new
+│                            #     page and each item's CHANGELOG anchor (tests only);
 │                            #   reference.md links the docs/ reference, #997);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
@@ -119,6 +124,8 @@ devAgent/
 │   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885; forward: #1125),
 │   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
+│   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
+│   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
@@ -164,6 +171,17 @@ potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pot
 transcripts_dir = "~/private/claude-transcripts"   # absolute after ~ expansion; required; refused inside a git work tree or inside <CLAUDE_CONFIG_DIR>/projects
 host_id         = "laptop"               # partition name [A-Za-z0-9._-]+, no "..", not "."; default hostname (+ "-wsl" under WSL)
 exclude         = ["*scratch*"]          # cwd-slug globs never archived; any other key is refused
+
+# #743: operator capacity, GLOBAL top-level table; absent = forecasting off (planned, #744).
+# devagent does not know the subscription's limits: every value here is an example.
+# [capacity]
+# operator_hours_per_week = 20          # example
+# lane_hours_per_week = 40              # example
+# max_lanes = 3                         # example
+# tokens_per_week = 500000000           # example
+# tokens_per_window = 60000000          # example
+# windows_per_week = 10                 # example
+# operator_hours_per_agent_hour = 0.25  # example (the one optional key)
 
 [project.volk]
 source_dir       = "~/src/volk"
@@ -223,6 +241,14 @@ checking = "opus"                        # improve(5) / review(15) / redmr(16) /
 # thinking = "opus"                      # draft(2) / implement(9) / quality(10) / document(11) / draftmr(14)
 # "15"     = "fable"                     # a numeric per-step override wins over its class tier
 
+# [project.volk.capacity]                # #743: optional; needs [capacity]
+# priority = 5                          # example
+# max_lanes = 2                         # example
+# paused = false                        # example
+# deadline = 2026-12-31                 # example
+# reserve_operator_hours_per_week = 4   # example
+# reserve_tokens_per_week = 100000000   # example
+
 [project.volk.wbs]                       # `wbs init --from-tracker` (#706); see §13.2
 # auto_import_below_pct = 20             # integer 0-100: import every issue when the closed share
                                          # is below this; at or above, init surveys and asks
@@ -259,6 +285,29 @@ other than `T`. "The base" is `default_baseline`'s ref, so a project whose
 value dies naming the key in `mergemr.sh` (at start, whatever `merge_mr` says) and in
 `forward`; `doctor` reports it, and warns on an entry naming no tracked file and on
 `verify = "ci"` with `merge_checks = "if-present"`.
+
+`[capacity]` and `[project.<name>.capacity]` (#743) declare operator capacity: a shared
+top-level table (operator hours, lane hours, the lane pool `max_lanes`, and a token budget
+per week and per rolling window, in weighted input-token equivalents) and, per project,
+`priority` (default 5), a lane cap, `paused`, a `deadline`, and operator-hour and token
+reservations. In `[capacity]`, every key except `operator_hours_per_agent_hour` is required.
+devagent does not know the subscription's limits: every value in the block above is an example.
+Every number is declared: the token numbers are the operator's own, and relating the
+subscription's limits (which may count raw tokens) to this budget is the operator's call.
+`scripts/capacity.sh` (`scripts/lib/capacity.py`) resolves and validates both tables into a
+JSON document (`capacity_schema` `"1.0"`) and exits 0, 2 (any argument), 3 (one stderr line
+per violation, `capacity: <where>: <rule>`) or 4 (config missing, unreadable or not valid
+TOML). A project cap may not exceed `capacity.max_lanes`; unpaused reservations must fit
+the shared operator hours (within `1e-9`) and the effective budget
+`min(tokens_per_week, tokens_per_window * windows_per_week)`, the product rounded half up
+to whole tokens. Unknown keys and a
+project table whose only key is `capacity` warn. A bare `doctor` reports it under a
+`[capacity]` header after the per-project checks; `doctor <project>` does not. The priority
+rule is the forecast's (planned, #744): lanes go to the lowest number first, and
+ties go to the project holding fewer lanes, then by name;
+tokens and operator hours beyond the reservations are shared by weight 1/priority.
+The types, ranges, rule strings and document are pinned in `docs/configuration.md`
+"Capacity"; #957 reproduces the rule strings.
 
 ### 3.3 Per-project state (`~/.claude/devagent/state/<project>.toml`)
 
@@ -1068,6 +1117,8 @@ Any executing command accepts:
 - `--auto` — continue chaining through end-of-workflow without
   prompting between steps. Equivalent to `--through cleanup`.
 - `--through <step>` — chain up to and including `<step>`, then stop.
+  `<step>` is resolved by name in the active revision block; a step present
+  only in an older revision block is refused (#1029).
 
 Without either flag, every step ends with:
 
@@ -1097,14 +1148,24 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
 - Run past a **phase break**. A continued chain (a `CHAIN:` hop, which
   next.sh marks `--chained`, or a script step already dispatched in the
   same `next.sh` process) stops before each step named in
-  `phase_breaks` (default `implement quality updatewbs`; `""` disables;
-  `--no-breaks` opts one chain out) and prints `PHASE BREAK` with a Resume
-  command. The operator runs `/clear` and the Resume command, whose first
-  hop is not `--chained`, so the boundary step runs. Reason: a session
-  re-reads its whole history on every call. Issue-660's single session
-  grew 49K→845K tokens over 386 calls; replaying it with fresh sessions at
-  these steps cut its main-session cost ~56%. `session_rehydrate` (#456)
-  pairs with it.
+  `phase_breaks` (`""` disables; `--no-breaks` opts one chain out) and
+  prints `PHASE BREAK` with a Resume command. The built-in default breaks
+  before `implement` and `quality`, and before `updatewbs` unless the active
+  revision's mergemr row is `[x]`, or `[-]` because ship was `[-]` (no PR;
+  #933). A checklist with no mergemr row (older than #899), or an abandoned
+  PR (mergemr `[-]` after a real ship), keeps the break before updatewbs. A
+  `phase_breaks` value in `[project.<name>]` or `[defaults]` is honoured as
+  written, so `"implement quality updatewbs"` keeps that break. The
+  operator runs `/clear` and the Resume command, whose first hop is not
+  `--chained`, so the boundary step runs. Reason: a session re-reads its
+  whole history on every call. Issue-660's single session grew 49K→845K
+  tokens over 386 calls; replaying it with fresh sessions at the three
+  breaks of the time (implement, quality, updatewbs) cut its main-session
+  cost ~56%. The close-out, steps 21-24 (updatewbs, impact, lessonslearned,
+  cleanup), now runs in the mergemr session: #670 measured it at 5.0M
+  input-token equivalents for Issue-660 (13% of the issue), the cost of
+  not stalling an unattended chain after the merge. `session_rehydrate`
+  (#456) pairs with it.
 
 After ship, the MR's CI status is reported, never waited for (#782):
 
@@ -2914,12 +2975,12 @@ without changing the operator-facing format.
 - [ ] Performance overhaul {est: 8w, milestone: M2, owner: @matt, cost: 0}
   - [x] Baseline measurement infrastructure {issue: Issue-Fork-12, est: 1w}
   - [~] Kernel fusion across hot path {issue: Issue-Fork-24, est: 4w, depends_on: Issue-Fork-12}
-  - [ ] Static analyzer integration {issue: Issue-676, est: 1w}
+  - [ ] Static analyzer integration {issue: Issue-676, est: 2-4d, tok: 1-3M}
 - [ ] Dispatch path test coverage {est: 3w, milestone: M3}
 ```
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
-Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
+Recognized keys (v1): `issue`, `est`, `tok`, `cost`, `owner`, `milestone`,
 `start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`, `thinking`, `checking`.
 Unrecognized keys are preserved verbatim for forward compatibility.
 `priority` (`P0` to `P4`, P0 the most urgent) ranks a node among its siblings (#803, #889; see Ordering below).
@@ -2970,6 +3031,57 @@ that names nothing, and a node parse warning that `wbs show` prints once
 (`wbs update` and `wbs order` neither check nor print it):
 
 - `line N: depends_on entry '<e>' holds ':' but is not <project>:<issue>; read as a local id`
+
+**Estimates (#737).** `est` is agent time: the agent wall time that
+`cost-report.sh --time` (`scripts/lib/cost-report.py`, #733) reports for the
+issue, not operator time and not calendar time. Its units are `h` = 1,
+`d` = 8 and `w` = 40 agent hours, matched exactly and case-sensitively: `d`
+and `w` are fixed multiples of agent hours, not calendar days. Any other unit
+(`30m`, `2hrs`, `1W`, or `500k` under `est`) is `non-time`: not an estimate,
+and the portfolio totals it, for remaining leaves only, under
+`rollup.remaining.non_time`. `tok` is the token estimate, in cost-report's
+unit, the unit the planned actuals ledger (#729) will record: price-weighted
+input-token equivalents, written with `k` = 1000 or `M` = 1000000 (`tok: 500k`,
+`tok: 2M`); a bare integer is not a value. Either key takes a single value or
+a range, `low-high` with one trailing unit (`est: 2-4d`, `tok: 1-3M`), low not
+above high. Zero is a legal estimate: the template avoids `0w` as an example
+only because it reads as a real zero estimate.
+
+Every value falls in exactly one class, per key:
+
+| Class | Key | Values |
+|---|---|---|
+| `absent` | both | the key is missing |
+| `placeholder` | both | `?` alone, or `?` and a unit (`?w`) |
+| `time` | `est` | a number or range in `h`, `d` or `w`; bounds in agent hours |
+| `tokens` | `tok` | a number or range in `k` or `M` that comes to whole tokens; bounds in tokens |
+| `non-time` | `est` | a single number in any other unit (`48pr`, a pull-request count) |
+| `unparseable` | both | anything else: `?3d`, `4-2d`, `2-4pr`, a bare number, free text |
+
+Only `time` and `tokens` count as estimates. `est` or `tok` on a parent node is
+the operator's own roll-up: readers of leaf estimates ignore it, and it is
+never summed. `cost` is operator-defined and uninterpreted: devagent preserves
+it and reads it nowhere. It is not an actual; actuals belong in the planned
+actuals ledger (#729), never in `WBS.md`.
+
+Legacy values: nothing in `WBS.md` dates a value, and the classifier returns no
+legacy marker, so the reader decides. The one provenance signal is `est_src`
+(the portfolio's `est.src`, which #754 writes): a value without it was typed by
+the operator and may predate this contract. Calibration pairs (#739) come from
+plan estimates (#738), not from `WBS.md` values.
+
+`classify_estimate(key, value)` (`scripts/lib/wbs-parser.py`) is the one
+classifier: every reader calls it rather than parsing a value itself. It
+returns `{key, raw, class, low, high, quantity, unit}`: `low` and `high` for
+`time` (agent hours) and `tokens` (token counts), `quantity` and `unit` for
+`non-time`, and null otherwise. It does not strip or normalise, so a caller
+reading values outside `WBS.md` (#738's plan lines, say) strips whitespace and
+CR first; unquoted `WBS.md` values arrive stripped, and a quoted value keeps
+its inner whitespace. Nothing is checked at parse: `est` and `tok` stay in
+`meta` as parsed (a string, or a list for `[a, b]`) and draw no parse warning, and the portfolio
+reports a bad value as `est_unparseable` or `tok_unparseable`. No value on disk
+is rewritten, and `wbs update` still writes `est: ?w` for a newly added leaf
+(`scripts/wbs-update.sh`).
 
 `wbs update` writes
 `status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came

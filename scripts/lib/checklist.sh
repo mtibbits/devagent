@@ -179,8 +179,25 @@ checklist_step_state() {
 # active revision block when the name is present there, else falls back
 # file-wide (legacy checklists / names unique to revision 1).
 checklist_step_state_by_name() {
-  local file="$1" target="$2" line ln=0 start
-  start="$(_checklist_scope_start_by_name "$file" "$target")"
+  local start
+  start="$(_checklist_scope_start_by_name "$1" "$2")"
+  _checklist_state_by_name_after "$1" "$start" "$2"
+}
+
+# checklist_active_step_state_by_name <file> <name>
+# Like checklist_step_state_by_name, minus the fallback to an older revision
+# block (#1029): a name absent from the active block returns 1. The sibling keeps
+# that fallback because the #149/#242 gates and the #589 mark guard rely on it.
+checklist_active_step_state_by_name() {
+  local start
+  start="$(_checklist_active_start "$1")"
+  _checklist_state_by_name_after "$1" "$start" "$2"
+}
+
+# _checklist_state_by_name_after <file> <start> <name>: the glyph of the first
+# row after line <start> named <name> (returns 0), else returns 1.
+_checklist_state_by_name_after() {
+  local file="$1" start="$2" target="$3" line ln=0
   while IFS= read -r line; do
     ln=$((ln + 1))
     (( ln > start )) || continue

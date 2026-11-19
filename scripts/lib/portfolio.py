@@ -14,7 +14,8 @@ The project manifest arrives as indexed environment variables, set by
 scripts/portfolio.sh from config.toml (this module reads no TOML):
 PORTFOLIO_PROJECT_COUNT, and per project i (0-based) PORTFOLIO_NAME_<i>,
 PORTFOLIO_DEVDOC_<i>, PORTFOLIO_SOURCE_<i> and PORTFOLIO_WORKTREE_<i>, each
-path variable set only when configured (it may be empty), and (#890)
+path variable set only when configured (it may be empty), PORTFOLIO_WORKTREE_<i>
+also when derived from source_dir as <source_dir>-wt (#1050), and (#890)
 PORTFOLIO_MODEL_THINKING_<i>, PORTFOLIO_MODEL_CHECKING_<i> and
 PORTFOLIO_MODEL_DEFAULT_<i>, the project's step_models values, set only when
 the key exists.
@@ -61,13 +62,6 @@ USAGE = "usage: portfolio.py build --out PATH | portfolio.py ready"
 
 # --- per-node derivations ------------------------------------------------------
 
-# Interim estimate classifier (D16), built from #737's drafted table. The
-# factors are WORKING-time hours and provisional: #737's helper replaces this
-# classifier when it lands. Every match is a fullmatch on the value as written.
-HOUR_FACTORS: dict[str, int] = {"h": 1, "d": 8, "w": 40}
-PLACEHOLDER_RE = re.compile(r"\?[A-Za-z]*")
-# Digit caps keep every number finite and small: no inf or huge-int path.
-QUANTITY_RE = re.compile(r"(?P<q>[0-9]{1,9}(?:\.[0-9]{1,6})?)(?P<u>[A-Za-z]+)")
 EST_SRC_VALUES = ("confirmed", "derived")
 # Keys this producer consumes. `satisfies` and `h` are parser-known keys
 # (#888), so they never reach `meta_unknown_keys`; `est_src` is not, and the
@@ -75,28 +69,12 @@ EST_SRC_VALUES = ("confirmed", "derived")
 PRODUCER_KEYS: frozenset[str] = frozenset({"est_src", "satisfies", "h", "thinking", "checking"})
 
 
-def _num(d: Decimal) -> int | float:
-    """An exact decimal as JSON wants it: an int when integral (D14)."""
-    return int(d) if d == d.to_integral_value() else float(d)
-
-
-def classify_est(raw) -> dict:
-    """`meta.est` as the schema's Est fields (without `src`)."""
-    out = {"raw": raw, "class": "unparseable", "low_hours": None,
-           "high_hours": None, "quantity": None, "unit": None}
-    if raw is None:
-        out["class"] = "absent"
-    elif isinstance(raw, str):
-        if PLACEHOLDER_RE.fullmatch(raw):
-            out["class"] = "placeholder"
-        elif m := QUANTITY_RE.fullmatch(raw):
-            q, unit = Decimal(m.group("q")), m.group("u")
-            if unit in HOUR_FACTORS:
-                hours = _num(q * HOUR_FACTORS[unit])
-                out.update({"class": "time", "low_hours": hours, "high_hours": hours})
-            else:
-                out.update({"class": "non-time", "quantity": _num(q), "unit": unit})
-    return out
+def est_fields(raw) -> dict:
+    """`meta.est` as the schema's Est fields (without `src`), classified by the
+    WBS key contract's `classify_estimate` (#737; spec §13.1)."""
+    c = wbs_parser.classify_estimate("est", raw)
+    return {"raw": c["raw"], "class": c["class"], "low_hours": c["low"],
+            "high_hours": c["high"], "quantity": c["quantity"], "unit": c["unit"]}
 
 
 def est_src(meta: dict) -> tuple[str | None, bool]:
@@ -206,7 +184,13 @@ def checklist_next(path) -> tuple[str, int | None, str | None]:
         if m.group(1) not in DONE_GLYPHS:
             num = m.group(2)
             name = next(r.group(3) for r in rows if r.group(2) == num)
-            return "open", int(num), name
+            try:
+                number = int(num)
+            except ValueError:
+                # #1050 item 2: past the interpreter's integer-string limit.
+                raise ChecklistError(
+                    f"step number of {len(num)} digits is too long to read") from None
+            return "open", number, name
     return "complete", None, None
 
 
@@ -271,8 +255,9 @@ def rollup(nodes: list[dict]) -> dict:
         elif est["class"] == "non-time":
             non_time[est["unit"]] = non_time.get(est["unit"], Decimal(0)) + _dec(est["quantity"])
     remaining.update({
-        "low_hours": _num(low), "high_hours": _num(high),
-        "non_time": {u: _num(q) for u, q in non_time.items()},
+        # D14: exact decimals as JSON wants them, by the parser's one rule
+        "low_hours": wbs_parser.est_num(low), "high_hours": wbs_parser.est_num(high),
+        "non_time": {u: wbs_parser.est_num(q) for u, q in non_time.items()},
     })
     return {"by_state": by_state, "remaining": remaining}
 
@@ -838,6 +823,7 @@ KINDS: tuple[str, ...] = (
     "parent_done_leaf_pending",
     "duplicate_issue",
     "est_unparseable",
+    "tok_unparseable",
     "est_src_invalid",
     "h_malformed",
     "bad_model",
@@ -880,6 +866,30 @@ def _probe(path, follow: bool = True):
         return e
 
 
+NOT_REGULAR = "not a regular file"
+
+
+def _regular_file(path) -> tuple[str, str | None]:
+    """("absent", None), ("unreadable", detail), ("not_regular", NOT_REGULAR) or
+    ("regular", None) for `path`.
+
+    #1050 item 3: an lstat then a stat, never an open, so a FIFO (or a device)
+    cannot block the run. A dangling symlink or anything that is not a regular
+    file once followed is "not_regular".
+    """
+    st = _probe(path, follow=False)
+    if isinstance(st, OSError):
+        return "unreadable", _err_detail(st)
+    if st is None:
+        return "absent", None
+    st = _probe(path)
+    if isinstance(st, OSError):
+        return "unreadable", _err_detail(st)
+    if st is None or not stat.S_ISREG(st.st_mode):
+        return "not_regular", NOT_REGULAR
+    return "regular", None
+
+
 def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     """(status, reason, text): the project's WBS.md, or why it was not read."""
     if devdoc is None:
@@ -895,16 +905,13 @@ def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     if not stat.S_ISDIR(st.st_mode):
         return "no_devdoc_dir", REASON_NOT_DIR, None
     wbs = root / "WBS.md"
-    st = _probe(wbs, follow=False)
-    if isinstance(st, OSError):
-        return "unreadable", REASON_UNREADABLE.format(_err_detail(st)), None
-    if st is None:
+    kind, detail = _regular_file(wbs)
+    if kind == "absent":
         return "no_wbs", REASON_NO_WBS, None
-    st = _probe(wbs)
-    if isinstance(st, OSError):
-        return "unreadable", REASON_UNREADABLE.format(_err_detail(st)), None
-    if st is None or not stat.S_ISREG(st.st_mode):
+    if kind == "not_regular":
         return "unreadable", REASON_NOT_FILE, None
+    if kind == "unreadable":
+        return "unreadable", REASON_UNREADABLE.format(detail), None
     try:
         # newline="" keeps CR bytes, as wbs_parser.parse_file reads.
         with open(wbs, encoding="utf-8", newline="") as f:
@@ -922,45 +929,101 @@ def _preorder(tree: dict):
         stack.extend((c, node) for c in reversed(node["children"]))
 
 
-def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
-    entry = {"issue": issue, "nodes": node_ids, "stuck": None, "checklist": "absent",
-             "next_step": None, "next_step_number": None}
-    issue_dir = devdoc / issue
+ISSUE_NOT_ID = "is not an issue id"
+ISSUE_TRAILING_DOT = "ends in '.'"
+ISSUE_CASE_ALIAS = "matches issue dir '{}' only case-insensitively"
+
+
+def _devdoc_names(devdoc: Path) -> "dict[str, frozenset[str]] | OSError":
+    """The devdoc's directory entries (symlinks followed), keyed by casefolded
+    name with the stored spellings as values, or the OSError.
+
+    #1050 item 4: the stored spellings, so a value that only a case-insensitive
+    volume would resolve can be refused, in one lookup per issue. A file (WBS.md)
+    is never a name here.
+    """
+    names = set()
+    try:
+        with os.scandir(devdoc) as it:
+            for e in it:
+                try:
+                    if e.is_dir():
+                        names.add(e.name)
+                except OSError:
+                    # A looping or unsearchable symlink: its type is unknown, so it
+                    # stays a candidate spelling (fail closed), and one bad entry
+                    # never fails the whole listing.
+                    names.add(e.name)
+    except OSError as e:
+        return e
+    folds: dict[str, set[str]] = {}
+    for n in names:
+        folds.setdefault(n.casefold(), set()).add(n)
+    return {k: frozenset(v) for k, v in folds.items()}
+
+
+def issue_dir_refusal(issue: str, names: "dict[str, frozenset[str]] | None") -> str | None:
+    """Why `issue` does not name an issue dir, or None: the one rule (#1050 item 4)
+    the report and the read share. `names` None means the listing is unknown."""
     # Only an id-shaped value names a dir, so nothing traverses out of devdoc.
     if not wbs_parser.ID_TOKEN_RE.fullmatch(issue):
+        return ISSUE_NOT_ID
+    if issue.endswith("."):
+        return ISSUE_TRAILING_DOT
+    if names is not None:
+        spellings = names.get(issue.casefold(), frozenset())
+        if spellings and issue not in spellings:
+            return ISSUE_CASE_ALIAS.format(min(spellings))
+    return None
+
+
+def _both_unknown(entry: dict, report, why: str) -> dict:
+    """Neither issue file can be read: both are unknown, not absent."""
+    entry["stuck"] = dict.fromkeys(k for k, _ in STUCK_KEYS)
+    report(None, "checklist_unreadable", why)
+    report(None, "stuck_unreadable", why)
+    return entry
+
+
+def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report,
+                 refused: bool, listing_error: OSError | None) -> dict:
+    entry = {"issue": issue, "nodes": node_ids, "stuck": None, "checklist": "absent",
+             "next_step": None, "next_step_number": None}
+    if refused:
         return entry
+    issue_dir = devdoc / issue
     st = _probe(issue_dir)
     if isinstance(st, OSError):
-        # Neither file can be probed: both are unknown, not absent.
-        entry["stuck"] = dict.fromkeys(k for k, _ in STUCK_KEYS)
-        report(None, "checklist_unreadable", f"{issue}/ could not be read: {_err_detail(st)}")
-        report(None, "stuck_unreadable", f"{issue}/ could not be read: {_err_detail(st)}")
-        return entry
+        return _both_unknown(entry, report, f"{issue}/ could not be read: {_err_detail(st)}")
     if st is None or not stat.S_ISDIR(st.st_mode):
         return entry
+    if listing_error is not None:
+        # The dir is present but its spelling cannot be checked: fail closed.
+        return _both_unknown(entry, report,
+                             f"issue dir '{issue}' could not be verified: devdoc listing "
+                             f"failed: {_err_detail(listing_error)}")
     checklist = issue_dir / "checklist.md"
-    st = _probe(checklist, follow=False)
-    if isinstance(st, OSError):
-        report(None, "checklist_unreadable",
-               f"{issue}/checklist.md could not be read: {_err_detail(st)}")
-    elif st is not None:
+    kind, detail = _regular_file(checklist)
+    if kind == "regular":
         try:
             state, number, name = checklist_next(checklist)
         except ChecklistError as e:
             report(None, "checklist_unreadable", f"{issue}/checklist.md could not be read: {e}")
         else:
             entry.update({"checklist": state, "next_step": name, "next_step_number": number})
+    elif kind != "absent":
+        report(None, "checklist_unreadable", f"{issue}/checklist.md could not be read: {detail}")
     stuck = issue_dir / "STUCK"
-    st = _probe(stuck, follow=False)
-    if isinstance(st, OSError):
-        entry["stuck"] = {"step": None, "reason": None, "since": None}
-        report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {_err_detail(st)}")
-    elif st is not None:
+    kind, detail = _regular_file(stuck)
+    if kind == "regular":
         try:
             entry["stuck"] = read_stuck(stuck)
         except StuckError as e:
             entry["stuck"] = {"step": None, "reason": None, "since": None}
             report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {e}")
+    elif kind != "absent":
+        entry["stuck"] = {"step": None, "reason": None, "since": None}
+        report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {detail}")
     return entry
 
 
@@ -988,6 +1051,10 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
     for ln, code, message in diag["meta_problems"]:
         report(ln, code, message)
 
+    listing = _devdoc_names(devdoc)
+    listing_error = listing if isinstance(listing, OSError) else None
+    names = None if listing_error is not None else listing
+    refused: dict[str, str | None] = {}
     nodes: list[dict] = []
     ids: dict[int, str] = {}
     carriers: dict[str, list[dict]] = {}
@@ -998,7 +1065,7 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
         issue, issue_bad = node_issue(meta)
         src, src_bad = est_src(meta)
         h, h_bad = read_h(meta)
-        est = classify_est(meta.get("est"))
+        est = est_fields(meta.get("est"))
         est["src"] = src
         leaf = not raw["children"]
         node = {
@@ -1021,9 +1088,12 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             report(ln, "issue_malformed",
                    f"issue {_show(meta['issue'])} is not a string; the node carries no issue")
         if issue is not None:
-            if not wbs_parser.ID_TOKEN_RE.fullmatch(issue):
-                report(ln, "issue_not_id",
-                       f"issue '{issue}' is not an issue id; its issue dir is not read")
+            if issue in refused:
+                refusal = refused[issue]
+            else:
+                refusal = refused[issue] = issue_dir_refusal(issue, names)
+            if refusal is not None:
+                report(ln, "issue_not_id", f"issue '{issue}' {refusal}; its issue dir is not read")
             if issue in carriers:
                 report(ln, "duplicate_issue",
                        f"issue '{issue}' also appears at line {carriers[issue][0]['source_line']}")
@@ -1031,6 +1101,9 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
         if est["class"] == "unparseable":
             report(ln, "est_unparseable",
                    f"est {_show(est['raw'])} is not a time, non-time or placeholder estimate")
+        if wbs_parser.classify_estimate("tok", meta.get("tok"))["class"] == "unparseable":
+            report(ln, "tok_unparseable",
+                   f"tok {_show(meta['tok'])} is not a token estimate or placeholder")
         if src_bad:
             report(ln, "est_src_invalid",
                    f"est_src {_show(meta['est_src'])} is not confirmed or derived; est.src reads as null")
@@ -1040,7 +1113,8 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             if key not in PRODUCER_KEYS:
                 report(ln, "unknown_meta_key", f"unknown metadata key '{key}'")
 
-    issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report) for i in carriers]
+    issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report,
+                           refused[i] is not None, listing_error) for i in carriers]
     return {"project": name, "status": "read", "status_reason": None,
             "wbs_title": tree["title"], "nodes": nodes, "issues": issues,
             "rollup": rollup(nodes)}
@@ -1199,7 +1273,13 @@ def _usage(problem: str | None = None) -> int:
 
 def _self_check(doc: dict) -> int | None:
     """EXIT_SELF_CHECK after printing why, or None when the document passes."""
-    errors = pc.check(doc)
+    try:
+        errors = pc.check(doc)
+    except (pc.SchemaError, pc.UnsupportedVersion) as e:
+        # #1050 item 1: one line, never a traceback; the invariants are not run.
+        text = str(e).replace("\r", " ").replace("\n", " ")
+        sys.stderr.write(f"portfolio: self-check: schema: {text}\n")
+        return EXIT_SELF_CHECK
     if not errors:
         errors = invariant_violations(doc)
     if not errors:

@@ -324,8 +324,8 @@ real_stubs() {
 
 @test "build-docs-site: real site — the link that leaves docs-site/ goes to the forge blob" {
   need_pandoc
-  grep -qF '](../README.md#running-the-test-suite)' "$SITE/install.md"
-  grep -qF 'href="https://github.com/mtibbits/devagent/blob/master/README.md#running-the-test-suite"' "$REAL_OUT/install.html"
+  grep -qF '](../README.md#install)' "$SITE/install.md"
+  grep -qF 'href="https://github.com/mtibbits/devagent/blob/master/README.md#install"' "$REAL_OUT/install.html"
 }
 
 @test "build-docs-site: real site — code blocks and table rows match the markdown, page by page" {
@@ -363,6 +363,10 @@ real_stubs() {
 @test "build-docs-site: real site — title from the H1, nav marks exactly the current page" {
   need_pandoc
   grep -qF '<title>Install | devAgent</title>' "$REAL_OUT/install.html"
+  # #1001: the workflow page's H1 is "How it works", its title and nav label.
+  grep -qF '<title>How it works | devAgent</title>' "$REAL_OUT/workflow.html"
+  nav_of "$REAL_OUT/workflow.html" | grep -qF '<a href="workflow.html" aria-current="page">How it works</a>'
+  nav_of "$REAL_OUT/install.html" | grep -qF '<a href="workflow.html">How it works</a>'
   local content=() p html
   mapfile -t content < <(real_content)
   # content pages only (a moved-page stub has no nav); each nav links them all

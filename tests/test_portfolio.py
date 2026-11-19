@@ -83,7 +83,9 @@ EST_ROWS = [
     ("1W", _est("non-time", quantity=1, unit="W")),
     ("?3d", _est("unparseable")),
     ("1d (actual ~14h)", _est("unparseable")),
-    ("2-3d", _est("unparseable")),
+    ("2-3d", _est("time", 16, 24)),
+    ("3-2d", _est("unparseable")),
+    ("2-4pr", _est("unparseable")),
     (["1w", "2w"], _est("unparseable")),
     ("5", _est("unparseable")),
     ("", _est("unparseable")),
@@ -92,8 +94,8 @@ EST_ROWS = [
 
 
 @pytest.mark.parametrize("raw,want", EST_ROWS, ids=[repr(r[0]) for r in EST_ROWS])
-def test_classify_est(raw, want):
-    got = pf.classify_est(raw)
+def test_est_fields(raw, want):
+    got = pf.est_fields(raw)
     assert got == {"raw": raw, **want}
     for k in ("low_hours", "high_hours", "quantity"):
         v = got[k]
@@ -101,8 +103,19 @@ def test_classify_est(raw, want):
             assert type(v) is int, (k, v)
 
 
-def test_hour_factors_pinned():
-    assert pf.HOUR_FACTORS == {"h": 1, "d": 8, "w": 40}
+def test_interim_classifier_is_gone():
+    # #737 replaced #726's interim classifier; the factors live in the parser.
+    assert [n for n in ("classify_est", "HOUR_FACTORS", "PLACEHOLDER_RE", "QUANTITY_RE")
+            if hasattr(pf, n)] == []
+
+
+def test_est_fields_delegates_to_parser(monkeypatch):
+    # #737: est_fields looks the parser's classify_estimate up at call time.
+    sentinel = {"key": "est", "raw": "1w", "class": "sentinel", "low": 7, "high": 9,
+                "quantity": 3, "unit": "zz"}
+    monkeypatch.setattr(pf.wbs_parser, "classify_estimate", lambda key, raw: sentinel)
+    assert pf.est_fields("1w") == {"raw": "1w", "class": "sentinel", "low_hours": 7,
+                                   "high_hours": 9, "quantity": 3, "unit": "zz"}
 
 
 def test_producer_keys_pinned():
@@ -654,6 +667,52 @@ def test_checklist_next_undecodable(tmp_path):
         pf.checklist_next(p)
 
 
+@pytest.fixture
+def low_int_digits():
+    # #1050 item 2: arm the interpreter's integer-string limit low, so a step
+    # number past it is a cheap fixture on every host.
+    if not hasattr(sys, "set_int_max_str_digits"):
+        pytest.skip("this interpreter has no integer-string limit")
+    saved = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(640)
+    try:
+        with pytest.raises(ValueError):
+            int("1" * 641)
+        yield
+    finally:
+        sys.set_int_max_str_digits(saved)
+
+
+def test_checklist_next_huge_step_number(tmp_path, low_int_digits):
+    p = tmp_path / "checklist.md"
+    p.write_text("- [ ] " + "1" * 641 + ". draft\n", encoding="utf-8")
+    with pytest.raises(pf.ChecklistError, match=r"^step number of 641 digits is too long to read$"):
+        pf.checklist_next(p)
+
+
+def test_main_huge_step_number_still_writes(tmp_path, monkeypatch, capsys, low_int_digits):
+    devdoc = tmp_path / "devdoc"
+    (devdoc / "Issue-1").mkdir(parents=True)
+    (devdoc / "Issue-2").mkdir()
+    (devdoc / "WBS.md").write_text("# p\n\n- [ ] L {issue: Issue-1}\n- [ ] M {issue: Issue-2}\n",
+                                   encoding="utf-8")
+    (devdoc / "Issue-1" / "checklist.md").write_text("- [ ] " + "1" * 641 + ". draft\n",
+                                                      encoding="utf-8")
+    (devdoc / "Issue-2" / "checklist.md").write_text("- [ ] 3. scope\n", encoding="utf-8")
+    _manifest(monkeypatch, [("p", str(devdoc))])
+    out = tmp_path / "out" / "p.json"
+    assert pf.main(["build", "--out", str(out)]) == pf.EXIT_OK
+    doc = json.loads(out.read_bytes().decode("utf-8"))
+    entries = [r for r in doc["parse_report"] if r["kind"] == "checklist_unreadable"]
+    assert [(r["message"], r["source_line"]) for r in entries] == [
+        ("Issue-1/checklist.md could not be read: step number of 641 digits is too long to read",
+         None)]
+    issues = {e["issue"]: e for e in doc["projects"][0]["issues"]}
+    assert issues["Issue-1"]["checklist"] == "absent"
+    assert (issues["Issue-2"]["checklist"], issues["Issue-2"]["next_step_number"],
+            issues["Issue-2"]["next_step"]) == ("open", 3, "scope")
+
+
 def test_step_row_re_twins_tracker():
     # The name-less half must stay wbs-tracker.py's ROW_RE (checklist.sh:67).
     tracker = _load("wbs_tracker_for_portfolio_tests", LIB / "wbs-tracker.py")
@@ -824,9 +883,10 @@ def test_kinds_all_planted(tmp_path):
     _, doc = _build(tmp_path / "multi-build")
     ready = _ready_build(tmp_path / "ready-build")
     models = _models_build(tmp_path / "models-build")
-    kinds = {r["kind"] for d in (doc, ready, models) for r in d["parse_report"]}
+    _, tok = _tok_doc(tmp_path / "tok-build")  # #737: tests/fixtures/portfolio stays untouched
+    kinds = {r["kind"] for d in (doc, ready, models, tok) for r in d["parse_report"]}
     assert kinds == set(pf.KINDS)
-    assert len(pf.KINDS) == len(set(pf.KINDS)) == 20
+    assert len(pf.KINDS) == len(set(pf.KINDS)) == 21
 
 
 def _walk_lines(tree):
@@ -1071,11 +1131,59 @@ def test_bare_issue_in_other_project_does_not_resolve(ready_doc):
         in ready_doc["parse_report"]
 
 
+def _solo_doc(root, body):
+    devdoc = root / "solo"
+    devdoc.mkdir(parents=True)
+    text = "# solo\n\n" + body
+    (devdoc / "WBS.md").write_bytes(text.encode())
+    return text, pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
+
+
 def _one_leaf_doc(tmp_path, glyph):
-    devdoc = tmp_path / "solo"
-    devdoc.mkdir()
-    (devdoc / "WBS.md").write_bytes(f"# solo\n\n- [{glyph}] leaf {{issue: Issue-1}}\n".encode())
-    return pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
+    return _solo_doc(tmp_path, f"- [{glyph}] leaf {{issue: Issue-1}}\n")[1]
+
+
+def test_range_and_tok_through_the_producer(tmp_path):
+    # #737: a range is `time` with two bounds, `tok` is a known key carried in
+    # meta, and a reversed range is still reported.
+    text, doc = _solo_doc(tmp_path, "- [ ] ok {issue: Issue-1, est: 2-4d, tok: 1-3M}\n"
+                                    "- [ ] bad {issue: Issue-2, est: 4-2d}\n")
+    ok, bad = doc["projects"][0]["nodes"]
+    assert ok["est"] == {"raw": "2-4d", "class": "time", "low_hours": 16, "high_hours": 32,
+                         "quantity": None, "unit": None, "src": None}
+    assert ok["meta"]["tok"] == "1-3M"
+    assert ok["meta_unknown_keys"] == []
+    assert bad["est"]["class"] == "unparseable"
+    assert bad["source_line"] == _line_of(text, "bad {")
+    report = [(r["source_line"], r["kind"]) for r in doc["parse_report"]]
+    assert report == [(bad["source_line"], "est_unparseable")]
+    remaining = doc["projects"][0]["rollup"]["remaining"]
+    assert (remaining["estimated"], remaining["unestimated"],
+            remaining["low_hours"], remaining["high_hours"]) == (1, 1, 16, 32)
+    assert pf.pc.check(doc) == []
+    assert pf.invariant_violations(doc) == []
+
+
+TOK_ROWS = [("tbad-int", "500000"), ("tbad-case", "500K"), ("tbad-unit", "2m"),
+            ("tgood", "2M"), ("tplaceholder", "?")]
+
+
+def _tok_doc(root):
+    """(text, document) of a solo devdoc with one leaf per TOK_ROWS row."""
+    body = "".join(f"- [ ] {m} {{issue: Issue-{i}, tok: {v}}}\n"
+                   for i, (m, v) in enumerate(TOK_ROWS, start=1))
+    return _solo_doc(root, body)
+
+
+def test_tok_unparseable_reported(tmp_path):
+    # #737: an unparseable `tok` is reported, never read silently.
+    text, doc = _tok_doc(tmp_path)
+    got = [(r["source_line"], r["kind"], r["message"]) for r in doc["parse_report"]]
+    want = [(_line_of(text, f"{m} {{"), "tok_unparseable",
+             f'tok "{v}" is not a token estimate or placeholder')
+            for m, v in TOK_ROWS[:3]]
+    assert got == want
+    assert pf.pc.check(doc) == []
 
 
 @pytest.mark.parametrize("glyph,want", [("x", False), ("-", False), ("!", False),
@@ -1424,6 +1532,46 @@ def test_main_self_check_exit_3(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / "out").exists() or list((tmp_path / "out").iterdir()) == []
 
 
+@pytest.mark.parametrize("content", ["{", "[" * 200000,
+                                     '{"version": "1.0", "type": "object", "required": [{}]}'],
+                         ids=["truncated", "deep", "required-not-strings"])
+@pytest.mark.parametrize("verb", ["build", "ready"])
+def test_main_schema_unreadable_exits_3(tmp_path, monkeypatch, capsys, verb, content):
+    # #1050 item 1: a schema file that cannot be read or linted is one line and exit 3.
+    _manifest(monkeypatch, [])
+    schema = tmp_path / "schema.json"
+    schema.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(pf.pc, "SCHEMA_PATH", schema)
+    outdir = tmp_path / "out"
+    out = outdir / "p.json"
+    argv = ["build", "--out", str(out)] if verb == "build" else ["ready"]
+    assert pf.main(argv) == pf.EXIT_SELF_CHECK == 3
+    captured = capsys.readouterr()
+    lines = captured.err.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("portfolio: self-check: schema: cannot read schema ")
+    assert "Traceback" not in captured.err
+    if verb == "build":
+        assert not out.exists()
+        assert not outdir.exists() or list(outdir.iterdir()) == []
+    else:
+        assert captured.out == ""
+
+
+def test_main_schema_major_mismatch_exits_3(tmp_path, monkeypatch, capsys):
+    _manifest(monkeypatch, [])
+    real = json.loads(Path(pf.pc.SCHEMA_PATH).read_bytes().decode("utf-8"))
+    real["version"] = "2.0"
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps(real), encoding="utf-8")
+    monkeypatch.setattr(pf.pc, "SCHEMA_PATH", schema)
+    assert pf.main(["ready"]) == 3
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith(
+        'portfolio: self-check: schema: unsupported portfolio schema_version "1.2"')
+
+
 def test_main_writes_and_reports(tmp_path, monkeypatch, capsys):
     root, _ = _multi(tmp_path)
     _manifest(monkeypatch, [("alpha", str(root / "alpha")), ("delta", None)])
@@ -1474,12 +1622,16 @@ def test_main_ready_self_check_exit_3(monkeypatch, capsys):
     assert "portfolio: self-check: I1: " in err
 
 
-def _subprocess_env(root):
+def _subprocess_env(root=None, projects=None):
+    """A host-independent env naming `projects` ((name, devdoc) pairs; default
+    rho and sigma under `root`)."""
+    if projects is None:
+        projects = [("rho", root / "rho"), ("sigma", root / "sigma")]
     env = {k: v for k, v in os.environ.items()
            if not k.startswith("PORTFOLIO_") and k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
-    env.update({"PORTFOLIO_PROJECT_COUNT": "2",
-                "PORTFOLIO_NAME_0": "rho", "PORTFOLIO_DEVDOC_0": str(root / "rho"),
-                "PORTFOLIO_NAME_1": "sigma", "PORTFOLIO_DEVDOC_1": str(root / "sigma")})
+    env["PORTFOLIO_PROJECT_COUNT"] = str(len(projects))
+    for i, (name, devdoc) in enumerate(projects):
+        env.update({f"PORTFOLIO_NAME_{i}": name, f"PORTFOLIO_DEVDOC_{i}": str(devdoc)})
     return env
 
 
@@ -1662,11 +1814,37 @@ def test_command_doc_defines_ready():
                for para in paragraphs), "order sentence"
 
 
-def test_command_doc_names_provisional_factors():
-    text = COMMAND_DOC.read_text(encoding="utf-8")
-    for unit, hours in pf.HOUR_FACTORS.items():
-        assert f"`{unit}` = {hours}" in text
-    assert "provisional" in text
+def _doc_section(text, heading):
+    """The lines from `heading` up to the next heading of the same or a higher level."""
+    level = len(heading) - len(heading.lstrip("#"))
+    lines = text.splitlines()
+    start = lines.index(heading)
+    end = next((i for i in range(start + 1, len(lines))
+                if re.match(rf"#{{1,{level}}} ", lines[i])), len(lines))
+    return "\n".join(lines[start:end])
+
+
+def test_command_doc_names_contract_factors():
+    # #737: the command doc's Estimates section names the contract's factors
+    # and its classifier, and the interim wording is gone from it.
+    est = _doc_section(COMMAND_DOC.read_text(encoding="utf-8"), "## Estimates")
+    assert [f"`{u}` = {h}" for u, h in pf.wbs_parser.HOUR_FACTORS.items()
+            if f"`{u}` = {h}" not in est] == []
+    assert "classify_estimate" in est
+    assert [w for w in ("provisional", "interim") if w in est.lower()] == []
+
+
+def test_schema_doc_drops_provisional_notes():
+    # #737: the est writer row and the Deferred section drop the interim notes;
+    # the two retired references are gone from the whole page.
+    text = SCHEMA_DOC.read_text(encoding="utf-8")
+    assert [w for w in ("issuecomment-6670452997", "tokens_src") if w in text] == []
+    (row,) = [ln for ln in text.splitlines() if ln.startswith("| `est.class`, `est.low_hours`")]
+    deferred = _doc_section(text, "## Deferred")
+    assert [w for w in ("interim", "provisional") if w in (row + deferred).lower()] == []
+    assert "#941" in deferred
+    assert "classify_estimate" in row
+    assert [f for f in ("`d` = 8", "`w` = 40") if f in row] == []
 
 
 # --- final-review fixes --------------------------------------------------------
@@ -1751,3 +1929,218 @@ def test_meta_block_not_at_line_end_is_reported():
     assert wbs_parser.diagnose_text(text)["meta_problems"] == [
         (2, wbs_parser.META_UNREADABLE, wbs_parser.TRAILING_TEXT)]
     assert wbs_parser.parse_text(text)["children"][0]["meta"] == {}
+
+
+# --- #1050 hardening -----------------------------------------------------------
+
+def _issue_files_devdoc(tmp_path, body):
+    devdoc = tmp_path / "devdoc"
+    devdoc.mkdir()
+    text = "# p\n\n" + body
+    (devdoc / "WBS.md").write_text(text, encoding="utf-8")
+    return devdoc, text
+
+
+def _pick(e):
+    return (e["checklist"], e["next_step_number"], e["next_step"], e["stuck"])
+
+
+def _report_of(doc, *kinds):
+    return [(r["kind"], r["message"]) for r in doc["parse_report"] if r["kind"] in kinds]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no os.mkfifo on this host")
+def test_fifo_issue_files_are_unreadable_not_opened(tmp_path):
+    devdoc, _ = _issue_files_devdoc(tmp_path, "- [ ] L {issue: Issue-1}\n")
+    (devdoc / "Issue-1").mkdir()
+    os.mkfifo(devdoc / "Issue-1" / "checklist.md")
+    os.mkfifo(devdoc / "Issue-1" / "STUCK")
+    env = _subprocess_env(projects=[("p", devdoc)])
+    out = tmp_path / "out" / "p.json"
+    # A subprocess with a timeout: on an unfixed reader the open() blocks, and the
+    # timeout turns that hang into a red test instead of a stuck run.
+    r = subprocess.run([sys.executable, str(PRODUCER), "build", "--out", str(out)],
+                       env=env, capture_output=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    doc = json.loads(out.read_bytes().decode("utf-8"))
+    assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == [
+        ("checklist_unreadable", "Issue-1/checklist.md could not be read: not a regular file"),
+        ("stuck_unreadable", "Issue-1/STUCK could not be read: not a regular file")]
+    entry = doc["projects"][0]["issues"][0]
+    assert entry["checklist"] == "absent"
+    assert entry["stuck"] == {"step": None, "reason": None, "since": None}
+
+
+def test_non_regular_issue_files_are_unreadable(tmp_path):
+    devdoc, _ = _issue_files_devdoc(tmp_path, "- [ ] L {issue: Issue-1}\n- [ ] M {issue: Issue-2}\n")
+    (devdoc / "Issue-1" / "checklist.md").mkdir(parents=True)
+    (devdoc / "Issue-2").mkdir()
+    expected = [("checklist_unreadable", "Issue-1/checklist.md could not be read: not a regular file")]
+    try:
+        os.symlink("missing-checklist", devdoc / "Issue-2" / "checklist.md")
+        os.symlink("missing-stuck", devdoc / "Issue-2" / "STUCK")
+    except (OSError, NotImplementedError):
+        pass  # no symlinks here: the directory leg still runs
+    else:
+        expected += [
+            ("checklist_unreadable", "Issue-2/checklist.md could not be read: not a regular file"),
+            ("stuck_unreadable", "Issue-2/STUCK could not be read: not a regular file")]
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    assert sorted(_report_of(doc, "checklist_unreadable", "stuck_unreadable")) == sorted(expected)
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def test_issue_files_symlinked_to_regular_are_read(tmp_path):
+    devdoc, _ = _issue_files_devdoc(tmp_path, "- [ ] L {issue: Issue-1}\n")
+    (devdoc / "Issue-1").mkdir()
+    (tmp_path / "real-checklist").write_text("- [ ] 4. scope\n", encoding="utf-8")
+    (tmp_path / "real-stuck").write_text("Step: 9 implement\n", encoding="utf-8")
+    try:
+        os.symlink(tmp_path / "real-checklist", devdoc / "Issue-1" / "checklist.md")
+        os.symlink(tmp_path / "real-stuck", devdoc / "Issue-1" / "STUCK")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unsupported")
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    entry = doc["projects"][0]["issues"][0]
+    assert _pick(entry)[:3] == ("open", 4, "scope")
+    assert entry["stuck"]["step"] == "9 implement"
+    assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == []
+
+
+def _issue7_devdoc(tmp_path, body):
+    devdoc, text = _issue_files_devdoc(tmp_path, body)
+    (devdoc / "Issue-7").mkdir()
+    (devdoc / "Issue-7" / "checklist.md").write_text("- [ ] 2. draft\n", encoding="utf-8")
+    (devdoc / "Issue-7" / "STUCK").write_text("Step: 2 draft\n", encoding="utf-8")
+    return devdoc, text
+
+
+def test_noncanonical_issue_ids_are_not_followed(tmp_path):
+    devdoc, text = _issue7_devdoc(tmp_path, "- [ ] a {issue: Issue-7.}\n- [ ] b {issue: issue-7}\n"
+                                            "- [ ] c {issue: Issue-7}\n- [ ] d {issue: Issue-9}\n")
+    line_a, line_b = _line_of(text, "{issue: Issue-7.}"), _line_of(text, "{issue: issue-7}")
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    assert [(r["source_line"], r["message"]) for r in doc["parse_report"]
+            if r["kind"] == "issue_not_id"] == [
+        (line_a, "issue 'Issue-7.' ends in '.'; its issue dir is not read"),
+        (line_b, "issue 'issue-7' matches issue dir 'Issue-7' only case-insensitively; "
+                 "its issue dir is not read")]
+    issues = {e["issue"]: e for e in doc["projects"][0]["issues"]}
+    assert _pick(issues["Issue-7."]) == ("absent", None, None, None)
+    assert _pick(issues["issue-7"]) == ("absent", None, None, None)
+    assert _pick(issues["Issue-7"]) == ("open", 2, "draft",
+                                        {"step": "2 draft", "reason": None, "since": None})
+    assert _pick(issues["Issue-9"]) == ("absent", None, None, None)
+    assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == []
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def _scandir_patch(monkeypatch, devdoc, *, omit=(), raise_exc=None):
+    real = os.scandir
+    target = os.path.normcase(os.path.abspath(str(devdoc)))
+
+    class _Listing:
+        def __init__(self, it):
+            self._it = it
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._it.close()
+            return False
+
+        def __iter__(self):
+            return (e for e in self._it if e.name not in omit)
+
+        def close(self):
+            self._it.close()
+
+    def fake(path=".", *a, **kw):
+        if os.path.normcase(os.path.abspath(os.fspath(path))) != target:
+            return real(path, *a, **kw)
+        if raise_exc is not None:
+            raise raise_exc
+        return _Listing(real(path, *a, **kw))
+    monkeypatch.setattr(pf.os, "scandir", fake)
+
+
+def test_case_alias_is_not_followed_when_the_fs_resolves_it(tmp_path, monkeypatch):
+    # Simulates a case-insensitive volume: `issue-7` resolves to the dir, while the
+    # listing holds only the stored spelling `Issue-7`.
+    devdoc, _ = _issue7_devdoc(tmp_path, "- [ ] b {issue: issue-7}\n")
+    if not (devdoc / "issue-7").exists():
+        try:
+            os.symlink("Issue-7", devdoc / "issue-7")
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unsupported")
+    _scandir_patch(monkeypatch, devdoc, omit=("issue-7",))
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    entry = doc["projects"][0]["issues"][0]
+    assert _pick(entry) == ("absent", None, None, None)
+    assert _report_of(doc, "issue_not_id") == [
+        ("issue_not_id", "issue 'issue-7' matches issue dir 'Issue-7' only case-insensitively; "
+                         "its issue dir is not read")]
+
+
+def test_unlistable_devdoc_fails_closed(tmp_path, monkeypatch):
+    devdoc, _ = _issue7_devdoc(tmp_path, "- [ ] a {issue: Issue-7}\n- [ ] b {issue: Issue-8.}\n"
+                                         "- [ ] c {issue: Issue-9}\n")
+    _scandir_patch(monkeypatch, devdoc, raise_exc=PermissionError(13, "Permission denied"))
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    msg = ("issue dir 'Issue-7' could not be verified: devdoc listing failed: "
+           "PermissionError: Permission denied")
+    assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == [
+        ("checklist_unreadable", msg), ("stuck_unreadable", msg)]
+    assert _report_of(doc, "issue_not_id") == [
+        ("issue_not_id", "issue 'Issue-8.' ends in '.'; its issue dir is not read")]
+    issues = {e["issue"]: e for e in doc["projects"][0]["issues"]}
+    assert _pick(issues["Issue-7"]) == ("absent", None, None,
+                                        {"step": None, "reason": None, "since": None})
+    assert _pick(issues["Issue-8."]) == ("absent", None, None, None)
+    assert _pick(issues["Issue-9"]) == ("absent", None, None, None)
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def _kind_row(kind):
+    text = SCHEMA_DOC.read_text(encoding="utf-8")
+    table = text[text.index(KINDS_START):text.index(KINDS_END)]
+    return next(ln for ln in table.splitlines() if ln.startswith(f"| `{kind}` |"))
+
+
+@pytest.mark.parametrize("kind, present, absent", [
+    ("issue_not_id", ("ID_TOKEN_RE", "ends in", "case-insensitively"), ()),
+    ("checklist_unreadable",
+     ("integer-string limit", "not a regular file", "devdoc listing failed"),
+     ("present but unreadable",)),
+    ("stuck_unreadable", ("not a regular file", "devdoc listing failed"),
+     ("present but unreadable",)),
+    ("meta_unreadable", ("est:1w", "missing comma"), ()),
+    ("near_miss_line", ("inline link", "(url)"), ()),
+])
+def test_schema_doc_kind_row_names_1050_causes(kind, present, absent):
+    row = _kind_row(kind)
+    for element in present:
+        assert element in row
+    for element in absent:
+        assert element not in row
+
+
+def test_command_doc_rails_default_worktree_root():
+    section = _doc_section(COMMAND_DOC.read_text(encoding="utf-8"), "## Output")
+    assert "not checked yet" not in section
+    assert "`<source_dir>-wt`" in section
+
+
+def test_one_bad_symlink_in_devdoc_does_not_fail_the_listing(tmp_path):
+    # #1050 final review: DirEntry.is_dir() raises on ELOOP; one such entry must not
+    # make every present issue dir in the project unverifiable.
+    devdoc, _ = _issue7_devdoc(tmp_path, "- [ ] c {issue: Issue-7}\n")
+    try:
+        os.symlink("loop", devdoc / "loop")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unsupported")
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == []
+    entry = doc["projects"][0]["issues"][0]
+    assert _pick(entry) == ("open", 2, "draft", {"step": "2 draft", "reason": None, "since": None})

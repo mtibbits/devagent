@@ -43,6 +43,16 @@ config_get_project_field() {
   esac
 }
 
+# worktree_root_rule <worktree_root> <source_dir> — #1050: trust's worktree-root
+# rule (#713) in one place, for callers that already hold both values.
+# worktree_root when non-empty, else <source_dir>-wt when source_dir is
+# non-empty. Prints it and returns 0, or prints nothing and returns 1.
+worktree_root_rule() {
+  if [ -n "$1" ]; then printf '%s\n' "$1"; return 0; fi
+  if [ -n "$2" ]; then printf '%s\n' "$2-wt"; return 0; fi
+  return 1
+}
+
 # config_get_global_path <key> — #611: the top-level [paths] table. Global,
 # every-project file paths; today the only consumer is potholes_workflow (the
 # shared workflow register). Tilde-expanded like project paths.*; rc from

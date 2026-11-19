@@ -132,14 +132,15 @@ filled_index() {
   holds check_derived_from "$PLUGIN_ROOT" "${pages[@]}"
 }
 
-@test "docs-site: the install commands, notice, version and grant are shared with README" {
+@test "docs-site: the install commands, notice and version are shared with README; README carries the grant" {
   local f
   for f in "$WEB/install.md" "$README"; do
     holds check_install_block "$f"
     holds check_userconfig_notice "$f"
     holds check_verified_version "$f"
-    holds check_permission_grant "$f"
   done
+  # #999: the grant forms and "Never widen" live on README only; the page links there.
+  holds check_permission_grant "$README"
 }
 
 @test "docs-site: the headline step count is derived from the template, in README and the index" {
@@ -149,6 +150,40 @@ filled_index() {
 
 @test "docs-site: the workflow table derives from the checklist template steps" {
   holds check_step_table "$TEMPLATE" "$WEB/workflow.md"
+}
+
+# The How it works page's pre-table region and README's step-workflow section:
+# where check_phase_bullets reads the phase bullets.
+PRE_TABLE=('^# ' "$_TABLE_HEAD")
+README_STEPS=('^## The [0-9]+-step workflow$' '^## ')
+
+@test "docs-site: the How it works Phase column matches the phase-split file and uses no retired phase" {
+  holds check_phase_column "$WEB/phases.txt" "$WEB/workflow.md"
+}
+
+@test "docs-site: every How it works step row has one non-empty Why cell" {
+  holds check_why_column "$TEMPLATE" "$WEB/workflow.md"
+}
+
+@test "docs-site: before the step table the How it works page shows no issue number or config key" {
+  holds check_pre_table "$PLUGIN_ROOT/templates/config.toml.skel" "$WEB/workflow.md"
+}
+
+@test "docs-site: the How it works stop section names waiting, stuck, phase breaks and --through; its commands fit their argument hints" {
+  holds check_stop_section "$WEB/workflow.md" "$TEMPLATE" "$PLUGIN_ROOT/scripts/next.sh"
+  holds check_example_hints "$WEB/workflow.md" "$PLUGIN_ROOT"
+}
+
+@test "docs-site: the phase lists on the How it works page and in README match the phase-split file" {
+  holds check_phase_bullets "$WEB/phases.txt" "$TEMPLATE" "$WEB/workflow.md" "${PRE_TABLE[@]}"
+  holds check_phase_bullets "$WEB/phases.txt" "$TEMPLATE" "$README" "${README_STEPS[@]}"
+}
+
+@test "docs-site: no page calls the How it works page the workflow reference" {
+  local -a pages
+  mapfile -t pages < <(content_pages)
+  [ "${#pages[@]}" -ge 1 ]
+  holds check_absent -iF 'workflow reference' "${pages[@]}"
 }
 
 @test "docs-site: the phase-split file covers each checklist-template step once, in order" {
@@ -226,10 +261,47 @@ filled_index() {
   done
 }
 
-@test "docs-site: install-page prerequisite and platform claims trace to README (#579)" {
+@test "docs-site: every install-page prerequisite is in README's Prerequisites" {
   holds check_prereqs_trace "$WEB/install.md" "$README"
-  holds check_platform_tokens "$WEB/install.md"
+}
+
+@test "docs-site: the install page's platform paragraph is README's user-facing prefix" {
+  holds check_platform_sentence "$WEB/install.md" "$README"
   holds check_platform_tokens "$README"
+}
+
+@test "docs-site: the install page shows no issue number in its visible text" {
+  holds check_no_issue_numbers "$WEB/install.md"
+}
+
+# #1002: the What's new page. The shipped fact reads `git tag` in this checkout,
+# so the suite needs the release tags fetched (README "Running the test suite").
+@test "docs-site: every What's new shipped item is tied to a released CHANGELOG line and a real git tag" {
+  local tags rc=0
+  tags="$(git -C "$PLUGIN_ROOT" tag 2>&1)" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "git tag could not run: $tags" >&2; return 1; }
+  printf '%s\n' "$tags" >"$BATS_TEST_TMPDIR/tags"
+  holds check_whats_new_shipped "$WEB/whats-new.md" "$WEB/whats-new-sources.txt" "$PLUGIN_ROOT/CHANGELOG.md" "$BATS_TEST_TMPDIR/tags"
+}
+
+@test "docs-site: the What's new page's roadmap has no issue numbers or dates and every theme says coming" {
+  holds check_whats_new_roadmap "$WEB/whats-new.md"
+}
+
+@test "docs-site: the What's new page shows the date its roadmap was last checked, not before the newest release" {
+  holds check_whats_new_checked "$WEB/whats-new.md" "$PLUGIN_ROOT/CHANGELOG.md"
+}
+
+@test "docs-site: the What's new page shows no issue number in its visible text" {
+  holds check_no_issue_numbers "$WEB/whats-new.md"
+}
+
+@test "docs-site: the lane that runs these tests fetches git tags" {
+  holds check_tag_lane "$PLUGIN_ROOT/.github/workflows/test.yml"
+}
+
+@test "docs-site: the release steps and the drift policy say to re-check the What's new page" {
+  holds check_release_recheck "$README" "$WEB/README.md"
 }
 
 @test "docs-site: command lines on every page are full-arity; the quickstart forms are gate-honest" {
@@ -519,11 +591,11 @@ lc_lacks() {
 
 @test "mutation: permission grant" {
   local f
-  f="$(fresh "$WEB/install.md")"
+  f="$(fresh "$README")"
   holds check_permission_grant "$f"
   edit "$f" 'Never widen to bare `Bash`' 'Never widen it'
   breaks 'Never widen' check_permission_grant "$f"
-  f="$(fresh "$WEB/install.md")"
+  f="$(fresh "$README")"
   edit "$f" ', Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)' ''
   breaks 'two-form' check_permission_grant "$f"
 }
@@ -558,6 +630,123 @@ lc_lacks() {
   f="$(fresh "$WEB/workflow.md")"
   edit "$f" "| $num | \`$cmd\`" "| $num | \`${cmd}x\`"
   breaks "step $num" check_step_table "$TEMPLATE" "$f"
+}
+
+@test "mutation: phase column" {
+  local f ph="$WEB/phases.txt"
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_phase_column "$ph" "$f"
+  edit "$f" '`branch` | Build' '`branch` | Implement'
+  breaks 'retired phase name' check_phase_column "$ph" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '`analyze` | Build' '`analyze` | Verify'
+  breaks "want 'Build'" check_phase_column "$ph" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '| Phase |' '| Stage |'
+  breaks 'no Phase column' check_phase_column "$ph" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  drop "$f" '| 13 |'
+  breaks 'step rows' check_phase_column "$ph" "$f"
+}
+
+@test "mutation: why column" {
+  local f
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_why_column "$TEMPLATE" "$f"
+  edit "$f" 'Static checks on the changed lines catch mistakes that people and tests miss.' ' '
+  breaks 'empty Why cell' check_why_column "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" 'people and tests miss.' 'people | and tests miss.'
+  breaks 'cells, header has' check_why_column "$TEMPLATE" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '| Why |' '| Reason |'
+  breaks 'no Why column' check_why_column "$TEMPLATE" "$f"
+}
+
+@test "mutation: pre-table" {
+  local f skel="$PLUGIN_ROOT/templates/config.toml.skel" lit='keeps a written record of each step.'
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_pre_table "$skel" "$f"
+  edit "$f" "$lit" 'keeps a written record of each step (see #885).'
+  breaks '#885' check_pre_table "$skel" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" "$lit" 'keeps a written record of each step (set phase_breaks).'
+  breaks 'phase_breaks' check_pre_table "$skel" "$f"
+  # Controls: a single-word key is the declared blind spot; past the table is
+  # outside the region.
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" "$lit" 'keeps a written record of each `branch`.'
+  holds check_pre_table "$skel" "$f"
+  f="$(fresh "$WEB/workflow.md")"
+  plant "$f" 'merge_mr'
+  holds check_pre_table "$skel" "$f"
+}
+
+@test "mutation: stop section" {
+  local f t n w="$WEB/workflow.md" nx="$PLUGIN_ROOT/scripts/next.sh"
+  f="$(fresh "$w")"
+  holds check_stop_section "$f" "$TEMPLATE" "$nx"
+  edit "$f" '`blocked-external`' '`blocked`'
+  breaks 'blocked-external' check_stop_section "$f" "$TEMPLATE" "$nx"
+  # The [?] label is read from the template, not written into the check.
+  f="$(fresh "$w")"; t="$(fresh "$TEMPLATE")"
+  edit "$t" '[?] blocked-external' '[?] blocked-outside'
+  breaks 'blocked-outside' check_stop_section "$f" "$t" "$nx"
+  edit "$f" '`quality` and `updatewbs`' ' and `updatewbs`'
+  breaks 'quality' check_stop_section "$f" "$TEMPLATE" "$nx"
+  # The default breaks are read from next.sh.
+  f="$(fresh "$w")"; n="$(fresh "$nx")"
+  edit "$n" '"implement quality updatewbs"' '"implement review updatewbs"'
+  breaks 'review' check_stop_section "$f" "$TEMPLATE" "$n"
+  edit "$f" '## When it stops' '## When a chain halts'
+  breaks 'When it stops' check_stop_section "$f" "$TEMPLATE" "$nx"
+}
+
+@test "mutation: example hints" {
+  local f r
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_example_hints "$f" "$PLUGIN_ROOT"
+  edit "$f" '--through <step>' '--through'
+  breaks 'needs <step>' check_example_hints "$f" "$PLUGIN_ROOT"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '/devagent:unstuck <project>' '/devagent:unstuck'
+  breaks 'missing required <project>' check_example_hints "$f" "$PLUGIN_ROOT"
+  # Beyond the stop section: the revision loop's examples are checked too.
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '/devagent:where <project>' '/devagent:where'
+  breaks '/devagent:where: missing required' check_example_hints "$f" "$PLUGIN_ROOT"
+  f="$(fresh "$WEB/workflow.md")"
+  edit "$f" '--through' '--thru'
+  breaks 'not in its argument hint' check_example_hints "$f" "$PLUGIN_ROOT"
+  # The hint side: the hint is read from the command's file.
+  f="$(fresh "$WEB/workflow.md")"
+  r="$(temp_root skills/next commands)"
+  holds check_example_hints "$f" "$r"
+  edit "$r/skills/next/SKILL.md" '[--through <step>] ' ''
+  breaks 'not in its argument hint' check_example_hints "$f" "$r"
+}
+
+@test "mutation: phase bullets" {
+  local f ph="$WEB/phases.txt"
+  f="$(fresh "$README")"
+  holds check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  edit "$f" '`17 preship`' '`17 preship` · `18 ship`'
+  edit "$f" '**Ship** — `18 ship` · ' '**Ship** — '
+  breaks 'phase Verify' check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  f="$(fresh "$README")"
+  edit "$f" '**Build**' '**Implement**'
+  breaks "want 'Build'" check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  f="$(fresh "$README")"
+  edit "$f" '`9 implement`' '`10 implement`'
+  breaks 'template says' check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
+  f="$(fresh "$WEB/workflow.md")"
+  holds check_phase_bullets "$ph" "$TEMPLATE" "$f" "${PRE_TABLE[@]}"
+  edit "$f" ' · `spike`' ''
+  breaks 'phase Plan' check_phase_bullets "$ph" "$TEMPLATE" "$f" "${PRE_TABLE[@]}"
+  # Control: a bold bullet past the section's end is outside the region.
+  f="$(fresh "$README")"
+  plant "$f" '- **Extra** — `pull`'
+  holds check_phase_bullets "$ph" "$TEMPLATE" "$f" "${README_STEPS[@]}"
 }
 
 @test "mutation: phase split" {
@@ -686,7 +875,7 @@ lc_lacks() {
   plant "$f" '<p>Install superpowers too</p>'
   breaks 'superpowers' check_install_only "$f"
   f="$(filled_index)"
-  edit "$f" '<p><a href="install.html">Full install guide</a></p>' '<p>Full install guide</p>'
+  edit "$f" '<p><a href="install.html">Install guide</a></p>' '<p>Install guide</p>'
   breaks 'install.html' check_install_only "$f"
 }
 
@@ -725,33 +914,106 @@ lc_lacks() {
   local page readme
   page="$(fresh "$WEB/install.md")"; readme="$(fresh "$README")"
   holds check_prereqs_trace "$page" "$readme"
-  # A reflow that moves a tool onto the contributors bullet's second line holds.
-  edit "$page" 'need **`bats`** and' $'need\n  **`bats`** and'
-  grep -qx -- '  \*\*`bats`\*\* and.*' "$page"
+  # A reflow that moves a tool onto a bullet's two-space continuation line holds.
+  edit "$page" '- `jq`.' $'- The JSON tool,\n  `jq`.'
+  grep -qx -- '  `jq`\.' "$page"
   holds check_prereqs_trace "$page" "$readme"
+  # A backticked bullet under a later "## " heading is outside the list.
+  page="$(fresh "$WEB/install.md")"
+  plant "$page" '- `zsh` for the prompt.'
+  holds check_prereqs_trace "$page" "$readme"
+  # README's Prerequisites paragraph loses a tool the page lists.
   page="$(fresh "$WEB/install.md")"
   edit "$readme" '`jq`' 'jq'
-  breaks '`jq`' check_prereqs_trace "$page" "$readme"
+  breaks 'not in README Prerequisites: `jq`' check_prereqs_trace "$page" "$readme"
   readme="$(fresh "$README")"
   plant "$page" 'No private-repo access is needed.'
   breaks 'private' check_prereqs_trace "$page" "$readme"
   # A page tool README lacks.
   page="$(fresh "$WEB/install.md")"
-  sed -i 's/^- Contributors additionally/- **`zsh`** for the prompt.\n&/' "$page"
-  grep -qF -- '- **`zsh`**' "$page"
-  breaks '`zsh`' check_prereqs_trace "$page" "$readme"
-  # A tool the page no longer names.
+  sed -i 's/^- `jq`\.$/- `zsh` for the prompt.\n&/' "$page"
+  grep -qx -- '- `zsh` for the prompt.' "$page"
+  breaks 'not in README Prerequisites: `zsh`' check_prereqs_trace "$page" "$readme"
+  # README names `bats` only outside its Prerequisites paragraph: the scope holds.
   page="$(fresh "$WEB/install.md")"
-  edit "$page" '**`jq`**' '**jq**'
-  breaks 'toolchain list does not name `jq`' check_prereqs_trace "$page" "$readme"
+  grep -qF '`bats`' "$readme"
+  sed -i 's/^- `jq`\.$/- `bats` for the tests.\n&/' "$page"
+  grep -qx -- '- `bats` for the tests.' "$page"
+  breaks 'not in README Prerequisites: `bats`' check_prereqs_trace "$page" "$readme"
+  # A floor tool the page no longer names.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" '- `jq`.' '- jq.'
+  breaks 'page list is missing `jq`' check_prereqs_trace "$page" "$readme"
+  # No Prerequisites section at all.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" '## Prerequisites' '## Before you start'
+  breaks 'no Prerequisites list' check_prereqs_trace "$page" "$readme"
+  # README's Prerequisites paragraph gone: the check cannot run.
+  page="$(fresh "$WEB/install.md")"
+  edit "$readme" '**Prerequisites.**' '**Needs.**'
+  run check_prereqs_trace "$page" "$readme"
+  [ "$status" -eq 2 ]
 }
 
 @test "mutation: platform tokens" {
   local f
-  f="$(fresh "$WEB/install.md")"
+  f="$(fresh "$README")"
   holds check_platform_tokens "$f"
   edit "$f" 'macOS is currently untested' 'macOS may work'
   breaks 'macOS' check_platform_tokens "$f"
+}
+
+@test "mutation: platform sentence" {
+  local page readme
+  page="$(fresh "$WEB/install.md")"; readme="$(fresh "$README")"
+  holds check_platform_sentence "$page" "$readme"
+  # Cut to the first sentence: a README prefix, but it drops claims.
+  drop "$page" 'Native Git Bash on Windows can run the plugin.'
+  drop "$page" 'macOS is currently untested:'
+  breaks 'drops the claim: Git Bash' check_platform_sentence "$page" "$readme"
+  # A word changed.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" 'can run the plugin' 'runs the plugin'
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # Cut mid-sentence.
+  page="$(fresh "$WEB/install.md")"
+  edit "$page" ' (`stat -c`, GNU `sed -i`, `readlink -f`).' ''
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # The bare label only.
+  page="$(fresh "$WEB/install.md")"
+  drop "$page" 'Native Git Bash on Windows can run the plugin.'
+  drop "$page" 'macOS is currently untested:'
+  edit "$page" '**Supported platforms.** devAgent is developed and tested on **Linux**, including WSL on Windows.' \
+    '**Supported platforms.**'
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # README's leading sentences change; the page does not follow.
+  page="$(fresh "$WEB/install.md")"
+  edit "$readme" 'developed and tested on **Linux**' 'built and tested on **Linux**'
+  breaks 'word for word' check_platform_sentence "$page" "$readme"
+  # LIMIT (documented on the check): a README edit after the page's cut holds.
+  readme="$(fresh "$README")"
+  edit "$readme" 'CI runs the full suite on Linux' 'CI runs every test on Linux'
+  holds check_platform_sentence "$page" "$readme"
+  # The page paragraph gone.
+  readme="$(fresh "$README")"
+  edit "$page" '**Supported platforms.**' 'Platforms:'
+  breaks 'no **Supported platforms.**' check_platform_sentence "$page" "$readme"
+  # README's paragraph gone: the check cannot run.
+  page="$(fresh "$WEB/install.md")"
+  edit "$readme" '**Supported platforms.**' 'Platforms:'
+  run check_platform_sentence "$page" "$readme"
+  [ "$status" -eq 2 ]
+}
+
+@test "mutation: install page issue numbers" {
+  local f
+  f="$(fresh "$WEB/install.md")"
+  holds check_no_issue_numbers "$f"
+  plant "$f" 'Fixed long ago (#541).'
+  breaks '#541' check_no_issue_numbers "$f"
+  f="$(fresh "$WEB/install.md")"
+  plant "$f" 'Fixed long ago (Issue-541).'
+  breaks 'Issue-541' check_no_issue_numbers "$f"
 }
 
 @test "mutation: command arity" {
@@ -809,6 +1071,11 @@ lc_lacks() {
   holds check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
   plant "$t/$CONFIG_REL" 'Older docs said shellcheck 0.8.0.'
   breaks "$CONFIG_REL: 0.8.0" check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
+  # #999: the contributor statement lives in CONTRIBUTING.md "What you need".
+  # An edit, not a drop, so the shellcheck floor on the same bullet still parses.
+  cp "$PLUGIN_ROOT/$CONFIG_REL" "$t/$CONFIG_REL"
+  edit "$t/CONTRIBUTING.md" '`bats` 1.10 or newer, ' ''
+  breaks 'no longer names `bats`' check_shellcheck_homes "$t" docs-site/install.md "$CONFIG_REL"
 }
 
 @test "mutation: merge keys" {
@@ -844,4 +1111,246 @@ lc_lacks() {
   drop "$skel" '# [project.{{PROJECT}}.merge_forward]'
   printf '# [project.{{PROJECT}}.merge_forward]\n%s\n' "$(cat "$skel")" > "$skel"
   breaks 'precedes' check_merge_forward_docs "$skel" "$c" "$m"
+}
+
+# --- #1002: the What's new page ---------------------------------------------
+# wn_fixture — write a small CHANGELOG, tags file, page and sources sidecar into
+# $BATS_TEST_TMPDIR/wn/ and print that directory. The fixture carries 3.9.0 and
+# 3.10.0 so integer-tuple order differs from string order, and its tags file is
+# in `git tag`'s lexicographic order (v3.10.0 before v3.9.0), so neither a
+# string compare nor "first tag in file order" can pass the control.
+wn_fixture() {
+  local d="$BATS_TEST_TMPDIR/wn" u='https://github.com/mtibbits/devagent/releases/tag'
+  rm -rf "$d"; mkdir -p "$d"
+  printf '%s\n' \
+    '# Changelog' '' \
+    '## [Unreleased]' '' \
+    '- **Added: an unreleased thing (#900).**' '' \
+    '## [3.10.0] — 2026-11-20' '' \
+    '- **Added: the ten feature (#810).**' \
+    '- **Changed: the shared phrase, reworked.**' \
+    '- **Fixed: a ten fix (#811).**' '' \
+    '## [3.9.0] — 2026-11-15' '' \
+    '- **Added: the nine feature (#790), and the shared phrase.**' '' \
+    '## [3.0.0] — 2026-11-09' '' \
+    '- **Changed (breaking): a bullet that wraps, so its' \
+    '  keyword phase' \
+    '  breaks across lines.**' \
+    '- **Changed: the one feature, reworked (#100).**' '' \
+    '## [2.0.0] — 2026-10-02' '' \
+    '- **Added: the two feature (#200).**' '' \
+    '## [1.0.0] — 2026-09-18' '' \
+    '- **Added: the one feature (#100).**' >"$d/CHANGELOG.md"
+  printf '%s\n' devagent--v1.0.0 devagent--v3.0.0 devagent--v3.10.0 devagent--v3.9.0 >"$d/tags"
+  printf '%s\n' \
+    '# fixture sidecar: <label> | <anchor>' \
+    'Two feature | #200' \
+    'Nine feature | #790' \
+    'Shared thing | kw:shared phrase' \
+    'Phase breaks | kw:phase breaks' >"$d/sources.txt"
+  printf '%s\n' \
+    '<!-- derived-from: CHANGELOG.md -->' \
+    "# What's new" '' \
+    'Still moving.' '' \
+    '## Shipped since 1.0' '' \
+    '### A group' '' \
+    "- **Two feature.** It does two. [Release 3.0.0]($u/devagent--v3.0.0)" \
+    '- **Nine feature.** It does nine, and the link' \
+    "  wraps. [Release 3.9.0]($u/devagent--v3.9.0)" \
+    "- **Shared thing.** It first came in nine. [Release 3.9.0]($u/devagent--v3.9.0)" \
+    "- **Phase breaks.** A wrapped keyword. [Release 3.0.0]($u/devagent--v3.0.0)" '' \
+    "## What's next" '' \
+    '- Theme one: more of it is coming.' \
+    '- Theme two: coming, and it may change.' \
+    '- Theme three: a direction, with the word' \
+    '  coming on a continuation line.' '' \
+    'Roadmap last checked against the open epics on 2026-11-20.' >"$d/page.md"
+  printf '%s\n' "$d"
+}
+
+# wn_ship <fixture-dir> [<tags-file>] — check_whats_new_shipped on the fixture.
+wn_ship() { check_whats_new_shipped "$1/page.md" "$1/sources.txt" "$1/CHANGELOG.md" "${2:-$1/tags}"; }
+
+@test "mutation: whats-new shipped" {
+  local d u='https://github.com/mtibbits/devagent/releases/tag'
+  d="$(wn_fixture)"
+  holds wn_ship "$d"
+  # The wrapper passes "cannot run" through as 2, never 1.
+  run check_whats_new_shipped "$d/nope.md" "$d/sources.txt" "$d/CHANGELOG.md" "$d/tags"
+  [ "$status" -eq 2 ]
+  : >"$d/empty"
+  breaks 'git tag is empty' wn_ship "$d" "$d/empty"
+  breaks 'git tag is empty' wn_ship "$d" "$d/no-such-tags"
+  drop "$d/sources.txt" 'Nine feature |'
+  breaks 'no sources line for' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'Ghost | #200'
+  breaks 'no page item for' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'Two feature | #200'
+  breaks 'duplicate label' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '- **Nine feature.**' '- **Two feature.**'
+  breaks 'duplicate label' wn_ship "$d"
+  # Another repo's issue (other#200) is not this repo's #200.
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '(#200)' '(other#200)'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  # A prose paragraph after a bullet is not part of it.
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '- **Added: the two feature (#200).**' $'- **Added: the two feature (#200).**\n\nProse that mentions #555.'
+  edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #555'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'A line with no separator'
+  breaks "not '<label> | <anchor>'" wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '## Shipped since 1.0' '## Shipped'
+  breaks "no '## Shipped since 1.0' heading" wn_ship "$d"
+  d="$(wn_fixture)"; awk '/^## Shipped/{s=1} /^## What/{s=0} !(s && /^(- |  )/)' "$d/page.md" >"$d/p2" && mv "$d/p2" "$d/page.md"
+  breaks 'no items under' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" '- **Two feature.** It does two.' '- Two feature. It does two.'
+  breaks 'item has no bold label' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 3.2.0]($u/devagent--v3.0.0)"
+  breaks 'link text' wn_ship "$d"
+  # A tag that exists but predates the first section holding the item, and no
+  # tag after it (the release-PR window, before the new tag is pushed).
+  d="$(wn_fixture)"; printf '%s\n' devagent--v1.0.0 devagent--v3.0.0 >"$d/tags"
+  edit "$d/page.md" "nine. [Release 3.9.0]($u/devagent--v3.9.0)" "nine. [Release 3.0.0]($u/devagent--v3.0.0)"
+  edit "$d/page.md" "wraps. [Release 3.9.0]($u/devagent--v3.9.0)" "wraps. [Release 3.0.0]($u/devagent--v3.0.0)"
+  breaks 'no tag at or after 3.9.0' wn_ship "$d"
+  d="$(wn_fixture)"; plant "$d/sources.txt" 'Bad | 200'
+  breaks 'bad anchor' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" "It does two. [Release 3.0.0]($u/devagent--v3.0.0)" 'It does two.'
+  breaks 'release link' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" 'It does two.' "It does two [twice]($u/devagent--v3.0.0)."
+  breaks 'release link' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 2.0.0]($u/devagent--v2.0.0)"
+  breaks 'not in git tag' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #811'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #900'
+  breaks 'not in an Added or Changed bullet' wn_ship "$d"
+  d="$(wn_fixture)"; edit "$d/sources.txt" 'Two feature | #200' 'Two feature | #100'
+  breaks 'first appeared in 1.0.0' wn_ship "$d"
+  # An existing tag that is the wrong one: a [2.0.0] item must link v3.0.0.
+  d="$(wn_fixture)"; edit "$d/page.md" "two. [Release 3.0.0]($u/devagent--v3.0.0)" "two. [Release 3.9.0]($u/devagent--v3.9.0)"
+  breaks 'should link' wn_ship "$d"
+  # Earliest of 3.9.0 and 3.10.0 is 3.9.0 by integer tuple (a string compare says 3.10.0).
+  d="$(wn_fixture)"; edit "$d/page.md" "nine. [Release 3.9.0]($u/devagent--v3.9.0)" "nine. [Release 3.10.0]($u/devagent--v3.10.0)"
+  breaks 'should link' wn_ship "$d"
+}
+
+@test "mutation: whats-new roadmap" {
+  local d
+  d="$(wn_fixture)"
+  holds check_whats_new_roadmap "$d/page.md"
+  run check_whats_new_roadmap "$d/nope.md"
+  [ "$status" -eq 2 ]
+  drop "$d/page.md" 'Theme one:'
+  breaks 'no themes' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'more of it is coming' 'more of it is planned'
+  breaks 'missing coming' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'more of it is coming.' 'more of it is coming (#12).'
+  breaks 'issue number' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'more of it is coming.' 'more of it is coming in March.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  # Outside the list items, still in the section: the whole section is read.
+  d="$(wn_fixture)"; plant "$d/page.md" 'Expect all of it by 2027.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'This was last checked in 2027.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'Planned for Q3.'
+  breaks 'target date' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'Gantry is coming too.'
+  breaks 'names a family site' check_whats_new_roadmap "$d/page.md"
+  d="$(wn_fixture)"; edit "$d/page.md" "## What's next" '## Later'
+  breaks "no '## What's next' heading" check_whats_new_roadmap "$d/page.md"
+}
+
+@test "mutation: whats-new checked" {
+  local d
+  d="$(wn_fixture)"
+  holds check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  run check_whats_new_checked "$d/page.md" "$d/nope.md"
+  [ "$status" -eq 2 ]
+  drop "$d/page.md" 'Roadmap last checked'
+  breaks 'no last-checked date' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; plant "$d/page.md" 'Also last checked on 2026-11-21.'
+  breaks 'want exactly one' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'epics on 2026-11-20' 'epics on 2026-02-30'
+  breaks 'invalid date' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; edit "$d/page.md" 'epics on 2026-11-20' 'epics on 2026-11-19'
+  breaks 'predates release 3.10.0' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  # No blank line before the footnote: in gfm it is part of the last theme.
+  d="$(wn_fixture)"; edit "$d/page.md" $'continuation line.\n\nRoadmap' $'continuation line.\nRoadmap'
+  breaks 'inside a theme' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; drop "$d/page.md" 'Roadmap last checked'
+  edit "$d/page.md" 'Still moving.' 'Still moving. Roadmap last checked on 2026-11-20.'
+  breaks "not in What's next" check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; drop "$d/page.md" 'Roadmap last checked'
+  edit "$d/page.md" $'## What\'s next\n\n' $'## What\'s next\n\nRoadmap last checked on 2026-11-20.\n\n'
+  breaks 'not after the roadmap themes' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+  d="$(wn_fixture)"; edit "$d/CHANGELOG.md" '## [3.10.0] — 2026-11-20' '## [3.10.0]'
+  breaks 'has no date' check_whats_new_checked "$d/page.md" "$d/CHANGELOG.md"
+}
+
+@test "mutation: tag lane" {
+  local f
+  f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
+  holds check_tag_lane "$f"
+  run check_tag_lane "$BATS_TEST_TMPDIR/nope.yml"
+  [ "$status" -eq 2 ]
+  # Break the bats job's own checkout only: the pytest job's fetch-depth: 0
+  # must not rescue it.
+  awk '/^  bats:/{b=1} /^  pytest:/{b=0} b && /fetch-depth: 0/{sub(/fetch-depth: 0/, "fetch-depth: 1")} {print}' "$f" >"$f.new"
+  mv "$f.new" "$f"
+  grep -q 'fetch-depth: 1' "$f"
+  breaks 'no tag fetch' check_tag_lane "$f"
+  f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
+  edit "$f" $'\n  bats:\n' $'\n  shards:\n'
+  breaks 'no tag fetch' check_tag_lane "$f"
+  f="$(fresh "$PLUGIN_ROOT/.github/workflows/test.yml")"
+  awk '/^  bats:/{b=1} /^  pytest:/{b=0} b{sub(/uses: actions\/checkout/, "uses: actions/cache")} {print}' "$f" >"$f.new"
+  mv "$f.new" "$f"
+  breaks 'no actions/checkout step' check_tag_lane "$f"
+}
+
+# rr_fixture — a README release section and a drift-policy file that hold.
+rr_fixture() {
+  local d="$BATS_TEST_TMPDIR/rr"
+  rm -rf "$d"; mkdir -p "$d"
+  printf '%s\n' \
+    '# Readme' '' \
+    '## Versioning & releases' '' \
+    'Cutting a release:' '' \
+    '1. Bump the version.' \
+    "2. Move the entries; also re-derive the What's new roadmap and set its" \
+    '   "last checked" date.' \
+    '3. Merge that change.' \
+    '4. Publish: `gh release create devagent--v<version>`.' \
+    "5. Re-check the What's new page: add the release's items." '' \
+    '## Next' >"$d/README.md"
+  printf '%s\n' '# policy' '' 'Re-check `whats-new.md` at each' 'release: bump its "last checked" date in the' \
+    'release change, then, once the tag exists, add the release'"'"'s items.' >"$d/policy.md"
+  printf '%s\n' "$d"
+}
+
+@test "mutation: release recheck" {
+  local d
+  d="$(rr_fixture)"
+  holds check_release_recheck "$d/README.md" "$d/policy.md"
+  run check_release_recheck "$d/README.md" "$d/nope.md"
+  [ "$status" -eq 2 ]
+  drop "$d/README.md" "5. Re-check the What's new page"
+  breaks 'no recheck step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"
+  drop "$d/README.md" "5. Re-check the What's new page"
+  edit "$d/README.md" '3. Merge that change.' "3. Merge that change. Re-check the What's new page."
+  breaks 'before the release step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/README.md" 'gh release create' 'gh release make'
+  breaks 'no release step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/README.md" '"last checked" date' 'date'
+  breaks 'no roadmap date step' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" 'whats-new.md' 'the page'
+  breaks 'no recheck rule' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" '"last checked" date' 'date'
+  breaks 'no roadmap-date half' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/policy.md" 'add the release' 'list the release'
+  breaks 'no post-tag half' check_release_recheck "$d/README.md" "$d/policy.md"
+  d="$(rr_fixture)"; edit "$d/README.md" '## Versioning & releases' '## Releases'
+  breaks 'Versioning & releases' check_release_recheck "$d/README.md" "$d/policy.md"
 }

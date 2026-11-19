@@ -19,24 +19,34 @@
 #
 # PAGE PINS — owned by later children. These facts can only be checked through
 # a sentence today; the child that rewrites the page owns the pin:
-#   #999 (install): check_platform_tokens; the bash-floor presence; the "You
-#        need:" .. "- Contributors additionally" region, which #999 moves to
-#        CONTRIBUTING.md and which two checks read: check_prereqs_trace (the region,
-#        through the contributors bullet's wrapped lines, names all ten
-#        PREREQ_TOOLS) and the shellcheck user statement in check_shellcheck_homes;
-#        the install-block, userConfig, grant and version homes; the comment in
-#        tests/generic-templates.bats naming docs-site/install.md's tool list.
+#   #999 (install, rewritten): its "## Prerequisites" bullet list (_prereq_list;
+#        read by check_prereqs_trace and the shellcheck user statement in
+#        check_shellcheck_homes); its "**Supported platforms.**" paragraph label
+#        (check_platform_sentence); the bash-floor form "`bash` ≥ X.Y"
+#        (check_bash_floor); the install-block, userConfig and version homes.
 #   #1000 (replaces Quickstart): check_quickstart_forms; a moved.txt line for
 #        quickstart; check_command_arity's subject floor (>= 1 /devagent: line);
 #        the arity mutation leg, which edits a copy of quickstart.md.
-#   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
-#        /devagent:mergemr and WAITING (#885); the 21-step mutation leg, which
-#        edits a copy of workflow.md. Reuse docs-site/phases.txt unchanged;
-#        check_phase_split and check_loop are the readers. The workflow page's
-#        Phase column and README's step-group bullets ("The 25-step workflow":
-#        Plan / Implement / Ship / Integrate & close) still use the 1.0 four-phase
-#        split; move both to phases.txt's five phases, read from that file.
-#   #1002: none beyond its bullet in the one list.
+#   #1001 (how it works, rewritten): the "| N | `cmd`" row shape and the
+#        header-named Phase and Why columns (check_phase_column, check_why_column);
+#        "numbered 0-24 in" (its Details section); /devagent:mergemr and WAITING
+#        (#885); the "## When it stops" heading (check_stop_section,
+#        check_example_hints); the pre-table region, H1 to the table header
+#        (check_pre_table); the "- **Name** — `step`" phase bullets on the page and
+#        in README's "The N-step workflow" section (check_phase_bullets); the
+#        21-step mutation leg, which edits a copy of workflow.md. phases.txt is
+#        read unchanged by check_phase_split, check_loop, check_scripts_off,
+#        check_phase_column and check_phase_bullets.
+#   #1002 (What's new, written): the "## Shipped since 1.0" and "## What's next"
+#        headings and the "- **<label>.**" item shape (whats-new-check.py
+#        shipped/roadmap/checked); the one "last checked <YYYY-MM-DD>" line;
+#        the sidecar's "<label> | <anchor>" lines (whats-new-sources.txt); the
+#        release-link form .../releases/tag/<tag>; in README's "Versioning &
+#        releases", the `gh release create` step, a step before it naming What's
+#        new and "last checked", and a "Re-check the What's new page" step after
+#        it (check_release_recheck); the bats job's checkout fetching tags in
+#        test.yml (check_tag_lane). CHANGELOG.md's "## [x.y.z]" headings and
+#        "- **Added"/"- **Changed" bullet prefixes are read too (its header says so).
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
 . "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
@@ -66,6 +76,32 @@ LANDING_CHECK="$(dirname "${BASH_SOURCE[0]}")/landing-check.py"
 # landing_py <subcommand> <arg>... — run landing-check.py (0 ok, 1 a structural
 # absence, 2 usage or an unreadable file; diagnostics on stderr).
 landing_py() { python3 -I -X utf8 "$LANDING_CHECK" "$@"; }
+
+# The What's new page's fact reader (#1002), next to this library. Its exit
+# status IS the check's: every check_whats_new_* / check_tag_lane /
+# check_release_recheck wrapper ends on the reader, so its 0/1/2 passes through
+# unchanged (never captured, never collapsed to 2).
+WHATS_NEW_CHECK="$(dirname "${BASH_SOURCE[0]}")/whats-new-check.py"
+whats_new_py() { python3 -I -X utf8 "$WHATS_NEW_CHECK" "$@"; }
+
+# check_whats_new_shipped <page> <sources> <CHANGELOG> <tags-file> — every
+# shipped item ties to a released Added/Changed bullet newer than 1.0.0 and
+# links the first tag holding it. <tags-file> is `git tag` output; an empty or
+# missing one is broken (1), never a skip.
+check_whats_new_shipped() { _need "$1" "$2" "$3" || return 2; whats_new_py shipped "$1" "$2" "$3" "$4"; }
+# check_whats_new_roadmap <page> — >= 3 themes, each "coming"; no issue number,
+# target date or family-site name anywhere in "## What's next".
+check_whats_new_roadmap() { _need "$1" || return 2; whats_new_py roadmap "$1"; }
+# check_whats_new_checked <page> <CHANGELOG> — one "last checked" date after the
+# themes and outside them, not before the newest release's date.
+check_whats_new_checked() { _need "$1" "$2" || return 2; whats_new_py checked "$1" "$2"; }
+# check_tag_lane <test.yml> — the bats job (the lane running docs-site.bats)
+# checks out with fetch-depth: 0 or fetch-tags: true.
+check_tag_lane() { _need "$1" || return 2; whats_new_py tag-lane "$1"; }
+# check_release_recheck <README> <docs-site-README> — the release steps bump the
+# What's new "last checked" date before the publish step and re-check the page
+# after it; the drift policy says to re-check whats-new.md at each release.
+check_release_recheck() { _need "$1" "$2" || return 2; whats_new_py recheck "$1" "$2"; }
 
 # landing_cmds [--article] <page> — the page's install commands (its <code>
 # lines beginning "claude plugin "); 2 when the page cannot be read.
@@ -427,14 +463,16 @@ _article() {
   fi
 }
 
-# check_no_issue_numbers <page> — no visible text node holds '#' and a digit.
-# Attributes, styles, scripts, comments and SVG colour values are not text.
+# check_no_issue_numbers <page> — no visible text node holds an issue number:
+# '#' and a digit, or the "Issue-" form and a digit. Attributes, styles,
+# scripts, comments and SVG colour values are not text.
+_ISSUE_NUM_ERE='#[0-9]|Issue-[0-9]'
 check_no_issue_numbers() {
   local t hits rc=0
   _need "$1" || return 2
   t="$(landing_py text "$1")" || return 2
   [ -n "$t" ] || { echo "$1: no visible text read" >&2; return 1; }
-  hits="$(grep -E '#[0-9]' <<<"$t")" || rc=$?
+  hits="$(grep -E "$_ISSUE_NUM_ERE" <<<"$t")" || rc=$?
   case "$rc" in
     1) return 0 ;;
     0) echo "$1: an issue number in visible text: $(tr '\n' ' ' <<<"$hits")" >&2; return 1 ;;
@@ -601,6 +639,294 @@ check_step_table() {
   [ "$rows" -eq "$count" ] || { echo "$page: $rows numbered rows, want $count" >&2; return 1; }
 }
 
+# _region <file> <start-ERE> <end-ERE> — the first line matching start, then
+# every following line up to, not including, the next line matching end. The
+# one region reader of the How it works checks: the pre-table region ('^# ' to
+# the step-table header), the stop section, README's step-workflow section.
+# Returns 1 naming the missing line. The EREs reach awk through the environment,
+# so a '\|' is not an awk -v escape.
+_region() {
+  local f="$1" out rc=0
+  out="$(_RS="$2" _RE="$3" awk '
+    !f && $0 ~ ENVIRON["_RS"] { f = 1; print; next }
+    f && $0 ~ ENVIRON["_RE"] { done = 1; exit }
+    f { print }
+    END { if (!f) exit 3; if (!done) exit 4 }' "$f")" || rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$out" ;;
+    3) echo "$f: no line matches /$2/" >&2; return 1 ;;
+    4) echo "$f: no line matches /$3/ after /$2/" >&2; return 1 ;;
+    *) echo "_region: cannot read $f" >&2; return 2 ;;
+  esac
+}
+
+# The step table's header line: its first cell is '#'.
+_TABLE_HEAD='^\| *# *\|'
+
+# _table_col <page> <name> — the 1-based '|'-split field index of the step-table
+# header cell whose trimmed text is <name>. Columns are found by name, never by
+# position, so a reordered table still checks the column it names.
+_table_col() {
+  local i
+  i="$(_TH="$_TABLE_HEAD" awk -F'|' -v want="$2" '
+    $0 ~ ENVIRON["_TH"] {
+      for (i = 2; i < NF; i++) { c = $i; gsub(/^[ \t]+|[ \t]+$/, "", c); if (c == want) { print i; exit } }
+      exit
+    }' "$1")" || { echo "_table_col: cannot read $1" >&2; return 2; }
+  [ -n "$i" ] || { echo "$1: no $2 column in the step table header" >&2; return 1; }
+  printf '%s\n' "$i"
+}
+
+# check_phase_column <phases-file> <page> — #1001: each step row's Phase cell is
+# the phase that holds the row's command in the phase-split file. The Phase and
+# Command columns are found by header name, and only they are read, so the
+# Command cell `implement` cannot read as the retired phase "Implement". A
+# retired 1.0 phase name is named first. Floor, checked last: STEP_COUNT rows.
+check_phase_column() {
+  local ph="$1" page="$2" split pc cc name steps s rows num cmd phase want n=0
+  local -A of=()
+  _need "$ph" "$page" || return 2
+  split="$(phase_split "$ph")" || return 2
+  [ -n "$split" ] || { echo "$ph: no phases read" >&2; return 2; }
+  while read -r name steps; do
+    # shellcheck disable=SC2086  # the steps are one word each
+    for s in $steps; do of[$s]="$name"; done
+  done <<<"$split"
+  pc="$(_table_col "$page" Phase)" || return $?
+  cc="$(_table_col "$page" Command)" || return $?
+  rows="$(awk -F'|' -v p="$pc" -v c="$cc" '
+    /^\| *[0-9]+ *\|/ {
+      n = $2; x = $c; y = $p
+      gsub(/[ \t`]/, "", n); gsub(/[ \t`]/, "", x); gsub(/^[ \t]+|[ \t]+$/, "", y)
+      printf "%s\037%s\037%s\n", n, x, y
+    }' "$page")" || return 2
+  while IFS=$'\037' read -r num cmd phase; do
+    [ -n "$num" ] || continue
+    n=$((n + 1))
+    case "$phase" in
+      Implement|"Integrate & close") echo "$page: retired phase name '$phase' at step $num" >&2; return 1 ;;
+    esac
+    want=""; [ -z "$cmd" ] || want="${of[$cmd]:-}"
+    [ -n "$want" ] || { echo "$page: step $num ($cmd) is in no phase of $ph" >&2; return 1; }
+    [ "$phase" = "$want" ] || { echo "$page: step $num ($cmd): Phase '$phase', want '$want'" >&2; return 1; }
+  done <<<"$rows"
+  [ "$n" -eq "$STEP_COUNT" ] || { echo "$page: $n step rows, want $STEP_COUNT" >&2; return 1; }
+}
+
+# check_why_column <template> <page> — #1001: the step table has a Why column
+# (found by header name); every numbered row has the header's cell count (a '|'
+# inside a cell, or a row split across lines, changes it); every row's Why cell
+# is non-blank; and the Why cells number the template's steps.
+check_why_column() {
+  local tmpl="$1" page="$2" want wc out rc=0
+  _need "$tmpl" "$page" || return 2
+  want="$(_step_n "$tmpl")" || return 2
+  wc="$(_table_col "$page" Why)" || return $?
+  out="$(_TH="$_TABLE_HEAD" awk -F'|' -v w="$wc" '
+    !h && $0 ~ ENVIRON["_TH"] { h = NF - 2; next }
+    /^\| *[0-9]+ *\|/ {
+      n = $2; gsub(/[ \t]/, "", n)
+      if (NF - 2 != h) { printf "row %s: %d cells, header has %d\n", n, NF - 2, h; bad = 1; exit }
+      c = $w; gsub(/[ \t]/, "", c)
+      if (c == "") { printf "step %s: empty Why cell\n", n; bad = 1; exit }
+      k++
+    }
+    END { if (bad) exit 1; print k + 0 }' "$page")" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) echo "$page: $out" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  [ "$out" -eq "$want" ] || { echo "$page: $out Why cells, want $want (the steps of $tmpl)" >&2; return 1; }
+}
+
+# check_pre_table <skel> <page> — #1001: before the step table (the H1 to the
+# table header) the page shows no issue number and no config key name. The keys
+# are read from the config skeleton: each dotted part that holds an underscore
+# (merge_mr, phase_breaks, all_prs_branch ...). BLIND SPOT: single-word keys
+# (analyze, branch, repo, backend ...) are also step names or plain English, so
+# they are not checked. Floors: >= 20 keys read (cannot run otherwise), >= 3
+# non-blank region lines.
+check_pre_table() {
+  local skel="$1" page="$2" region hits keys n rc=0
+  _need "$skel" "$page" || return 2
+  region="$(_region "$page" '^# ' "$_TABLE_HEAD")" || return $?
+  hits="$(grep -E "$_ISSUE_NUM_ERE" <<<"$region")" || rc=$?
+  case "$rc" in
+    1) ;;
+    0) echo "$page: an issue number before the step table: $(head -1 <<<"$hits")" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  keys="$(sed -nE 's/^#? ?([a-z][a-z0-9_.]*) +=.*/\1/p' "$skel" | tr '.' '\n' | grep '_' | sort -u)" || true
+  n="$(grep -c . <<<"$keys" || true)"
+  [ "$n" -ge 20 ] || { echo "$skel: $n underscore config keys read, want >= 20" >&2; return 2; }
+  rc=0; hits="$(grep -owF -f <(printf '%s\n' "$keys") <<<"$region")" || rc=$?
+  case "$rc" in
+    1) ;;
+    0) echo "$page: config key $(head -1 <<<"$hits") before the step table" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
+  n="$(grep -c '[^[:space:]]' <<<"$region" || true)"
+  [ "$n" -ge 3 ] || { echo "$page: $n non-blank lines before the step table, want >= 3" >&2; return 1; }
+}
+
+# check_stop_section <page> <template> <next-sh> — #1001: the page's "## When it
+# stops" section names each of these, checked in this order (the first missing
+# one is reported; their order on the page is not checked): [?], the word
+# waiting, the [?] label of the template's State key line, [!], the phase break,
+# --through, and each default phase-break step as `<step>`. The defaults are read
+# from the one PHASE_BREAKS="<word list>" assignment inside next.sh's
+# phase_breaks_resolve() (its built-in fallback). Tokens are literals (grep -F):
+# '[?]' is a bracket expression as a regex.
+check_stop_section() {
+  local page="$1" tmpl="$2" nextsh="$3" region label line re tok rc
+  _need "$page" "$tmpl" "$nextsh" || return 2
+  grep -qx '## When it stops' "$page" || { echo "$page: no \"## When it stops\" section" >&2; return 1; }
+  region="$(_region "$page" '^## When it stops$' '^## ')" || return $?
+  label="$(sed -n 's/^State key:.*\[?\] \([^ ]*\).*$/\1/p' "$tmpl" | head -1)"
+  [ -n "$label" ] || { echo "$tmpl: cannot read the [?] label from its State key line" >&2; return 2; }
+  re='PHASE_BREAKS="[a-z ]+"'
+  line="$(sed -n '/^phase_breaks_resolve() {$/,/^}$/p' "$nextsh" | grep -E -- "$re")" || true
+  [ -n "$line" ] && [[ "$line" != *$'\n'* ]] \
+    || { echo "$nextsh: not exactly one line in phase_breaks_resolve() matches $re" >&2; return 2; }
+  line="${line#*PHASE_BREAKS=\"}"; line="${line%%\"*}"
+  for tok in '[?]' waiting "$label" '[!]' 'phase break' '--through'; do
+    rc=0
+    case "$tok" in
+      waiting) grep -qiw -- "$tok" <<<"$region" || rc=$? ;;
+      'phase break') grep -qi -- "$tok" <<<"$region" || rc=$? ;;
+      *) grep -qF -- "$tok" <<<"$region" || rc=$? ;;
+    esac
+    [ "$rc" -le 1 ] || return 2
+    [ "$rc" -eq 0 ] || { echo "$page: the When it stops section does not name $tok" >&2; return 1; }
+  done
+  for tok in $line; do
+    grep -qF -- "\`$tok\`" <<<"$region" \
+      || { echo "$page: the When it stops section does not name the default break \`$tok\`" >&2; return 1; }
+  done
+}
+
+# _hint_fit <name> <hint> <arg>... — one example of /devagent:<name> fits the
+# command's argument hint. The hint is tokenised with [ and ] spaced out;
+# depth-0 tokens are required; a --flag followed by a <placeholder> in its group
+# is a pair. R1 every argument is a hint token; R2 every required token is
+# given; R3 a paired flag is directly followed by its placeholder.
+_hint_fit() {
+  local name="$1" hint="$2" sp t a i depth=0; shift 2
+  local -a toks=() req=() args=("$@")
+  local -A inh=() pair=()
+  sp="${hint//\[/ [ }"; sp="${sp//\]/ ] }"
+  read -r -a toks <<<"$sp"
+  for ((i = 0; i < ${#toks[@]}; i++)); do
+    t="${toks[i]}"
+    case "$t" in
+      '[') depth=$((depth + 1)); continue ;;
+      ']') depth=$((depth - 1)); continue ;;
+    esac
+    inh[$t]=1
+    [ "$depth" -ne 0 ] || req+=("$t")
+    if [[ "$t" == --* ]] && [[ "${toks[i + 1]:-}" == \<*\> ]]; then pair[$t]="${toks[i + 1]}"; fi
+  done
+  for a in "${args[@]}"; do
+    [ -n "${inh[$a]+x}" ] || { echo "/devagent:$name: '$a' is not in its argument hint $hint" >&2; return 1; }
+  done
+  for t in "${req[@]}"; do
+    [[ " ${args[*]} " == *" $t "* ]] || { echo "/devagent:$name: missing required $t" >&2; return 1; }
+  done
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    a="${args[i]}"
+    [ -n "${pair[$a]+x}" ] || continue
+    [ "${args[i + 1]:-}" = "${pair[$a]}" ] || { echo "/devagent:$name: $a needs ${pair[$a]}" >&2; return 1; }
+  done
+}
+
+# check_example_hints <page> <root> — #1001: every backticked span on the page
+# that begins /devagent:<name> fits that command's argument-hint (the first
+# frontmatter argument-hint: line of <root>/commands/<name>.md, else
+# <root>/skills/<name>/SKILL.md; one outer quote pair removed; no hint means no
+# arguments). Spans are read per source line, so each sits on one line. Each
+# example is checked (R1-R3, _hint_fit) in page order; the subject floor comes
+# last: a /devagent:next example with --through, and a /devagent:unstuck one.
+# Needs skill_frontmatter from tests/lib/bats-helpers.bash, which both callers load.
+check_example_hints() {
+  local page="$1" root="$2" spans span name f hint through=0 unstuck=0
+  local -a w
+  local -A hints=()
+  _need "$page" || return 2
+  spans="$(grep -o '`[^`]*`' "$page" | tr -d '`' | grep '^/devagent:')" || true
+  while IFS= read -r span; do
+    [ -n "$span" ] || continue
+    read -r -a w <<<"$span"
+    name="${w[0]#/devagent:}"
+    if [ -z "${hints[$name]+x}" ]; then
+      f="$root/commands/$name.md"
+      [ -f "$f" ] || f="$root/skills/$name/SKILL.md"
+      [ -f "$f" ] || { echo "$page: no command file for /devagent:$name" >&2; return 1; }
+      hint="$(skill_frontmatter "$f" | sed -n 's/^argument-hint: *//p' | head -1)"
+      case "$hint" in
+        \"*\") hint="${hint#\"}"; hint="${hint%\"}" ;;
+        \'*\') hint="${hint#\'}"; hint="${hint%\'}" ;;
+      esac
+      hints[$name]="$hint"
+    fi
+    hint="${hints[$name]}"
+    _hint_fit "$name" "$hint" "${w[@]:1}" || return 1
+    case "$name" in
+      next) [[ " ${w[*]} " != *" --through "* ]] || through=$((through + 1)) ;;
+      unstuck) unstuck=$((unstuck + 1)) ;;
+    esac
+  done <<<"$spans"
+  [ "$through" -ge 1 ] || { echo "$page: subject floor: no /devagent:next example with --through" >&2; return 1; }
+  [ "$unstuck" -ge 1 ] || { echo "$page: subject floor: no /devagent:unstuck example" >&2; return 1; }
+}
+
+# check_phase_bullets <phases-file> <template> <file> <start-ERE> <end-ERE> —
+# #1001: inside the region, the phase bullets ("- **Name** — `step` · ..."; any
+# bold name is read, so a retired one is caught) are the phase-split file's: in
+# order (1) one bullet per phase, (2) the names in order, (3) each phase's steps
+# in order (its `step` or `N step` tokens), (4) a number beside a step is its
+# template number, (5) LAST the steps number STEP_COUNT. Each bullet sits on one
+# line, and its trailing sentence backticks no single lowercase word (it would
+# read as a step).
+check_phase_bullets() {
+  local ph="$1" tmpl="$2" file="$3" region split steps name got tok num cmd i np total=0
+  local -a bl=() names=() stepsof=() toks=()
+  local -A tnum=()
+  _need "$ph" "$tmpl" "$file" || return 2
+  split="$(phase_split "$ph")" || return 2
+  steps="$(template_steps "$tmpl")" || return 2
+  [ -n "$split" ] || { echo "$ph: no phases read" >&2; return 2; }
+  region="$(_region "$file" "$4" "$5")" || return $?
+  while read -r num cmd; do [ -n "$cmd" ] || continue; tnum[$cmd]=$num; done <<<"$steps"
+  while read -r name got; do names+=("$name"); stepsof+=("$got"); done <<<"$split"
+  np="${#names[@]}"
+  mapfile -t bl < <(grep -E '^- \*\*[^*]+\*\* — ' <<<"$region")
+  [ "${#bl[@]}" -eq "$np" ] || { echo "$file: ${#bl[@]} bullets read, want $np" >&2; return 1; }
+  for ((i = 0; i < np; i++)); do
+    name="${bl[i]#- \*\*}"; name="${name%%\*\* — *}"
+    [ "$name" = "${names[i]}" ] || { echo "$file: bullet $((i + 1)) is '$name', want '${names[i]}'" >&2; return 1; }
+    toks[i]="$(grep -oE '`([0-9]+ )?[a-z]+`' <<<"${bl[i]}" | tr -d '`')"
+  done
+  for ((i = 0; i < np; i++)); do
+    got=""
+    while IFS= read -r tok; do [ -z "$tok" ] || got+="${tok#* } "; done <<<"${toks[i]}"
+    got="${got% }"
+    [ "$got" = "${stepsof[i]}" ] \
+      || { echo "$file: phase ${names[i]}: steps '$got', want '${stepsof[i]}'" >&2; return 1; }
+  done
+  for ((i = 0; i < np; i++)); do
+    while IFS= read -r tok; do
+      [ -n "$tok" ] || continue
+      total=$((total + 1))
+      [[ "$tok" == *" "* ]] || continue
+      num="${tok%% *}"; cmd="${tok#* }"
+      [ "$num" = "${tnum[$cmd]:-}" ] \
+        || { echo "$file: phase ${names[i]}: $num $cmd, template says ${tnum[$cmd]:-nothing}" >&2; return 1; }
+    done <<<"${toks[i]}"
+  done
+  [ "$total" -eq "$STEP_COUNT" ] || { echo "$file: $total steps in bullets, want $STEP_COUNT" >&2; return 1; }
+}
+
 # check_backend_verbs <file> — every backend verb, backtick-anchored
 # (substring-proof: `state` must not ride on `mr-state`).
 check_backend_verbs() {
@@ -627,39 +953,53 @@ check_absent() {
   esac
 }
 
-# The prerequisite tools README names (#579). The install page's own list is
-# derived from its "You need:" region; every tool there must be in README.
-PREREQ_TOOLS=(bash python3 jq git gh glab curl tomli bats shellcheck)
+# The floor of the install page's Prerequisites list (#999): the tools the
+# page must list. The list may name more; each must be in README.
+PAGE_PREREQ_TOOLS=(bash python3 jq git gh shellcheck timeout)
 
-# _you_need_region <page> <with-contributors 0|1> — the install page's
-# "You need:" list, optionally through its "- Contributors additionally" bullet
-# (with its wrapped lines, so a reflow cannot drop a tool).
-_you_need_region() {
-  awk -v c="$2" '
-    /You need:$/ { f = 1; next }
-    /^- Contributors additionally/ { if (!f || !c) exit; print; g = 1; next }
-    g { if (/^$/ || /^- /) exit; print; next }
-    f' "$1"
+# _bold_para <file> <label> [normalise 0|1] — the paragraph that opens with the
+# literal <label> (e.g. "**Prerequisites.**"), to its first blank line. With
+# normalise=1 it is one line, whitespace runs squeezed (so a reflow or CRLF bytes
+# compare equal) and edge-trimmed. Empty when the file has no such paragraph.
+_bold_para() {
+  awk -v l="$2" -v n="${3:-0}" '
+    index($0, l) == 1 { f = 1 }
+    f && /^$/ { exit }
+    f { if (n) s = s " " $0; else print }
+    END { if (n && s != "") { gsub(/[[:space:]]+/, " ", s); gsub(/^ | $/, "", s); print s } }' "$1"
 }
 
-# check_prereqs_trace <page> <readme> — the page's toolchain (the backticked
-# single words in its "You need:" region, through the contributors line) names
-# every PREREQ_TOOLS entry, README names each, every page tool is in README, and
-# neither side claims the repo is private.
+# _readme_prereqs <readme> — README's "**Prerequisites.**" paragraph. The one
+# reader of that region (check_prereqs_trace and check_shellcheck_homes).
+_readme_prereqs() { _bold_para "$1" '**Prerequisites.**'; }
+
+# _prereq_list <page> — the bullets (with their two-space continuation lines,
+# so a reflow cannot drop a tool) inside the page's "## Prerequisites" section
+# only. Prose there (the platform paragraph) and every later section are out.
+_prereq_list() {
+  awk '/^## /{s = /^## Prerequisites$/; b = 0; next}
+       s && /^- /{b = 1; print; next}
+       s && b && /^  [^ ]/{print; next}
+       {b = 0}' "$1"
+}
+
+# check_prereqs_trace <page> <readme> — one way (#999): the page's
+# Prerequisites list (its backticked single words) names every
+# PAGE_PREREQ_TOOLS entry, every tool it names is backticked in README's
+# Prerequisites paragraph, and neither side claims the repo is private.
 check_prereqs_trace() {
-  local page="$1" readme="$2" region tools t f rc
+  local page="$1" readme="$2" list rp tools t f rc
   _need "$page" "$readme" || return 2
-  region="$(_you_need_region "$page" 1)"
-  [ -n "$region" ] || { echo "$page: no 'You need:' region" >&2; return 1; }
-  tools="$(grep -oE '`[a-z][a-z0-9]*`' <<<"$region" | tr -d '`' | sort -u)"
-  for t in "${PREREQ_TOOLS[@]}"; do
-    grep -qx -- "$t" <<<"$tools" || { echo "$page: the toolchain list does not name \`$t\`" >&2; return 1; }
+  list="$(_prereq_list "$page")"
+  [ -n "$list" ] || { echo "$page: no Prerequisites list" >&2; return 1; }
+  rp="$(_readme_prereqs "$readme")"
+  [ -n "$rp" ] || { echo "$readme: no **Prerequisites.** paragraph" >&2; return 2; }
+  tools="$(grep -oE '`[a-z][a-z0-9]*`' <<<"$list" | tr -d '`' | sort -u)"
+  for t in "${PAGE_PREREQ_TOOLS[@]}"; do
+    [[ $'\n'"$tools"$'\n' == *$'\n'"$t"$'\n'* ]] || { echo "$page: page list is missing \`$t\`" >&2; return 1; }
   done
   while IFS= read -r t; do
-    # RECORDED EXEMPTION: `tomllib` is the stdlib module the `tomli` fallback
-    # stands in for, named to explain the fallback; it is not something to install.
-    case "$t" in ''|tomllib) continue ;; esac
-    _has "$readme" "\`$t\`" "does not name \`$t\`, which $page lists as a prerequisite" || return 1
+    [[ "$rp" == *"\`$t\`"* ]] || { echo "$page: not in README Prerequisites: \`$t\`" >&2; return 1; }
   done <<<"$tools"
   for f in "$page" "$readme"; do
     rc=0; grep -qiE 'repo(sitory)? is private|private-repo access' "$f" || rc=$?
@@ -671,13 +1011,45 @@ check_prereqs_trace() {
   done
 }
 
-# check_platform_tokens <file> — the #579 platform posture tokens.
+# The #579 platform posture claims: README carries each (check_platform_tokens),
+# and the install page's copied platform paragraph keeps each
+# (check_platform_sentence). One list, so the two cannot drift.
+PLATFORM_CLAIMS=('developed and tested on **Linux**' 'WSL' 'Git Bash' 'macOS is currently untested' 'readlink -f')
+
+# check_platform_tokens <file> — the file names every PLATFORM_CLAIMS entry.
 check_platform_tokens() {
-  local f="$1"
+  local f="$1" text c
   _need "$f" || return 2
-  _has "$f" 'developed and tested on **Linux**' 'no Linux posture token' || return 1
-  _has "$f" 'macOS is currently untested' 'no macOS posture token' || return 1
-  _has "$f" 'readlink -f' 'no readlink -f token' || return 1
+  text="$(<"$f")"
+  for c in "${PLATFORM_CLAIMS[@]}"; do
+    [[ "$text" == *"$c"* ]] || { echo "$f: no platform posture token: $c" >&2; return 1; }
+  done
+}
+
+# _platform_para <file> — the "**Supported platforms.**" paragraph, normalised.
+_platform_para() { _bold_para "$1" '**Supported platforms.**' 1; }
+
+# check_platform_sentence <page> <readme> — #999: the page's platform paragraph
+# is README's, word for word, or README's cut at a sentence boundary (the page
+# keeps the user-facing claims; README goes on to the CI detail), and it keeps
+# each user-facing claim. LIMIT: only the page's span is compared, so a README
+# edit AFTER the page's cut point stays green.
+check_platform_sentence() {
+  local page="$1" readme="$2" r p claim
+  _need "$page" "$readme" || return 2
+  r="$(_platform_para "$readme")"
+  [ -n "$r" ] || { echo "$readme: no **Supported platforms.** paragraph" >&2; return 2; }
+  p="$(_platform_para "$page")"
+  [ -n "$p" ] || { echo "$page: no **Supported platforms.** paragraph" >&2; return 1; }
+  if [ "$p" != "$r" ]; then
+    [[ "$p" == *. && "$r" == "$p "* ]] || {
+      echo "$page: the platform paragraph is not README's, word for word, cut at a sentence end" >&2
+      return 1
+    }
+  fi
+  for claim in "${PLATFORM_CLAIMS[@]}"; do
+    [[ "$p" == *"$claim"* ]] || { echo "$page: platform paragraph drops the claim: $claim" >&2; return 1; }
+  done
 }
 
 # check_command_arity <page>... — no line is a bare /devagent:(init|pull|file|
@@ -737,8 +1109,10 @@ check_bash_floor() {
 # verified-against pin. A line carrying a historical measurement marker
 # ("measured at/on", "unmeasured", "re-verified on") is exempt: it states what was
 # observed on a named past version. CHANGELOG, docs/specs, evals/ and tests/ are
-# history or floor claims and are never passed as roots. Floor: 5 live tokens
-# (README x2, install.md x2, the bug-report placeholder).
+# history or floor claims and are never passed as roots. Floor: 5 live tokens,
+# the measured census after #999 (README x3, install.md x1, the bug-report
+# placeholder x1). #999 asked the floor to drop by the token leaving the page,
+# assuming floor = count; the count before it was 6, so the floor stays 5.
 check_cc_version_homes() {
   local root="$1" pin hits rc=0 hit text v live=0 stale=""; shift
   [ "$#" -gt 0 ] || { echo "check_cc_version_homes: no roots" >&2; return 2; }
@@ -785,7 +1159,7 @@ _mz_live() {
 # check_shellcheck_homes <root> <install-page> <config-page> — #678: the
 # version every shellcheck home names is the one CONTRIBUTING.md "What you need"
 # names. The page arguments are root-relative. Homes: the user homes (README
-# Prerequisites, the install page's "You need:" list, config.toml.skel, the
+# Prerequisites, the install page's Prerequisites list, config.toml.skel, the
 # configuration page), commands/analyze.md (the one home of the detail) and the
 # contributor homes. Major zero isolates the shellcheck version from the Claude
 # Code and bash versions in the same files. The user floor equals the
@@ -793,12 +1167,12 @@ _mz_live() {
 # RECORDED EXEMPTION: a token in the stamp form `analyzer: shellcheck <version>`
 # is an example of a measured value, not a claim, and is not counted.
 check_shellcheck_homes() {
-  local root="$1" install="$2" config="$3" floor vals v h live=0 stale="" region text msg n
+  local root="$1" install="$2" config="$3" floor vals v h live=0 stale="" region text msg need
   local -a homes
   local -A count=()
   _need "$root/CONTRIBUTING.md" || return 2
-  floor="$(awk '/^## What you need$/{f=1; next} f && /^## /{exit} f' "$root/CONTRIBUTING.md" \
-            | tr -s '[:space:]' ' ' \
+  need="$(awk '/^## What you need$/{f=1; next} f && /^## /{exit} f' "$root/CONTRIBUTING.md")"
+  floor="$(tr -s '[:space:]' ' ' <<<"$need" \
             | grep -oE '`shellcheck` [0-9]+\.[0-9]+\.[0-9]+ or newer' \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
   [ -n "$floor" ] || { echo "CONTRIBUTING.md 'What you need' no longer says \`shellcheck\` X.Y.Z or newer" >&2; return 1; }
@@ -833,13 +1207,15 @@ check_shellcheck_homes() {
     [ "${count[$h]}" -eq 1 ] || { echo "$h: ${count[$h]} live version tokens, want 1" >&2; return 1; }
   done
 
+  # The contributor statement (#999 moved it off the install page): the
+  # CONTRIBUTING.md "What you need" region names the test runner.
+  [[ "$need" == *'`bats`'* ]] || { echo "CONTRIBUTING.md 'What you need' no longer names \`bats\`" >&2; return 1; }
+
   # The user statements, scoped to their regions: a deleted user statement reddens
   # even with the contributor statements in the same file intact.
-  n="$(grep -c '^- Contributors additionally' "$root/$install" || true)"
-  [ "$n" -eq 1 ] || { echo "$install: $n '- Contributors additionally' lines, want 1" >&2; return 1; }
   for region in \
-      "$(awk '/^\*\*Prerequisites\.\*\*/{f=1} f && /^$/{exit} f' "$root/README.md")" \
-      "$(_you_need_region "$root/$install" 0)"; do
+      "$(_readme_prereqs "$root/README.md")" \
+      "$(_prereq_list "$root/$install")"; do
     [ -n "$region" ] || { echo "a user statement region is empty" >&2; return 1; }
     vals="$(_mz_live <<<"$region")" || return 2
     [ "$(grep -c . <<<"$vals" || true)" -eq 1 ] || {
@@ -864,12 +1240,12 @@ check_shellcheck_homes() {
   [[ "$text" == *"$msg"* ]] || { echo "commands/analyze.md: no '$msg'" >&2; return 1; }
   [[ "$text" == *unattested* ]] || { echo "commands/analyze.md: no 'unattested'" >&2; return 1; }
 
-  # Floor: 9 tokens at 4e3ca74 (README 1, CONTRIBUTING 1, install.md 1,
-  # pre-push 3, shellcheck.yml 3) plus one per user statement (README, install
-  # page, config.toml.skel, configuration page, commands/analyze.md). The pins
+  # Floor: 8 contributor tokens (README 1, CONTRIBUTING 1, pre-push 3,
+  # the shellcheck.yml workflow 3) plus one per user statement (README, install page,
+  # config.toml.skel, configuration page, commands/analyze.md) = 13. The pins
   # above catch a deleted user statement; this bound is the only guard on the
   # contributor tokens.
-  [ "$live" -ge 14 ] || { echo "only $live live shellcheck version tokens, want >= 14" >&2; return 1; }
+  [ "$live" -ge 13 ] || { echo "only $live live shellcheck version tokens, want >= 13" >&2; return 1; }
 }
 
 # check_merge_keys <skel> <config-page> <changelog> <workflow-page> — #885: the

@@ -1,0 +1,39 @@
+# tests/fixtures/capacity/full.toml — #743: every capacity key declared (T2.1, T2.5).
+# alpha sets all six project keys with a TOML date; beta a quoted date and paused;
+# gamma has no capacity table. Its golden is full.expected.json, written by hand.
+[defaults]
+checklist_template = "standard"
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40.5
+max_lanes = 3
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 10
+operator_hours_per_agent_hour = 0.25
+
+[project.alpha]
+source_dir = "/tmp/alpha"
+
+[project.alpha.capacity]
+priority = 2
+max_lanes = 2
+paused = false
+deadline = 2026-12-31
+reserve_operator_hours_per_week = 4.5
+reserve_tokens_per_week = 100000000
+
+[project.beta]
+source_dir = "/tmp/beta"
+
+[project.beta.capacity]
+priority = 7
+max_lanes = 1
+paused = true
+deadline = "2027-03-01"
+reserve_operator_hours_per_week = 2
+reserve_tokens_per_week = 50000000
+
+[project.gamma]
+source_dir = "/tmp/gamma"
