@@ -416,3 +416,136 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     [[ "$SYNC_LINE" == *"hd/add5: Permission denied"* ]]
     [ ! -e "$SYNC_B/hd/add5" ]
 }
+
+@test "#1148 held deleted file: a failed push after the leftover keeps both" {
+    git -C "$SYNC_A" rm -q hd/hdel; git -C "$SYNC_A" commit -q -m 'A: rm hdel'; git -C "$SYNC_A" push -q origin main 2>/dev/null
+    sync_commit "$SYNC_B" b.txt b 'B: b'
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" unlink-warn:hd/hdel+push-race)"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_REASON" = origin-moved ]
+    [[ "$SYNC_LINE" == "devDoc sync refused for "*" Also: the move could not delete hd/hdel"* ]]
+}
+
+@test "#1148 fetch: removed origin fails; ref-lock race counts; one retry" {
+    sync_commit "$SYNC_B" b.txt b 'B: b'                             # a: B ahead
+    mv "$SYNC_ORIGIN" "$R/gone.git"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_REASON" = fetch-failed ]; [ "$SYNC_OUTCOME" != pushed ]
+    [[ "$SYNC_LINE" == *"the fetch failed (git ls-remote exited 128)"* ]]
+    _leg b                                                           # b: behind, the ref-lock race
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$R/b/w" fetch-race)"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_OUTCOME" = fast-forwarded ] || { echo "$SYNC_LINE" >&2; false; }
+    [ "$(_calls "$R/b/w" fetch)" = 1 ]
+    _leg c; DEVAGENT_GIT="$(sync_git_wrapper "$R/c/w" fetch-fail-once)"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_RC" = 0 ]; [ "$SYNC_OUTCOME" = fast-forwarded ]
+    [ "$(_calls "$R/c/w" fetch)" = 2 ]
+    _leg d; DEVAGENT_GIT="$(sync_git_wrapper "$R/d/w" fetch-fail-always)"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_REASON" = fetch-failed ]
+    [[ "$SYNC_LINE" == *"the fetch failed (git fetch exited 128)"* ]]
+    [ "$(_calls "$R/d/w" fetch)" = 2 ]
+    _leg e; DEVAGENT_GIT="$(sync_git_wrapper "$R/e/w" slow:ls-remote=3)"
+    sync_run "$SYNC_B_DOC" Issue-7 2
+    [ "$SYNC_REASON" = budget ]; [ "$SYNC_OUTCOME" = skipped ]
+    [[ "$SYNC_LINE" == *"the time budget ran out (DEVAGENT_DEVDOC_SYNC_SECS=2)"* ]]
+    grep -q '^end ls-remote .* term$' "$R/e/w/calls"
+    [ "$(_calls "$R/e/w" fetch)" = 0 ]
+}
+
+@test "#1148 origin moved before the push" {
+    sync_commit "$SYNC_B" b1.txt b1 'B: b1'; sync_commit "$SYNC_B" b2.txt b2 'B: b2'
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" push-race)"
+    _refuses origin-moved --no-origin
+    [[ "$SYNC_LINE" == *"origin/main moved before the push (fetch first): ! [rejected]"* ]]
+    [[ "$SYNC_LINE" == *"2 commits not on origin/main"* ]]
+    sync_fixture "$R/b"                                              # leg b: B fetched first
+    sync_commit "$SYNC_B" b1.txt b1 'B: b1'
+    DEVAGENT_GIT="$(sync_git_wrapper "$R/b/w" push-race-fetched)"
+    _refuses origin-moved --no-origin
+    [[ "$SYNC_LINE" == *"(non-fast-forward)"* ]]
+}
+
+@test "#1148 remote refusal quotes the remote: line" {
+    printf '#!/bin/sh\necho "devdoc is frozen for audit   "\nexit 1\n' > "$SYNC_ORIGIN/hooks/pre-receive"
+    chmod +x "$SYNC_ORIGIN/hooks/pre-receive"
+    sync_commit "$SYNC_B" b.txt b 'B: b'
+    _refuses remote-refused
+    [[ "$SYNC_LINE" == *"origin refused the push: remote: devdoc is frozen for audit; ! [remote rejected]"* ]]
+    [[ "$SYNC_LINE" == *"Fix what the remote names"* ]]
+    [[ "$SYNC_LINE" != *moved* ]]
+}
+
+@test "#1148 push bounded by what is left of the budget" {
+    sync_commit "$SYNC_B" b.txt b 'B: b'
+    o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" slow:ls-remote=2,push=3)"
+    sync_run "$SYNC_B_DOC" Issue-7 4
+    [ "$SYNC_REASON" = budget ] || { echo "$SYNC_LINE" >&2; false; }
+    grep -q '^end push .* term$' "$BATS_TEST_TMPDIR/w/calls"
+    [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]
+    sync_fixture "$R/b"; sync_commit "$SYNC_B" b.txt b 'B: b'      # leg b: under 1 s left, no push starts
+    DEVAGENT_GIT="$(sync_git_wrapper "$R/b/w" slow:ls-remote=2.2)"
+    sync_run "$SYNC_B_DOC" Issue-7 3
+    [ "$SYNC_REASON" = budget ]
+    [ "$(_calls "$R/b/w" push)" = 0 ]
+}
+
+@test "#1148 failing git command named, lock released" {
+    local sub
+    for sub in merge push commit-tree merge-base merge-tree; do
+        sync_fixture "$R/$sub"
+        case "$sub" in
+            merge) sync_other a.txt A 'A: a' ;;                      # behind
+            push) sync_commit "$SYNC_B" b.txt b 'B: b' ;;            # ahead
+            *) sync_other a.txt A 'A: a'; sync_commit "$SYNC_B" b.txt b 'B: b' ;;   # diverged
+        esac
+        export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$R/$sub/w" "fail:$sub:2")"
+        _refuses git-failed
+        [[ "$SYNC_LINE" == *"git $sub exited 2"* ]] || { echo "$sub: $SYNC_LINE" >&2; false; }
+    done
+}
+
+@test "#1148 the executable remedies let the next sync finish" {
+    _done() {
+        sync_run "$SYNC_B_DOC" Issue-7 30
+        case "$SYNC_OUTCOME" in pushed|merged|fast-forwarded) ;; *) echo "$1: $SYNC_LINE" >&2; return 1 ;; esac
+        [ "$(git -C "$SYNC_B" rev-parse HEAD)" = "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" ]
+    }
+    sync_fixture "$R/c"                                              # conflict -> a hand merge
+    sync_other proj/WBS.md '# from A' 'A: WBS'; sync_commit "$SYNC_B" proj/WBS.md '# from B' 'B: WBS'
+    _refuses conflict
+    git -C "$SYNC_B" merge -q origin/main >/dev/null 2>&1 || true
+    printf '# resolved\n' > "$SYNC_B/proj/WBS.md"; git -C "$SYNC_B" add proj/WBS.md; git -C "$SYNC_B" commit -q --no-edit
+    _done conflict
+    sync_fixture "$R/e"                                              # in the way, edited -> commit it
+    printf '%s\n' '# proj WBS from A' '- [ ] leaf one' '- [ ] leaf two' > "$SYNC_A/proj/WBS.md"
+    git -C "$SYNC_A" commit -q -am 'A: WBS line 1'; git -C "$SYNC_A" push -q origin main 2>/dev/null
+    printf '%s\n' '# proj WBS' '- [ ] leaf one' '- [x] leaf two' > "$SYNC_B/proj/WBS.md"
+    _refuses in-the-way
+    git -C "$SYNC_B" commit -q -am 'B: WBS line 3'
+    _done edited
+    sync_fixture "$R/u"                                              # in the way, untracked -> move it aside
+    sync_other new1 'origin new1' 'A: new1'; printf 'B new1\n' > "$SYNC_B/new1"
+    _refuses in-the-way
+    mv "$SYNC_B/new1" "$R/u/new1.aside"
+    _done untracked
+    _leg detached; git -C "$SYNC_B" checkout -q --detach              # detached -> checkout main
+    _refuses detached
+    git -C "$SYNC_B" checkout -q main
+    _done detached
+    _leg pick; git -C "$SYNC_B" checkout -q -b pick                  # mid-cherry-pick -> resolve, --continue
+    sync_commit "$SYNC_B" mod2 'pick side' 'pick: mod2'; git -C "$SYNC_B" checkout -q main
+    sync_commit "$SYNC_B" mod2 'main side' 'main: mod2'
+    git -C "$SYNC_B" cherry-pick pick >/dev/null 2>&1 || true
+    _refuses mid-cherry-pick
+    printf 'resolved\n' > "$SYNC_B/mod2"; git -C "$SYNC_B" add mod2
+    GIT_EDITOR=true git -C "$SYNC_B" cherry-pick --continue >/dev/null
+    _done cherry-pick
+    sync_fixture "$R/p"; _partway_fixture                            # part-way -> re-run unwrapped
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$R/p/w" partway:hd/keep1)"
+    _refuses part-way
+    unset DEVAGENT_GIT
+    _done part-way
+}

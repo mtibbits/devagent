@@ -794,7 +794,7 @@ devdoc_sync() {
 }
 
 _devdoc_sync_body() {
-    local devdoc_dir="$1" issue="$2" budget="$3" top b dl t0 rc=0 lrc=0 hrc=0 urc=0 prc=0
+    local devdoc_dir="$1" issue="$2" budget="$3" top b dl t0 rc=0 lrc=0 hrc=0 urc=0 prc=0 frc=0 pre="" cur=""
     devdoc_sync_repo "$devdoc_dir" || return 0
     top="$DEVDOC_SYNC_TOP"; DEVDOC_SYNC_REPO="$top"
     rc=0; _devdoc_sync_state "$top" || rc=$?
@@ -806,6 +806,7 @@ _devdoc_sync_body() {
         return 0
     fi
     # 1. The ask and the fetch, unlocked.
+    pre="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify "refs/remotes/origin/$b" 2>/dev/null)" || pre=""
     bounded_now_us; dl=$((BOUNDED_NOW_US + budget * 1000000))
     upstream_branch_tip "$top" "$b" "$budget" "$dl" || urc=$?
     _DS_TMPD="$(mktemp -d 2>/dev/null)" || _DS_TMPD=""
@@ -835,8 +836,20 @@ _devdoc_sync_body() {
             case "$UPSTREAM_FETCH_RC" in
                 ""|0) ;;
                 budget|124|137) _ds_budget; return 0 ;;
-                *) _ds_set refused fetch-failed "the fetch failed (git fetch exited $UPSTREAM_FETCH_RC)" "The next close retries."
-                   return 0 ;;
+                *)  # Another session's fetch may have moved origin/<b> at the same moment
+                    # ("cannot lock ref"): done when the ref moved and the tip is here;
+                    # otherwise one retry, within the budget.
+                    cur="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify "refs/remotes/origin/$b" 2>/dev/null)" || cur=""
+                    if [ "$cur" = "$pre" ] || ! "$DEVAGENT_GIT" -C "$top" cat-file -e "$_DS_TIP^{commit}" 2>/dev/null; then
+                        if ! bounded_secs_left "$dl"; then _ds_budget; return 0; fi
+                        _upstream_fetch_branch "$top" "$BOUNDED_SECS" "$b" || frc=$?
+                        case "$frc" in
+                            0) ;;
+                            124|137) _ds_budget; return 0 ;;
+                            *) _ds_set refused fetch-failed "the fetch failed (git fetch exited $frc)" "The next close retries."
+                               return 0 ;;
+                        esac
+                    fi ;;
             esac
             if ! "$DEVAGENT_GIT" -C "$top" cat-file -e "$_DS_TIP^{commit}" 2>/dev/null; then
                 _ds_set refused fetch-failed "the fetch failed (origin's $b tip $_DS_TIP is not here after it)" "The next close retries."
@@ -865,7 +878,7 @@ _devdoc_sync_body() {
     LC_ALL=C GIT_TERMINAL_PROMPT=0 bounded_call "$BOUNDED_SECS" "$DEVAGENT_GIT" -C "$top" \
         push origin "$_DS_S:refs/heads/$b" </dev/null >/dev/null 2>"$_DS_ERR" || prc=$?
     if [ "$prc" -ne 0 ]; then
-        _ds_git_failed push "$prc" "$_DS_ERR"
+        _ds_push_failed "$prc"                                       # never retried within one close
         return 0
     fi
     _devdoc_sync_track "$top" "$b" "$_DS_S"
@@ -874,6 +887,39 @@ _devdoc_sync_body() {
         *) DEVDOC_SYNC_OUTCOME=pushed ;;
     esac
     return 0
+}
+
+# _ds_push_failed <rc> — classify a failed push from git's stderr (LC_ALL=C), in
+# order: the bound expired; origin moved (` ! [rejected] … (fetch first|non-fast-forward)`);
+# the remote refused it (` ! [remote rejected] `, quoting up to 3 `remote:` lines
+# with their padding stripped); anything else is git-failed.
+_ds_push_failed() {
+    local line t rej="" rrej="" kind="" rl=""
+    local -a remote=()
+    case "$1" in 124|137) _ds_budget; return 0 ;; esac
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        if [ -z "$rej" ] && [[ "$line" =~ ^\ !\ \[rejected\]\ .*\((fetch\ first|non-fast-forward)\)$ ]]; then
+            rej="${line# }"; kind="${BASH_REMATCH[1]}"
+        elif [ -z "$rrej" ] && [[ "$line" =~ ^\ !\ \[remote\ rejected\]\  ]]; then
+            rrej="${line# }"
+        elif [[ "$line" =~ ^remote:\ ?(.*)$ ]]; then
+            t="${BASH_REMATCH[1]}"; t="${t%"${t##*[![:space:]]}"}"
+            [ -z "$t" ] || [ "${#remote[@]}" -ge 3 ] || remote+=("remote: $t")
+        fi
+    done <"$_DS_ERR"
+    if [ -n "$rej" ]; then
+        _ds_cap "$rej"
+        _ds_set refused origin-moved "origin/$DEVDOC_SYNC_BRANCH moved before the push ($kind): $_DS_CAPPED" "The next close retries."
+    elif [ -n "$rrej" ]; then
+        if [ "${#remote[@]}" -gt 0 ]; then
+            rl="$(printf '%s; ' "${remote[@]}")"
+        fi
+        _ds_cap "$rl$rrej"
+        _ds_set refused remote-refused "origin refused the push: $_DS_CAPPED" "Fix what the remote names; the next close retries."
+    else
+        _ds_git_failed push "$1" "$_DS_ERR"
+    fi
 }
 
 # _ds_budget — the time budget ran out, during a call or before the next could start.
