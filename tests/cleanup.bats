@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 load 'helpers/common'
 load 'helpers/devdoc-repo'
+load 'helpers/devdoc-sync'
 
 setup() {
     devagent_test_setup
@@ -1100,4 +1101,128 @@ EOF
     [[ "$output" == *"closeout steps not terminal: mergemr:[?]"* ]]
     [[ "$output" != *"updatewbs"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
+}
+
+# ---- #1148: cleanup syncs the devDoc with origin ------------------------------------
+# _sync_close_fixture — the devDoc one level above devdoc_dir ($DEVDOC_REPO), pushed to a
+# bare origin, and a second clone A standing in for the other machine (SYNC_A).
+_sync_close_fixture() {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    devdoc_parent_repo_fixture
+    SYNC_ORIGIN="$DEVAGENT_TMP/origin.git" SYNC_A="$DEVAGENT_TMP/a"
+    git -c init.defaultBranch=main init -q --bare "$SYNC_ORIGIN"
+    git -C "$DEVDOC_REPO" remote add origin "$SYNC_ORIGIN"
+    git -C "$DEVDOC_REPO" push -q -u origin main 2>/dev/null
+    git clone -q "$SYNC_ORIGIN" "$SYNC_A"
+    _sync_ident "$SYNC_A"
+}
+# _net_secs <calls> — the summed seconds of the wrapper's network calls (end - start).
+_net_secs() {
+    awk '$1 == "start" { s[$2] = $3 } $1 == "end" { t += $3 - s[$2] } END { printf "%.3f\n", t / 1000000 }' "$1"
+}
+
+@test "#1148 diverged close: origin holds all three commits" {
+    _sync_close_fixture
+    sync_commit "$DEVDOC_REPO" statusreport.md 'report' 'statusreport: 2026-11-19'
+    sr="$(git -C "$DEVDOC_REPO" rev-parse HEAD)"
+    sync_other other.md 'from A' 'A: other.md'
+    a="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
+    cl="$(git -C "$DEVDOC_REPO" log --format=%H --grep='^devdoc: Issue-1 cleanup$' -1)"
+    [ -n "$cl" ]
+    for c in "$a" "$sr" "$cl"; do git -C "$SYNC_ORIGIN" merge-base --is-ancestor "$c" "$o"; done
+    [ "$(git -C "$SYNC_ORIGIN" rev-list --merges --count "$o")" = 1 ]
+    [[ "$output" != *"devDoc sync"* ]]
+}
+
+@test "#1148 conflict at close: closed, one WARNING, status line" {
+    _sync_close_fixture
+    sync_commit "$DEVDOC_REPO" shared.md 'from B' 'B: shared.md'
+    sync_other shared.md 'from A' 'A: shared.md'
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    grep -q '^active_issue *= *""' "$(_state_file)"
+    [ "$(grep -c 'WARNING: devDoc sync' <<< "$output")" = 1 ]
+    line="$(grep 'WARNING: devDoc sync' <<< "$output")"
+    [[ "$line" == *shared.md* && "$line" == *"2 commits not on origin/main"* && "$line" == *"by hand"* ]]
+    run "$DEVAGENT_ROOT/scripts/status.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"devDoc $(cd "$DEVDOC_REPO" && pwd -P): 2 commits not on origin/main, oldest "* ]]
+}
+
+@test "#1148 bounded: one budget for all network calls" {
+    _sync_close_fixture
+    sync_other other.md 'from A' 'A: other.md'
+    o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
+    w="$(sync_git_wrapper "$DEVAGENT_TMP/w1" slow:2)"
+    DEVAGENT_DEVDOC_SYNC_SECS=4 DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"time budget ran out"* ]]
+    grep -q '^end ls-remote .* ok$' "$DEVAGENT_TMP/w1/calls"
+    grep -q '^end fetch .* term$' "$DEVAGENT_TMP/w1/calls"
+    ! grep -qx push "$DEVAGENT_TMP/w1/calls" || false
+    awk -v t="$(_net_secs "$DEVAGENT_TMP/w1/calls")" 'BEGIN { exit !(t <= 4 + 5) }'
+    [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]
+    # run 2: under 1 s is left after the first call, so no second call starts
+    rm -rf "$DEVAGENT_TMP/a"; teardown; setup; _sync_close_fixture
+    sync_other other.md 'from A' 'A: other.md'
+    w="$(sync_git_wrapper "$DEVAGENT_TMP/w2" slow:1.5)"
+    DEVAGENT_DEVDOC_SYNC_SECS=2 DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"time budget ran out"* ]]
+    [ "$(grep -c '^start ' "$DEVAGENT_TMP/w2/calls")" = 1 ]
+    awk -v t="$(_net_secs "$DEVAGENT_TMP/w2/calls")" 'BEGIN { exit !(t <= 2 + 5) }'
+}
+
+@test "#1148 lock: HEAD read and move are held; network calls are not" {
+    _sync_close_fixture
+    sync_other other.md 'from A' 'A: other.md'
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    log="$DEVAGENT_TMP/git.log"
+    for sub in merge merge-tree commit-tree; do
+        [ "$(awk -F'\t' -v s="$sub" '$1 == s' "$log" | wc -l)" -ge 1 ]
+        [ -z "$(awk -F'\t' -v s="$sub" '$1 == s && $8 != "cleanup.sh"' "$log")" ]
+    done
+    for sub in ls-remote fetch push; do
+        [ "$(awk -F'\t' -v s="$sub" '$1 == s' "$log" | wc -l)" -ge 1 ]
+        [ -z "$(awk -F'\t' -v s="$sub" '$1 == s && $8 != "-"' "$log")" ]
+    done
+    # between the last fetch and the first merge-tree: the re-check (symbolic-ref) and
+    # the HEAD read (rev-parse … HEAD^{commit}) exist and are all held
+    run awk -F'\t' '$1 == "fetch" { f = NR } $1 == "merge-tree" && !m { m = NR } { r[NR] = $1 "\t" $8 "\t" $10 }
+        END { for (i = f + 1; i < m; i++) print r[i] }' "$log"
+    awk -F'\t' '$1 == "symbolic-ref" { f = 1 } END { exit !f }' <<< "$output"
+    [ -z "$(awk -F'\t' '$1 == "symbolic-ref" && $2 != "cleanup.sh"' <<< "$output")" ]
+    awk -F'\t' '$1 == "rev-parse" && $3 ~ /HEAD\^\{commit\}/ { f = 1 } END { exit !f }' <<< "$output"
+    [ -z "$(awk -F'\t' '$1 == "rev-parse" && $3 ~ /HEAD\^\{commit\}/ && $2 != "cleanup.sh"' <<< "$output")" ]
+    # and no HEAD read anywhere in the sync runs unheld
+    [ -z "$(awk -F'\t' '$1 == "rev-parse" && $10 ~ /HEAD\^\{commit\}/ && $8 != "cleanup.sh"' "$log")" ]
+}
+
+@test "#1148 off: no network call, no new output" {
+    _sync_close_fixture
+    git -C "$DEVDOC_REPO" remote remove origin                       # leg a: no origin
+    o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
+    w="$(sync_git_wrapper "$DEVAGENT_TMP/w1" log)"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    ! grep -q '^start ' "$DEVAGENT_TMP/w1/calls" || false
+    [[ "$output" != *"devDoc sync"* && "$output" != *"WARNING:"* ]]
+    [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]
+    teardown; setup; _sync_close_fixture                             # leg b: commit_devdoc=false
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
+    sync_commit "$DEVDOC_REPO" local.md local 'B: local'
+    o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
+    w="$(sync_git_wrapper "$DEVAGENT_TMP/w2" log)"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    ! grep -q '^start ' "$DEVAGENT_TMP/w2/calls" || false
+    [[ "$output" != *"devDoc sync"* && "$output" != *"WARNING:"* ]]
+    [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]
 }

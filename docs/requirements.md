@@ -445,7 +445,11 @@ tracker.
   archive failure does not stop it. Its devdoc commit carries only the paths
   the cleanup owns, reports the rest, and is serialised with every other
   session's devdoc writes; a close whose lock or commit fails leaves the step
-  in progress with the issue's state kept, ready to re-run. {refines: SR-1}
+  in progress with the issue's state kept, ready to re-run. With an `origin`,
+  it then syncs the devdoc repository with it (fetch, merge, push, #1148),
+  carrying commits it did not make; a failed or skipped sync warns once, is
+  shown by the status dashboard, and does not change the close's outcome.
+  {refines: SR-1}
 
 ### Parking, switching and resuming
 
@@ -634,7 +638,7 @@ tracker.
   when none can, unless the operator set `DA_YES=1` for that run. The
   `merge_mr` and `transition_issue` gates never ask, filing never asks and
   proceeds past a closed gate only with `--yes`, and a closed
-  `commit_devdoc` gate skips the devdoc commit. devagent never changes a
+  `commit_devdoc` gate skips the devdoc commit and the sync. devagent never changes a
   permission in its config itself.
   {refines: SR-13}
 - FR-87: With no trust policy on the host, devagent behaves exactly as
@@ -1059,7 +1063,8 @@ From the design spec's permission gates and gates under trust:
   gate; only an edit to the config changes one.
 - CON-9: The gates are `push_mr` (ship and file), `merge_mr` (mergemr),
   `merge_to_all_prs` (mergetoall), `commit_devdoc` (the devdoc commits of
-  cleanup and the status report) and `transition_issue` (every tracker
+  cleanup and the status report, and, with an `origin`, cleanup's devDoc sync:
+  fetch, merge, push) and `transition_issue` (every tracker
   transition). The spec also lists `cleanup_on_merge`, for a cleanup after
   sync, which no step performs. `/devagent:file` to a disk folder asks no
   `push_mr`: nothing leaves the machine.

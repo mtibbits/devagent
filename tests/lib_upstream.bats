@@ -302,3 +302,52 @@ _argv660() {   # a git that records its argv ELEMENT-delimited (register Issue-5
     [ "$(cat "$DEVAGENT_TMP/o")" = "o" ]
     [ "$(cat "$DEVAGENT_TMP/e")" = "e" ]
 }
+
+# ---- #1148: the budget primitives and upstream_branch_tip's deadline -------------------
+@test "#1148 bounded_secs_left: decimal, refuses under 1 s" {
+    local rc=0
+    bounded_now_us
+    bounded_secs_left $((BOUNDED_NOW_US + 2500000))
+    if [ -n "${EPOCHREALTIME:-}" ]; then                             # the decimal limb needs bash 5
+        [[ "$BOUNDED_SECS" =~ ^[0-9]+\.[0-9]{6}$ ]]
+        awk -v s="$BOUNDED_SECS" 'BEGIN { exit !(s >= 1.9 && s <= 2.5) }'
+    fi
+    bounded_now_us
+    bounded_secs_left $((BOUNDED_NOW_US + 500000)) || rc=$?
+    [ "$rc" -eq 1 ]
+    [ -z "$BOUNDED_SECS" ]
+    bounded_now_us                                                   # <max_secs> caps it (a clock stepped back)
+    bounded_secs_left $((BOUNDED_NOW_US + 90000000)) 3
+    awk -v s="$BOUNDED_SECS" 'BEGIN { exit !(s == 3) }'
+}
+
+@test "#1148 bounded_now_us without EPOCHREALTIME: whole seconds, no fork" {
+    run bash -c 'unset EPOCHREALTIME; . "$1"; bounded_now_us; echo "$BOUNDED_NOW_US"' _ "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^[0-9]{10,}000000$ ]]
+    [ $(( ${output%000000} - $(date +%s) )) -le 1 ]
+}
+
+@test "#1148 upstream_branch_tip deadline bounds the fetch; both rcs set" {
+    _origin660
+    local tip tip2
+    tip="$(_move660)"
+    bounded_now_us                                                   # behind, 0.4 s left: no fetch starts
+    upstream_branch_tip "$REPO" main 5 $((BOUNDED_NOW_US + 400000))
+    [ "$UPSTREAM_TIP" = "$tip" ]
+    [ "$UPSTREAM_ASK_RC" = 0 ]
+    [ "$UPSTREAM_FETCH_RC" = budget ]
+    [ "$(git -C "$REPO" rev-parse refs/remotes/origin/main)" != "$tip" ]
+    bounded_now_us                                                   # 30 s left: the fetch runs
+    upstream_branch_tip "$REPO" main 5 $((BOUNDED_NOW_US + 30000000))
+    [ "$UPSTREAM_FETCH_RC" = 0 ]
+    [ "$(git -C "$REPO" rev-parse refs/remotes/origin/main)" = "$tip" ]
+    _hang660                                                         # the ask times out
+    DEVAGENT_GIT="$DEVAGENT_TMP/hang-git" upstream_branch_tip "$REPO" main 1
+    [ "$UPSTREAM_ASK_RC" = 124 ] || [ "$UPSTREAM_ASK_RC" = 137 ]
+    [ -z "$UPSTREAM_FETCH_RC" ]
+    tip2="$(_move660)"                                               # no deadline: the 3-arg call
+    upstream_branch_tip "$REPO" main 5
+    [ "$UPSTREAM_FETCH_RC" = 0 ]
+    [ "$(git -C "$REPO" rev-parse refs/remotes/origin/main)" = "$tip2" ]
+}

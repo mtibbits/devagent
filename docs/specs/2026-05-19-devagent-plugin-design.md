@@ -102,7 +102,7 @@ devAgent/
 │   │                        #   ci.sh — #782 MR CI read/line/gate,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
-│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock,
+│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock + #1148 sync with origin,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
 │   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
@@ -447,7 +447,7 @@ per repository (`scripts/lib/devdoc-repo.sh`):
   (`^[0-9]{1,5}$`, default 60, `0` = one attempt; any other value warns once
   and uses 60). This variable is defined here only.
 - **Shared deadline.** A run that waits on the lock more than once (cleanup:
-  hold 1, the reconcile's write, hold 2) exports
+  hold 1, the reconcile's write, hold 2, the devDoc sync's hold) exports
   `DEVAGENT_DEVDOC_LOCK_DEADLINE` (epoch seconds, now + the bound, or an
   earlier one already set) before its first lock section. Every acquire in
   that run and its children gives up at the earlier of its own bound and that
@@ -463,6 +463,21 @@ per repository (`scripts/lib/devdoc-repo.sh`):
   tracker and forge calls happen before the acquire.
 - Release is the holder's EXIT trap; the pothole register's per-file
   `<register>.lock` (the drain, #611) is unchanged and nests inside.
+- **devDoc sync (#1148).** After hold 2 is released, cleanup syncs the
+  repository with `origin` (`devdoc_sync`; with `commit_devdoc = true`, the
+  devDoc in git, and an `origin`). Its ask (`ls-remote`), fetch and push run
+  unlocked. One short hold of its own covers the re-check, the HEAD read, the
+  `merge-tree` + `commit-tree` merge and the `merge --ff-only --no-autostash
+  --no-overwrite-ignore` move; that acquire waits at most until the shared
+  deadline, and a busy lock skips the sync for that close. The network calls
+  share one budget, `DEVAGENT_DEVDOC_SYNC_SECS` (1-99999 seconds, default 30,
+  read with `_ci_secs`): each call is bounded by what is left of it, measured
+  in microseconds, lock waits excluded, and no call starts with under 1 s left
+  (`timeout 0` means no bound). `bounded_call`'s 5 s kill grace makes the worst
+  case the knob plus 5 s (whole seconds under bash < 5). A close's bounded parts
+  then stay inside its 120 s command timeout: 60 s of lock waits plus 35 s of
+  sync, leaving 25 s for the WBS reconcile's tracker calls, which are not
+  bounded. This variable is defined here and in `commands/cleanup.md`.
 
 `WBS.md` itself is replaced atomically under the lock (`write_document`,
 §13.2), and its replace retries a `PermissionError` for about 8 s (20
@@ -953,7 +968,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731) |
+| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit devdoc and sync it with origin (#1148), clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731) |
 
 **Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–24 top-to-bottom: 25 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
@@ -1077,7 +1092,7 @@ omits.
 | `/devagent:where [project]` | Reports active issue + last step + next step; offers "Continue?" but does **not** execute |
 | `/devagent:next [project]` | Executes the next actionable step on the active issue |
 | `/devagent:use <project>` | Deliberately switches the global active-project pointer (`state/_active.toml`), then prints the resolved state (#349). The one arg-driven pointer writer; warns when a `DEVAGENT_ACTIVE_PROJECT` env pin shadows the change (env beats the pointer for this session, #434) |
-| `/devagent:status [project\|--all]` | Multi-project dashboard: active, stuck, parked, idle |
+| `/devagent:status [project\|--all]` | Multi-project dashboard: active, stuck, parked, idle; then one line per devDoc repository with commits not on origin (#1148, below) |
 | `/devagent:catchup [issue]` | Synthesizes issue.md + imPlan + actualWork + last comments + last 5 log entries into one-screen rehydration |
 | `/devagent:park [issue]` | Marks `[P]`, saves state, clears `active_issue` |
 | `/devagent:resume <issue>` | Reactivates a parked issue as `active_issue` |
@@ -1095,6 +1110,21 @@ omits.
 | `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
+
+**The devDoc not-pushed line (#1148).** After the project blocks (`--all`: after
+every block; `<project>`: after its own), `/devagent:status` prints one line for
+each devDoc repository the shown projects use that has commits not on origin,
+read from local refs only (no network call):
+`devDoc <repo>: <N> commits not on origin/<branch>, oldest <author date>`
+(`%Y-%m-%d %H:%M %z`), or `devDoc <repo>: branch <branch> is not on origin`,
+`devDoc <repo>: commits not on origin/<branch> could not be counted`, or
+`devDoc <repo>: HEAD is detached, so the devDoc sync cannot run`. A repository is
+in scope when it has an `origin` and at least one configured project with
+`commit_devdoc = true` uses it (the sync's own scope, by repository); a shared
+repository prints once. Status reads the `commit_devdoc` config key, not a trust
+policy, so under a trust policy that sets it differently its scope can differ from
+the sync's. It is the lasting signal of a failed or skipped sync,
+whose cleanup still exits 0.
 
 ## 7. Chaining
 
