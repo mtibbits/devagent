@@ -6,6 +6,9 @@ bats_require_minimum_version 1.5.0   # #526: run --separate-stderr for the offen
 
 CMD_DIR="$BATS_TEST_DIRNAME/../commands"
 
+# #1153: item 4 of commands/implement.md, whitespace-flattened (its sentences wrap).
+_impl_item4() { awk '/^4\. Invoke/{f=1} /^5\. /{f=0} f' "$CMD_DIR/implement.md" | tr '\n' ' ' | tr -s ' '; }
+
 # #526: classify skills by the user-invocable frontmatter marker with YAML-truth
 # semantics, matching the pytest guard (test_frontmatter_yaml.py). Echoes the
 # sorted DIRECTORY names (never `basename` — every skill is SKILL.md) of the
@@ -386,10 +389,47 @@ S
   grep -qF 'preferences, not requirements (#541)' "$REPO_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
 }
 
-@test "the three superpowers invocation lines are byte-exact (#541 AC3)" {
+@test "the three superpowers invocation lines match (#541 AC3; implement leg whitespace-flattened, #1153)" {
   grep -qF 'Otherwise invoke the `superpowers:writing-plans` skill.' "$CMD_DIR/draft.md"
-  grep -qF 'Invoke `superpowers:executing-plans` with `$ISSUE_DIR/imPlan.md`' "$CMD_DIR/implement.md"
+  # #1153: implement's invocation now names the Tree and finish rules and wraps,
+  # so it is matched whitespace-flattened inside item 4.
+  grep -qF 'Invoke `superpowers:executing-plans` with `$ISSUE_DIR/imPlan.md` as the plan path, under the **Tree and finish rules** below' <<<"$(_impl_item4)"
   grep -qF 'Invoke `superpowers:requesting-code-review` with the diff scope' "$CMD_DIR/review.md"
+}
+
+@test "implement.md item 4 gives the tree and finish rules on every executing path (#1153)" {
+  local x; x="$(_impl_item4)"
+  [ "${#x}" -ge 400 ]   # the slice is item 4, not empty
+  [ "$(grep -c 'Tree and finish rules (#1153)' "$CMD_DIR/implement.md")" -eq 1 ]
+  grep -qF 'These rules hold on `superpowers:executing-plans`, on a switch to `superpowers:subagent-driven-development`, and on the no-draft direct path' <<<"$x"
+  grep -qF "declared worktree preference" <<<"$x"
+  grep -qF "Work in the issue's recorded tree." <<<"$x"
+  grep -qF 'an empty or null `worktree_path` means unset' <<<"$x"
+  grep -qF 'Do not create or enter any other worktree' <<<"$x"
+  grep -qF 'no `EnterWorktree`, no `git worktree add`, no subagent dispatched with worktree isolation' <<<"$x"
+  grep -qF 'Do not run `superpowers:finishing-a-development-branch`.' <<<"$x"
+  grep -qF 'Do not merge, push, delete the branch or open a PR' <<<"$x"
+  grep -qF "devagent's ship and mergemr steps integrate the branch" <<<"$x"
+  grep -qF "continue with item 6 and this command's Completion handoff in the same turn" <<<"$x"
+}
+
+@test "implement.md's #541 fallback paragraph is unchanged (#1153 AC4)" {
+  _fb() { sed -n '/Fallback (superpowers absent)/,/recommended: claude plugin install/p' "$1"; }
+  local want; want="$(cat <<'EOF'
+   **Fallback (superpowers absent):** if that Skill invocation errors
+   (`Unknown skill: superpowers:executing-plans`, #541), execute
+   `$ISSUE_DIR/imPlan.md` directly: task-by-task in plan order, running
+   each task's stated test/verify steps before moving on, one signed-off
+   commit per task (`git commit -s` — the same granularity the wrapped
+   skill defaults to); items 5–6 of this command apply unchanged. Print
+   the nudge line verbatim and continue:
+   `recommended: claude plugin install superpowers@claude-plugins-official`
+EOF
+)"
+  [ "$(_fb "$CMD_DIR/implement.md" | wc -l)" -eq 8 ]
+  [ "$(_fb "$CMD_DIR/implement.md")" = "$want" ]
+  sed 's/one signed-off/two signed-off/' "$CMD_DIR/implement.md" > "$BATS_TEST_TMPDIR/impl.md"
+  [ "$(_fb "$BATS_TEST_TMPDIR/impl.md")" != "$want" ]   # planted control
 }
 
 @test "user-invocable check names the offending skill, not a bare count (#526)" {
