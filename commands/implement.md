@@ -62,8 +62,8 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    `superpowers:executing-plans`, on a switch to
    `superpowers:subagent-driven-development`, and on the no-draft direct
    path. They are the operator's declared worktree preference, set through
-   devagent's `use_worktree` and the branch step. Follow them without
-   asking.
+   devagent's `use_worktree` and, where the checklist has one, the branch
+   step. Follow them without asking.
 
    - **Work in the issue's recorded tree.** That tree is the
      `worktree_path` in this issue's own state entry when it is non-empty,
@@ -77,9 +77,11 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
      `superpowers:using-git-worktrees` loads, report that you are working
      in place in the recorded tree, and go on.
    - **Leave the branch to devagent.** Do not run
-     `superpowers:finishing-a-development-branch`. Do not merge, push,
-     delete the branch or open a PR: devagent's ship and mergemr steps
-     integrate the branch, where the checklist has them. At the executing
+     `superpowers:finishing-a-development-branch`. Do not merge the issue
+     branch, push it, delete it or open a PR from it: devagent's ship and
+     mergemr steps integrate it, where the checklist has them. A push,
+     merge or PR that the issue body names as the work (a one-shot action)
+     is that work, not branch integration. At the executing
      skill's Finish stage, report its result, then continue with item 6
      and this command's Completion handoff in the same turn; do not end
      the turn at the skill's report.
