@@ -1594,13 +1594,15 @@ def _heredoc(sh, delim="PY"):
 
 
 def test_no_writer_bypasses_write_document():
-    """The guard's universe is the four WBS.md writer files: wbs-import.py,
-    wbs-init.sh, wbs-update.sh and wbs-order.sh (each script's heredoc
-    Python, plus redirects to its path variables), and the parser's own
+    """The guard's universe is the five WBS.md writer files: wbs-import.py,
+    wbs-init.sh, wbs-update.sh, wbs-order.sh (each script's heredoc
+    Python, plus redirects to its path variables) and lib/wbs-exclude.py
+    (#761), and the parser's own
     writers (`write_markdown`, and #803's `write_update` and `order_file`),
     whose only direct write is inside `write_document`. A new WBS.md writer
     file must join this list."""
     imp = LIB.read_text(encoding="utf-8")
+    exclude_py = (REPO / "scripts" / "lib" / "wbs-exclude.py").read_text(encoding="utf-8")
     init = (REPO / "scripts" / "wbs-init.sh").read_text(encoding="utf-8")
     update = (REPO / "scripts" / "wbs-update.sh").read_text(encoding="utf-8")
     order_sh = (REPO / "scripts" / "wbs-order.sh").read_text(encoding="utf-8")
@@ -1623,6 +1625,9 @@ def test_no_writer_bypasses_write_document():
     assert _calls_to(body, "write_update") == 1
     assert _calls_to(body, "write_markdown") == 0
     assert _calls_to(order_body, "order_file") == 1
+    assert _direct_writes(exclude_py) == []
+    assert _calls_to(exclude_py, "write_document") == 1
+    assert _calls_to(exclude_py, "write_markdown") == 0
     # the parser writes bytes only inside write_document
     tree = ast.parse(parser_src)
     span = next((n.lineno, n.end_lineno) for n in tree.body
