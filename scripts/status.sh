@@ -17,6 +17,10 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/permission.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/devdoc-repo.sh"   # #1148: the not-pushed line
 
 _print_one() {
   local project="$1"
@@ -53,6 +57,41 @@ _print_one() {
   if [[ -n "$parked" ]]; then echo "  Parked: $parked"; fi
 }
 
+# _devdoc_lines <project>… — #1148: one line for each devDoc repository the named
+# projects use that has commits not on origin, read from local refs only (no network
+# call). A repository is in scope when it has an origin and at least one configured
+# project with commit_devdoc = true uses it (the sync's scope, by repository), so a
+# project whose own key is false can show its shared repository's line. A repository
+# several projects share prints once. Called bare; prints nothing for a repository in
+# sync, and nothing when git cannot read it.
+_devdoc_lines() {
+  local p dir top ref rc
+  local -A inscope=() seen=()
+  for p in "${ALL_PROJECTS[@]}"; do
+    [[ "$(permission_value "$p" commit_devdoc)" == true ]] || continue
+    dir="$(config_get_project_field "$p" devdoc_dir 2>/dev/null)" || continue
+    [[ -n "$dir" ]] || continue
+    devdoc_sync_repo "$dir" || continue
+    inscope[$DEVDOC_SYNC_TOP]=1
+  done
+  for p in "$@"; do
+    dir="$(config_get_project_field "$p" devdoc_dir 2>/dev/null)" || continue
+    [[ -n "$dir" ]] || continue
+    devdoc_sync_repo "$dir" || continue
+    top="$DEVDOC_SYNC_TOP"
+    [[ -n "${inscope[$top]+x}" && -z "${seen[$top]+x}" ]] || continue
+    seen[$top]=1
+    rc=0; ref="$("$DEVAGENT_GIT" -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || rc=$?
+    if [[ "$rc" -eq 1 ]]; then
+      echo "devDoc $top: HEAD is detached, so the devDoc sync cannot run"
+      continue
+    fi
+    [[ "$rc" -eq 0 && "$ref" == refs/heads/?* ]] || continue
+    rc=0; devdoc_unpushed_text "$top" "${ref#refs/heads/}" || rc=$?
+    [[ "$rc" -eq 1 ]] || echo "devDoc $top: $DEVDOC_UNPUSHED_TEXT"
+  done
+}
+
 main() {
   local mode="all"
   local project=""
@@ -64,6 +103,7 @@ main() {
 
   local -a projects=()
   mapfile -t projects < <(config_list_projects 2>/dev/null || true)
+  ALL_PROJECTS=("${projects[@]}")
   if (( ${#projects[@]} == 0 )); then
     echo "No projects configured. Add one to ~/.claude/devagent/config.toml."
     return 0
@@ -73,10 +113,12 @@ main() {
     one)
       config_is_project "$project" || die "unknown project '$project'"
       _print_one "$project"
+      _devdoc_lines "$project"
       ;;
     all)
       local p
       for p in "${projects[@]}"; do _print_one "$p"; done
+      _devdoc_lines "${projects[@]}"
       ;;
   esac
 }

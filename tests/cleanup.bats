@@ -1149,6 +1149,9 @@ _net_secs() {
     [ "$(grep -c 'WARNING: devDoc sync' <<< "$output")" = 1 ]
     line="$(grep 'WARNING: devDoc sync' <<< "$output")"
     [[ "$line" == *shared.md* && "$line" == *"2 commits not on origin/main"* && "$line" == *"by hand"* ]]
+    run "$DEVAGENT_ROOT/scripts/status.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"devDoc $(cd "$DEVDOC_REPO" && pwd -P): 2 commits not on origin/main, oldest "* ]]
 }
 
 @test "#1148 bounded: one budget for all network calls" {
