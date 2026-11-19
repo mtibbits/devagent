@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -1569,6 +1570,125 @@ def test_inserted_only_has_one_home():
     hits = {p.name: _defs_named(p.read_text(encoding="utf-8"), "inserted_only")
             for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
     assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
+
+
+# --- #761: insert_exclusion, the renderer `wbs exclude` writes with ---------------
+_XL = "<!-- wbs-exclude: Issue-12 -->"
+
+
+def test_insert_exclusion_line_format():
+    assert (wbs_parser.insert_exclusion("", ["Issue-12", "Issue-40"])
+            == "<!-- wbs-exclude: Issue-12, Issue-40 -->\n")
+
+
+ANCHOR_TEXT = (
+    "# T\n"                                   # 1
+    "<!-- wbs-exclude: Issue-1 -->\n"         # 2  well formed: A
+    "- [ ] Node {issue: Issue-3}\n"           # 3
+    "<!-- wbs-exclude: Issue-2 -->\n"         # 4  well formed: B, the anchor
+    "<!-- WBS-Exclude: Issue-4 -->\n"         # 5  a near miss
+    "<!-- wbs-exclude: Issue-5\n"             # 6  a comment split
+    "-->\n"                                   # 7  over two lines
+    "```\n"                                   # 8
+    "<!-- wbs-exclude: Issue-6 -->\n"         # 9  fenced
+    "```\n"                                   # 10
+    "Tail prose.\n"                           # 11
+)
+
+
+def test_insert_exclusion_follows_the_last_well_formed_line():
+    lines = ANCHOR_TEXT.splitlines(keepends=True)
+    want = "".join(lines[:4]) + _XL + "\n" + "".join(lines[4:])
+    assert wbs_parser.insert_exclusion(ANCHOR_TEXT, ["Issue-12"]) == want
+
+
+BAD_TOKEN_TEXT = "<!-- wbs-exclude: Issue-1 -->\n<!-- wbs-exclude: Issue-x--> -->\nprose\n"
+
+
+def test_insert_exclusion_anchors_on_a_line_with_bad_tokens():
+    assert wbs_parser.insert_exclusion(BAD_TOKEN_TEXT, ["Issue-12"]) == (
+        "<!-- wbs-exclude: Issue-1 -->\n<!-- wbs-exclude: Issue-x--> -->\n"
+        + _XL + "\nprose\n")
+
+
+SCOPE_ONLY_TEXT = "<!-- wbs-scope: all -->\nprose\n"
+
+
+def test_insert_exclusion_ignores_scope_lines():
+    assert (wbs_parser.insert_exclusion(SCOPE_ONLY_TEXT, ["Issue-12"])
+            == SCOPE_ONLY_TEXT + _XL + "\n")
+
+
+INDENTS = ["  ", "\t", " \t "]
+
+
+def _indented(indent):
+    return f"- [ ] Epic {{issue: Issue-1}}\n{indent}<!-- wbs-exclude: Issue-40 -->\nend\n"
+
+
+@pytest.mark.parametrize("indent", INDENTS)
+def test_insert_exclusion_copies_the_anchor_indent(indent):
+    new = wbs_parser.insert_exclusion(_indented(indent), ["Issue-12"])
+    assert new.splitlines()[2] == indent + _XL
+    assert new == _indented(indent).replace("end\n", indent + _XL + "\nend\n")
+
+
+EOLS = ["\r\n", "\r"]
+
+
+@pytest.mark.parametrize("eol", EOLS)
+def test_insert_exclusion_uses_the_file_eol(eol):
+    old = eol.join(["# T", "<!-- wbs-exclude: Issue-40 -->", "end", ""])
+    want = eol.join(["# T", "<!-- wbs-exclude: Issue-40 -->", _XL, "end", ""])
+    assert wbs_parser.insert_exclusion(old, ["Issue-12"]) == want
+    # no anchor: appended, with the same terminator
+    old = eol.join(["# T", "end", ""])
+    assert wbs_parser.insert_exclusion(old, ["Issue-12"]) == old + _XL + eol
+
+
+APPEND_CASES = [
+    ("a\nb\n", "a\nb\n" + _XL + "\n"),
+    ("a\nb", "a\nb\n" + _XL),
+    ("a\r\nb", "a\r\nb\r\n" + _XL),
+    ("", _XL + "\n"),
+    ("x\n<!-- wbs-exclude: A -->", "x\n<!-- wbs-exclude: A -->\n" + _XL),
+]
+
+
+@pytest.mark.parametrize("old, want", APPEND_CASES)
+def test_insert_exclusion_appends_by_701(old, want):
+    assert wbs_parser.insert_exclusion(old, ["Issue-12"]) == want
+
+
+def _unnumbered(warnings):
+    return Counter(re.sub(r"^line [0-9]+: ", "", w) for w in warnings)
+
+
+TAKES_EFFECT_INPUTS = (
+    [ANCHOR_TEXT, BAD_TOKEN_TEXT, SCOPE_ONLY_TEXT]
+    + [_indented(i) for i in INDENTS]
+    + [e.join(["# T", "<!-- wbs-exclude: Issue-40 -->", "end", ""]) for e in EOLS]
+    + [e.join(["# T", "end", ""]) for e in EOLS]
+    + [old for old, _want in APPEND_CASES]
+)
+
+
+@pytest.mark.parametrize("ids", [["Issue-12"], ["Issue-12", "Issue-40"]])
+@pytest.mark.parametrize("old", TAKES_EFFECT_INPUTS)
+def test_insert_exclusion_output_is_inserted_only_and_takes_effect(old, ids):
+    new = wbs_parser.insert_exclusion(old, ids)
+    assert wbs_parser.inserted_only(old, new)
+    before, after = wbs_parser.parse_text(old), wbs_parser.parse_text(new)
+    assert (Counter(i for _ln, i in after["exclusions"])
+            == Counter(i for _ln, i in before["exclusions"]) + Counter(ids))
+    assert (_unnumbered(after["exclusion_warnings"])
+            == _unnumbered(before["exclusion_warnings"]))
+
+
+@pytest.mark.parametrize("ids", [[], ["a b"], ["x-->"]])
+def test_insert_exclusion_refuses_empty_or_bad_ids(ids):
+    with pytest.raises(ValueError):
+        wbs_parser.insert_exclusion("a\n", ids)
 
 
 # --- the estimate contract (#737) ------------------------------------------------
