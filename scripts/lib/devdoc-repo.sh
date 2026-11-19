@@ -344,3 +344,352 @@ devdoc_lock_release() {
 devdoc_mid_merge() {
     devdoc_git_ro -C "$1" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1
 }
+
+# ---------------------------------------------------------------------------
+# #1148: the devDoc sync with origin (cleanup step 24; spec §3.3). Once per close
+# it brings origin's branch of the local branch's name in and pushes, without
+# rewriting a commit or losing a local change, and never touching the network
+# under the devDoc lock:
+#   1. unlocked: the state checks, then the ask and the fetch (upstream_branch_tip,
+#      bounded by what is left of the budget);
+#   2. one short hold of the devDoc lock: a re-check, the HEAD read, a diverged
+#      branch merged with merge-tree + commit-tree, and the move (merge --ff-only);
+#   3. unlocked: the push.
+# Every function here is a SETTER-GLOBAL: call it bare, never as $(...) (register
+# Issue-282). devdoc_sync never dies or exits: cleanup's outcome does not change.
+# ---------------------------------------------------------------------------
+
+# devdoc_sync_repo <dir> — rc 0 when <dir> is in a git repository that has an
+# `origin`; DEVDOC_SYNC_TOP is that repository's canonical toplevel (empty outside
+# git). THE scope predicate of the sync and of status's not-pushed line (L284).
+devdoc_sync_repo() {
+    local t
+    DEVDOC_SYNC_TOP=""
+    t="$(devdoc_repo_top "$1")" || return 1
+    DEVDOC_SYNC_TOP="$t"
+    upstream_remote_configured "$t" origin
+}
+
+# devdoc_unpushed_text <top> <branch> — DEVDOC_UNPUSHED_TEXT from local refs only:
+#   rc 0  "<N> commits not on origin/<b>, oldest <author date>"
+#   rc 0  "branch <b> is not on origin"                 (no tracking ref)
+#   rc 1  "0 commits not on origin/<b>"
+#   rc 2  "commits not on origin/<b> could not be counted"
+# The date is the oldest commit's author date in its own zone (%Y-%m-%d %H:%M %z).
+devdoc_unpushed_text() {
+    local top="$1" b="$2" n="" out="" rc=0 at ad min="" oldest=""
+    DEVDOC_UNPUSHED_TEXT=""
+    if ! "$DEVAGENT_GIT" -C "$top" rev-parse -q --verify "refs/remotes/origin/$b^{commit}" >/dev/null 2>&1; then
+        DEVDOC_UNPUSHED_TEXT="branch $b is not on origin"
+        return 0
+    fi
+    n="$("$DEVAGENT_GIT" -C "$top" rev-list --count "refs/remotes/origin/$b..refs/heads/$b" 2>/dev/null)" || rc=$?
+    if [ "$rc" -ne 0 ] || ! [[ "$n" =~ ^[0-9]+$ ]]; then
+        DEVDOC_UNPUSHED_TEXT="commits not on origin/$b could not be counted"
+        return 2
+    fi
+    if [ "$n" -eq 0 ]; then
+        DEVDOC_UNPUSHED_TEXT="0 commits not on origin/$b"
+        return 1
+    fi
+    out="$("$DEVAGENT_GIT" -C "$top" log --format='%at %ad' --date=format:'%Y-%m-%d %H:%M %z' \
+        "refs/remotes/origin/$b..refs/heads/$b" 2>/dev/null)" || rc=$?
+    while read -r at ad; do
+        [[ "$at" =~ ^[0-9]+$ ]] || continue
+        if [ -z "$min" ] || [ "$at" -lt "$min" ]; then min="$at"; oldest="$ad"; fi
+    done <<< "$out"
+    if [ "$rc" -ne 0 ] || [ -z "$oldest" ]; then
+        DEVDOC_UNPUSHED_TEXT="commits not on origin/$b could not be counted"
+        return 2
+    fi
+    DEVDOC_UNPUSHED_TEXT="$n commits not on origin/$b, oldest $oldest"
+}
+
+# _devdoc_sync_state <top> — read the branch into _DS_BRANCH (refs/heads/ stripped by
+# hand, never --short: a tag named like the branch makes --short say heads/<b>; empty
+# when detached; _DS_DETACHED=1 then). rc 1 with _DS_TOKEN set when the repository
+# cannot sync: mid-operation first, then detached, then git-failed. So a mid-merge on
+# a branch keeps its branch in the line, and a stopped rebase shows (detached HEAD).
+_devdoc_sync_state() {
+    local top="$1" ref="" rc=0
+    _DS_BRANCH=""; _DS_DETACHED=0; _DS_TOKEN=""
+    ref="$("$DEVAGENT_GIT" -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || rc=$?
+    case "$rc:$ref" in
+        0:refs/heads/?*) _DS_BRANCH="${ref#refs/heads/}" ;;
+        1:*) _DS_DETACHED=1 ;;
+    esac
+    if [ "$rc" -eq 1 ]; then
+        _ds_set refused detached "HEAD is detached" "Check out the devDoc branch; the next close retries."
+        return 1
+    elif [ -z "$_DS_BRANCH" ]; then
+        _ds_set refused git-failed "git symbolic-ref exited $rc" "The next close retries."
+        return 1
+    fi
+    return 0
+}
+
+# _devdoc_sync_track <top> <branch> <sha> — move refs/remotes/origin/<branch> FORWARD
+# to <sha> (what origin is now known to hold): only when it is absent or an ancestor
+# of <sha>, compare-and-swap against the value read. A failed swap is ignored (a
+# concurrent fetch wrote a newer value). Never a network call.
+_devdoc_sync_track() {
+    local top="$1" b="$2" sha="$3" cur=""
+    cur="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify "refs/remotes/origin/$b" 2>/dev/null)" || cur=""
+    [ "$cur" != "$sha" ] || return 0
+    if [ -z "$cur" ] || "$DEVAGENT_GIT" -C "$top" merge-base --is-ancestor "$cur" "$sha" 2>/dev/null; then
+        "$DEVAGENT_GIT" -C "$top" update-ref "refs/remotes/origin/$b" "$sha" "$cur" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# _ds_set <outcome> <token> <reason> <next> — record why the sync warns. The first
+# reason set wins, except that _ds_also keeps an earlier non-fatal one.
+_ds_set() {
+    DEVDOC_SYNC_OUTCOME="$1"; DEVDOC_SYNC_REASON="$2"; _DS_WHY="$3"; _DS_NEXT="$4"
+}
+
+# _ds_git_failed <sub> <rc> [<stderr file>] — the git-failed reason: `git <sub>
+# exited <rc>`, plus the first fatal:/error: line of <stderr file>, else its first
+# line not starting `To `.
+_ds_git_failed() {
+    local detail="" line first=""
+    if [ -n "${3:-}" ] && [ -s "$3" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            case "$line" in
+                fatal:*|error:*) detail="$line"; break ;;
+                "To "*|"") ;;
+                *) [ -n "$first" ] || first="$line" ;;
+            esac
+        done < "$3"
+        [ -n "$detail" ] || detail="$first"
+    fi
+    _ds_cap "$detail"
+    _ds_set refused git-failed "git $1 exited $2${_DS_CAPPED:+: $_DS_CAPPED}" "The next close retries."
+}
+
+# _ds_cap <text> — _DS_CAPPED is <text> cut to 240 characters (each field of the
+# WARNING line is capped, not the whole line, L317).
+_ds_cap() {
+    _DS_CAPPED="$1"
+    [ "${#_DS_CAPPED}" -le 240 ] || _DS_CAPPED="${_DS_CAPPED:0:237}..."
+}
+
+# _ds_rc <git args…> — run "$DEVAGENT_GIT" -C <top> <args>, stdout and stderr
+# dropped; _DS_RC is its exit code.
+_ds_rc() {
+    _DS_RC=0
+    "$DEVAGENT_GIT" "$@" >/dev/null 2>&1 || _DS_RC=$?
+}
+
+# _devdoc_sync_hold <top> — the locked part: the re-check, the HEAD read, the
+# classification, the merge commit and the move. Reads _DS_B _DS_TIP _DS_NEW; sets
+# _DS_KIND (new|same|ahead|behind|diverged), _DS_H, _DS_S (the SHA to push).
+# rc 1 after a refusal (_ds_set).
+_devdoc_sync_hold() {
+    local top="$1" b="$_DS_B" T="$_DS_TIP" H="" ilock="" rc=0 M="" X=""
+    _DS_KIND=""; _DS_H=""; _DS_S=""
+    _devdoc_sync_state "$top" || return 1
+    if [ "$_DS_BRANCH" != "$b" ]; then
+        _ds_set refused head-moved "HEAD moved while the sync ran" "The next close retries."
+        return 1
+    fi
+    ilock="$("$DEVAGENT_GIT" -C "$top" rev-parse --path-format=absolute --git-path index.lock 2>"$_DS_ERR")" || rc=$?
+    if [ "$rc" -ne 0 ] || [ -z "$ilock" ]; then _ds_git_failed rev-parse "$rc" "$_DS_ERR"; return 1; fi
+    if [ -e "$ilock" ]; then
+        _ds_set refused index-lock "another git process holds $ilock" "The next close retries."
+        return 1
+    fi
+    H="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify 'HEAD^{commit}' 2>"$_DS_ERR")" || rc=$?
+    if [ "$rc" -ne 0 ] || [ -z "$H" ]; then _ds_git_failed rev-parse "$rc" "$_DS_ERR"; return 1; fi
+    _DS_H="$H"
+    if [ "$_DS_NEW" = 1 ]; then _DS_KIND=new; _DS_S="$H"; return 0; fi
+    if [ "$H" = "$T" ]; then _DS_KIND=same; return 0; fi
+    _ds_rc -C "$top" merge-base --is-ancestor "$T" "$H"
+    case "$_DS_RC" in
+        0) _DS_KIND=ahead; _DS_S="$H"; return 0 ;;
+        1) ;;
+        *) _ds_git_failed merge-base "$_DS_RC"; return 1 ;;
+    esac
+    _ds_rc -C "$top" merge-base --is-ancestor "$H" "$T"
+    case "$_DS_RC" in
+        0) _DS_KIND=behind; X="$T" ;;
+        1) _ds_rc -C "$top" merge-base "$H" "$T"
+           case "$_DS_RC" in
+               0) _DS_KIND=diverged ;;
+               1) _ds_set refused unrelated "$b and origin/$b share no history" \
+                      "Reconcile the two histories by hand; the next close retries."
+                  return 1 ;;
+               *) _ds_git_failed merge-base "$_DS_RC"; return 1 ;;
+           esac ;;
+        *) _ds_git_failed merge-base "$_DS_RC"; return 1 ;;
+    esac
+    if [ "$_DS_KIND" = diverged ]; then
+        rc=0; merge_forward_merge "$top" "$H" "$T" || rc=$?
+        case "$rc" in
+            0) ;;
+            2) _ds_set refused git-failed "git merge-tree exited $MF_MERGE_RC" "The next close retries."
+               return 1 ;;
+            *) if [ "${#MF_CONFLICTED[@]}" -gt 0 ]; then _ds_paths "${MF_CONFLICTED[@]}"; else _DS_PATHS="(paths not named)"; fi
+               _ds_set refused conflict "merging origin/$b conflicts in $_DS_PATHS" \
+                   "Merge origin/$b into $b by hand in $top; the next close pushes the result."
+               return 1 ;;
+        esac
+        rc=0
+        M="$(GIT_AUTHOR_NAME=devagent GIT_AUTHOR_EMAIL=devagent@local \
+            GIT_COMMITTER_NAME=devagent GIT_COMMITTER_EMAIL=devagent@local \
+            "$DEVAGENT_GIT" -C "$top" commit-tree "$MF_MTREE" -p "$H" -p "$T" \
+            -m "devdoc: merge origin/$b into $b ($_DS_ISSUE cleanup)" 2>"$_DS_ERR")" || rc=$?
+        if [ "$rc" -ne 0 ] || [ -z "$M" ]; then _ds_git_failed commit-tree "$rc" "$_DS_ERR"; return 1; fi
+        X="$M"; _DS_S="$M"
+    fi
+    _devdoc_sync_move "$top" "$H" "$X"
+}
+
+# _devdoc_sync_move <top> <H> <X> — fast-forward the branch, index and tree from <H>
+# to <X> under the lock: --ff-only (the branch moves only from the HEAD the sync
+# read), --no-autostash and --no-overwrite-ignore (nothing local is lost, whatever
+# the config), LC_ALL=C (the stderr parsed below is git's English). rc 1 after a
+# refusal.
+_devdoc_sync_move() {
+    local top="$1" H="$2" X="$3" rc=0
+    LC_ALL=C "$DEVAGENT_GIT" -C "$top" merge --ff-only --no-autostash --no-overwrite-ignore "$X" \
+        </dev/null >/dev/null 2>"$_DS_ERR" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        _ds_git_failed merge "$rc" "$_DS_ERR"
+        return 1
+    fi
+    return 0
+}
+
+# _ds_paths <path>… — _DS_PATHS lists at most 5 of them, then (+N more).
+_ds_paths() {
+    local n="$#" s
+    s="$(printf '%s, ' "${@:1:5}")"; s="${s%, }"
+    [ "$n" -le 5 ] || s="$s (+$((n - 5)) more)"
+    _ds_cap "$s"; _DS_PATHS="$_DS_CAPPED"
+}
+
+# devdoc_sync <devdoc_dir> <issue> <budget_secs> — sync the repository holding
+# <devdoc_dir> with origin's branch of the local branch's name. rc 0: nothing to warn
+# about; rc 1: DEVDOC_SYNC_LINE is the one WARNING line to print. Never anything else.
+#   DEVDOC_SYNC_OUTCOME  off | same | pushed | fast-forwarded | merged | refused | skipped
+#   DEVDOC_SYNC_REASON   the warning's token (conflict, in-the-way, budget, …), or empty
+#   DEVDOC_SYNC_REPO     the repository's toplevel; DEVDOC_SYNC_BRANCH its branch
+#   DEVDOC_SYNC_LINE     devDoc sync <refused|skipped|finished> for <repo> (<branch>): <reason>. <count>. <next>
+# <budget_secs> bounds the sum of the network calls; the lock wait spends none of it.
+# shellcheck disable=SC2034  # the DEVDOC_SYNC_* globals are the return channel — read by cleanup.sh
+devdoc_sync() {
+    DEVDOC_SYNC_OUTCOME=off; DEVDOC_SYNC_REASON=""; DEVDOC_SYNC_REPO=""; DEVDOC_SYNC_BRANCH=""; DEVDOC_SYNC_LINE=""
+    _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_ERR=""; _DS_DETACHED=0; _DS_BRANCH=""
+    _DS_ISSUE="$2"; _DS_BUDGET="$3"
+    _devdoc_sync_body "$1" "$2" "$3" || true
+    [ -z "$_DS_ERR" ] || rm -f "$_DS_ERR" 2>/dev/null || true
+    [ -n "$DEVDOC_SYNC_REASON" ] || return 0
+    _devdoc_sync_line
+    return 1
+}
+
+_devdoc_sync_body() {
+    local devdoc_dir="$1" issue="$2" budget="$3" top b dl t0 lrc=0 hrc=0 urc=0 prc=0
+    devdoc_sync_repo "$devdoc_dir" || return 0
+    top="$DEVDOC_SYNC_TOP"; DEVDOC_SYNC_REPO="$top"
+    _devdoc_sync_state "$top" || return 0
+    b="$_DS_BRANCH"; DEVDOC_SYNC_BRANCH="$b"
+    if ! command -v timeout >/dev/null 2>&1; then
+        _ds_set skipped no-timeout "timeout(1) is not on PATH, so the network calls cannot be bounded" \
+            "Put coreutils' timeout on PATH; the next close retries."
+        return 0
+    fi
+    # 1. The ask and the fetch, unlocked.
+    bounded_now_us; dl=$((BOUNDED_NOW_US + budget * 1000000))
+    upstream_branch_tip "$top" "$b" "$budget" "$dl" || urc=$?
+    _DS_ERR="$(mktemp)" || _DS_ERR=""
+    [ -n "$_DS_ERR" ] || _DS_ERR=/dev/null
+    _DS_B="$b"; _DS_TIP=""; _DS_NEW=0
+    if [ "$urc" -eq 3 ]; then
+        _ds_set skipped no-timeout "timeout(1) is not on PATH, so the network calls cannot be bounded" \
+            "Put coreutils' timeout on PATH; the next close retries."
+        return 0
+    fi
+    case "$UPSTREAM_TIP" in
+        "(no-origin)") DEVDOC_SYNC_OUTCOME=off; return 0 ;;
+        "(unreachable)")
+            case "$UPSTREAM_ASK_RC" in
+                124|137) _ds_budget ;;
+                *) _ds_set refused fetch-failed "the fetch failed ($UPSTREAM_TIP_WHY)" "The next close retries." ;;
+            esac
+            return 0 ;;
+        "(unpushed)") _DS_NEW=1 ;;
+        *)
+            _DS_TIP="$UPSTREAM_TIP"
+            case "$UPSTREAM_FETCH_RC" in
+                ""|0) ;;
+                budget|124|137) _ds_budget; return 0 ;;
+                *) _ds_set refused fetch-failed "the fetch failed (git fetch exited $UPSTREAM_FETCH_RC)" "The next close retries."
+                   return 0 ;;
+            esac
+            if ! "$DEVAGENT_GIT" -C "$top" cat-file -e "$_DS_TIP^{commit}" 2>/dev/null; then
+                _ds_set refused fetch-failed "the fetch failed (origin's $b tip $_DS_TIP is not here after it)" "The next close retries."
+                return 0
+            fi
+            [ -n "$UPSTREAM_FETCH_RC" ] || _devdoc_sync_track "$top" "$b" "$_DS_TIP" ;;
+    esac
+    # 2. One short hold: no network call under the lock; the wait spends no budget.
+    bounded_now_us; t0="$BOUNDED_NOW_US"
+    devdoc_lock_acquire "$devdoc_dir" "$issue" "the next close" 2>/dev/null || lrc=$?
+    case "$lrc" in
+        0) ;;
+        1) _ds_set skipped lock-busy "the devDoc lock is busy" "Skipped for this close; the next close retries."; return 0 ;;
+        *) _ds_set skipped lock-location "the devDoc lock location cannot be determined" "Skipped for this close; the next close retries."; return 0 ;;
+    esac
+    _devdoc_sync_hold "$top" || hrc=$?
+    devdoc_lock_release
+    bounded_now_us; dl=$((dl + BOUNDED_NOW_US - t0))
+    [ "$hrc" -eq 0 ] || return 0
+    case "$_DS_KIND" in
+        same) DEVDOC_SYNC_OUTCOME=same; return 0 ;;
+        behind) DEVDOC_SYNC_OUTCOME=fast-forwarded; return 0 ;;
+    esac
+    # 3. The push, unlocked, bounded by what is left of the budget.
+    if ! bounded_secs_left "$dl"; then _ds_budget; return 0; fi
+    LC_ALL=C GIT_TERMINAL_PROMPT=0 bounded_call "$BOUNDED_SECS" "$DEVAGENT_GIT" -C "$top" \
+        push origin "$_DS_S:refs/heads/$b" </dev/null >/dev/null 2>"$_DS_ERR" || prc=$?
+    if [ "$prc" -ne 0 ]; then
+        _ds_git_failed push "$prc" "$_DS_ERR"
+        return 0
+    fi
+    _devdoc_sync_track "$top" "$b" "$_DS_S"
+    case "$_DS_KIND" in
+        diverged) DEVDOC_SYNC_OUTCOME=merged ;;
+        *) DEVDOC_SYNC_OUTCOME=pushed ;;
+    esac
+    return 0
+}
+
+# _ds_budget — the time budget ran out, during a call or before the next could start.
+_ds_budget() {
+    _ds_set skipped budget "the time budget ran out (DEVAGENT_DEVDOC_SYNC_SECS=$_DS_BUDGET)" \
+        "Skipped for this close; the next close retries."
+}
+
+# _devdoc_sync_line — DEVDOC_SYNC_LINE from the recorded reason. The count is read
+# after any move; a HEAD with no branch shows as (detached HEAD), with no count.
+_devdoc_sync_line() {
+    local verb br count=""
+    case "$DEVDOC_SYNC_OUTCOME" in
+        skipped) verb=skipped ;;
+        refused) verb=refused ;;
+        *) verb=finished ;;
+    esac
+    if [ -n "$DEVDOC_SYNC_BRANCH" ]; then
+        br="$DEVDOC_SYNC_BRANCH"
+        devdoc_unpushed_text "$DEVDOC_SYNC_REPO" "$br" || true
+        count=" $DEVDOC_UNPUSHED_TEXT."
+    elif [ "$_DS_DETACHED" = 1 ]; then
+        br="(detached HEAD)"
+    else
+        br="(branch unknown)"
+    fi
+    DEVDOC_SYNC_LINE="devDoc sync $verb for $DEVDOC_SYNC_REPO ($br): $_DS_WHY.$count $_DS_NEXT${_DS_ALSO:+ Also: $_DS_ALSO}"
+}

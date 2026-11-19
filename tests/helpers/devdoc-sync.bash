@@ -70,18 +70,19 @@ sync_snapshot() {
 # sync_run <dir> <issue> <budget> — run devdoc_sync <dir> <issue> <budget> the way
 # cleanup does: a fresh bash under set -euo pipefail that sources io.sh and
 # devdoc-repo.sh, from <dir>. DEVAGENT_GIT passes through; $SYNC_PATH, when set,
-# is the call's PATH. Sets SYNC_RC SYNC_OUTCOME SYNC_REASON SYNC_LINE; stderr goes
+# is the PATH of the devdoc_sync call (set after the libraries are sourced). Sets SYNC_RC SYNC_OUTCOME SYNC_REASON SYNC_LINE; stderr goes
 # to $SYNC_ERR. rc 1 when the driver aborts or the line holds a newline.
 sync_run() {
     local out rc=0
     out="$(mktemp)"
     SYNC_ERR="${SYNC_ERR:-${BATS_TEST_TMPDIR:-/tmp}/sync.err}"
     SYNC_RC="" SYNC_OUTCOME="" SYNC_REASON="" SYNC_LINE=""
-    env ${SYNC_PATH:+PATH="$SYNC_PATH"} "$BASH" -c '
+    SYNC_CALL_PATH="${SYNC_PATH:-}" "$BASH" -c '
         set -euo pipefail
         . "$DEVAGENT_ROOT/scripts/lib/io.sh"
         . "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"
         cd "$1"
+        [ -z "$SYNC_CALL_PATH" ] || PATH="$SYNC_CALL_PATH"
         r=0
         devdoc_sync "$1" "$2" "$3" || r=$?
         printf "%s\0" "$r" "$DEVDOC_SYNC_OUTCOME" "$DEVDOC_SYNC_REASON" "$DEVDOC_SYNC_LINE" > "$4"
