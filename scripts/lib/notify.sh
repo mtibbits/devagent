@@ -17,9 +17,9 @@
 # the line format, the lock and the write.
 #
 # Exits: 0 written; 2 refused (`notify: refused (<id>): ...`); 3 lock timeout;
-# 4 I/O; 5 `--rotate` found no file (`notify: nothing-to-rotate`). The functions RETURN their status and never exit; diagnostics go to
-# stderr and stdout stays empty. Sourcing changes no shell option and prints
-# nothing.
+# 4 I/O; 5 `--rotate` found no file (`notify: nothing-to-rotate`). The functions
+# RETURN their status and never exit; diagnostics go to stderr and stdout stays
+# empty. Sourcing changes no shell option and prints nothing.
 # shellcheck shell=bash
 
 _NOTIFY_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,10 +43,11 @@ _notify_refuse() { printf 'notify: refused (%s): %s\n' "$1" "$2" >&2; }
 
 # _notify_native <path>: print <path> in the native form a Windows python reads
 # (`cygpath -m`) when cygpath exists, else unchanged. Returns non-zero when the
-# conversion fails.
+# conversion fails. `--` keeps a dash-led value from reading as an option, and
+# cygpath's stderr is dropped, since it can echo the value.
 _notify_native() {
   if command -v cygpath >/dev/null 2>&1; then
-    cygpath -m "$1"
+    cygpath -m -- "$1" 2>/dev/null
   else
     printf '%s\n' "$1"
   fi
@@ -58,20 +59,27 @@ _notify_native() {
 # ONE `cygpath -m` call, which prints one path per line (a fork is slow on Git
 # Bash). MSYS path conversion is off, so every argument arrives as written.
 _notify_helper() {
-  local mode="$1" out
+  local mode="$1" out home cfg
   local -a paths conv
   shift
   command -v python3 >/dev/null 2>&1 || { _notify_io "no python3 on PATH"; return 4; }
   [ -f "$_NOTIFY_PY" ] && [ -r "$_NOTIFY_PY" ] || { _notify_io "helper _notify.py is not readable"; return 4; }
-  paths=("$_NOTIFY_PY" "$(devagent_home)/state")
-  case "$mode" in append|check) paths+=("$(config_path)") ;; esac
+  home="$(devagent_home)" || { _notify_io "cannot resolve the devagent home"; return 4; }
+  paths=("$_NOTIFY_PY" "$home/state")
+  case "$mode" in
+    append|check)
+      cfg="$(config_path)" || { _notify_io "cannot resolve the config path"; return 4; }
+      paths+=("$cfg")
+      ;;
+  esac
   if command -v cygpath >/dev/null 2>&1; then
-    out="$(cygpath -m "${paths[@]}")" || { _notify_io "cygpath failed on the helper, state or config path"; return 4; }
+    out="$(cygpath -m -- "${paths[@]}")" || { _notify_io "cygpath failed on the helper, state or config path"; return 4; }
     mapfile -t conv <<< "$out"
     [ "${#conv[@]}" -eq "${#paths[@]}" ] || { _notify_io "cygpath printed ${#conv[@]} paths for ${#paths[@]}"; return 4; }
     paths=("${conv[@]}")
   fi
-  [ "${#paths[@]}" -eq 2 ] || set -- "${paths[2]}"
+  # append and check: the (converted) config path is the helper's third argument.
+  if [ "${#paths[@]}" -eq 3 ]; then set -- "${paths[2]}"; fi
   MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' python3 -X utf8 "${paths[0]}" "$mode" "${paths[1]}" "$@"
 }
 

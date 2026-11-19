@@ -8,8 +8,9 @@ Stdin framing: one <key>=<value> per line, UTF-8, LF only, split at the first
 `=`, ended by EOF. Location comes only from argv (never DA_HOME, HOME,
 DEVAGENT_STATE_DIR or a session pin); project and issue only from the fields.
 
-Exits: 0 done; 2 refused; 3 lock timeout; 4 I/O; 5 nothing to rotate. Diagnostics go to stderr,
-stdout stays empty, and no message repeats a field value. Spec §7.3.
+Exits: 0 done; 2 refused; 3 lock timeout; 4 I/O; 5 nothing to rotate.
+Diagnostics go to stderr, stdout stays empty, and no message repeats a field
+value. Spec §7.3.
 
 Python 3.8 syntax floor: no `match`, no PEP 604 unions at runtime.
 """
@@ -300,8 +301,9 @@ def ends_in_newline(fd: int) -> bool:
     return os.read(fd, 1) == b"\n"
 
 
-def append(state_dir: str, line: bytes) -> None:
-    """Write one line under the lock.
+def append(state_dir: str, make_line) -> None:
+    """Write one line under the lock. make_line() builds it once the lock is
+    held, so `ts` is the write time, not the time the wait began.
 
     The data file is opened only after the lock is held and closed before it is
     released (a waiting writer never holds it open, which would block a Windows
@@ -316,6 +318,7 @@ def append(state_dir: str, line: bytes) -> None:
         except OSError as e:
             raise IOFault(f"cannot open {FILE_NAME}: {e.strerror}")
         try:
+            line = make_line()
             write_all(fd, line if ends_in_newline(fd) else b"\n" + line)
         except OSError as e:
             raise IOFault(f"cannot write {FILE_NAME}: {e.strerror}")
@@ -351,9 +354,9 @@ def run(argv: list) -> int:
         mode, state_dir, config_path = argv
         fields = parse_fields(sys.stdin.buffer.read())
         check_fields(fields, config_path)
-        line = fit(build_record(fields))
+        fit(build_record(fields))   # refuses too-long before any lock or directory
         if mode == "append":
-            append(state_dir, line)
+            append(state_dir, lambda: fit(build_record(fields)))
         return 0
     if len(argv) == 3 and argv[0] == "rotate":
         rotate(argv[1], argv[2])

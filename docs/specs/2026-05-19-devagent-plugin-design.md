@@ -1314,7 +1314,9 @@ old file if it still has it, then reads the new one from 0. On Windows it opens
 the file with read, write and delete sharing, so it never blocks a writer or a
 rotation. A launcher that rotates the file runs `notify.sh --rotate
 <new-name>`, which renames it under the appender's lock to a bare name in the
-same directory, so a launcher in another language need not take the lock. A
+same directory, so a launcher in another language need not take the lock. The
+name holds no `/`, `\` or `:` and is not `.` or `..` (`rotate-name`), does not
+start with `-` (`usage`), and does not already exist (`rotate-exists`). A
 rotation name should not end in `.toml` or `.lock`: devagent reads every
 `*.toml` in `state/` as project state (`_state_list_projects`,
 `scripts/lib/state.sh`).
@@ -1340,9 +1342,12 @@ unknown field, a duplicate key, an unknown `event`, a `project` that is not a
 configured project, both or neither of `issue` and `capture`, an `issue`
 outside `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, a `capture` that is empty or holds a
 space or a control character, a `step` outside `[A-Za-z][A-Za-z0-9_-]{0,63}`, a
-relative `question`, and an empty `detail`. An input with one fault gets one id. `notify_check` and `notify.sh --check` run
-the same checks and write nothing; a writer that appends last runs one first, so
-a line refused for its fields never follows work already done.
+relative `question`, and an empty `detail`. An input with one fault gets one
+id. `notify_check` and `notify.sh --check` run the same checks and write
+nothing; a writer that appends last runs one first, so a line refused for its
+fields never follows work already done. Only `event`, `issue` and `step` are
+limited to a safe alphabet; a launcher that builds a command from `project`,
+`capture`, `question` or `detail` quotes them.
 
 The line is built with `json.dumps` (`ensure_ascii=False`). When the encoded
 line with its `\n` would be longer than 4,096 bytes, `detail` keeps its longest
@@ -1373,8 +1378,18 @@ only there. An interactive session never sets it, even one the operator started
 by hand with `--auto`. Any non-empty value means unattended; devagent does not
 read the value, and never sets the variable itself. Every reader asks
 `devagent_unattended` (`scripts/lib/paths.sh`), never its own test of the
-variable. The marker is not a trust boundary: any process in the session can
-unset it. It stops accidents, not a deliberate bypass. Sessions are identified
+variable. The readers arrive with later issues: the hold helper asks in the
+session when the marker is unset and holds the issue when it is set (#962); the
+watchdog watches only marked sessions (#932); the answer command (#964), grants
+(#965) and the leak gate's re-record command (#966) refuse to run in a marked
+session. Whether a line is written does not depend on the marker unless a
+writer says so: the hold writes a `hold` line in an unattended session, and in
+an interactive one only when it falls back to holding (`--no-ask`, or an ask
+that could not be shown or got no answer); notify-only questions, capture
+questions and notices follow the same rule; the leak gate's audit lines and
+every `answered` and `stuck` line are written in both. The marker is not a
+trust boundary: any process in the session can unset it. It stops accidents,
+not a deliberate bypass. Sessions are identified
 by Claude Code's `CLAUDE_CODE_SESSION_ID`; devagent defines no session-id
 function. devagent's test suite unsets the marker in its shared guard
 (`tests/lib/hermetic-env.bash`) and in `SUITE_CHILD_UNSET`, so an unattended

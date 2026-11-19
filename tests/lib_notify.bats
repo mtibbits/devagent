@@ -20,7 +20,12 @@ setup() {
   SEED="$BATS_TEST_TMPDIR/seed"
 }
 
-teardown() { teardown_tmp_devagent_home; }
+# teardown: end a lock holder a failed test left running before the tree goes,
+# so rm -rf never races a Windows handle.
+teardown() {
+  if [ -n "${HOLDER:-}" ]; then touch "$RELEASE"; wait "$HOLDER" 2>/dev/null || true; fi
+  teardown_tmp_devagent_home
+}
 
 is_git_bash() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac; return 1; }
 
@@ -263,8 +268,8 @@ EOF
   # line short: 4, nothing written.
   is_git_bash && skip "the identity shim's POSIX paths are not native on Windows"
   mkdir -p "$BATS_TEST_TMPDIR/shim" "$BATS_TEST_TMPDIR/short"
-  printf '#!/usr/bin/env bash\necho call >> "%s"\nshift\nprintf "%%s\\n" "$@"\n' "$BATS_TEST_TMPDIR/calls" > "$BATS_TEST_TMPDIR/shim/cygpath"
-  printf '#!/usr/bin/env bash\nshift 2\nprintf "%%s\\n" "$@"\n' > "$BATS_TEST_TMPDIR/short/cygpath"
+  printf '#!/usr/bin/env bash\necho call >> "%s"\nshift 2\nprintf "%%s\\n" "$@"\n' "$BATS_TEST_TMPDIR/calls" > "$BATS_TEST_TMPDIR/shim/cygpath"
+  printf '#!/usr/bin/env bash\nshift 3\nprintf "%%s\\n" "$@"\n' > "$BATS_TEST_TMPDIR/short/cygpath"
   chmod +x "$BATS_TEST_TMPDIR/shim/cygpath" "$BATS_TEST_TMPDIR/short/cygpath"
   PATH="$BATS_TEST_TMPDIR/shim:$PATH" run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
   [ "$status" -eq 0 ]
@@ -274,6 +279,48 @@ EOF
   [ "$status" -eq 4 ]
   [[ "$stderr" == *'notify: io:'* ]]
   [ "$(lines "$NF")" -eq 1 ]
+}
+
+@test "notify: a converted question holding a newline is refused" {
+  is_git_bash && skip "the shim stands in for cygpath on Linux"
+  mkdir -p "$BATS_TEST_TMPDIR/shim"
+  printf '#!/usr/bin/env bash\nprintf "/a\\n/b\\n"\n' > "$BATS_TEST_TMPDIR/shim/cygpath"
+  chmod +x "$BATS_TEST_TMPDIR/shim/cygpath"
+  PATH="$BATS_TEST_TMPDIR/shim:$PATH" run --separate-stderr notify_append event=hold project=toy issue=Issue-7 question=/x/STUCK detail=d
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(newline)'* ]]
+  [ ! -e "$NF" ]
+}
+
+@test "notify: a missing, invalid or unreadable config.toml is io, after the event check" {
+  local cfg
+  cfg="$(config_path)"
+  rm -f "$cfg"
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 4 ] || { echo "missing: $status $stderr" >&2; return 1; }
+  [[ "$stderr" == *'notify: io:'* ]]
+  run --separate-stderr notify_check event=bogus project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(event)'* ]]
+  printf '[project.toy\n' > "$cfg"
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 4 ] || { echo "invalid: $status $stderr" >&2; return 1; }
+  [[ "$stderr" == *'notify: io:'* ]]
+  rm -f "$cfg"
+  mkdir "$cfg"
+  run --separate-stderr notify_append event=hold project=toy issue=Issue-7 detail=d
+  [ "$status" -eq 4 ] || { echo "directory: $status $stderr" >&2; return 1; }
+  [[ "$stderr" == *'notify: io:'* ]]
+  [ ! -e "$NF" ]
+}
+
+@test "notify: sourcing without devagent_validate_slug returns 1 and defines no appender" {
+  local lib="$BATS_TEST_TMPDIR/plugin/scripts/lib"
+  mkdir -p "$lib"
+  cp "$PLUGIN_ROOT/scripts/lib/notify.sh" "$PLUGIN_ROOT/scripts/lib/_notify.py" "$PLUGIN_ROOT/scripts/lib/paths.sh" "$lib/"
+  run --separate-stderr bash -c '. "$1"; echo "rc=$?"; type -t notify_append || echo undefined' _ "$lib/notify.sh"
+  [ "$output" = "$(printf 'rc=1\nundefined')" ]
+  [[ "$stderr" == *'notify: io: devagent_validate_slug unavailable'* ]]
 }
 
 # ---- Task 3: refusals, field formats, framing and --check -------------------
@@ -295,6 +342,7 @@ refusal_rows() {
     "issue-capture|$b|$d" \
     "unknown-field|v=1|$b|$i|$d" \
     "question|$b|$i|question=rel/STUCK|$d" \
+    "question|$b|$i|question=-x|$d" \
     "question|$b|$i|question=|$d" \
     "issue|$b|issue=-x|$d" \
     "issue|$b|issue=a b|$d" \
@@ -551,7 +599,7 @@ hold_lock() {
 }
 
 # release: end the holder and wait for it, so teardown never races a handle.
-release() { touch "$RELEASE"; wait "$HOLDER"; }
+release() { touch "$RELEASE"; wait "$HOLDER"; HOLDER=; }
 
 @test "notify: with the lock held by another process an append exits 3 after the bounded wait" {
   seed
@@ -722,6 +770,9 @@ release() { touch "$RELEASE"; wait "$HOLDER"; }
     [[ "$stderr" == *'(rotate-name)'* ]] || { echo "name <$name>: $stderr" >&2; return 1; }
   done
   [ "$n" -eq 6 ]
+  run --separate-stderr bash "$NOTIFY" --rotate "$(printf 'a\nb')"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'(newline)'* ]]
   printf 'kept\n' > "$DA_HOME/state/taken.jsonl"
   run --separate-stderr bash "$NOTIFY" --rotate taken.jsonl
   [ "$status" -eq 2 ]
