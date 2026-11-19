@@ -1092,7 +1092,7 @@ omits.
 | `/devagent:template list\|show <name>` | Inspect resolved artifact templates |
 | `/devagent:sync [project\|--all]` | Async merge detection; transitions issues whose MRs were merged outside our session, unblocks `[?]` closeout steps, and prints a `CLOSEOUT:` nudge routing to `/devagent:next --auto` (#363; executes no closeout steps itself) |
 | `/devagent:statusreport [project]` | Generates status report, advances pin, commits to devdoc |
-| `/devagent:wbs <init\|update\|show>` | WBS authoring/render (see §13) |
+| `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 

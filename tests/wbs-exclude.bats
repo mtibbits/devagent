@@ -299,6 +299,8 @@ _readme_names_exclude() { grep -E '^\| `wbs` \|' "$1" | grep -qF '`exclude`'; }
   grep -qE '^argument-hint: .*exclude' "$cmd"
   grep -qE '^- `exclude ' "$cmd"
   grep -F 'To keep a deliberately deleted issue out' "$cmd" | grep -qF '`exclude'
+  # the §6 command table escapes its pipes, so match the row, not a `|exclude|` list
+  grep -F '| `/devagent:wbs <' "$spec" | grep -qF 'exclude'
   sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$spec" | grep -qF '/devagent:wbs exclude'
   sed -n '/^A directive is/,/^$/p' "$spec" | grep -qF 'wbs exclude'
   _readme_names_exclude "$REPO/README.md"
