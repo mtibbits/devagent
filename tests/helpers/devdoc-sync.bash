@@ -1,6 +1,3 @@
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
-# devdoc_lock_test_path and git_wrapper_argv_walk (functions only).
-. "$(dirname "${BASH_SOURCE[0]}")/devdoc-repo.bash"
 # tests/helpers/devdoc-sync.bash — fixtures for #1148, cleanup's devDoc sync with
 # origin: a bare origin and two clones (A, the other machine; B, this machine), a
 # state snapshot, a strict driver for devdoc_sync, and a DEVAGENT_GIT stand-in
@@ -8,6 +5,9 @@
 # tests/cleanup.bats and tests/status.bats. Every function takes its root
 # explicitly; nothing here reads the library under test.
 # shellcheck disable=SC2034  # SYNC_* are read by the bats files that load this helper
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
+# devdoc_lock_test_path and git_wrapper_argv_walk (functions only).
+. "$(dirname "${BASH_SOURCE[0]}")/devdoc-repo.bash"
 
 _sync_ident() { git -C "$1" config user.email t@example.com && git -C "$1" config user.name Test; }
 
