@@ -421,7 +421,7 @@ S
   grep -qF "set through devagent's \`use_worktree\` and, where the checklist has one, the branch step" <<<"$x"
   # #1153 review I-1 (step 15): a one-shot's own push, merge or PR is its work, not branch integration.
   grep -qF 'A push, merge or PR that the issue body names as the work (a one-shot action) is that work, not branch integration' <<<"$x"
-  ! grep -qF 'Do not merge, push, delete the branch or open a PR' <<<"$x"
+  ! grep -qF 'Do not merge, push, delete the branch or open a PR' <<<"$x" || false
   ! grep -qF 'The branch step has already checked the issue branch out there' <<<"$x"
 }
 
