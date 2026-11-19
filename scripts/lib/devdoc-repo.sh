@@ -217,10 +217,6 @@ _devdoc_lock_timeout() {
     fi
 }
 
-# _devdoc_now_us — set _DEVDOC_NOW_US to the wall clock in microseconds
-# (bounded_now_us: EPOCHREALTIME on bash 5, else whole seconds from date).
-_devdoc_now_us() { bounded_now_us; _DEVDOC_NOW_US="$BOUNDED_NOW_US"; }
-
 # devdoc_lock_deadline_start — export DEVAGENT_DEVDOC_LOCK_DEADLINE (epoch
 # seconds) as now + the bound, unless an earlier valid deadline is already
 # set. A run that waits on the lock more than once (cleanup) calls this once,
@@ -229,8 +225,8 @@ _devdoc_now_us() { bounded_now_us; _DEVDOC_NOW_US="$BOUNDED_NOW_US"; }
 devdoc_lock_deadline_start() {
     local d="${DEVAGENT_DEVDOC_LOCK_DEADLINE:-}" mine
     _devdoc_lock_timeout
-    _devdoc_now_us
-    mine=$(( _DEVDOC_NOW_US / 1000000 + DEVDOC_LOCK_TIMEOUT_S ))
+    bounded_now_us
+    mine=$(( BOUNDED_NOW_US / 1000000 + DEVDOC_LOCK_TIMEOUT_S ))
     if [[ "$d" =~ ^[0-9]{1,12}$ ]] && [ "$((10#$d))" -lt "$mine" ]; then
         mine=$((10#$d))
     fi
@@ -286,8 +282,8 @@ devdoc_lock_acquire() {
     # The bound is ELAPSED time (#749 red-team: counting 0.2 s polls overshot
     # by about a quarter), capped by the run's shared deadline when one is set.
     _devdoc_lock_timeout
-    _devdoc_now_us
-    end=$(( _DEVDOC_NOW_US + DEVDOC_LOCK_TIMEOUT_S * 1000000 ))
+    bounded_now_us
+    end=$(( BOUNDED_NOW_US + DEVDOC_LOCK_TIMEOUT_S * 1000000 ))
     bound="${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT)"
     dl="${DEVAGENT_DEVDOC_LOCK_DEADLINE:-}"
     if [[ "$dl" =~ ^[0-9]{1,12}$ ]] && [ "$((10#$dl * 1000000))" -lt "$end" ]; then
@@ -295,8 +291,8 @@ devdoc_lock_acquire() {
         bound="this run's shared lock deadline (DEVAGENT_DEVDOC_LOCK_TIMEOUT across all of its waits)"
     fi
     until mkdir "$path" 2>/dev/null; do
-        _devdoc_now_us
-        if [ "$_DEVDOC_NOW_US" -ge "$end" ]; then
+        bounded_now_us
+        if [ "$BOUNDED_NOW_US" -ge "$end" ]; then
             if _devdoc_lock_holder "$path"; then
                 info "devdoc lock $path is held by pid $_H_PID on $_H_HOST for $_H_ISSUE since $_H_START ($_H_CMD) - gave up after $bound. A killed run can leave it held. Only if no devagent run started at $_H_START is still running on $_H_HOST (check on that host, in that environment: the pid is that shell's own, not a Windows pid), remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun"
             else
@@ -350,13 +346,14 @@ devdoc_mid_merge() {
 # DEVDOC_MID_OP = merge | rebase | cherry-pick | revert; rc 1 otherwise (#1148).
 # shellcheck disable=SC2034  # DEVDOC_MID_OP is the return channel — read by _devdoc_sync_state
 devdoc_mid_operation() {
-    local d p
+    local d out=""
     DEVDOC_MID_OP=""
     if devdoc_mid_merge "$1"; then DEVDOC_MID_OP=merge; return 0; fi
-    for p in rebase-merge rebase-apply; do
-        d="$(devdoc_git_ro -C "$1" rev-parse --path-format=absolute --git-path "$p" 2>/dev/null)" || continue
+    out="$(devdoc_git_ro -C "$1" rev-parse --path-format=absolute \
+        --git-path rebase-merge --git-path rebase-apply 2>/dev/null)" || out=""
+    while IFS= read -r d; do
         if [ -n "$d" ] && [ -e "$d" ]; then DEVDOC_MID_OP=rebase; return 0; fi
-    done
+    done <<< "$out"
     if devdoc_git_ro -C "$1" rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null 2>&1; then
         DEVDOC_MID_OP=cherry-pick; return 0
     fi
@@ -398,42 +395,40 @@ devdoc_sync_repo() {
 #   rc 2  "commits not on origin/<b> could not be counted"
 # The date is the oldest commit's author date in its own zone (%Y-%m-%d %H:%M %z).
 devdoc_unpushed_text() {
-    local top="$1" b="$2" n="" out="" rc=0 at ad min="" oldest=""
+    local top="$1" b="$2" n=0 out="" rc=0 at ad min="" oldest=""
     DEVDOC_UNPUSHED_TEXT=""
     if ! "$DEVAGENT_GIT" -C "$top" rev-parse -q --verify "refs/remotes/origin/$b^{commit}" >/dev/null 2>&1; then
         DEVDOC_UNPUSHED_TEXT="branch $b is not on origin"
         return 0
     fi
-    n="$("$DEVAGENT_GIT" -C "$top" rev-list --count "refs/remotes/origin/$b..refs/heads/$b" 2>/dev/null)" || rc=$?
-    if [ "$rc" -ne 0 ] || ! [[ "$n" =~ ^[0-9]+$ ]]; then
+    # One walk: the count is the number of commits the log prints.
+    out="$("$DEVAGENT_GIT" -C "$top" log --format='%at %ad' --date=format:'%Y-%m-%d %H:%M %z' \
+        "refs/remotes/origin/$b..refs/heads/$b" 2>/dev/null)" || rc=$?
+    if [ "$rc" -ne 0 ]; then
         DEVDOC_UNPUSHED_TEXT="commits not on origin/$b could not be counted"
         return 2
     fi
+    while read -r at ad; do
+        [[ "$at" =~ ^[0-9]+$ ]] || continue
+        n=$((n + 1))
+        if [ -z "$min" ] || [ "$at" -lt "$min" ]; then min="$at"; oldest="$ad"; fi
+    done <<< "$out"
     if [ "$n" -eq 0 ]; then
         DEVDOC_UNPUSHED_TEXT="0 commits not on origin/$b"
         return 1
-    fi
-    out="$("$DEVAGENT_GIT" -C "$top" log --format='%at %ad' --date=format:'%Y-%m-%d %H:%M %z' \
-        "refs/remotes/origin/$b..refs/heads/$b" 2>/dev/null)" || rc=$?
-    while read -r at ad; do
-        [[ "$at" =~ ^[0-9]+$ ]] || continue
-        if [ -z "$min" ] || [ "$at" -lt "$min" ]; then min="$at"; oldest="$ad"; fi
-    done <<< "$out"
-    if [ "$rc" -ne 0 ] || [ -z "$oldest" ]; then
-        DEVDOC_UNPUSHED_TEXT="commits not on origin/$b could not be counted"
-        return 2
     fi
     DEVDOC_UNPUSHED_TEXT="$n commits not on origin/$b, oldest $oldest"
 }
 
 # _devdoc_sync_state <top> — read the branch into _DS_BRANCH (refs/heads/ stripped by
 # hand, never --short: a tag named like the branch makes --short say heads/<b>; empty
-# when detached; _DS_DETACHED=1 then). rc 1 with _DS_TOKEN set when the repository
-# cannot sync: mid-operation first, then detached, then git-failed. So a mid-merge on
-# a branch keeps its branch in the line, and a stopped rebase shows (detached HEAD).
+# when detached; _DS_DETACHED=1 then). rc 1 after a refusal (_ds_set) when the
+# repository cannot sync: mid-operation first, then detached, then git-failed. So a
+# mid-merge on a branch keeps its branch in the line, and a stopped rebase shows
+# (detached HEAD).
 _devdoc_sync_state() {
     local top="$1" ref="" rc=0
-    _DS_BRANCH=""; _DS_DETACHED=0; _DS_TOKEN=""
+    _DS_BRANCH=""; _DS_DETACHED=0
     ref="$("$DEVAGENT_GIT" -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || rc=$?
     case "$rc:$ref" in
         0:refs/heads/?*) _DS_BRANCH="${ref#refs/heads/}" ;;
@@ -447,7 +442,7 @@ _devdoc_sync_state() {
         _ds_set refused detached "HEAD is detached" "Check out the devDoc branch; the next close retries."
         return 1
     elif [ -z "$_DS_BRANCH" ]; then
-        _ds_set refused git-failed "git symbolic-ref exited $rc" "The next close retries."
+        _ds_set refused git-failed "git symbolic-ref exited $rc"
         return 1
     fi
     return 0
@@ -467,10 +462,10 @@ _devdoc_sync_track() {
     return 0
 }
 
-# _ds_set <outcome> <token> <reason> <next> — record why the sync warns. The first
-# reason set wins, except that _ds_also keeps an earlier non-fatal one.
+# _ds_set <outcome> <token> <reason> [<next>] — record why the sync warns (each call
+# replaces the last). <next> defaults to "The next close retries."
 _ds_set() {
-    DEVDOC_SYNC_OUTCOME="$1"; DEVDOC_SYNC_REASON="$2"; _DS_WHY="$3"; _DS_NEXT="$4"
+    DEVDOC_SYNC_OUTCOME="$1"; DEVDOC_SYNC_REASON="$2"; _DS_WHY="$3"; _DS_NEXT="${4:-The next close retries.}"
 }
 
 # _ds_git_failed <sub> <rc> [<stderr file>] — the git-failed reason: `git <sub>
@@ -490,7 +485,7 @@ _ds_git_failed() {
         [ -n "$detail" ] || detail="$first"
     fi
     _ds_cap "$detail"
-    _ds_set refused git-failed "git $1 exited $2${_DS_CAPPED:+: $_DS_CAPPED}" "The next close retries."
+    _ds_set refused git-failed "git $1 exited $2${_DS_CAPPED:+: $_DS_CAPPED}"
 }
 
 # _ds_cap <text> — _DS_CAPPED is <text> cut to 240 characters (each field of the
@@ -500,60 +495,44 @@ _ds_cap() {
     [ "${#_DS_CAPPED}" -le 240 ] || _DS_CAPPED="${_DS_CAPPED:0:237}..."
 }
 
-# _ds_rc <git args…> — run "$DEVAGENT_GIT" -C <top> <args>, stdout and stderr
-# dropped; _DS_RC is its exit code.
-_ds_rc() {
-    _DS_RC=0
-    "$DEVAGENT_GIT" "$@" >/dev/null 2>&1 || _DS_RC=$?
-}
-
 # _devdoc_sync_hold <top> — the locked part: the re-check, the HEAD read, the
-# classification, the merge commit and the move. Reads _DS_B _DS_TIP _DS_NEW; sets
-# _DS_KIND (new|same|ahead|behind|diverged), _DS_H, _DS_S (the SHA to push).
+# classification, the merge commit and the move. Reads DEVDOC_SYNC_BRANCH _DS_TIP
+# _DS_NEW; sets _DS_KIND (new|same|ahead|behind|diverged) and _DS_S (the SHA to push).
 # rc 1 after a refusal (_ds_set).
 _devdoc_sync_hold() {
-    local top="$1" b="$_DS_B" T="$_DS_TIP" H="" ilock="" rc=0 M="" X=""
-    _DS_KIND=""; _DS_H=""; _DS_S=""
+    local top="$1" b="$DEVDOC_SYNC_BRANCH" T="$_DS_TIP" H="" ilock="" rc=0 base="" M="" X=""
+    _DS_KIND=""; _DS_S=""
     _devdoc_sync_state "$top" || return 1
     if [ "$_DS_BRANCH" != "$b" ]; then
-        _ds_set refused head-moved "HEAD moved while the sync ran" "The next close retries."
+        _ds_set refused head-moved "HEAD moved while the sync ran"
         return 1
     fi
     ilock="$("$DEVAGENT_GIT" -C "$top" rev-parse --path-format=absolute --git-path index.lock 2>"$_DS_ERR")" || rc=$?
     if [ "$rc" -ne 0 ] || [ -z "$ilock" ]; then _ds_git_failed rev-parse "$rc" "$_DS_ERR"; return 1; fi
     if [ -e "$ilock" ]; then
-        _ds_set refused index-lock "another git process holds $ilock" "The next close retries."
+        _ds_set refused index-lock "another git process holds $ilock"
         return 1
     fi
     H="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify 'HEAD^{commit}' 2>"$_DS_ERR")" || rc=$?
     if [ "$rc" -ne 0 ] || [ -z "$H" ]; then _ds_git_failed rev-parse "$rc" "$_DS_ERR"; return 1; fi
-    _DS_H="$H"
     if [ "$_DS_NEW" = 1 ]; then _DS_KIND=new; _DS_S="$H"; return 0; fi
     if [ "$H" = "$T" ]; then _DS_KIND=same; return 0; fi
-    _ds_rc -C "$top" merge-base --is-ancestor "$T" "$H"
-    case "$_DS_RC" in
-        0) _DS_KIND=ahead; _DS_S="$H"; return 0 ;;
-        1) ;;
-        *) _ds_git_failed merge-base "$_DS_RC"; return 1 ;;
-    esac
-    _ds_rc -C "$top" merge-base --is-ancestor "$H" "$T"
-    case "$_DS_RC" in
-        0) _DS_KIND=behind; X="$T" ;;
-        1) _ds_rc -C "$top" merge-base "$H" "$T"
-           case "$_DS_RC" in
-               0) _DS_KIND=diverged ;;
-               1) _ds_set refused unrelated "$b and origin/$b share no history" \
-                      "Reconcile the two histories by hand; the next close retries."
-                  return 1 ;;
-               *) _ds_git_failed merge-base "$_DS_RC"; return 1 ;;
-           esac ;;
-        *) _ds_git_failed merge-base "$_DS_RC"; return 1 ;;
+    # One walk classifies: when one side contains the other, it is the merge base.
+    rc=0; base="$("$DEVAGENT_GIT" -C "$top" merge-base "$H" "$T" 2>/dev/null)" || rc=$?
+    case "$rc:$base" in
+        0:"$T") _DS_KIND=ahead; _DS_S="$H"; return 0 ;;
+        0:"$H") _DS_KIND=behind; X="$T" ;;
+        0:?*) _DS_KIND=diverged ;;
+        1:*) _ds_set refused unrelated "$b and origin/$b share no history" \
+                 "Reconcile the two histories by hand; the next close retries."
+             return 1 ;;
+        *) _ds_git_failed merge-base "$rc"; return 1 ;;
     esac
     if [ "$_DS_KIND" = diverged ]; then
         rc=0; merge_forward_merge "$top" "$H" "$T" || rc=$?
         case "$rc" in
             0) ;;
-            2) _ds_set refused git-failed "git merge-tree exited $MF_MERGE_RC" "The next close retries."
+            2) _ds_set refused git-failed "git merge-tree exited $MF_MERGE_RC"
                return 1 ;;
             *) if [ "${#MF_CONFLICTED[@]}" -gt 0 ]; then _ds_paths "${MF_CONFLICTED[@]}"; else _DS_PATHS="(paths not named)"; fi
                _ds_set refused conflict "merging origin/$b conflicts in $_DS_PATHS" \
@@ -577,7 +556,7 @@ _devdoc_sync_hold() {
 # the config), LC_ALL=C (the stderr parsed below is git's English). rc 1 after a
 # refusal.
 _devdoc_sync_move() {
-    local top="$1" H="$2" X="$3" rc=0 p line hdr="" ref="" h="" ilock="" why=""
+    local top="$1" H="$2" X="$3" rc=0 p st line hdr="" ref="" h="" ilock="" why=""
     local -a D=() gone=() left=()
     local -A del=() existed=() w0=()
     _DS_EDITED=(); _DS_UNTRACKED=()
@@ -585,9 +564,13 @@ _devdoc_sync_move() {
     "$DEVAGENT_GIT" -C "$top" diff --no-renames --name-only -z "$H" "$X" >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
     if [ "$rc" -ne 0 ]; then _ds_git_failed diff "$rc" "$_DS_ERR"; return 1; fi
     mapfile -d '' D <"$_DS_LIST"
-    devdoc_git_ro -C "$top" ls-files --deleted -z >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
-    if [ "$rc" -ne 0 ]; then _ds_git_failed ls-files "$rc" "$_DS_ERR"; return 1; fi
-    while IFS= read -r -d '' p; do del[$p]=1; done <"$_DS_LIST"
+    # One scan gives both: every entry is W0 (tracked files that already differ from
+    # the index), and the D entries are the deleted ones.
+    devdoc_git_ro -C "$top" diff --no-renames --name-status -z >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
+    if [ "$rc" -ne 0 ]; then _ds_git_failed diff "$rc" "$_DS_ERR"; return 1; fi
+    while IFS= read -r -d '' st && IFS= read -r -d '' p; do
+        w0[$p]=1; [ "$st" != D ] || del[$p]=1
+    done <"$_DS_LIST"
     # Pre-move refusal (operator ruling): an unstaged deletion of a file origin
     # changed is a file in the way. git would re-create it; refuse, change nothing.
     for p in "${D[@]}"; do
@@ -598,14 +581,10 @@ _devdoc_sync_move() {
         _ds_in_the_way
         return 1
     fi
-    # The snapshot the rule-4 undo works from: which of the paths exist, and which
-    # tracked files already differ from the index (W0).
+    # The rest of the snapshot the rule-4 undo works from: which of the paths exist.
     for p in "${D[@]}"; do
         if [ -e "$top/$p" ] || [ -L "$top/$p" ]; then existed[$p]=1; fi
     done
-    devdoc_git_ro -C "$top" diff --name-only -z >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
-    if [ "$rc" -ne 0 ]; then _ds_git_failed diff "$rc" "$_DS_ERR"; return 1; fi
-    while IFS= read -r -d '' p; do w0[$p]=1; done <"$_DS_LIST"
     LC_ALL=C "$DEVAGENT_GIT" -C "$top" merge --ff-only --no-autostash --no-overwrite-ignore "$X" \
         </dev/null >/dev/null 2>"$_DS_ERR" || rc=$?
     if [ "$rc" -eq 0 ]; then
@@ -628,8 +607,8 @@ _devdoc_sync_move() {
     # by state, L35).
     ref="$("$DEVAGENT_GIT" -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || ref=""
     h="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null)" || h=""
-    if [ "$ref" != "refs/heads/$_DS_B" ] || [ "$h" != "$H" ]; then
-        _ds_set refused head-moved "HEAD moved while the sync ran" "The next close retries."
+    if [ "$ref" != "refs/heads/$DEVDOC_SYNC_BRANCH" ] || [ "$h" != "$H" ]; then
+        _ds_set refused head-moved "HEAD moved while the sync ran"
         return 1
     fi
     # 2: git's pre-check named files in the way; 3: another git process holds the
@@ -653,7 +632,7 @@ _devdoc_sync_move() {
         return 1
     fi
     if [ -n "$ilock" ]; then
-        _ds_set refused index-lock "another git process holds $ilock" "The next close retries."
+        _ds_set refused index-lock "another git process holds $ilock"
         return 1
     fi
     # 4: anything else with HEAD unmoved: undo whatever the move wrote (rule 4).
@@ -718,9 +697,8 @@ _devdoc_sync_undo() {
         return 0                                                     # nothing changed: git-failed stands
     fi
     if [ "${#named[@]}" -gt 0 ]; then
-        for p in "${named[@]:0:5}"; do pairs+=("$p: ${why[$p]}"); done
+        for p in "${named[@]}"; do pairs+=("$p: ${why[$p]}"); done
         _ds_paths "${pairs[@]}"
-        [ "${#named[@]}" -le 5 ] || _DS_PATHS="${_DS_PATHS%" (+"*} (+$((${#named[@]} - 5)) more)"
         line="the move stopped part-way at $_DS_PATHS; "
     else
         line="the move stopped part-way (${detail}); "
@@ -736,7 +714,7 @@ _devdoc_sync_undo() {
         _ds_set refused part-way "$line" \
             "Free or fix access to $_DS_PATHS (on Windows another program may hold it open); the next close retries."
     else
-        _ds_set refused part-way "$line" "The next close retries."
+        _ds_set refused part-way "$line"
     fi
 }
 
@@ -744,9 +722,9 @@ _devdoc_sync_undo() {
 # files) and _DS_UNTRACKED (untracked or ignored files). The remedy never says
 # discard and never implies add -f (operator rulings).
 _ds_in_the_way() {
-    local next=""
+    local next="" reason
     _ds_paths "${_DS_EDITED[@]}" "${_DS_UNTRACKED[@]}"
-    local why="uncommitted files are in the way of origin's changes: $_DS_PATHS"
+    reason="uncommitted files are in the way of origin's changes: $_DS_PATHS"
     if [ "${#_DS_EDITED[@]}" -gt 0 ]; then
         _ds_paths "${_DS_EDITED[@]}"
         next="Commit the edits to $_DS_PATHS, or let the session that owns them close."
@@ -755,13 +733,13 @@ _ds_in_the_way() {
         _ds_paths "${_DS_UNTRACKED[@]}"
         next="${next:+$next }Move $_DS_PATHS aside (origin now tracks them), or let the session that owns them close."
     fi
-    _ds_set refused in-the-way "$why" "$next The next close retries."
+    _ds_set refused in-the-way "$reason" "$next The next close retries."
 }
 
 # _ds_paths <path>… — _DS_PATHS lists at most 5 of them, then (+N more).
 _ds_paths() {
     local n="$#" s
-    s="$(printf '%s, ' "${@:1:5}")"; s="${s%, }"
+    printf -v s '%s, ' "${@:1:5}"; s="${s%, }"
     [ "$n" -le 5 ] || s="$s (+$((n - 5)) more)"
     _ds_cap "$s"; _DS_PATHS="$_DS_CAPPED"
 }
@@ -780,7 +758,7 @@ devdoc_sync() {
     _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_TMPD=""; _DS_ERR=/dev/null; _DS_LIST=/dev/null; _DS_DETACHED=0; _DS_BRANCH=""
     _DS_ISSUE="$2"; _DS_BUDGET="$3"
     _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""
-    _devdoc_sync_body "$1" "$2" "$3" || true
+    _devdoc_sync_body "$1" || true
     if [ -n "$_DS_LEFT_WHY" ]; then                                  # a held deleted file (Task 5)
         if [ -z "$DEVDOC_SYNC_REASON" ]; then
             DEVDOC_SYNC_REASON=leftover; _DS_WHY="$_DS_LEFT_WHY"; _DS_NEXT="$_DS_LEFT_NEXT"
@@ -794,8 +772,10 @@ devdoc_sync() {
     return 1
 }
 
+# _devdoc_sync_body <devdoc_dir> — devdoc_sync's steps; the issue and the budget are
+# _DS_ISSUE and _DS_BUDGET.
 _devdoc_sync_body() {
-    local devdoc_dir="$1" issue="$2" budget="$3" top b dl t0 rc=0 lrc=0 hrc=0 urc=0 prc=0 frc=0 pre="" cur=""
+    local devdoc_dir="$1" top b dl t0 rc=0 lrc=0 hrc=0 prc=0 frc=0 pre="" cur=""
     devdoc_sync_repo "$devdoc_dir" || return 0
     top="$DEVDOC_SYNC_TOP"; DEVDOC_SYNC_REPO="$top"
     rc=0; _devdoc_sync_state "$top" || rc=$?
@@ -808,8 +788,8 @@ _devdoc_sync_body() {
     fi
     # 1. The ask and the fetch, unlocked.
     pre="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify "refs/remotes/origin/$b" 2>/dev/null)" || pre=""
-    bounded_now_us; dl=$((BOUNDED_NOW_US + budget * 1000000))
-    upstream_branch_tip "$top" "$b" "$budget" "$dl" || urc=$?
+    bounded_now_us; dl=$((BOUNDED_NOW_US + _DS_BUDGET * 1000000))
+    upstream_branch_tip "$top" "$b" "$_DS_BUDGET" "$dl" || true
     _DS_TMPD="$(mktemp -d 2>/dev/null)" || _DS_TMPD=""
     if [ -z "$_DS_TMPD" ] || [ ! -d "$_DS_TMPD" ]; then
         _DS_TMPD=""
@@ -817,18 +797,13 @@ _devdoc_sync_body() {
         return 0
     fi
     _DS_ERR="$_DS_TMPD/err"; _DS_LIST="$_DS_TMPD/list"
-    _DS_B="$b"; _DS_TIP=""; _DS_NEW=0
-    if [ "$urc" -eq 3 ]; then
-        _ds_set skipped no-timeout "timeout(1) is not on PATH, so the network calls cannot be bounded" \
-            "Put coreutils' timeout on PATH; the next close retries."
-        return 0
-    fi
+    _DS_TIP=""; _DS_NEW=0
     case "$UPSTREAM_TIP" in
         "(no-origin)") DEVDOC_SYNC_OUTCOME=off; return 0 ;;
         "(unreachable)")
             case "$UPSTREAM_ASK_RC" in
                 124|137) _ds_budget ;;
-                *) _ds_set refused fetch-failed "the fetch failed ($UPSTREAM_TIP_WHY)" "The next close retries." ;;
+                *) _ds_set refused fetch-failed "the fetch failed ($UPSTREAM_TIP_WHY)" ;;
             esac
             return 0 ;;
         "(unpushed)") _DS_NEW=1 ;;
@@ -847,20 +822,20 @@ _devdoc_sync_body() {
                         case "$frc" in
                             0) ;;
                             124|137) _ds_budget; return 0 ;;
-                            *) _ds_set refused fetch-failed "the fetch failed (git fetch exited $frc)" "The next close retries."
+                            *) _ds_set refused fetch-failed "the fetch failed (git fetch exited $frc)"
                                return 0 ;;
                         esac
                     fi ;;
             esac
             if ! "$DEVAGENT_GIT" -C "$top" cat-file -e "$_DS_TIP^{commit}" 2>/dev/null; then
-                _ds_set refused fetch-failed "the fetch failed (origin's $b tip $_DS_TIP is not here after it)" "The next close retries."
+                _ds_set refused fetch-failed "the fetch failed (origin's $b tip $_DS_TIP is not here after it)"
                 return 0
             fi
             [ -n "$UPSTREAM_FETCH_RC" ] || _devdoc_sync_track "$top" "$b" "$_DS_TIP" ;;
     esac
     # 2. One short hold: no network call under the lock; the wait spends no budget.
     bounded_now_us; t0="$BOUNDED_NOW_US"
-    devdoc_lock_acquire "$devdoc_dir" "$issue" "the next close" 2>/dev/null || lrc=$?
+    devdoc_lock_acquire "$devdoc_dir" "$_DS_ISSUE" "the next close" 2>/dev/null || lrc=$?
     case "$lrc" in
         0) ;;
         1) _ds_set skipped lock-busy "the devDoc lock is busy" "Skipped for this close; the next close retries."; return 0 ;;
@@ -911,10 +886,10 @@ _ds_push_failed() {
     done <"$_DS_ERR"
     if [ -n "$rej" ]; then
         _ds_cap "$rej"
-        _ds_set refused origin-moved "origin/$DEVDOC_SYNC_BRANCH moved before the push ($kind): $_DS_CAPPED" "The next close retries."
+        _ds_set refused origin-moved "origin/$DEVDOC_SYNC_BRANCH moved before the push ($kind): $_DS_CAPPED"
     elif [ -n "$rrej" ]; then
         if [ "${#remote[@]}" -gt 0 ]; then
-            rl="$(printf '%s; ' "${remote[@]}")"
+            printf -v rl '%s; ' "${remote[@]}"
         fi
         _ds_cap "$rl$rrej"
         _ds_set refused remote-refused "origin refused the push: $_DS_CAPPED" "Fix what the remote names; the next close retries."
@@ -931,6 +906,7 @@ _ds_budget() {
 
 # _devdoc_sync_line — DEVDOC_SYNC_LINE from the recorded reason. The count is read
 # after any move; a HEAD with no branch shows as (detached HEAD), with no count.
+# shellcheck disable=SC2034  # DEVDOC_SYNC_LINE is the return channel — read by cleanup.sh
 _devdoc_sync_line() {
     local verb br count=""
     case "$DEVDOC_SYNC_OUTCOME" in

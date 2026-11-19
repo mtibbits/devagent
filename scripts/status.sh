@@ -63,23 +63,37 @@ _print_one() {
 # project with commit_devdoc = true uses it (the sync's scope, by repository), so a
 # project whose own key is false can show its shared repository's line. A repository
 # several projects share prints once. Called bare; prints nothing for a repository in
-# sync, and nothing when git cannot read it.
+# sync, and nothing when git cannot read it. Each config read is a python3 run, so
+# every project is read at most once, and scope reads stop once every needed
+# repository is in scope.
 _devdoc_lines() {
   local p dir top ref rc
-  local -A inscope=() seen=()
+  local -A top_of=() need=() inscope=() named=() seen=()
+  for p in "$@"; do
+    named[$p]=1
+    dir="$(config_get_project_field "$p" devdoc_dir 2>/dev/null)" || continue
+    [[ -n "$dir" ]] || continue
+    devdoc_sync_repo "$dir" || continue
+    top_of[$p]="$DEVDOC_SYNC_TOP"; need[$DEVDOC_SYNC_TOP]=1
+  done
+  (( ${#need[@]} > 0 )) || return 0
+  for p in "$@"; do
+    top="${top_of[$p]:-}"
+    [[ -n "$top" && -z "${inscope[$top]+x}" ]] || continue
+    if [[ "$(permission_value "$p" commit_devdoc)" == true ]]; then inscope[$top]=1; fi
+  done
   for p in "${ALL_PROJECTS[@]}"; do
+    (( ${#inscope[@]} < ${#need[@]} )) || break
+    [[ -z "${named[$p]+x}" ]] || continue
     [[ "$(permission_value "$p" commit_devdoc)" == true ]] || continue
     dir="$(config_get_project_field "$p" devdoc_dir 2>/dev/null)" || continue
     [[ -n "$dir" ]] || continue
     devdoc_sync_repo "$dir" || continue
-    inscope[$DEVDOC_SYNC_TOP]=1
+    [[ -z "${need[$DEVDOC_SYNC_TOP]+x}" ]] || inscope[$DEVDOC_SYNC_TOP]=1
   done
   for p in "$@"; do
-    dir="$(config_get_project_field "$p" devdoc_dir 2>/dev/null)" || continue
-    [[ -n "$dir" ]] || continue
-    devdoc_sync_repo "$dir" || continue
-    top="$DEVDOC_SYNC_TOP"
-    [[ -n "${inscope[$top]+x}" && -z "${seen[$top]+x}" ]] || continue
+    top="${top_of[$p]:-}"
+    [[ -n "$top" && -n "${inscope[$top]+x}" && -z "${seen[$top]+x}" ]] || continue
     seen[$top]=1
     rc=0; ref="$("$DEVAGENT_GIT" -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || rc=$?
     if [[ "$rc" -eq 1 ]]; then

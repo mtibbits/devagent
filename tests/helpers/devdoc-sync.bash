@@ -1,4 +1,6 @@
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
+# devdoc_lock_test_path and git_wrapper_argv_walk (functions only).
+. "$(dirname "${BASH_SOURCE[0]}")/devdoc-repo.bash"
 # tests/helpers/devdoc-sync.bash — fixtures for #1148, cleanup's devDoc sync with
 # origin: a bare origin and two clones (A, the other machine; B, this machine), a
 # state snapshot, a strict driver for devdoc_sync, and a DEVAGENT_GIT stand-in
@@ -50,9 +52,8 @@ sync_other() {
 # in-progress-operation markers, the devDoc lock dir and origin's main. Equal
 # snapshots mean nothing changed (L44).
 sync_snapshot() {
-    local c="$1" gd cd m
+    local c="$1" gd m
     gd="$(git -C "$c" rev-parse --absolute-git-dir)"
-    cd="$(cd "$c" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
     printf 'HEAD %s\n' "$(git -C "$c" rev-parse -q --verify HEAD || echo none)"
     printf 'branch %s\n' "$(git -C "$c" symbolic-ref -q HEAD || echo detached)"
     git -C "$c" ls-files -s
@@ -63,7 +64,7 @@ sync_snapshot() {
     for m in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply index.lock; do
         [ -e "$gd/$m" ] && printf 'marker %s\n' "$m"
     done
-    [ -e "$cd/devagent-devdoc.lock" ] && printf 'marker devagent-devdoc.lock\n'
+    [ -e "$(devdoc_lock_test_path "$c")" ] && printf 'marker devagent-devdoc.lock\n'
     [ "${2:-}" = --no-origin ] || printf 'origin %s\n' "$(git -C "$SYNC_ORIGIN" rev-parse -q --verify refs/heads/main || echo none)"
 }
 
@@ -130,18 +131,8 @@ sync_git_wrapper() {
     {
         printf '#!%s\n' "$BASH"
         printf 'd=%q; real=%q; modes=%q; other=%q\n' "$d" "$real" "$modes" "${SYNC_A:-}"
+        git_wrapper_argv_walk
         cat <<'EOF'
-dir="$PWD"; sub=""; i=1
-while [ "$i" -le "$#" ]; do
-    a="${!i}"
-    case "$a" in
-        -C) i=$((i + 1)); t="${!i}"; case "$t" in /*) dir="$t" ;; *) dir="$dir/$t" ;; esac ;;
-        -c) i=$((i + 1)) ;;
-        -*) ;;
-        *) sub="$a"; break ;;
-    esac
-    i=$((i + 1))
-done
 printf '%s\n' "$sub" >> "$d/calls"
 net=0
 case "$sub" in ls-remote|fetch|push) net=1 ;; esac

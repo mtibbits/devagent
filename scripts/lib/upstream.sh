@@ -55,13 +55,13 @@ bounded_call() {
 }
 
 # bounded_now_us — set BOUNDED_NOW_US to the wall clock in microseconds (#1148):
-# EPOCHREALTIME on bash 5, else whole seconds from date (under bash 4.4 a bound built
-# on it can overrun by under 1 s). SETTER-GLOBAL: call it bare.
+# EPOCHREALTIME on bash 5, else whole seconds from printf's %(%s)T, no fork (under
+# bash 4.4 a bound built on it can overrun by under 1 s). SETTER-GLOBAL: call it bare.
 bounded_now_us() {
     if [ -n "${EPOCHREALTIME:-}" ]; then
         BOUNDED_NOW_US="${EPOCHREALTIME//[.,]/}"
     else
-        BOUNDED_NOW_US="$(date +%s)000000"
+        printf -v BOUNDED_NOW_US '%(%s)T000000' -1
     fi
 }
 
