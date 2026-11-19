@@ -414,21 +414,41 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     [[ "$SYNC_LINE" != *"the move was undone"* ]]
 }
 
-@test "#1148 Windows: a file held open" {
-    case "$(uname -s)" in MINGW*|MSYS*) ;; *) skip "holding a file open is Windows-only; 'part-way: porcelain restored exactly' covers the undo everywhere" ;; esac
-    _partway_fixture
-    p0="$(_porcelain)"; cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
-    local ready="$BATS_TEST_TMPDIR/ready" stop="$BATS_TEST_TMPDIR/stop" n=0 hp
-    powershell.exe -NoProfile -NonInteractive -Command "\$f=[IO.File]::Open('$(cygpath -w "$SYNC_B/hd/keep1")','Open','Read','None'); New-Item -ItemType File -Path '$(cygpath -w "$ready")' | Out-Null; while (-not (Test-Path '$(cygpath -w "$stop")')) { Start-Sleep -Milliseconds 100 }; \$f.Close()" </dev/null >/dev/null 2>&1 3>&- &
-    hp=$!
+# _hold <path> <FileShare> <tag> — hold <path> open from another Windows process (read
+# access, the given share mode) until _release <tag>; returns once the handle is open.
+_hold() {
+    local ready="$BATS_TEST_TMPDIR/ready-$3" stop="$BATS_TEST_TMPDIR/stop-$3" n=0
+    powershell.exe -NoProfile -NonInteractive -Command "\$f=[IO.File]::Open('$(cygpath -w "$1")','Open','Read','$2'); New-Item -ItemType File -Path '$(cygpath -w "$ready")' | Out-Null; while (-not (Test-Path '$(cygpath -w "$stop")')) { Start-Sleep -Milliseconds 100 }; \$f.Close()" </dev/null >/dev/null 2>&1 3>&- &
+    HOLD_PID=$!
     until [ -e "$ready" ] || [ "$n" -ge 300 ]; do sleep 0.1; n=$((n + 1)); done
     [ -e "$ready" ]
+}
+_release() { : > "$BATS_TEST_TMPDIR/stop-$1"; wait "$HOLD_PID" || true; }   # by the stop file, never by PID
+
+@test "#1148 Windows: a file held open" {
+    case "$(uname -s)" in MINGW*|MSYS*) ;; *) skip "holding a file open is Windows-only; 'part-way: porcelain restored exactly' covers the undo everywhere" ;; esac
+    # leg a: a reader (a WBS viewer, a scanner) lets others read but not delete: git can
+    # check the file, then cannot replace it, so the move stops part-way and is undone.
+    _partway_fixture
+    p0="$(_porcelain)"; cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+    _hold "$SYNC_B/hd/keep1" Read a
     sync_run "$SYNC_B_DOC" Issue-7 30 || true
-    : > "$stop"; wait "$hp" || true                                  # released by the stop file, never by PID (L244)
+    _release a
     [ "$SYNC_REASON" = part-way ] || { echo "$SYNC_LINE" >&2; false; }
     [[ "$SYNC_LINE" == *"stopped part-way at hd/keep1: "*"the move was undone"* ]]
     [ "$(_porcelain)" = "$p0" ]
     cmp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+    # leg b: a holder that denies even reads. When git must read the file to trust it
+    # (an index written in the file's second), it reads as edited and git refuses before
+    # writing anything; otherwise the move stops part-way. Either way nothing changes.
+    sync_fixture "$R/b"; _partway_fixture
+    p0="$(_porcelain)"; cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1b"
+    _hold "$SYNC_B/hd/keep1" None b
+    sync_run "$SYNC_B_DOC" Issue-7 30 || true
+    _release b
+    case "$SYNC_REASON" in in-the-way|part-way) ;; *) echo "$SYNC_LINE" >&2; false ;; esac
+    [ "$(_porcelain)" = "$p0" ]
+    cmp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1b"
 }
 
 @test "#1148 POSIX: real git, read-only directory" {

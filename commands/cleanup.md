@@ -288,7 +288,11 @@ example `WBS.md: Permission denied`); a path that could not be restored is named
 holding origin's content, not a local edit. When the only held file is one
 origin deleted, git finishes the move: the sync still pushes and warns that the
 file is now an untracked copy of the version in the old HEAD (nothing is lost;
-delete it once access is fixed).
+delete it once access is fixed). A program that denies even reads can instead
+make git see the held file as edited, when git must read it to trust it: the
+sync then refuses before writing anything, naming that file as in the way (with
+the "commit the edits" remedy, though nothing was edited); once the program
+lets go, the next close goes through.
 
 A failed or skipped sync prints ONE line:
 `cleanup.sh: WARNING: devDoc sync <refused|skipped|finished> for <repo> (<branch>): <reason>. <N> commits not on origin/<branch>, … <next step>`
