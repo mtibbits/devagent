@@ -577,9 +577,9 @@ _devdoc_sync_hold() {
 # the config), LC_ALL=C (the stderr parsed below is git's English). rc 1 after a
 # refusal.
 _devdoc_sync_move() {
-    local top="$1" H="$2" X="$3" rc=0 p line hdr="" ref="" h="" ilock=""
-    local -a D=() gone=()
-    local -A del=()
+    local top="$1" H="$2" X="$3" rc=0 p line hdr="" ref="" h="" ilock="" why=""
+    local -a D=() gone=() left=()
+    local -A del=() existed=() w0=()
     _DS_EDITED=(); _DS_UNTRACKED=()
     # The paths the move would touch, and the tracked files deleted without staging.
     "$DEVAGENT_GIT" -C "$top" diff --no-renames --name-only -z "$H" "$X" >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
@@ -598,9 +598,32 @@ _devdoc_sync_move() {
         _ds_in_the_way
         return 1
     fi
+    # The snapshot the rule-4 undo works from: which of the paths exist, and which
+    # tracked files already differ from the index (W0).
+    for p in "${D[@]}"; do
+        if [ -e "$top/$p" ] || [ -L "$top/$p" ]; then existed[$p]=1; fi
+    done
+    devdoc_git_ro -C "$top" diff --name-only -z >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
+    if [ "$rc" -ne 0 ]; then _ds_git_failed diff "$rc" "$_DS_ERR"; return 1; fi
+    while IFS= read -r -d '' p; do w0[$p]=1; done <"$_DS_LIST"
     LC_ALL=C "$DEVAGENT_GIT" -C "$top" merge --ff-only --no-autostash --no-overwrite-ignore "$X" \
         </dev/null >/dev/null 2>"$_DS_ERR" || rc=$?
-    [ "$rc" -ne 0 ] || return 0
+    if [ "$rc" -eq 0 ]; then
+        # The move finished, but a file origin deleted could not be deleted here
+        # (git exits 0 then, U9): the outcome stands and the warning names it.
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            if [[ "$line" =~ unable\ to\ unlink\ \'([^\']+)\'\:\ (.+)$ ]]; then
+                left+=("${BASH_REMATCH[1]}"); [ -n "$why" ] || why="${BASH_REMATCH[2]}"
+            fi
+        done <"$_DS_ERR"
+        if [ "${#left[@]}" -gt 0 ]; then
+            _ds_paths "${left[@]}"
+            _DS_LEFT_WHY="the move could not delete $_DS_PATHS, which origin deleted ($why); it is now an untracked copy of the version in ${H:0:7}"
+            _DS_LEFT_NEXT="Once access is fixed, delete it (its content is in ${H:0:7}, so nothing is lost); a later commit could otherwise add it back."
+        fi
+        return 0
+    fi
     # A failed move, classified in this order. 1: HEAD or the branch changed (decided
     # by state, L35).
     ref="$("$DEVAGENT_GIT" -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || ref=""
@@ -633,9 +656,87 @@ _devdoc_sync_move() {
         _ds_set refused index-lock "another git process holds $ilock" "The next close retries."
         return 1
     fi
-    # 4: anything else with HEAD unmoved.
-    _ds_git_failed merge "$rc" "$_DS_ERR"
+    # 4: anything else with HEAD unmoved: undo whatever the move wrote (rule 4).
+    _devdoc_sync_undo "$top" "$X" "$rc"
     return 1
+}
+
+# _devdoc_sync_undo <top> <X> <merge rc> — rule 4: a move that stopped part-way (on
+# Windows, a file another program holds open) has written origin's version of some
+# paths, deleted some and created some, with HEAD and the index unmoved. Put them
+# back from the index, which the move did not change. Called by _devdoc_sync_move,
+# whose D, existed and w0 it reads (bash's dynamic scope). Never keyed on one phrase
+# (L318). Paths git named (it did not write them) and skip paths (the index already
+# equals the target, so git moved past them: rule 3 keeps a further edit) are left
+# alone. Lossless: after the pre-move refusal W0 ∩ D holds only skip paths, so every
+# restored path matched the index before the move.
+_devdoc_sync_undo() {
+    local top="$1" X="$2" mrc="$3" p line r=0 detail=""
+    local -a named=() restore=() removed=() bad=() pairs=()
+    local -A why=() cached=() w1=() w2=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        if [[ "$line" =~ unable\ to\ unlink\ (old\ )?\'([^\']+)\'\:\ (.+)$ ]]; then
+            p="${BASH_REMATCH[2]}"; line="${BASH_REMATCH[3]}"
+        elif [[ "$line" =~ unable\ to\ create\ file\ ([^:]+)\:\ (.+)$ ]]; then
+            p="${BASH_REMATCH[1]}"; line="${BASH_REMATCH[2]}"
+        else
+            continue
+        fi
+        [ -n "${why[$p]+x}" ] || { why[$p]="$line"; named+=("$p"); }
+    done <"$_DS_ERR"
+    _ds_git_failed merge "$mrc" "$_DS_ERR"; detail="$_DS_WHY"     # kept for the no-change case
+    "$DEVAGENT_GIT" -C "$top" diff --cached --no-renames --name-only -z "$X" >"$_DS_LIST" 2>/dev/null || r=$?
+    while IFS= read -r -d '' p; do cached[$p]=1; done <"$_DS_LIST"
+    devdoc_git_ro -C "$top" diff --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
+    while IFS= read -r -d '' p; do w1[$p]=1; done <"$_DS_LIST"
+    for p in "${D[@]}"; do
+        [ -z "${why[$p]+x}" ] || continue                            # named: git did not write it
+        [ "$r" -ne 0 ] || [ -n "${cached[$p]+x}" ] || continue       # skip: index = target
+        if [ "$r" -ne 0 ]; then bad+=("$p"); continue; fi            # cannot tell what changed
+        if [ -n "${w1[$p]+x}" ] && [ -z "${w0[$p]+x}" ]; then restore+=("$p"); fi
+        if [ -z "${existed[$p]+x}" ] && { [ -e "$top/$p" ] || [ -L "$top/$p" ]; }; then
+            rm -f -- "$top/$p" 2>/dev/null || true
+            removed+=("$p")
+        fi
+    done
+    if [ "${#restore[@]}" -gt 0 ]; then
+        printf '%s\0' "${restore[@]}" >"$_DS_LIST"
+        GIT_LITERAL_PATHSPECS=1 "$DEVAGENT_GIT" -C "$top" checkout --pathspec-from-file=- --pathspec-file-nul \
+            <"$_DS_LIST" >/dev/null 2>&1 || true
+        r=0; devdoc_git_ro -C "$top" diff --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
+        while IFS= read -r -d '' p; do w2[$p]=1; done <"$_DS_LIST"
+        for p in "${restore[@]}"; do
+            if [ "$r" -ne 0 ] || [ -n "${w2[$p]+x}" ]; then bad+=("$p"); fi
+        done
+    fi
+    for p in "${removed[@]}"; do
+        if [ -e "$top/$p" ] || [ -L "$top/$p" ]; then bad+=("$p"); fi
+    done
+    if [ "${#named[@]}" -eq 0 ] && [ "${#restore[@]}" -eq 0 ] && [ "${#removed[@]}" -eq 0 ] && [ "${#bad[@]}" -eq 0 ]; then
+        return 0                                                     # nothing changed: git-failed stands
+    fi
+    if [ "${#named[@]}" -gt 0 ]; then
+        for p in "${named[@]:0:5}"; do pairs+=("$p: ${why[$p]}"); done
+        _ds_paths "${pairs[@]}"
+        [ "${#named[@]}" -le 5 ] || _DS_PATHS="${_DS_PATHS%" (+"*} (+$((${#named[@]} - 5)) more)"
+        line="the move stopped part-way at $_DS_PATHS; "
+    else
+        line="the move stopped part-way (${detail}); "
+    fi
+    if [ "${#bad[@]}" -eq 0 ]; then
+        line="${line}the move was undone"
+    else
+        _ds_paths "${bad[@]}"
+        line="${line}$_DS_PATHS could not be restored and hold origin's content, not a local edit"
+    fi
+    if [ "${#named[@]}" -gt 0 ]; then
+        _ds_paths "${named[@]}"
+        _ds_set refused part-way "$line" \
+            "Free or fix access to $_DS_PATHS (on Windows another program may hold it open); the next close retries."
+    else
+        _ds_set refused part-way "$line" "The next close retries."
+    fi
 }
 
 # _ds_in_the_way — the in-the-way refusal from _DS_EDITED (edited or deleted tracked
@@ -677,7 +778,15 @@ devdoc_sync() {
     DEVDOC_SYNC_OUTCOME=off; DEVDOC_SYNC_REASON=""; DEVDOC_SYNC_REPO=""; DEVDOC_SYNC_BRANCH=""; DEVDOC_SYNC_LINE=""
     _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_TMPD=""; _DS_ERR=/dev/null; _DS_LIST=/dev/null; _DS_DETACHED=0; _DS_BRANCH=""
     _DS_ISSUE="$2"; _DS_BUDGET="$3"
+    _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""
     _devdoc_sync_body "$1" "$2" "$3" || true
+    if [ -n "$_DS_LEFT_WHY" ]; then                                  # a held deleted file (Task 5)
+        if [ -z "$DEVDOC_SYNC_REASON" ]; then
+            DEVDOC_SYNC_REASON=leftover; _DS_WHY="$_DS_LEFT_WHY"; _DS_NEXT="$_DS_LEFT_NEXT"
+        else
+            _DS_ALSO="$_DS_LEFT_WHY. $_DS_LEFT_NEXT"
+        fi
+    fi
     [ -z "$_DS_TMPD" ] || rm -rf "$_DS_TMPD" 2>/dev/null || true
     [ -n "$DEVDOC_SYNC_REASON" ] || return 0
     _devdoc_sync_line

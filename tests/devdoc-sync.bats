@@ -316,3 +316,103 @@ _stub_holder() {
     _refuses lock-location
     [[ "$SYNC_LINE" == *"the devDoc lock location cannot be determined"* ]]
 }
+
+# _partway_fixture — origin modifies hd/keep1 and mod2, deletes del3 and adds add4;
+# B has st staged and ed edited (outside the move).
+_partway_fixture() {
+    printf 'origin keep1\n' > "$SYNC_A/hd/keep1"; printf 'origin mod2\n' > "$SYNC_A/mod2"
+    git -C "$SYNC_A" rm -q del3; printf 'origin add4\n' > "$SYNC_A/add4"
+    git -C "$SYNC_A" add -A; git -C "$SYNC_A" commit -q -m 'A: partway'; git -C "$SYNC_A" push -q origin main 2>/dev/null
+    printf 'staged\n' >> "$SYNC_B/st"; git -C "$SYNC_B" add st
+    printf 'edited\n' >> "$SYNC_B/ed"
+}
+_porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignored; }
+
+@test "#1148 part-way: porcelain restored exactly, held file named" {
+    _partway_fixture
+    cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+    p0="$(_porcelain)"
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" partway:hd/keep1)"
+    _refuses part-way
+    [ "$(_porcelain)" = "$p0" ]
+    [[ "$SYNC_LINE" == *"stopped part-way at hd/keep1: Permission denied"* ]]
+    [[ "$SYNC_LINE" == *"the move was undone"* ]]
+    [[ "$SYNC_LINE" == *"Free or fix access to hd/keep1"* ]]
+    cmp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+    [ ! -e "$SYNC_B/add4" ]
+}
+
+@test "#1148 part-way keeps an unstaged edit on a staged-equals-origin path" {
+    _partway_fixture
+    printf 'origin mod2\n' > "$SYNC_B/mod2"; git -C "$SYNC_B" add mod2   # staged = origin's
+    printf 'B further edit\n' >> "$SYNC_B/mod2"
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" partway:hd/keep1:skip=mod2)"
+    _refuses part-way
+    [ "$(cat "$SYNC_B/mod2")" = "$(printf 'origin mod2\nB further edit')" ]
+    [ "$(git -C "$SYNC_B" rev-parse :mod2)" = "$(git -C "$SYNC_ORIGIN" rev-parse main:mod2)" ]
+    [[ "$SYNC_LINE" == *"the move was undone"* ]]
+    [[ "$SYNC_LINE" != *"could not be restored"* ]]
+}
+
+@test "#1148 held deleted file: leftover, still pushes" {
+    git -C "$SYNC_A" rm -q hd/hdel; git -C "$SYNC_A" commit -q -m 'A: rm hdel'; git -C "$SYNC_A" push -q origin main 2>/dev/null
+    sync_commit "$SYNC_B" b.txt b 'B: b'
+    H="$(git -C "$SYNC_B" rev-parse --short=7 HEAD)"
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" unlink-warn:hd/hdel)"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_RC" = 1 ]; [ "$SYNC_REASON" = leftover ]; [ "$SYNC_OUTCOME" = merged ]
+    [ "$(git -C "$SYNC_B" rev-parse HEAD)" = "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" ]
+    [[ "$SYNC_LINE" == "devDoc sync finished for "*"could not delete hd/hdel, which origin deleted (Permission denied)"* ]]
+    [[ "$SYNC_LINE" == *"untracked copy of the version in $H"*"its content is in $H, so nothing is lost"* ]]
+    [ "$(_st "$SYNC_B" hd/hdel)" = '??' ]
+}
+
+@test "#1148 unrestorable paths named as origin's content" {
+    _partway_fixture
+    export DEVAGENT_GIT; DEVAGENT_GIT="$(sync_git_wrapper "$BATS_TEST_TMPDIR/w" partway:hd/keep1+checkout-fail)"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_REASON" = part-way ]
+    [[ "$SYNC_LINE" == *"; del3, mod2 could not be restored and hold origin's content, not a local edit"* ]]   # git's path order
+    [[ "$SYNC_LINE" != *"the move was undone"* ]]
+}
+
+@test "#1148 Windows: a file held open" {
+    case "$(uname -s)" in MINGW*|MSYS*) ;; *) skip "holding a file open is Windows-only; T15 covers the undo everywhere" ;; esac
+    _partway_fixture
+    p0="$(_porcelain)"; cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+    local ready="$BATS_TEST_TMPDIR/ready" stop="$BATS_TEST_TMPDIR/stop" n=0 hp
+    powershell.exe -NoProfile -NonInteractive -Command "\$f=[IO.File]::Open('$(cygpath -w "$SYNC_B/hd/keep1")','Open','Read','None'); New-Item -ItemType File -Path '$(cygpath -w "$ready")' | Out-Null; while (-not (Test-Path '$(cygpath -w "$stop")')) { Start-Sleep -Milliseconds 100 }; \$f.Close()" </dev/null >/dev/null 2>&1 3>&- &
+    hp=$!
+    until [ -e "$ready" ] || [ "$n" -ge 300 ]; do sleep 0.1; n=$((n + 1)); done
+    [ -e "$ready" ]
+    sync_run "$SYNC_B_DOC" Issue-7 30 || true
+    : > "$stop"; wait "$hp" || true                                  # released by the stop file, never by PID (L244)
+    [ "$SYNC_REASON" = part-way ] || { echo "$SYNC_LINE" >&2; false; }
+    [[ "$SYNC_LINE" == *"stopped part-way at hd/keep1: "*"the move was undone"* ]]
+    [ "$(_porcelain)" = "$p0" ]
+    cmp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+}
+
+@test "#1148 POSIX: real git, read-only directory" {
+    case "$(uname -s)" in MINGW*|MSYS*) skip "a read-only directory does not hold a file on Windows; T19 covers it there" ;; esac
+    [ "$(id -u)" != 0 ] || skip "root ignores directory permissions"
+    _partway_fixture
+    p0="$(_porcelain)"; cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+    chmod a-w "$SYNC_B/hd"
+    _refuses part-way
+    chmod u+w "$SYNC_B/hd"
+    [ "$(_porcelain)" = "$p0" ]
+    [[ "$SYNC_LINE" == *"stopped part-way at hd/keep1: Permission denied"*"the move was undone"* ]]
+    cmp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
+    # leg b: origin also adds hd/add5, which git cannot create
+    sync_fixture "$R/b"; _partway_fixture
+    printf 'origin add5\n' > "$SYNC_A/hd/add5"; git -C "$SYNC_A" add hd/add5
+    git -C "$SYNC_A" commit -q -m 'A: add5'; git -C "$SYNC_A" push -q origin main 2>/dev/null
+    p0="$(_porcelain)"
+    chmod a-w "$SYNC_B/hd"
+    _refuses part-way
+    chmod u+w "$SYNC_B/hd"
+    [ "$(_porcelain)" = "$p0" ]
+    [[ "$SYNC_LINE" == *"hd/add5: Permission denied"* ]]
+    [ ! -e "$SYNC_B/hd/add5" ]
+}
