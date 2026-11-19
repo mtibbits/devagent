@@ -103,7 +103,8 @@ identity (`-s`) as
 `chore: promote pothole-register entries from #N`, scoped to that ONE path —
 never through cleanup's own devdoc commit, which carries only the paths the
 cleanup owns (#749, below). The staging file flips to `status: applied <sha>[,<sha>]`
-(one sha per layer file committed). The drain pushes nothing; the devDoc sync at the end of the same close carries its commits.
+(one sha per layer file committed). The drain pushes nothing; the devDoc sync at
+the end of the same close carries its commits.
 
 rc 3 is a DEFERRAL: cleanup warns, completes, and the file stays
 `status: pending` — `promote-potholes.sh <project> --list-pending` lists the
@@ -224,8 +225,8 @@ run it yourself, give the Bash call a long timeout (600000 ms).
 
 ## The devDoc sync (#1148)
 
-Three machines commit to one devDoc repository and share it through its
-`origin`. At the end of every close with `commit_devdoc = true`, a devDoc in
+When several machines commit to one devDoc repository and share it through its
+`origin`, each must bring the others' commits in before it can push. At the end of every close with `commit_devdoc = true`, a devDoc in
 git and an `origin`, cleanup syncs that repository with origin's branch of the
 local branch's name (where `git push origin HEAD` went; `branch.<name>.merge`
 is not read). It runs whether or not this close committed, so commits from
@@ -251,31 +252,34 @@ conflict is found before anything is written) and the move (`merge --ff-only
 sync read, and nothing local is lost whatever the git config: an edited,
 staged, untracked or ignored file stays as it was.
 
-**Refusals** name the reason and change nothing, except that a push refused
-after a merge leaves the merge commit on this machine for the next close to
-push: a conflict (the paths); files
-in the way of origin's changes (an edited file, or a tracked file deleted
-without staging: commit the edits, or let the session that owns them close; an
+**Refusals** name the reason and change nothing, except that a push refused or
+skipped after a merge leaves the merge commit on this machine for the next close
+to push: a conflict (the paths); files in the way of origin's changes (an edited
+file, or a tracked file deleted without staging that origin still has: commit the
+edits, or let the session that owns them close; an
 untracked or ignored file: move it aside, since origin now tracks that path,
 or let its session close); HEAD moved while the sync ran; a repository
 mid-merge, -rebase, -cherry-pick or -revert (finish it, or let the session that
 started it finish); a detached HEAD; no shared history with origin's branch;
 another git process holding `index.lock`; a failed fetch (git's exit code);
 origin moved before or during the push (`fetch first`, `non-fast-forward`, or
-another push winning origin's ref lock; never retried within the close); the remote refused the push (its `remote:` lines
-quoted); a git command that failed. **Skips** leave the next close to retry: a
+another push winning origin's ref lock; never retried within the close); the
+remote refused the push (its `remote:` lines quoted, control characters shown as
+`?`); a git command that failed. **Skips** leave the next close to retry: a
 busy devDoc lock (the wait is the rest of the close's shared lock deadline,
 possibly one attempt), a lock location that cannot be determined, a spent time
 budget, `timeout(1)` missing from PATH, or a temporary directory that could not
 be created.
 No remedy printed is destructive: none says to discard a file or to `add -f`.
 
-On Windows a move can stop part-way when another program holds a file open.
-The sync then undoes what the move wrote, from the index (which the move did
-not change): it restores the paths it changed or deleted and removes the ones
-it created, leaving alone a path whose staged content already equals origin's.
-The warning names the held path with git's own reason (for example
-`hd/keep1: Permission denied`); a path that could not be restored is named as
+On Windows a move can stop part-way when another program holds a file open,
+and anywhere it can fail at its last step, the branch update, when another git
+process holds the branch's ref lock (the index and tree have moved by then). The
+sync undoes what the move wrote: it puts the index entries of the paths it
+touched back to the old HEAD, then restores those paths from the index and
+removes the ones it created, leaving alone a path whose staged content already
+equalled origin's. The warning names a held path with git's own reason (for
+example `WBS.md: Permission denied`); a path that could not be restored is named as
 holding origin's content, not a local edit. When the only held file is one
 origin deleted, git finishes the move: the sync still pushes and warns that the
 file is now an untracked copy of the version in the old HEAD (nothing is lost;

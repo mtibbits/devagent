@@ -122,9 +122,9 @@ _dd_config() {
   run "$PLUGIN_ROOT/scripts/status.sh" --all
   [ "$status" -eq 0 ]; ! grep -q '^devDoc ' <<< "$output" || false
   run "$PLUGIN_ROOT/scripts/status.sh" projA
-  ! grep -q '^devDoc ' <<< "$output" || false
+  [ "$status" -eq 0 ]; ! grep -q '^devDoc ' <<< "$output" || false
   run "$PLUGIN_ROOT/scripts/status.sh" projC
-  ! grep -q '^devDoc ' <<< "$output" || false
+  [ "$status" -eq 0 ]; ! grep -q '^devDoc ' <<< "$output" || false
   # leg c: projB (false) shares projA's (true) repository, so projB's view shows it
   sync_commit "$dd" a/x.md x 'unpushed'
   _dd_config projA "$dd/a" true projB "$dd/b" false

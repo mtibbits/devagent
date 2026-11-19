@@ -316,6 +316,16 @@ _argv660() {   # a git that records its argv ELEMENT-delimited (register Issue-5
     bounded_secs_left $((BOUNDED_NOW_US + 500000)) || rc=$?
     [ "$rc" -eq 1 ]
     [ -z "$BOUNDED_SECS" ]
+    bounded_now_us                                                   # <max_secs> caps it (a clock stepped back)
+    bounded_secs_left $((BOUNDED_NOW_US + 90000000)) 3
+    awk -v s="$BOUNDED_SECS" 'BEGIN { exit !(s == 3) }'
+}
+
+@test "#1148 bounded_now_us without EPOCHREALTIME: whole seconds, no fork" {
+    run bash -c 'unset EPOCHREALTIME; . "$1"; bounded_now_us; echo "$BOUNDED_NOW_US"' _ "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^[0-9]{10,}000000$ ]]
+    [ $(( ${output%000000} - $(date +%s) )) -le 1 ]
 }
 
 @test "#1148 upstream_branch_tip deadline bounds the fetch; both rcs set" {

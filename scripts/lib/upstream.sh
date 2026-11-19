@@ -65,14 +65,17 @@ bounded_now_us() {
     fi
 }
 
-# bounded_secs_left <deadline_us> — set BOUNDED_SECS to the time left before
-# <deadline_us>, as a decimal number of seconds for bounded_call (six places). rc 1
-# with BOUNDED_SECS empty when under 1 s is left: GNU timeout reads a bound of 0 as no
-# bound at all, so no call starts then (#1148 rule 6). SETTER-GLOBAL: call it bare.
+# bounded_secs_left <deadline_us> [<max_secs>] — set BOUNDED_SECS to the time left
+# before <deadline_us>, as a decimal number of seconds for bounded_call (six places),
+# never more than <max_secs> (a wall clock stepped backwards would otherwise stretch
+# it). rc 1 with BOUNDED_SECS empty when under 1 s is left: GNU timeout reads a bound
+# of 0 as no bound at all, so no call starts then (#1148 rule 6). SETTER-GLOBAL: call
+# it bare.
 bounded_secs_left() {
     local left
     bounded_now_us
     left=$(( $1 - BOUNDED_NOW_US ))
+    if [ -n "${2:-}" ] && [ "$left" -gt $(( $2 * 1000000 )) ]; then left=$(( $2 * 1000000 )); fi
     BOUNDED_SECS=""
     [ "$left" -ge 1000000 ] || return 1
     printf -v BOUNDED_SECS '%d.%06d' $((left / 1000000)) $((left % 1000000))
@@ -141,8 +144,8 @@ _upstream_fetch_branch() {
 #                     `budget` when <deadline_us> left under 1 s for it (#1148: the caller
 #                     tells a spent budget from a failed fetch by this code, never by _WHY)
 # With <deadline_us> (bounded_now_us units) the fetch is bounded by what is left of it
-# (bounded_secs_left), not by <timeout_secs>; the ls-remote keeps <timeout_secs>. The
-# 3-argument call is unchanged.
+# (bounded_secs_left), capped at <timeout_secs>; the ls-remote keeps <timeout_secs>.
+# The 3-argument call is unchanged.
 # One question, by EXIT CODE: a bounded `ls-remote --exit-code origin refs/heads/<branch>`
 # (0 = the tip, 2 = its documented "no matching ref", 124/137 = the bound expired) — the
 # same command the preship verifier runs to attest. Then only when HEAD does not already
@@ -188,7 +191,7 @@ upstream_branch_tip() {
     "$DEVAGENT_GIT" -C "$work_dir" merge-base --is-ancestor "$UPSTREAM_TIP" HEAD 2>/dev/null && return 0
     rc=0
     if [ -n "$deadline" ]; then
-        if ! bounded_secs_left "$deadline"; then
+        if ! bounded_secs_left "$deadline" "$secs"; then
             UPSTREAM_FETCH_RC=budget; UPSTREAM_TIP_WHY="the time budget left under 1s for the refresh fetch"
             return 0
         fi

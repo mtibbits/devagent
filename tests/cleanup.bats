@@ -1197,10 +1197,10 @@ _net_secs() {
     # the HEAD read (rev-parse … HEAD^{commit}) exist and are all held
     run awk -F'\t' '$1 == "fetch" { f = NR } $1 == "merge-tree" && !m { m = NR } { r[NR] = $1 "\t" $8 "\t" $10 }
         END { for (i = f + 1; i < m; i++) print r[i] }' "$log"
-    grep -qP '^symbolic-ref\t' <<< "$output"
-    [ -z "$(grep -P '^symbolic-ref\t(?!cleanup\.sh\t)' <<< "$output")" ]
-    grep -qP '^rev-parse\t.*HEAD\^\{commit\}' <<< "$output"
-    [ -z "$(grep -P '^rev-parse\t(?!cleanup\.sh\t).*HEAD\^\{commit\}' <<< "$output")" ]
+    awk -F'\t' '$1 == "symbolic-ref" { f = 1 } END { exit !f }' <<< "$output"
+    [ -z "$(awk -F'\t' '$1 == "symbolic-ref" && $2 != "cleanup.sh"' <<< "$output")" ]
+    awk -F'\t' '$1 == "rev-parse" && $3 ~ /HEAD\^\{commit\}/ { f = 1 } END { exit !f }' <<< "$output"
+    [ -z "$(awk -F'\t' '$1 == "rev-parse" && $3 ~ /HEAD\^\{commit\}/ && $2 != "cleanup.sh"' <<< "$output")" ]
     # and no HEAD read anywhere in the sync runs unheld
     [ -z "$(awk -F'\t' '$1 == "rev-parse" && $10 ~ /HEAD\^\{commit\}/ && $8 != "cleanup.sh"' "$log")" ]
 }

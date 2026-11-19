@@ -26,7 +26,9 @@ _fns() {
 @test "#1148 sync helpers exist (task 1: the fixture)" {
     _fns sync_fixture sync_commit sync_other sync_snapshot sync_run sync_git_wrapper
     [ "$(git -C "$SYNC_B" rev-parse HEAD)" = "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" ]
-    [ -f "$SYNC_B_DOC/WBS.md" ] && [ -f "$SYNC_B/hd/keep1" ] && [ -f "$SYNC_B/.gitignore" ]
+    [ -f "$SYNC_B_DOC/WBS.md" ]
+    [ -f "$SYNC_B/hd/keep1" ]
+    [ -f "$SYNC_B/.gitignore" ]
     [ "$(git -C "$SYNC_B" config user.email)" = t@example.com ]
 }
 
@@ -187,6 +189,14 @@ _stub_holder() {
     [[ "$SYNC_LINE" != *discard* && "$SYNC_LINE" != *"add -f"* ]]
     [ "$(_calls "$BATS_TEST_TMPDIR/w" merge)" = 0 ]
     [ ! -e "$SYNC_B/mod5" ]
+    # leg c: a file origin deleted too is not in the way: the move goes ahead, losing nothing
+    sync_fixture "$R/c"
+    git -C "$SYNC_A" rm -q mod5; git -C "$SYNC_A" commit -q -m 'A: rm mod5'; git -C "$SYNC_A" push -q origin main 2>/dev/null
+    rm "$SYNC_B/mod5"
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_OUTCOME" = fast-forwarded ] || { echo "$SYNC_REASON: $SYNC_LINE" >&2; false; }
+    [ "$(git -C "$SYNC_B" rev-parse HEAD)" = "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" ]
+    [ -z "$(git -C "$SYNC_B" status --porcelain)" ]
 }
 
 @test "#1148 merge.autoStash=true: same refusal; the staged change kept" {
@@ -366,6 +376,22 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     [[ "$SYNC_LINE" != *"could not be restored"* ]]
 }
 
+@test "#1148 a move whose ref update fails (index and tree already moved) is undone" {
+    _partway_fixture
+    printf 'origin mod2\n' > "$SYNC_B/mod2"; git -C "$SYNC_B" add mod2   # a skip path: staged = origin's
+    printf 'B further edit\n' >> "$SYNC_B/mod2"
+    p0="$(_porcelain)"
+    : > "$SYNC_B/.git/refs/heads/main.lock"                         # another git process holds the branch ref
+    _refuses part-way                                                # real git: no wrapper
+    [ "$(_porcelain)" = "$p0" ]
+    [[ "$SYNC_LINE" == *"the move stopped part-way (git merge exited 128"*"; the move was undone"* ]]
+    [ "$(cat "$SYNC_B/mod2")" = "$(printf 'origin mod2\nB further edit')" ]
+    [ ! -e "$SYNC_B/add4" ]
+    rm -f "$SYNC_B/.git/refs/heads/main.lock"                       # the next close finishes the move
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_OUTCOME" = fast-forwarded ] || { echo "$SYNC_REASON: $SYNC_LINE" >&2; false; }
+}
+
 @test "#1148 held deleted file: leftover, still pushes" {
     git -C "$SYNC_A" rm -q hd/hdel; git -C "$SYNC_A" commit -q -m 'A: rm hdel'; git -C "$SYNC_A" push -q origin main 2>/dev/null
     sync_commit "$SYNC_B" b.txt b 'B: b'
@@ -389,7 +415,7 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
 }
 
 @test "#1148 Windows: a file held open" {
-    case "$(uname -s)" in MINGW*|MSYS*) ;; *) skip "holding a file open is Windows-only; T15 covers the undo everywhere" ;; esac
+    case "$(uname -s)" in MINGW*|MSYS*) ;; *) skip "holding a file open is Windows-only; 'part-way: porcelain restored exactly' covers the undo everywhere" ;; esac
     _partway_fixture
     p0="$(_porcelain)"; cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
     local ready="$BATS_TEST_TMPDIR/ready" stop="$BATS_TEST_TMPDIR/stop" n=0 hp
@@ -406,7 +432,7 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
 }
 
 @test "#1148 POSIX: real git, read-only directory" {
-    case "$(uname -s)" in MINGW*|MSYS*) skip "a read-only directory does not hold a file on Windows; T19 covers it there" ;; esac
+    case "$(uname -s)" in MINGW*|MSYS*) skip "a read-only directory does not hold a file on Windows; 'Windows: a file held open' covers it there" ;; esac
     [ "$(id -u)" != 0 ] || skip "root ignores directory permissions"
     _partway_fixture
     p0="$(_porcelain)"; cp "$SYNC_B/hd/keep1" "$BATS_TEST_TMPDIR/keep1"
@@ -496,6 +522,14 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     [[ "$SYNC_LINE" == *"origin refused the push: remote: devdoc is frozen for audit; ! [remote rejected]"* ]]
     [[ "$SYNC_LINE" == *"Fix what the remote names"* ]]
     [[ "$SYNC_LINE" != *moved* ]]
+    sync_fixture "$R/b"                                              # leg b: control characters never reach the line
+    printf '#!/bin/sh\nprintf "x\\033[31mRED\\033[0m \\033]0;title\\007 y\\rremote: OVER\\n"\nexit 1\n' > "$SYNC_ORIGIN/hooks/pre-receive"
+    chmod +x "$SYNC_ORIGIN/hooks/pre-receive"
+    sync_commit "$SYNC_B" b.txt b 'B: b'
+    sync_run "$SYNC_B_DOC" Issue-7 30
+    [ "$SYNC_REASON" = remote-refused ]
+    [[ "$SYNC_LINE" == *"RED"*"title"* ]]                                # quoted, whatever git's sideband did to it
+    [[ ! "$SYNC_LINE" =~ [[:cntrl:]] ]]
 }
 
 @test "#1148 push bounded by what is left of the budget" {
@@ -511,6 +545,13 @@ _porcelain() { git -C "$SYNC_B" status --porcelain --untracked-files=all --ignor
     sync_run "$SYNC_B_DOC" Issue-7 3
     [ "$SYNC_REASON" = budget ]
     [ "$(_calls "$R/b/w" push)" = 0 ]
+    sync_fixture "$R/c"; sync_other a.txt 'from A' 'A: a.txt'       # leg c: diverged, no time left to push
+    sync_commit "$SYNC_B" b.txt b 'B: b'
+    DEVAGENT_GIT="$(sync_git_wrapper "$R/c/w" slow:fetch=2.2)"
+    sync_run "$SYNC_B_DOC" Issue-7 3
+    [ "$SYNC_REASON" = budget ]; [ "$SYNC_OUTCOME" = skipped ]
+    [[ "$SYNC_LINE" == *"before the push; origin/main is merged into main here, not yet pushed"* ]]
+    [ "$(git -C "$SYNC_B" log -1 --format=%s)" = "devdoc: merge origin/main into main (Issue-7 cleanup)" ]
 }
 
 @test "#1148 failing git command named, lock released" {

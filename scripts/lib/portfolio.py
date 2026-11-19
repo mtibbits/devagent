@@ -1221,8 +1221,9 @@ def _is_under(path, root) -> bool:
 def rail(projects: list[ProjectInput], out) -> str | None:
     """The refusal when `out` lies under a configured devdoc, source or worktree (D10).
 
-    every devdoc commit reaches origin at the next cleanup (#1148), and the
-    document names private projects, so it must never land in one. Non-strict realpath
+    With commit_devdoc on and an origin, cleanup pushes every devdoc commit to
+    origin (#1148), and the document names private projects, so it must never land
+    in one. Non-strict realpath
     on both sides: an absent configured dir is still railed by its path.
     """
     for p in projects:

@@ -378,7 +378,7 @@ devdoc_mid_operation() {
 
 # devdoc_sync_repo <dir> — rc 0 when <dir> is in a git repository that has an
 # `origin`; DEVDOC_SYNC_TOP is that repository's canonical toplevel (empty outside
-# git). THE scope predicate of the sync and of status's not-pushed line (L284).
+# git). THE scope predicate of the sync and of status's not-pushed line.
 devdoc_sync_repo() {
     local t
     DEVDOC_SYNC_TOP=""
@@ -488,7 +488,7 @@ _ds_git_failed() {
 }
 
 # _ds_cap <text> — _DS_CAPPED is <text> cut to 240 characters (each field of the
-# WARNING line is capped, not the whole line, L317).
+# WARNING line is capped, not the whole line).
 _ds_cap() {
     _DS_CAPPED="$1"
     [ "${#_DS_CAPPED}" -le 240 ] || _DS_CAPPED="${_DS_CAPPED:0:237}..."
@@ -557,12 +557,14 @@ _devdoc_sync_hold() {
 _devdoc_sync_move() {
     local top="$1" H="$2" X="$3" rc=0 p st line hdr="" ref="" h="" ilock="" why=""
     local -a D=() gone=() left=()
-    local -A del=() existed=() w0=()
+    local -A xdel=() del=() existed=() w0=() nx=()
     _DS_EDITED=(); _DS_UNTRACKED=()
-    # The paths the move would touch, and the tracked files deleted without staging.
-    "$DEVAGENT_GIT" -C "$top" diff --no-renames --name-only -z "$H" "$X" >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
+    # The paths the move would touch (xdel: the ones origin deletes).
+    "$DEVAGENT_GIT" -C "$top" diff --no-renames --name-status -z "$H" "$X" >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
     if [ "$rc" -ne 0 ]; then _ds_git_failed diff "$rc" "$_DS_ERR"; return 1; fi
-    mapfile -d '' D <"$_DS_LIST"
+    while IFS= read -r -d '' st && IFS= read -r -d '' p; do
+        D+=("$p"); [ "$st" != D ] || xdel[$p]=1
+    done <"$_DS_LIST"
     # One scan gives both: every entry is W0 (tracked files that already differ from
     # the index), and the D entries are the deleted ones.
     devdoc_git_ro -C "$top" diff --no-renames --name-status -z >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
@@ -571,19 +573,25 @@ _devdoc_sync_move() {
         w0[$p]=1; [ "$st" != D ] || del[$p]=1
     done <"$_DS_LIST"
     # Pre-move refusal (operator ruling): an unstaged deletion of a file origin
-    # changed is a file in the way. git would re-create it; refuse, change nothing.
+    # changed is a file in the way (git would re-create it); refuse, change nothing.
+    # One origin deleted as well is not in the way: the move loses nothing there.
     for p in "${D[@]}"; do
-        [ -z "${del[$p]+x}" ] || gone+=("$p")
+        [ -z "${del[$p]+x}" ] || [ -n "${xdel[$p]+x}" ] || gone+=("$p")
     done
     if [ "${#gone[@]}" -gt 0 ]; then
         _DS_EDITED=("${gone[@]}")
         _ds_in_the_way
         return 1
     fi
-    # The rest of the snapshot the rule-4 undo works from: which of the paths exist.
+    # The rest of the snapshot the rule-4 undo works from: which of the paths exist,
+    # and which differ in the index from <X> (nx; the others are skip paths, whose
+    # index already equals origin's, so git moves past them).
     for p in "${D[@]}"; do
         if [ -e "$top/$p" ] || [ -L "$top/$p" ]; then existed[$p]=1; fi
     done
+    "$DEVAGENT_GIT" -C "$top" diff --cached --no-renames --name-only -z "$X" >"$_DS_LIST" 2>"$_DS_ERR" || rc=$?
+    if [ "$rc" -ne 0 ]; then _ds_git_failed diff "$rc" "$_DS_ERR"; return 1; fi
+    while IFS= read -r -d '' p; do nx[$p]=1; done <"$_DS_LIST"
     LC_ALL=C "$DEVAGENT_GIT" -C "$top" merge --ff-only --no-autostash --no-overwrite-ignore "$X" \
         </dev/null >/dev/null 2>"$_DS_ERR" || rc=$?
     if [ "$rc" -eq 0 ]; then
@@ -603,7 +611,7 @@ _devdoc_sync_move() {
         return 0
     fi
     # A failed move, classified in this order. 1: HEAD or the branch changed (decided
-    # by state, L35).
+    # by state, never by git's wording).
     ref="$("$DEVAGENT_GIT" -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || ref=""
     h="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null)" || h=""
     if [ "$ref" != "refs/heads/$DEVDOC_SYNC_BRANCH" ] || [ "$h" != "$H" ]; then
@@ -635,25 +643,28 @@ _devdoc_sync_move() {
         return 1
     fi
     # 4: anything else with HEAD unmoved: undo whatever the move wrote (rule 4).
-    _devdoc_sync_undo "$top" "$X" "$rc"
+    _devdoc_sync_undo "$top" "$H" "$rc"
     return 1
 }
 
-# _devdoc_sync_undo <top> <X> <merge rc> — rule 4: a move that stopped part-way (on
-# Windows, a file another program holds open) has written origin's version of some
-# paths, deleted some and created some, with HEAD and the index unmoved. Put them
-# back from the index, which the move did not change. Called by _devdoc_sync_move,
-# whose D, existed and w0 it reads (bash's dynamic scope). Never keyed on one phrase
-# (L318). Paths git named are named in the warning but NOT exempt: git may have
-# unlinked one before it failed to create its replacement, and a held file it never
-# touched does not differ from the index, so it is not restored. Skip paths (the
-# index already equals the target, so git moved past them: rule 3 keeps a further
-# edit) are left alone. Lossless: after the pre-move refusal W0 ∩ D holds only skip
-# paths, so every restored path matched the index before the move.
+# _devdoc_sync_undo <top> <H> <merge rc> — rule 4: a move that failed with HEAD
+# unmoved has written origin's version of some paths, deleted some and created some.
+# Two shapes: it stopped part-way in the tree (on Windows, a file another program
+# holds open), with the index unmoved; or it failed at its last step, the ref update
+# (another process holds refs/heads/<b>.lock), with the index and tree already moved.
+# So the index entries of every non-skip path go back to <H> first (a no-op in the
+# first shape: before the move they equalled <H>, or git would have refused), then
+# the tree is put back from the index. Called by _devdoc_sync_move, whose D, existed,
+# w0 and nx it reads (bash's dynamic scope). Never keyed on one phrase. Paths git
+# named are named in the warning but NOT exempt: git may have unlinked one before it
+# failed to create its replacement, and a held file it never touched does not differ
+# from the index, so it is not restored. Skip paths (rule 3 keeps a further edit) are
+# left alone. Lossless: after the pre-move refusal W0 ∩ D holds only skip paths and
+# paths both sides deleted, so every restored path matched the index before the move.
 _devdoc_sync_undo() {
-    local top="$1" X="$2" mrc="$3" p line r=0 detail=""
-    local -a named=() restore=() removed=() bad=() pairs=()
-    local -A why=() cached=() w1=() w2=()
+    local top="$1" H="$2" mrc="$3" p line r=0 detail=""
+    local -a named=() back=() restore=() removed=() bad=() pairs=()
+    local -A why=() w1=() w2=()
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%$'\r'}"
         if [[ "$line" =~ unable\ to\ unlink\ (old\ )?\'([^\']+)\'\:\ (.+)$ ]]; then
@@ -666,12 +677,18 @@ _devdoc_sync_undo() {
         [ -n "${why[$p]+x}" ] || { why[$p]="$line"; named+=("$p"); }
     done <"$_DS_ERR"
     _ds_git_failed merge "$mrc" "$_DS_ERR"; detail="$_DS_WHY"     # kept for the no-change case
-    "$DEVAGENT_GIT" -C "$top" diff --cached --no-renames --name-only -z "$X" >"$_DS_LIST" 2>/dev/null || r=$?
-    while IFS= read -r -d '' p; do cached[$p]=1; done <"$_DS_LIST"
-    devdoc_git_ro -C "$top" diff --no-renames --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
-    while IFS= read -r -d '' p; do w1[$p]=1; done <"$_DS_LIST"
+    for p in "${D[@]}"; do [ -z "${nx[$p]+x}" ] || back+=("$p"); done
+    if [ "${#back[@]}" -gt 0 ]; then
+        printf '%s\0' "${back[@]}" >"$_DS_LIST"
+        GIT_LITERAL_PATHSPECS=1 "$DEVAGENT_GIT" -C "$top" reset -q "$H" --pathspec-from-file=- --pathspec-file-nul \
+            <"$_DS_LIST" >/dev/null 2>&1 || r=$?
+    fi
+    if [ "$r" -eq 0 ]; then
+        devdoc_git_ro -C "$top" diff --no-renames --name-only -z >"$_DS_LIST" 2>/dev/null || r=$?
+        while IFS= read -r -d '' p; do w1[$p]=1; done <"$_DS_LIST"
+    fi
     for p in "${D[@]}"; do
-        [ "$r" -ne 0 ] || [ -n "${cached[$p]+x}" ] || continue       # skip: index = target
+        [ -n "${nx[$p]+x}" ] || continue                             # skip: index = target before the move
         if [ "$r" -ne 0 ]; then bad+=("$p"); continue; fi            # cannot tell what changed
         if [ -n "${w1[$p]+x}" ] && [ -z "${w0[$p]+x}" ]; then restore+=("$p"); fi
         if [ -z "${existed[$p]+x}" ] && { [ -e "$top/$p" ] || [ -L "$top/$p" ]; }; then
@@ -756,7 +773,7 @@ devdoc_sync() {
     DEVDOC_SYNC_OUTCOME=off; DEVDOC_SYNC_REASON=""; DEVDOC_SYNC_REPO=""; DEVDOC_SYNC_BRANCH=""; DEVDOC_SYNC_LINE=""
     _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_TMPD=""; _DS_ERR=/dev/null; _DS_LIST=/dev/null; _DS_DETACHED=0; _DS_BRANCH=""
     _DS_ISSUE="$2"; _DS_BUDGET="$3"
-    _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""
+    _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""; _DS_KIND=""
     _devdoc_sync_body "$1" || true
     if [ -n "$_DS_LEFT_WHY" ]; then                                  # a held deleted file (Task 5)
         if [ -z "$DEVDOC_SYNC_REASON" ]; then
@@ -798,7 +815,6 @@ _devdoc_sync_body() {
     _DS_ERR="$_DS_TMPD/err"; _DS_LIST="$_DS_TMPD/list"
     _DS_TIP=""; _DS_NEW=0
     case "$UPSTREAM_TIP" in
-        "(no-origin)") DEVDOC_SYNC_OUTCOME=off; return 0 ;;
         "(unreachable)")
             case "$UPSTREAM_ASK_RC" in
                 124|137) _ds_budget ;;
@@ -816,7 +832,7 @@ _devdoc_sync_body() {
                     # otherwise one retry, within the budget.
                     cur="$("$DEVAGENT_GIT" -C "$top" rev-parse -q --verify "refs/remotes/origin/$b" 2>/dev/null)" || cur=""
                     if [ "$cur" = "$pre" ] || ! "$DEVAGENT_GIT" -C "$top" cat-file -e "$_DS_TIP^{commit}" 2>/dev/null; then
-                        if ! bounded_secs_left "$dl"; then _ds_budget; return 0; fi
+                        if ! bounded_secs_left "$dl" "$_DS_BUDGET"; then _ds_budget; return 0; fi
                         _upstream_fetch_branch "$top" "$BOUNDED_SECS" "$b" || frc=$?
                         case "$frc" in
                             0) ;;
@@ -849,7 +865,7 @@ _devdoc_sync_body() {
         behind) DEVDOC_SYNC_OUTCOME=fast-forwarded; return 0 ;;
     esac
     # 3. The push, unlocked, bounded by what is left of the budget.
-    if ! bounded_secs_left "$dl"; then _ds_budget; return 0; fi
+    if ! bounded_secs_left "$dl" "$_DS_BUDGET"; then _ds_budget; return 0; fi
     LC_ALL=C GIT_TERMINAL_PROMPT=0 bounded_call "$BOUNDED_SECS" "$DEVAGENT_GIT" -C "$top" \
         push origin "$_DS_S:refs/heads/$b" </dev/null >/dev/null 2>"$_DS_ERR" || prc=$?
     if [ "$prc" -ne 0 ]; then
@@ -904,9 +920,13 @@ _ds_push_failed() {
 }
 
 # _ds_budget — the time budget ran out, during a call or before the next could start.
+# After a diverged merge (the push is the only call left) the line says the merge
+# commit is here, unpushed.
 _ds_budget() {
-    _ds_set skipped budget "the time budget ran out (DEVAGENT_DEVDOC_SYNC_SECS=$_DS_BUDGET)" \
-        "Skipped for this close; the next close retries."
+    local reason="the time budget ran out (DEVAGENT_DEVDOC_SYNC_SECS=$_DS_BUDGET)"
+    [ "$_DS_KIND" != diverged ] \
+        || reason="$reason before the push; origin/$DEVDOC_SYNC_BRANCH is merged into $DEVDOC_SYNC_BRANCH here, not yet pushed"
+    _ds_set skipped budget "$reason" "Skipped for this close; the next close retries."
 }
 
 # _devdoc_sync_line — DEVDOC_SYNC_LINE from the recorded reason. The count is read
@@ -929,4 +949,7 @@ _devdoc_sync_line() {
         br="(branch unknown)"
     fi
     DEVDOC_SYNC_LINE="devDoc sync $verb for $DEVDOC_SYNC_REPO $br: ${_DS_WHY%.}.$count $_DS_NEXT${_DS_ALSO:+ Also: $_DS_ALSO}"
+    # git's and the remote's text is quoted in it: no control character survives
+    # (an escape sequence or a carriage return could repaint the terminal line).
+    DEVDOC_SYNC_LINE="${DEVDOC_SYNC_LINE//[[:cntrl:]]/?}"
 }
