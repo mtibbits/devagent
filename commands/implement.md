@@ -42,7 +42,8 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    issue's acceptance criteria are the work statement. An active block
    with a tighten row (standard, perf) still halts here.
 4. Invoke `superpowers:executing-plans` with `$ISSUE_DIR/imPlan.md`
-   as the plan path — UNLESS the active revision block contains no draft
+   as the plan path, under the **Tree and finish rules** below
+   — UNLESS the active revision block contains no draft
    row (step 2): there is no imPlan.md, so skip the executing-plans
    dispatch and execute directly against the issue body (per item 3's
    no-draft carve-out). Pass `$NOTE` as additional context the executor
@@ -56,6 +57,35 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    skill defaults to); items 5–6 of this command apply unchanged. Print
    the nudge line verbatim and continue:
    `recommended: claude plugin install superpowers@claude-plugins-official`
+
+   **Tree and finish rules (#1153).** These rules hold on
+   `superpowers:executing-plans`, on a switch to
+   `superpowers:subagent-driven-development`, and on the no-draft direct
+   path. They are the operator's declared worktree preference, set through
+   devagent's `use_worktree` and, where the checklist has one, the branch
+   step. Follow them without asking.
+
+   - **Work in the issue's recorded tree.** That tree is the
+     `worktree_path` in this issue's own state entry when it is non-empty,
+     else `source_dir`; an empty or null `worktree_path` means unset.
+     When the active revision block has a branch step (8), it has already
+     checked the issue branch out there; without one, work on the current
+     tree as item 2 says. Worktree preference: work in place. Do not
+     create or enter any other worktree: no `EnterWorktree`, no
+     `git worktree add`, no subagent dispatched with worktree isolation,
+     and no question asking whether to create one. devagent's own scripts
+     are exempt, such as born-red.sh's ephemeral baseline tree. If
+     `superpowers:using-git-worktrees` loads, report that you are working
+     in place in the recorded tree, and go on.
+   - **Leave the branch to devagent.** Do not run
+     `superpowers:finishing-a-development-branch`. Do not merge the issue
+     branch, push it, delete it or open a PR from it: devagent's ship and
+     mergemr steps integrate it, where the checklist has them. When the
+     active revision block has no branch step (8), a push, merge or PR that
+     the issue body names as the work is that work, not branch
+     integration. At the executing skill's Finish stage, report its result, then continue with item 6
+     and this command's Completion handoff in the same turn; do not end
+     the turn at the skill's report.
 5. Implementation happens task-by-task per the wrapped skill's
    conventions. Each task gets its own commit per executing-plans
    defaults.
