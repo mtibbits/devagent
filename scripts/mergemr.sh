@@ -355,22 +355,28 @@ esac
 fwd_text="head ${verified_head:0:7} was recorded by forward and merges only on green CI ($CI_RESULT)"
 
 # rule 12: the PR's live state, not the log — a queue that ejects it, or a cancelled
-# auto-merge, falls through to the rules below. A forwarded head is left to the forge
-# only on green CI (#1125): before that, auto-merge is turned off, as rule 11 does, and
-# rules 13-17 decide; a merge queue cannot be left from here, so it stops.
+# auto-merge, falls through to the rules below. The PR is left to the forge only when
+# nothing here still has to decide: a forwarded head only on green CI (#1125), and any
+# head only when every required check is success (#1097). Otherwise auto-merge is
+# turned off, as rule 11 does, and rules 13-17 decide; a merge queue cannot be left
+# from here, so it stops. r12_rule/r12_why: the rule that still has to decide, and why.
 if [ "$MV_AUTOMERGE" = on ] || [ "$MV_QUEUE" = true ]; then
-    if [ "$vb_forward" = 0 ] || [ "$CI_RESULT" = green ]; then
-        _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)$sfx"
+    r12_rule="" r12_why=""
+    if [ "$vb_forward" = 1 ] && [ "$CI_RESULT" != green ]; then
+        r12_rule=17 r12_why="$fwd_text"
+    elif [ "$RC_OK" != 1 ]; then
+        r12_rule=15 r12_why="head ${verified_head:0:7} merges only when every required check is successful"
     fi
+    [ -n "$r12_why" ] || _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)$sfx"
     if [ "$MV_QUEUE" = true ]; then
-        _stop 17 "$fwd_text, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck"
+        _stop "$r12_rule" "$r12_why, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck$sfx"
     fi
     _call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" merge-mr "$mr_url" --disable-auto
     if [ "$_CALL_RC" -ne 0 ]; then
-        _stop 17 "$fwd_text; could not disable auto-merge: $_CALL_ERR; disable it on the forge, then run /devagent:unstuck"
+        _stop "$r12_rule" "$r12_why; could not disable auto-merge: $_CALL_ERR; disable it on the forge, then run /devagent:unstuck$sfx"
     fi
-    echo "mergemr: auto-merge disabled: $fwd_text"
-    log_append "$issue_dir" mergemr "auto-merge disabled: $fwd_text"
+    echo "mergemr: auto-merge disabled: $r12_why"
+    log_append "$issue_dir" mergemr "auto-merge disabled: $r12_why"
 fi
 if [ "$MV_MERGEABLE" = UNKNOWN ] || [ "$MV_MERGESTATE" = UNKNOWN ]; then      # rule 13
     _wait 13 "mergeability not computed yet"

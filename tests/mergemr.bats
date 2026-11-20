@@ -1908,3 +1908,55 @@ _next_run_merges() {
     [ ! -e "$ISSUE_DIR/STUCK" ]
     _next_run_merges "$h2"
 }
+
+R12_REQ="merges only when every required check is successful"
+
+@test "#1097 R12: auto-merge on with a skipped required check turns auto-merge off, then stops at rule 15" {
+    _req "[\"$GBT\"]"
+    _view automerge=on rchecks="pass|$GBT|SKIPPED"
+    _run
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); $RC_BAD_REMEDY"
+    [[ "$output" == *"mergemr: auto-merge disabled: head ${PR_HEAD:0:7} $R12_REQ"* ]]
+    _mrlog | grep -qxF "auto-merge disabled: head ${PR_HEAD:0:7} $R12_REQ"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1097 R12: auto-merge on with a pending required check turns auto-merge off, then rule 16 waits" {
+    _req "[\"$GBT\"]"
+    _view automerge=on rchecks="pending|$GBT"
+    _run
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    _wait_is 16 "CI PENDING: 1 of 2 checks still running on $URL (head ${PR_HEAD:0:7}): $GBT"
+    [[ "$output" == *"mergemr: auto-merge disabled: head ${PR_HEAD:0:7} $R12_REQ"* ]]
+}
+
+@test "#1097 R12: auto-merge that cannot be turned off with a required check not successful stops" {
+    _req "[\"$GBT\"]"
+    _view automerge=on rchecks="pass|$GBT|SKIPPED"
+    export MERGE_RC=1 STUB_MERGE_ERR="GraphQL: Pull request auto merge is not allowed"
+    _run
+    _stop_is 15 "head ${PR_HEAD:0:7} $R12_REQ; could not disable auto-merge: GraphQL: Pull request auto merge is not allowed; disable it on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: skipped"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1097 R12: a merge queue with a pending required check stops" {
+    _req "[\"$GBT\"]"
+    _view queue=true mergestate=BLOCKED rchecks="pending|$GBT"
+    _run
+    _stop_is 15 "head ${PR_HEAD:0:7} $R12_REQ, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: pending"
+    [ ! -e "$MERGE_LOG" ]
+    # the remedy: out of the queue, then unstuck; the check has succeeded meanwhile
+    _view rchecks="pass|$GBT|SUCCESS"
+    _unstuck
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 R12: a forwarded head that is not green keeps its own stop and names the required checks" {
+    _req "[\"$GBT\"]"
+    devagent_state_set "$STATE" verified_by forward
+    _view queue=true mergestate=BLOCKED rchecks="pending|$GBT"
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (pending), but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: pending"
+    [ ! -e "$MERGE_LOG" ]
+}
