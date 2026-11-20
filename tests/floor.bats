@@ -315,3 +315,17 @@ _forms() {
     _forms || { echo "$impl: a tool-printed line" >&2; return 1; }
   done
 }
+
+@test "floor: a NUL beside a TAB in a value is read as the scaffold reads it (review I1)" {
+  # bash drops the NUL on both sides; the floor must then keep the TAB that
+  # flags_get keeps, so a value the scaffold would refuse is never listed.
+  _allow 'tier: oneshot' 'checking-model: fable'
+  local v
+  for v in 'tier:\x00\toneshot' 'tier: oneshot\t\x00' 'checking-model:\x00\tfable'; do
+    printf '# acme/widgets#7 — Demo\n\n- State: open\n- Author: @alice\n- Labels: \n- URL: u\n- Created: \n\n---\n\n## Workflow flags\n%b\n\n---\n\n## Comments (0)\n' "$v" > "$C"
+    run --separate-stderr floor_run "$C"
+    [ "$status" -eq 0 ] || { echo "$v: rc $status" >&2; return 1; }
+    [ "$output" = steering ] || { echo "$v: token '$output'" >&2; return 1; }
+    [[ "$(_diag)" == *"$REMEDY_UNLISTABLE"* ]] || { echo "$v: no unlistable remedy" >&2; return 1; }
+  done
+}

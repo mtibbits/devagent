@@ -949,7 +949,7 @@ _fx() {
 @test "flags_enumerate: twin of flags_get over the planted corpus (#715, U3)" {
   local -A want=([plain]=2 [fenced]=1 [comment]=1 [clause553]=0 [duplicates]=3
                  [twoblocks]=4 [crlf]=2 [comments-exit]=1)
-  local f name rows key first n=0
+  local f name rows key first has row r n=0
   for f in "$PLUGIN_ROOT"/tests/fixtures/flags-twin/*.md; do
     name="$(basename "$f" .md)"
     [ -n "${want[$name]+x}" ] || { echo "no expected row count for $name" >&2; return 1; }
@@ -960,8 +960,15 @@ _fx() {
     [ "$(grep -c . <<<"$rows")" -eq "${want[$name]}" ] \
       || { echo "$name: want ${want[$name]} rows, got: $rows" >&2; return 1; }
     for key in $(flags_known_keys); do
-      first="$(awk -F'\t' -v k="$key" '$2 == k { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }' <<<"$rows")"
-      if grep -q $'^[0-9]*\t'"$key"$'\t' <<<"$rows"; then
+      # Rows are read as floor.sh reads them, so the consumer's idiom is compared.
+      first="" has=0
+      while IFS= read -r row; do
+        r="${row#*$'\t'}"
+        [ "${r%%$'\t'*}" = "$key" ] || continue
+        first="${r#*$'\t'}" has=1
+        break
+      done < <(flags_enumerate "$BATS_TEST_TMPDIR/t.md")
+      if [ "$has" = 1 ]; then
         run flags_get "$BATS_TEST_TMPDIR/t.md" "$key"
         [ "$status" -eq 0 ] || { echo "$name/$key: flags_get rc $status, enumerator has a row" >&2; return 1; }
         [ "$output" = "$first" ] || { echo "$name/$key: flags_get '$output' != '$first'" >&2; return 1; }
@@ -976,13 +983,14 @@ _fx() {
 }
 
 @test "flags_enumerate: empty value and CRLF (#715)" {
-  local n key val
+  local n key val row
   _fx $'## Workflow flags\ntier:\nresearch: required'
   run flags_enumerate "$BATS_TEST_TMPDIR/fx.md"
   [ "$status" -eq 0 ]
-  IFS=$'\t' read -r n key val <<<"$(head -n 1 <<<"$output")"
+  # floor.sh's split: the row whole, then its first two TABs by expansion.
+  row="${lines[0]}"; n="${row%%$'\t'*}"; row="${row#*$'\t'}"; key="${row%%$'\t'*}"; val="${row#*$'\t'}"
   [ "$n" = 9 ] && [ "$key" = tier ] && [ "$val" = "" ]
-  IFS=$'\t' read -r n key val <<<"$(sed -n 2p <<<"$output")"
+  row="${lines[1]}"; n="${row%%$'\t'*}"; row="${row#*$'\t'}"; key="${row%%$'\t'*}"; val="${row#*$'\t'}"
   [ "$n" = 10 ] && [ "$key" = research ] && [ "$val" = required ]
   _fx $'## Workflow flags\ntier: oneshot'
   sed -i 's/$/\r/' "$BATS_TEST_TMPDIR/fx.md"

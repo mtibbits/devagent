@@ -388,3 +388,12 @@ event 2026-11-02T12:00:00Z 3" ]
   # The title is one line.
   [[ "$(head -n 1 "$DEVDOC/Issue-9/issue.md")" == "# acme/widgets#9 — T "*"forged body"*"CR too" ]]
 }
+
+@test "pull: a NUL beside a TAB in a flags value quarantines instead of dying after promote (review I1)" {
+  qf_policy separate 'allowed_steering = ["tier: oneshot"]'
+  qf_ticket '"## Workflow flags\ntier:\u0000\toneshot"'
+  run --separate-stderr "$PULL" wid origin 9
+  [ "$status" -eq 6 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  [ "$(sed -n 3p "$DEVDOC/Issue-9/QUARANTINE")" = "reason steering" ]
+  [ ! -e "$DEVDOC/Issue-9/issue.md" ]
+}

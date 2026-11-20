@@ -121,7 +121,7 @@ _floor_label_listable() {
 # the locale ([[:space:]] matches U+3000 under UTF-8, not under C), so never pin
 # LC_ALL for the floor's reads alone: checked and applied steering would part.
 _floor_steering() {
-  local cand="$1" e rule n key val line known lbl i=0 total=0 fail=0
+  local cand="$1" e rule row n key val line known lbl i=0 total=0 fail=0
   [ -f "$cand" ] && [ -r "$cand" ] || return 3
   local -a body_ok=() label_ok=() labels=()
   while IFS= read -r e; do
@@ -133,7 +133,10 @@ _floor_steering() {
   rule="$(awk '/^---[[:space:]]*$/ { print NR; exit }' "$cand")" || return 3
   [[ "$rule" =~ ^[0-9]+$ ]] || return 3
   known=" $(flags_known_keys) "
-  while IFS=$'\t' read -r n key val; do
+  # Split the row by expansion, never by IFS: `read` drops a NUL, and IFS=$'\t'
+  # would then strip the TAB beside it that flags_get keeps (review I1).
+  while IFS= read -r row; do
+    n="${row%%$'\t'*}"; row="${row#*$'\t'}"; key="${row%%$'\t'*}"; val="${row#*$'\t'}"
     _floor_listed "$key: $val" "${body_ok[@]}" && continue
     fail=1 line=$((n - rule - 1))
     if [[ "$known" == *" $key "* ]]; then

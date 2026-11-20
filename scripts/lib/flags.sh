@@ -277,8 +277,10 @@ flags_validate() { _flags_scan "$1" >/dev/null; }
 # flags_enumerate <issue-md-path> — the QUIET mode of the same machine (#715):
 # one `<line-number>\t<key>\t<value>` line on stdout per live key line of the
 # body's `## Workflow flags` blocks, unknown keys and duplicates included, in file
-# order. The value is trimmed as flags_get trims it, comes last and may be empty,
-# so `IFS=$'\t' read -r n key val` reads it unshifted. Nothing on stderr, awk's
+# order. The value is trimmed as flags_get trims it, comes last and may be empty.
+# Read a row whole (`IFS= read -r row`) and split it at its first two TABs by
+# expansion, as floor.sh does: IFS=$'\t' would also strip a TAB at the value's
+# edge that flags_get keeps (one beside a NUL, which `read` drops). Nothing on stderr, awk's
 # own warnings included: under a trust policy pull's floor reads the ticket with
 # this before PASS, when no ticket byte may be printed. rc 0, for an absent file
 # too. Being a mode of the validate machine, not a third machine, it cannot drift
