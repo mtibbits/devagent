@@ -278,9 +278,10 @@ flags_validate() { _flags_scan "$1" >/dev/null; }
 # one `<line-number>\t<key>\t<value>` line on stdout per live key line of the
 # body's `## Workflow flags` blocks, unknown keys and duplicates included, in file
 # order. The value is trimmed as flags_get trims it, comes last and may be empty.
-# Read a row whole (`IFS= read -r row`) and split it at its first two TABs by
-# expansion, as floor.sh does: IFS=$'\t' would also strip a TAB at the value's
-# edge that flags_get keeps (one beside a NUL, which `read` drops). Nothing on stderr, awk's
+# Read a row whole in the C locale (`IFS= LC_ALL=C read -r row`) and split it at
+# its first two TABs by expansion, as floor.sh does: under UTF-8, `read` takes
+# the LF after an incomplete lead byte as data; IFS=$'\t' would strip a TAB at
+# the value's edge that flags_get keeps (one beside a NUL, which `read` drops). Nothing on stderr, awk's
 # own warnings included: under a trust policy pull's floor reads the ticket with
 # this before PASS, when no ticket byte may be printed. rc 0, for an absent file
 # too. Being a mode of the validate machine, not a third machine, it cannot drift
@@ -322,8 +323,10 @@ _flags_scan() {
     }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
-      key = $0; sub(/:.*/, "", key)
-      val = substr($0, length(key) + 2)
+      # match(), not sub(/:.*/): gawk under UTF-8 cannot match `.` over an
+      # invalid byte, which would leave it in the key.
+      match($0, /^[a-z][a-z-]*/); key = substr($0, 1, RLENGTH)
+      val = substr($0, RLENGTH + 2)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
       print NR "\t" key "\t" val
       if (index(known, " " key " ") == 0)

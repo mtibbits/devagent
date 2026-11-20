@@ -134,9 +134,12 @@ _floor_steering() {
   rule="$(awk '/^---[[:space:]]*$/ { print NR; exit }' "$cand")" || return 3
   [[ "$rule" =~ ^[0-9]+$ ]] || return 3
   known=" $(flags_known_keys) "
-  # Split the row by expansion, never by IFS: `read` drops a NUL, and IFS=$'\t'
-  # would then strip the TAB beside it that flags_get keeps (review I1).
-  while IFS= read -r row; do
+  # `read` alone runs in the C locale: under UTF-8 it takes the LF after an
+  # incomplete lead byte as data, dropping a last row and merging a middle one
+  # (red team); the awk reads above and below keep the scaffold's locale. Split
+  # the row by expansion, never by IFS: `read` drops a NUL, and IFS=$'\t' would
+  # then strip the TAB beside it that flags_get keeps (review I1).
+  while IFS= LC_ALL=C read -r row; do
     n="${row%%$'\t'*}"; row="${row#*$'\t'}"; key="${row%%$'\t'*}"; val="${row#*$'\t'}"
     _floor_listed "$key: $val" "${body_ok[@]}" && continue
     fail=1 line=$((n - rule - 1))
@@ -148,10 +151,12 @@ _floor_steering() {
       _FLOOR_CLASS_UNLISTABLE=1
     fi
   done < <(flags_enumerate "$cand")
+  [ -z "$row" ] || return 3
   wait $! || return 3
-  while IFS= read -r lbl; do
+  while IFS= LC_ALL=C read -r lbl; do
     [[ "$lbl" == tier:* ]] && labels+=("$lbl")
   done < <(issue_labels "$cand")
+  [ -z "$lbl" ] || return 3
   wait $! || return 3
   total="${#labels[@]}"
   for lbl in "${labels[@]}"; do

@@ -948,7 +948,7 @@ _fx() {
 
 @test "flags_enumerate: twin of flags_get over the planted corpus (#715, U3)" {
   local -A want=([plain]=2 [fenced]=1 [comment]=1 [clause553]=0 [duplicates]=3
-                 [twoblocks]=4 [crlf]=2 [comments-exit]=1)
+                 [twoblocks]=4 [crlf]=2 [comments-exit]=1 [leadbyte]=2)
   local f name rows key first has row r n=0
   for f in "$PLUGIN_ROOT"/tests/fixtures/flags-twin/*.md; do
     name="$(basename "$f" .md)"
@@ -962,18 +962,19 @@ _fx() {
     for key in $(flags_known_keys); do
       # Rows are read as floor.sh reads them, so the consumer's idiom is compared.
       first="" has=0
-      while IFS= read -r row; do
+      while IFS= LC_ALL=C read -r row; do
         r="${row#*$'\t'}"
         [ "${r%%$'\t'*}" = "$key" ] || continue
         first="${r#*$'\t'}" has=1
         break
       done < <(flags_enumerate "$BATS_TEST_TMPDIR/t.md")
       if [ "$has" = 1 ]; then
-        run flags_get "$BATS_TEST_TMPDIR/t.md" "$key"
+        # stdout only: gawk warns on stderr about the lead-byte fixture.
+        run --separate-stderr flags_get "$BATS_TEST_TMPDIR/t.md" "$key"
         [ "$status" -eq 0 ] || { echo "$name/$key: flags_get rc $status, enumerator has a row" >&2; return 1; }
         [ "$output" = "$first" ] || { echo "$name/$key: flags_get '$output' != '$first'" >&2; return 1; }
       else
-        run flags_get "$BATS_TEST_TMPDIR/t.md" "$key"
+        run --separate-stderr flags_get "$BATS_TEST_TMPDIR/t.md" "$key"
         [ "$status" -eq 1 ] || { echo "$name/$key: flags_get rc $status, enumerator has no row" >&2; return 1; }
       fi
     done

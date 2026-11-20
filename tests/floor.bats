@@ -327,3 +327,22 @@ _forms() {
     [[ "$(_diag)" == *"$REMEDY_UNLISTABLE"* ]] || { echo "$v: no unlistable remedy" >&2; return 1; }
   done
 }
+
+@test "floor: a value ending in an incomplete UTF-8 lead byte is still read (red team)" {
+  # Under a UTF-8 locale, bash's read takes the LF after a lone lead byte as data:
+  # the last row was dropped (no token) and a middle row merged with the next.
+  locale -a 2>/dev/null | grep -qix 'c.utf-\?8' || skip "no C.UTF-8 locale"
+  local v
+  for v in 'tier: oneshot\xe3' 'tier: oneshot\xc2' 'zz: 1\xe3'; do
+    printf '# acme/widgets#7 — Demo\n\n- State: open\n- Author: @alice\n- Labels: \n- URL: u\n- Created: \n\n---\n\n## Workflow flags\n%b\n\n---\n\n## Comments (0)\n' "$v" > "$C"
+    LC_ALL=C.UTF-8 run --separate-stderr floor_run "$C"
+    [ "$status" -eq 0 ] || { echo "$v: rc $status" >&2; return 1; }
+    [ "$output" = steering ] || { echo "$v: token '$output'" >&2; return 1; }
+  done
+  # A middle row: both rows are checked, each on its own line.
+  printf '# acme/widgets#7 — Demo\n\n- State: open\n- Author: @alice\n- Labels: \n- URL: u\n- Created: \n\n---\n\n## Workflow flags\ntier: oneshot\xe3\nresearch: maybe\n\n---\n\n## Comments (0)\n' > "$C"
+  LC_ALL=C.UTF-8 run --separate-stderr floor_run "$C"
+  [ "$output" = steering ]
+  [ "$(_diag | grep -c '^steering: ')" -eq 2 ]
+  [[ "$(_diag)" == *"key 'research' on body line 3 is not listed"* ]]
+}
