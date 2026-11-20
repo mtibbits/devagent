@@ -302,3 +302,18 @@ _v_setup() {
   [ "$status" -eq 1 ]
   [ -z "${FLOOR_CHECKS+x}" ]
 }
+
+@test "verdict: in scope with no candidate → exit 3, no stdout (#715)" {
+  _v_setup
+  run --separate-stderr quarantine_verdict wid "$D"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+  run --separate-stderr quarantine_verdict wid "$D" "$BATS_TEST_TMPDIR/missing.md"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+  # Out of scope the candidate is not needed.
+  TRUST_IN_SCOPE=0
+  run --separate-stderr quarantine_verdict wid "$D"
+  [ "$status" -eq 0 ]
+  [ "$output" = PASS ]
+}

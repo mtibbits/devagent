@@ -496,12 +496,14 @@ quarantine_verdict() {
 
 # _quarantine_src_floor <project> <issue_dir> [<candidate>]: #715's
 # deterministic floor (scripts/lib/floor.sh) on the candidate issue.md, in
-# scope only. floor.sh is sourced here on first use, never at this file's
-# load, so the guard points that source quarantine.sh load nothing new.
+# scope only. In scope the candidate is required: a missing or unreadable one
+# could not be checked, so it is no verdict (never a silent PASS). floor.sh is
+# sourced here on first use, never at this file's load, so the guard points
+# that source quarantine.sh load nothing new.
 _quarantine_src_floor() {
   local out rc=0
   [ "${TRUST_IN_SCOPE:-0}" = 1 ] || return 0
-  [ -n "${3:-}" ] || return 0
+  [ -n "${3:-}" ] && [ -f "$3" ] && [ -r "$3" ] || return 3
   # shellcheck source=/dev/null
   declare -F floor_run >/dev/null || source "$_QUARANTINE_LIB_DIR/floor.sh"
   out="$(floor_run "$3")" || rc=$?
