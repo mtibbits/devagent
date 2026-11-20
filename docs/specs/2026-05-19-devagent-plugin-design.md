@@ -84,10 +84,10 @@ devAgent/
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
 │                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
-├── commands/                # one .md file per command-form slash command (57)
+├── commands/                # one .md file per command-form slash command (58)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 57 + 3 = the 60 slash commands
+│                            #   (SKILL.md + references/, #452) — 58 + 3 = the 61 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -102,6 +102,7 @@ devAgent/
 │   │                        #   ci.sh — #782 MR CI read/line/gate,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
+│   │                        #   milestones.py — #734 milestone rows,
 │   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock + #1148 sync with origin,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
@@ -126,7 +127,8 @@ devAgent/
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
 │   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
 │   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
-│   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
+│   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
+│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -1121,6 +1123,7 @@ omits.
 | `/devagent:statusreport [project]` | Generates status report, advances pin, commits to devdoc |
 | `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
+| `/devagent:milestones [project] [--issue <issue-id> \| --all] [--json]` | Prints each issue's dated milestones (tracker opened/closed, linked MRs opened/merged, checklist steps, parks, revisions) and spans; read-only (see §13.5) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 **The devDoc not-pushed line (#1148).** After the project blocks (`--all`: after
