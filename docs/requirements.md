@@ -1025,8 +1025,8 @@ Partly delivered. A requirement here that is not built yet starts with
 - EI-22: The launcher notifications file and unattended marker: devagent
   delivers the version-1 line format, its one locked appender, the rotation
   under that lock, and the function that reads the marker a launcher sets;
-  and (planned) the writers append `hold`, `notify`, `answered` and `stuck`
-  lines for the launcher to read.
+  the hold (#962) appends `hold` lines; and (planned) the other writers
+  append `notify`, `answered` and `stuck` lines for the launcher to read.
 - EI-23: The ticket screen and signing keys (planned): devagent passes staged
   ticket text to an isolated model process and parses its verdict against a
   strict grammar, and verifies security-key signatures posted on the tracker.
