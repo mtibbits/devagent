@@ -225,3 +225,80 @@ event 2026-11-02T10:00:00Z 41" ]
   quarantine_key wid Notes-3
   [ "$QK_SOURCE" = "" ] && [ "$QK_KEY" = "wid/Notes-3" ]
 }
+
+# --- #715: the verdict's sources (floor first, then the #714 test seam)
+
+# _v_setup: in scope, the libraries loaded, TRUST_VAL by hand, and two
+# candidates: $BENIGN (no steering) and $HOSTILE (an unlisted `tier: oneshot`).
+_v_setup() {
+  _lib
+  TRUST_IN_SCOPE=1
+  declare -gA TRUST_VAL=([allowed_steering]='[]' [size_cap]=65536 [test_seams]=false)
+  BENIGN="$BATS_TEST_TMPDIR/benign.md"
+  HOSTILE="$BATS_TEST_TMPDIR/hostile.md"
+  printf '# acme/widgets#7 — t\n\n- State: open\n- Author: @a\n- Labels: bug\n- URL: u\n\n---\n\nPlain body.\n\n---\n\n## Comments (0)\n' > "$BENIGN"
+  printf '# acme/widgets#7 — t\n\n- State: open\n- Author: @a\n- Labels: bug\n- URL: u\n\n---\n\n## Workflow flags\ntier: oneshot\n\n---\n\n## Comments (0)\n' > "$HOSTILE"
+  # A recording source, as #717's screen will be: logs a call, prints nothing.
+  _rec_src() { echo called >> "$BATS_TEST_TMPDIR/rec.log"; }
+}
+
+@test "verdict: a floor QUARANTINE returns before any later source runs (zero screener calls) (#715)" {
+  _v_setup
+  QUARANTINE_SOURCES+=(_rec_src)
+  run --separate-stderr quarantine_verdict wid "$D" "$HOSTILE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "QUARANTINE steering" ]
+  [ ! -e "$BATS_TEST_TMPDIR/rec.log" ]
+  run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+  [ "$status" -eq 0 ]
+  [ "$output" = PASS ]
+  [ "$(cat "$BATS_TEST_TMPDIR/rec.log")" = called ]
+}
+
+@test "verdict: an unlisted token from a source → exit 3, no stdout (#715)" {
+  _v_setup
+  local tok
+  for tok in bogus PASS 'QUARANTINE steering' $'steering\nsize'; do
+    eval "_bad_src() { printf '%s\n' $(printf '%q' "$tok"); }"
+    QUARANTINE_SOURCES=(_quarantine_src_floor _bad_src)
+    run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+    [ "$status" -eq 3 ] || { echo "token '$tok': rc $status out $output" >&2; return 1; }
+    [ "$output" = "" ]
+  done
+  # A source that could not run (non-zero) is no verdict either.
+  _fail_src() { return 2; }
+  QUARANTINE_SOURCES=(_fail_src _quarantine_src_seam)
+  run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+}
+
+@test "verdict: out of scope → PASS and floor_run is not called (#715)" {
+  _v_setup
+  TRUST_IN_SCOPE=0
+  floor_run() { echo called >> "$BATS_TEST_TMPDIR/floor.log"; echo steering; }
+  run --separate-stderr quarantine_verdict wid "$D" "$HOSTILE"
+  [ "$status" -eq 0 ]
+  [ "$output" = PASS ]
+  [ ! -e "$BATS_TEST_TMPDIR/floor.log" ]
+  # positive control: in scope the stub is called.
+  TRUST_IN_SCOPE=1
+  run --separate-stderr quarantine_verdict wid "$D" "$HOSTILE"
+  [ "$output" = "QUARANTINE steering" ]
+  [ -s "$BATS_TEST_TMPDIR/floor.log" ]
+}
+
+@test "verdict: the floor cannot run → exit 3 (#715)" {
+  _v_setup
+  TRUST_VAL[size_cap]=bogus
+  run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+}
+
+@test "verdict: the floor is sourced on first use, not at quarantine.sh load (#715)" {
+  _lib
+  run declare -F floor_run
+  [ "$status" -eq 1 ]
+  [ -z "${FLOOR_CHECKS+x}" ]
+}
