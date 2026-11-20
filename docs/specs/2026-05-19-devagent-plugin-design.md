@@ -2562,7 +2562,7 @@ non-draft MR gives `open`, else any draft `draft`, else any merged
 per-issue 404 and has no `mr` lines. One `mr` line follows per linked MR
 (`<ref>` is `owner/repo#N` or `group/project!N`), sorted by creation
 time, with UTC second-precision `YYYY-MM-DDTHH:MM:SSZ` created and merged
-timestamps (#734 reads them; `wbs update` does not). The trailing
+timestamps (`milestones` reads them; `wbs update` does not). The trailing
 `<url>` (the MR's `http(s)://` web URL) and `<base>` (its target branch)
 are optional as a pair (#734): GitHub (`url`, `baseRefName`, fetched in
 the same query) and GitLab (`web_url`, `target_branch`) always print
@@ -2575,8 +2575,8 @@ lookup"; `1` is a transport or CLI failure or bad arguments (never `2`),
 `3` an authentication failure (HTTP 401/403) and `5` an unrecognised
 record, non-JSON, a repeated page cursor or a full GitLab page. Any exit
 but `0`, `2` and `78` aborts the `wbs update` MR phase (§13.2).
-`wbs update` is the verb's only caller today; #734 is expected to read the
-`mr` lines' timestamps.
+Three callers read the verb: `wbs update` and `mergemr` read the `issue`
+lines, and `milestones` (§13.5) reads the `mr` lines, URL and base included.
 
 `mr-checks` MAY be implemented (#782; GitHub does). It reports the MR's
 state, the head SHA as the forge reports it, and one line per check,
@@ -3526,6 +3526,128 @@ instead of writing the document; the view writes nothing.
 
 <!-- editor: tests/test_portfolio_schema.py::test_spec_13_points_at_schema_doc
      requires this section to name docs/portfolio-schema.md. -->
+
+### 13.5 Milestones (#734)
+
+`/devagent:milestones [project] [--issue <issue-id> | --all] [--json]`
+(`scripts/milestones.sh`, core `scripts/lib/milestones.py`) prints one row
+per dated event of each issue in scope, then per-issue spans. It is
+read-only: no `WBS.md`, devdoc, state or tracker write. It adds no tracker
+or forge read path: it reads the tracker's `issue-list` (§9.1) and the code
+host's `issue-mrs` (§9.2), and the issues' `checklist.md` logs.
+
+**Grammar and exits.** `--issue <id>` and `--issue=<id>`; the id is one
+token of `[A-Za-z0-9_.-]` led by a letter or digit (the `wbs exclude` rule),
+checked before any path is built. Exit `2` (with `milestones: <why>` and
+the usage line on stderr, before any backend call): an unknown `--` flag,
+an empty `--issue`, a bad token, `--issue` with `--all`, a second
+positional; also `--issue` naming no configured source (by `dir_prefix`,
+`parse_leaf`) and no `<devdoc>/<id>/checklist.md` (no backend call). Exit
+`1`: an unknown project, an unset or missing `devdoc_dir`, or a library
+failure. Exits `6`–`11`: trust refusals (`milestones` is a trust entry
+point). Exit `0`: the report printed, failed sources included. It is
+resolver-scope EXEMPT: the first output line names the project.
+
+**Scope.** Default: every `<devdoc>/*/checklist.md` issue plus every open
+`issue-list` record; `--all`: every record plus every checklist issue;
+`--issue`: the one issue. A checklist dir and a record that `parse_leaf`
+reads as the same source and record are one issue labelled with the
+record's `leaf_for` form (a Jira dir `Issue-PROJ-12` and record `PROJ-12`
+are `Issue-12`); a dir that matches no record keeps its name, and a dir
+that names no configured source has checklist rows only. Issues sort by
+source (origin, fork, unmapped), then numeric id, then label.
+
+**Sources and rows.** Every row has `project`, `issue`, `event`, `at` and
+`source`.
+
+| Event | Source | `at` | Own keys |
+|---|---|---|---|
+| `opened` | `issue-list` `created` | `YYYY-MM-DD` | — |
+| `closed` | `issue-list` `closed` (closed records) | `YYYY-MM-DD` | `reason` (the `class`) |
+| `mr_opened` | each `issue-mrs` `mr` line | `created`, UTC `…Z` | `mr` (ref), `base` (or null) |
+| `mr_merged` | an `mr` line with `merged` | `merged`, UTC `…Z` | `mr`, `base` |
+| `step_done`, `step_note` | checklist log | log time + `Created:` offset | `step`, `revision`, `tz` |
+| `parked`, `resumed`, `revision_started` | checklist log | as above | `revision`, `tz` |
+| `log` | checklist log | as above (a date for a date-only line) | `name`, `revision`, `tz` |
+
+A tracker row's source is the record's `url`; an MR row's is the `mr`
+line's `<url>`, or its `<ref>` when the backend omitted the pair; a
+checklist row's is `<issue-dir>/checklist.md:<line>`. MRs are read only for
+a source whose backend is `github` or `gitlab` and equals
+`code_source.backend` (the `wbs update` rule), whatever its `issue-list`
+status, so a checklist issue keeps its MR rows when the tracker failed.
+
+**Checklist classification.** Only lines between `## Log` and the next
+`## ` heading are read (UTF-8 with replacement, LF split, a trailing CR
+dropped). Per dated line, in file order, the first match wins:
+
+1. `revise:` whose message is `revision N started…` or a retier
+   `retier: … (revision N)` is `revision_started` and sets the current
+   revision to N (a repeated start of the same N changes nothing);
+2. `park:` is `parked`; 3. `resume:` is `resumed`;
+4. a name that is a step row's name anywhere in the file
+   (`wbs-tracker.py` `ROW_RE`) is `step_done` the first time it appears in
+   the current revision, else `step_note`;
+5. any other `- YYYY-MM-DD HH:MM  <name>: …` line is `log` (the name runs to
+   the first colon, so `real-silicon (prior session)` is one name);
+6. a `- YYYY-MM-DD` line without a time is `log` with name `-` and a date
+   `at`.
+
+The current revision starts at 1. When the revisions started (`{1}` plus
+every rule-1 N) differ from the `## Revision N` headings (a heading may
+carry trailing prose), the run prints
+`milestones: WARNING: <issue-dir>/checklist.md: revision starts logged {…} but ## Revision headings {…}`
+on stderr and still emits the rows.
+
+**`tz: assumed`.** Log lines carry no zone; each takes the offset of the
+checklist's first `Created:` line verbatim (`tz: assumed`), or none
+(`tz: unknown`, read as UTC). An assumed time can be wrong two ways: a line
+written on another machine in another zone, and a line written across a
+daylight-saving change on the same machine (one hour off).
+
+**Order and spans.** An issue's rows sort by UTC instant (a date is
+`00:00Z`; an unknown zone is UTC), ties in input order. Spans are whole UTC
+calendar days, `-` when an end is absent: `opened->merged` (to the earliest
+`mr_merged`), `opened->closed`, `first-step->closed` (from the earliest
+`step_done`); `parked` sums each `parked` → next `resumed` pair in days
+(`%.1fd`), ignoring a `resumed` with no open park and a `parked` while one
+is open, and appends `+open` for a trailing park; with none it is `0.0d`.
+
+**Output.** Text: `milestones: <project> scope: <default|all|issue>`, one
+`missing: <source>: <detail>` line per missing source, one
+`<issue>\t<at>\t<event>\t<detail>\t<source>` line per row (detail: `-` for
+`opened`; the class for `closed`; `<ref> base=<base or ->` for MR rows;
+`<step> r<N> tz=<tz>` for step rows; `r<N> tz=<tz>` for parks and
+revision starts; `<name> r<N> tz=<tz>` for `log`), then `spans:` and
+`<issue>\topened->merged <d>\topened->closed <d>\tfirst-step->closed <d>\tparked <p>`
+per issue with rows. With no rows: the header, the `missing:` lines and
+`(no rows)`. `--json`: JSON Lines (UTF-8, LF), no spans; line 1
+`{"kind":"header","project":P,"scope":S,"missing":[{"source":…,"detail":…}]}`,
+then `{"kind":"row",…}` per row with exactly the keys above; with no rows,
+the header alone.
+
+**Missing sources.** `source` is `tracker`, `fork tracker` (listed only
+when a fork source is configured), `mr` or `fork mr` (per configured issue
+source); `detail` carries no source prefix:
+
+- tracker: `not configured`; `<backend> has no issue-list (no script|<cli>
+  not on PATH|exit 2|exit 78)`; `<backend> <repo> issue-list failed (exit
+  <rc>: <last stderr line>)`;
+- mr: `no code_source.backend`; `<cb> has no issue-mrs (…)`; `tracker
+  backend <b> is not the code backend <cb>; MRs not read` (Jira);
+  `<cb> <repo> issue-mrs failed (exit <rc>: <last stderr line>)`.
+
+Malformed `issue-list` or `issue-mrs` output is failed, with the parser's
+reason as the detail. Each failed source also prints one stderr line,
+`milestones: WARNING: <source>: <detail>; other sources still reported`;
+other sources still report and the exit stays `0`.
+
+**Cost.** One `issue-list` call per configured issue source, then one
+`issue-mrs` call per source with ids in scope: on GitHub ⌈N/50⌉ GraphQL
+calls plus one per further page of a truncated timeline, on GitLab N calls.
+devagent's default scope was about 700 ids (≈ 15 GraphQL batches) at #734's
+draft; the command doc gives the Bash call the longest tool timeout
+(600000 ms).
 
 ## 14. Status reports
 
