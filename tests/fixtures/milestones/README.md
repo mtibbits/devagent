@@ -30,3 +30,22 @@ public: devagent's own checklists and volk's.
 - `mismatch/Issue-9/checklist.md`: a `## Revision 2` heading with no logged
   revision start (a hand-opened Revision block), the start-count
   cross-check's fixture.
+
+## Tracker and forge replies
+
+- `gh-issue-list.json`: `tests/fixtures/issue-github/issue-list-shaped.json`
+  (the recorded `gh issue list --json …` structure, provenance in
+  `tests/fixtures/wbs-import/make-fixtures.py`) cut to issues 6 and 7. Issue
+  6 is unchanged (closed 2026-01-13 → 2026-02-08, `COMPLETED`); issue 7 is
+  edited to `OPEN` (`stateReason` and `closedAt` null). The AC1 test pairs
+  it with `tests/fixtures/code-github/issue-mrs-links.json`, whose PRs #21
+  and #22 close issue 6.
+- `gitlab/`: a server dir of its own (`tests/fixtures/server.py`), so the
+  shared `tests/fixtures/gitlab/routes.json` is untouched. Project `foo/bar`
+  (the repo `related-mrs-3.json`'s MRs `foo/bar!51`/`!52` resolve `#3`
+  against). `issues-page1.json` keeps `tests/fixtures/gitlab/issues-page1.json`'s
+  recorded fields for its first three issues, renumbered 1-3: 1 and 2 open,
+  3 closed (created 2026-06-20, closed 2026-07-05), no blocking issues, so
+  `issue/gitlab.sh issue-list` asks for one page and no `links`.
+  `related-mrs-3.json` is a copy of the shared fixture (!51 merged, !52
+  closed unmerged); issues 1 and 2 answer `[]`.

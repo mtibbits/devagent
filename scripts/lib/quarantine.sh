@@ -41,6 +41,7 @@ QUARANTINE_GUARD_POINTS=(
 declare -gA QUARANTINE_UNGUARDED=(
   [where]=reader [catchup]=reader [history]=reader [grep]=reader [status]=reader
   [statusreport]=reader [wbs-update]=reader [doctor]=reader [wbs-init]=reader
+  [milestones]=reader
   [capture/file]="captures, not issue dirs"
 )
 
