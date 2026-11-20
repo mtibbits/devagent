@@ -42,13 +42,30 @@ _exit_rows() {
   done
 }
 
-@test "registry: codes are unique and in 6..11" {
+@test "registry: codes are unique and contiguous from 6" {
   # shellcheck source=/dev/null
   source "$REFUSALS"
-  local codes
+  local codes count
   codes="$(trust_exit_table | _exit_rows | cut -d'|' -f1)"
+  count="$(grep -c . <<<"$codes")"
+  [ "$count" -ge 7 ]
   [ "$(sort <<<"$codes" | uniq -d)" = "" ]
-  [ "$(sort -n <<<"$codes" | tr '\n' ' ')" = "6 7 8 9 10 11 " ]
+  [ "$(sort -n <<<"$codes" | tr '\n' ' ')" = "$(seq 6 $((5 + count)) | tr '\n' ' ')" ]
+}
+
+# #962: operator-question is a row with a consumer action, read by id.
+@test "registry: operator-question is a row with a consumer action" {
+  # shellcheck source=/dev/null
+  source "$REFUSALS"
+  local code
+  code="$(trust_exit_code operator-question)"
+  [[ "$code" =~ ^[0-9]+$ ]]
+  [ "$code" != 8 ]
+  grep -Eq "^- \`$code\` → " "$PLUGIN_ROOT/commands/pull.md"
+  [ "$(trust_exit_code held)" = 8 ]
+  run trust_exit_code no-such-id
+  [ "$status" -eq 1 ]
+  [ "$output" = "" ]
 }
 
 @test "registry: refuse prints the exact template and exits 9" {
