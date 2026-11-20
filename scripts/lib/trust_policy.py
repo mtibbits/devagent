@@ -90,9 +90,9 @@ DEFAULTS = {
     **{g: False for g in GATES},
 }
 
-# #715: the largest size_cap; a larger value would overflow bash arithmetic
-# on a 32-bit int and is far beyond any ticket.
-SIZE_CAP_MAX = 2147483647
+# #715: the largest `int` value (size_cap today). Every int reaches bash
+# arithmetic, which a larger value could overflow on a 32-bit int.
+INT_MAX = 2147483647
 
 # #715: the `steering` type's closed vocabulary is built from flags.sh's two
 # allowlists, read from the one column-0 single-line literal of each (the #890
@@ -252,8 +252,8 @@ def _type_check(key: str, kind: str, v):
         need(isinstance(v, str), "a string")
     elif kind == "int":
         need(isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a non-negative integer")
-        if key == "size_cap" and v > SIZE_CAP_MAX:
-            raise Defect(f"size_cap must be at most {SIZE_CAP_MAX}")
+        if v > INT_MAX:
+            raise Defect(f"{key} must be at most {INT_MAX}")
     elif kind in ("strlist", "idlist", "repolist", "steering"):
         need(str_list(v), "a list of strings")
         if kind == "steering" and v:

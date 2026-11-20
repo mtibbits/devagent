@@ -11,6 +11,8 @@ load 'lib/bats-helpers'
 
 setup() {
   # shellcheck source=/dev/null
+  source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  # shellcheck source=/dev/null
   source "$PLUGIN_ROOT/scripts/lib/floor.sh"
   declare -gA TRUST_VAL=([allowed_steering]='[]' [size_cap]=65536)
   C="$BATS_TEST_TMPDIR/issue.md"

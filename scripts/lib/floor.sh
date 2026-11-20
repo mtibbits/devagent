@@ -24,7 +24,8 @@
 # addressed to the operator, never to the worker session.
 #
 # Reads only the candidate it is handed and TRUST_VAL; reads no config, writes
-# nothing, never dies. Source-only file: do not execute directly.
+# nothing, never dies. Load after io.sh (info). Source-only file: do not
+# execute directly.
 
 _FLOOR_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Issue-1050: the guard names every flags.sh function used here.
@@ -37,18 +38,25 @@ declare -F _trust_list >/dev/null || source "$_FLOOR_LIB_DIR/trust.sh"
 
 FLOOR_CHECKS=(steering size)
 
-# _floor_say <text>: one diagnostic line on stderr.
-_floor_say() { printf '%s: floor: %s\n' "$(basename "$0")" "$1" >&2; }
+# _floor_say <text>: one diagnostic line, on fd 3 (floor_run points it at
+# stderr).
+_floor_say() { info "floor: $1" 2>&3; }
 
 # floor_run <candidate>: the first failing check's token on stdout, or nothing.
 # rc 0 whenever a check failed or all passed; rc 3, no token, when no check
 # failed and one could not run.
-floor_run() {
+floor_run() { _floor_run "$1" 3>&2; }
+
+# _floor_run <candidate>: floor_run's body. Each check runs with its stderr on
+# /dev/null, so a tool's own line (gawk's "Invalid multibyte data" warning on a
+# non-UTF-8 byte under a UTF-8 locale) is never printed before PASS; a check
+# speaks only through _floor_say and reports a failed read by its status.
+_floor_run() {
   local cand="$1" check rc token="" cannot=0
   _FLOOR_CLASS_LISTABLE=0 _FLOOR_CLASS_UNLISTABLE=0 _FLOOR_CLASS_SIZE=0
   for check in "${FLOOR_CHECKS[@]}"; do
     rc=0
-    "_floor_$check" "$cand" || rc=$?
+    "_floor_$check" "$cand" 2>/dev/null || rc=$?
     case "$rc" in
       0) ;;
       1) [ -n "$token" ] || token="$check" ;;
@@ -106,16 +114,14 @@ _floor_label_listable() {
   model_token_is_legal "$m"
 }
 
-# _floor_steering <candidate>: 0 pass, 1 fail, 3 could not run.
-# The three reads below send their stderr to /dev/null: a tool's own line (gawk's
-# "Invalid multibyte data" warning on a non-UTF-8 byte under a UTF-8 locale) is
-# printed before PASS, and each read's status is checked instead (`wait $!`).
+# _floor_steering <candidate>: 0 pass, 1 fail, 3 could not run. Each read's
+# status is checked (`wait $!`), since its stderr is /dev/null (_floor_run).
 # LOAD-BEARING: the floor reads the candidate in the SAME locale as the scaffold
 # that later applies it (flags_get, issue_labels). The block grammar depends on
 # the locale ([[:space:]] matches U+3000 under UTF-8, not under C), so never pin
 # LC_ALL for the floor's reads alone: checked and applied steering would part.
 _floor_steering() {
-  local cand="$1" e rule n key val lbl i=0 total=0 fail=0 rc=0
+  local cand="$1" e rule n key val line known lbl i=0 total=0 fail=0
   [ -f "$cand" ] && [ -r "$cand" ] || return 3
   local -a body_ok=() label_ok=() labels=()
   while IFS= read -r e; do
@@ -124,24 +130,24 @@ _floor_steering() {
   done < <(_trust_list "${TRUST_VAL[allowed_steering]:-[]}")
   # The header ends at issue_labels' own `^---` rule; fetch puts one blank
   # line after it, so body line 1 is the ticket body's first line.
-  rule="$(awk '/^---[[:space:]]*$/ { print NR; exit }' "$cand" 2>/dev/null)" || return 3
+  rule="$(awk '/^---[[:space:]]*$/ { print NR; exit }' "$cand")" || return 3
   [[ "$rule" =~ ^[0-9]+$ ]] || return 3
+  known=" $(flags_known_keys) "
   while IFS=$'\t' read -r n key val; do
     _floor_listed "$key: $val" "${body_ok[@]}" && continue
-    fail=1
-    if [[ " $(flags_known_keys) " == *" $key "* ]]; then
-      _floor_say "steering: '## Workflow flags' key '$key' on body line $((n - rule - 1)) is not listed in allowed_steering"
+    fail=1 line=$((n - rule - 1))
+    if [[ "$known" == *" $key "* ]]; then
+      _floor_say "steering: '## Workflow flags' key '$key' on body line $line is not listed in allowed_steering"
       if _floor_body_listable "$key" "$val"; then _FLOOR_CLASS_LISTABLE=1; else _FLOOR_CLASS_UNLISTABLE=1; fi
     else
-      _floor_say "steering: an unrecognised '## Workflow flags' key on body line $((n - rule - 1)) cannot be listed"
+      _floor_say "steering: an unrecognised '## Workflow flags' key on body line $line cannot be listed"
       _FLOOR_CLASS_UNLISTABLE=1
     fi
-  done < <(flags_enumerate "$cand" 2>/dev/null)
-  wait $! || rc=$?
-  [ "$rc" -eq 0 ] || return 3
+  done < <(flags_enumerate "$cand")
+  wait $! || return 3
   while IFS= read -r lbl; do
     [[ "$lbl" == tier:* ]] && labels+=("$lbl")
-  done < <(issue_labels "$cand" 2>/dev/null)
+  done < <(issue_labels "$cand")
   wait $! || return 3
   total="${#labels[@]}"
   for lbl in "${labels[@]}"; do

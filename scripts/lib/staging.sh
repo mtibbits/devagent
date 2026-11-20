@@ -13,8 +13,8 @@
 # (older than 60 minutes, judged by age: a recorded PID can be reused).
 #
 # Layout: $(devagent_home)/state/staging/<project>.<issue_id>.XXXXXX/ (0700),
-# holding fetch.raw and fetch.err (both deleted by staging_render, so comment
-# text is on disk only while the render runs) and issue.md (the candidate).
+# holding fetch.raw (deleted by staging_render, so comment text is on disk
+# only while the render runs) and issue.md (the candidate).
 #
 # Source-only file: do not execute directly. Uses the caller's die().
 
@@ -37,7 +37,7 @@ _staging_canon() {
 }
 
 # staging_open <project> <issue_id> <devdoc_dir>: make this pull's staging dir.
-# SETTER-GLOBAL STAGE_DIR STAGE_RAW STAGE_ERR STAGE_MD — call it bare. Dies when
+# SETTER-GLOBAL STAGE_DIR STAGE_RAW STAGE_MD — call it bare. Dies when
 # the staging root resolves inside <devdoc_dir> (checked before anything is
 # created), so staged text can never sit under a devdoc tree.
 staging_open() {
@@ -55,7 +55,6 @@ staging_open() {
   find "$root" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null || true
   STAGE_DIR="$(mktemp -d "$root/$project.$id.XXXXXX")"
   STAGE_RAW="$STAGE_DIR/fetch.raw"
-  STAGE_ERR="$STAGE_DIR/fetch.err"
   STAGE_MD="$STAGE_DIR/issue.md"
 }
 
@@ -68,36 +67,26 @@ staging_discard() {
 }
 
 # staging_render <repo> <num>: render STAGE_RAW into STAGE_MD (staging_render.py),
-# then delete STAGE_RAW and STAGE_ERR. SETTER-GLOBAL STAGE_TRAILERS (the
-# script's `trailers <k>`, accepted only as 1-9 digits) and STAGE_REASON (the
-# script's stderr, kept only when it is exactly one of its six fixed layout
-# reasons, else empty: anything else could carry ticket bytes). Returns the
-# script's exit, or 3 when it exits 0 without a well-formed token.
+# then delete STAGE_RAW. SETTER-GLOBAL STAGE_TRAILERS (the script's
+# `trailers <k>`, accepted only as 1-9 digits) and STAGE_REASON (the script's
+# stderr, kept only when it is exactly one of its six fixed layout reasons, else
+# empty: anything else could carry ticket bytes). Returns the script's exit, or
+# 3 when it exits 0 without a well-formed token.
 # shellcheck disable=SC2034  # setter-globals
 staging_render() {
-  local repo="$1" num="$2" rc=0 out err tok
-  out="$STAGE_DIR/render.out"
-  err="$STAGE_DIR/render.err"
+  local repo="$1" num="$2" rc=0 out reason="" err="$STAGE_DIR/render.err"
+  local reasons='^(line [12]|header line [0-9]{1,9}|header keys|no header rule|no comments heading)$'
   STAGE_TRAILERS="" STAGE_REASON=""
-  python3 -I -X utf8 "$_STAGING_LIB_DIR/staging_render.py" "$STAGE_RAW" "$STAGE_MD" "$repo" "$num" \
-    > "$out" 2> "$err" || rc=$?
-  rm -f "$STAGE_RAW" "$STAGE_ERR"
+  out="$(python3 -I -X utf8 "$_STAGING_LIB_DIR/staging_render.py" "$STAGE_RAW" "$STAGE_MD" "$repo" "$num" \
+    2> "$err")" || rc=$?
+  [ "$rc" -eq 0 ] || reason="$(head -c 32 "$err")"
+  rm -f "$STAGE_RAW" "$err"
   if [ "$rc" -ne 0 ]; then
-    if [ "$(wc -l < "$err")" -eq 1 ] && [ "$(wc -c < "$err")" -le 32 ] \
-       && grep -qxE 'line [12]|header line [0-9]{1,9}|header keys|no header rule|no comments heading' "$err"; then
-      STAGE_REASON="$(cat "$err")"
-    fi
-    rm -f "$out" "$err"
+    if [[ "$reason" =~ $reasons ]]; then STAGE_REASON="$reason"; fi
     return "$rc"
   fi
-  tok=""
-  if [ "$(wc -l < "$out")" -eq 1 ] && [ "$(wc -c < "$out")" -le 32 ]; then tok="$(cat "$out")"; fi
-  rm -f "$out" "$err"
-  if [[ "$tok" =~ ^trailers\ ([0-9]{1,9})$ ]]; then
-    STAGE_TRAILERS="${BASH_REMATCH[1]}"
-    return 0
-  fi
-  return 3
+  [[ "$out" =~ ^trailers\ ([0-9]{1,9})$ ]] || return 3
+  STAGE_TRAILERS="${BASH_REMATCH[1]}"
 }
 
 # staging_promote <issue_dir>: install the candidate as <issue_dir>/issue.md —

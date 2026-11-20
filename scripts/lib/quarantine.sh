@@ -480,11 +480,9 @@ quarantine_pull_guard() {
 QUARANTINE_SOURCES=(_quarantine_src_floor _quarantine_src_seam)
 
 quarantine_verdict() {
-  local src out rc r
+  local src out r
   for src in "${QUARANTINE_SOURCES[@]}"; do
-    rc=0
-    out="$("$src" "$@")" || rc=$?
-    [ "$rc" -eq 0 ] || return 3
+    out="$("$src" "$@")" || return 3
     [ -n "$out" ] || continue
     for r in "${QUARANTINE_REASONS[@]}"; do
       if [ "$r" = "$out" ]; then echo "QUARANTINE $out"; return 0; fi
@@ -501,14 +499,11 @@ quarantine_verdict() {
 # sourced here on first use, never at this file's load, so the guard points
 # that source quarantine.sh load nothing new.
 _quarantine_src_floor() {
-  local out rc=0
   [ "${TRUST_IN_SCOPE:-0}" = 1 ] || return 0
   [ -n "${3:-}" ] && [ -f "$3" ] && [ -r "$3" ] || return 3
   # shellcheck source=/dev/null
   declare -F floor_run >/dev/null || source "$_QUARANTINE_LIB_DIR/floor.sh"
-  out="$(floor_run "$3")" || rc=$?
-  [ "$rc" -eq 0 ] || return 3
-  if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+  floor_run "$3"
 }
 
 # _quarantine_src_seam: #714's policy-gated test seam. DEVAGENT_TEST_QUARANTINE

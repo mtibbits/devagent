@@ -40,17 +40,12 @@ source "$PLUGIN_ROOT/scripts/lib/staging.sh"
 PULL_USAGE="usage: pull.sh <project> <issue-num> [--origin|--fork]"
 
 # _pull_staged <project> <issue_id> <issue_dir> <devdoc> <backend> <repo> <num>
-# — the fetch under a trust policy in scope (#715; spec §9.3). The ticket is
-# fetched into a staging dir under devAgent's state directory, rendered there
-# (comments reduced to a count), and the quarantine verdict runs on that
-# candidate before anything reads or prints it. QUARANTINE: the dir is
-# discarded, then #714's quarantine (exit 6). PASS: staging_promote installs
-# the candidate as issue.md, the pull's first devdoc write. Every other exit
-# dies with a fixed message and nothing written; `trap staging_discard EXIT`
-# (pull's only EXIT trap) removes the dir on every path, INT and TERM too.
-# No ticket byte is printed here: the backend's stderr is kept in the staging
-# dir and never shown. Each status is captured with `|| rc=$?`, so
-# `set -euo pipefail` cannot exit before the fixed message (Issue-589).
+# — the fetch under a trust policy in scope (#715; spec §9.3; the flow is
+# scripts/lib/staging.sh's). No ticket byte is printed here: the backend's
+# stderr is discarded, and every exit but PASS and QUARANTINE dies with a fixed
+# message and nothing written. `trap staging_discard EXIT` is pull's only EXIT
+# trap. Each status is captured with `|| rc=$?`, so `set -euo pipefail` cannot
+# exit before the fixed message (Issue-589).
 # SETTER-GLOBAL (via staging_render): STAGE_TRAILERS. Call it bare.
 _pull_staged() {
   local project="$1" issue_id="$2" issue_dir="$3" devdoc="$4" backend="$5" repo="$6" num="$7"
@@ -59,7 +54,7 @@ _pull_staged() {
   staging_open "$project" "$issue_id" "$devdoc"
   trap staging_discard EXIT
   rc=0
-  "$backend_script" fetch "$repo" "$num" > "$STAGE_RAW" 2> "$STAGE_ERR" || rc=$?
+  "$backend_script" fetch "$repo" "$num" > "$STAGE_RAW" 2>/dev/null || rc=$?
   [[ "$rc" -eq 0 ]] \
     || die "${backend}.sh fetch failed for ${repo}#${num} (exit $rc); its stderr is not shown under a trust policy: the operator can re-run '${backend}.sh fetch ${repo} ${num}' by hand to see it"
   rc=0

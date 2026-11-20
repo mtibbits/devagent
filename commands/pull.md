@@ -98,7 +98,7 @@ writes or prints any of it:
 1. **Staging.** It fetches into a staging dir under devAgent's state
    directory, `<devagent_home>/state/staging/<project>.<id>.XXXXXX/` (mode
    0700, outside git and every devdoc tree; spec §3.3). The backend's stderr
-   stays there and is never shown. Every exit removes the dir.
+   is discarded, never shown. Every exit removes the dir.
 2. **The render.** It writes the candidate `issue.md` there in the fetch
    layout: title, header and body as fetched, and the comments reduced to one
    line, `Comments not rendered under trust: N`. A control byte in the title or

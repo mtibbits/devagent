@@ -250,7 +250,7 @@ PY
   [ -d "$STAGE_DIR" ]
   [ "$(dirname "$STAGE_DIR")" = "$(cd "$DA_HOME/state/staging" && pwd -P)" ]
   [[ "$(basename "$STAGE_DIR")" == wid.Issue-7.* ]]
-  [ "$STAGE_RAW" = "$STAGE_DIR/fetch.raw" ] && [ "$STAGE_ERR" = "$STAGE_DIR/fetch.err" ] && [ "$STAGE_MD" = "$STAGE_DIR/issue.md" ]
+  [ "$STAGE_RAW" = "$STAGE_DIR/fetch.raw" ] && [ "$STAGE_MD" = "$STAGE_DIR/issue.md" ]
   if ! is_git_bash; then   # Git Bash: chmod is a no-op on NTFS
     [ "$(stat -c '%a' "$STAGE_DIR")" = 700 ]
     [ "$(stat -c '%a' "$DA_HOME/state/staging")" = 700 ]
@@ -292,18 +292,18 @@ PY
   [ ! -e "$BATS_TEST_TMPDIR/devDoc" ]
 }
 
-@test "staging: render sets STAGE_TRAILERS and STAGE_REASON, and deletes fetch.raw and fetch.err" {
+@test "staging: render sets STAGE_TRAILERS and STAGE_REASON, and deletes fetch.raw" {
   staging_open wid Issue-7 "$DEVDOC"
   _fetch '"Body."' "[$(_c bob '"c"')]"
   cp "$RAW" "$STAGE_RAW"
-  echo "backend noise" > "$STAGE_ERR"
   local rc=0
   staging_render acme/widgets 7 || rc=$?
   [ "$rc" -eq 0 ]
   [ "$STAGE_TRAILERS" = 1 ]
   [ "$STAGE_REASON" = "" ]
   [ -s "$STAGE_MD" ]
-  [ ! -e "$STAGE_RAW" ] && [ ! -e "$STAGE_ERR" ]
+  [ ! -e "$STAGE_RAW" ]
+  [ -z "$(ls -A "$STAGE_DIR" | grep -vx issue.md)" ]
   # A layout defect: the fixed reason is kept.
   printf 'not a fetch\n' > "$STAGE_RAW"
   rc=0

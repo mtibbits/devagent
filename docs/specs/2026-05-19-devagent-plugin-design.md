@@ -500,8 +500,8 @@ Adjacent state files:
 `~/.claude/devagent/state/staging/` (#715) holds a fetched ticket under a
 trust policy until pull's floor passes (§9.3): one
 `<project>.<issue_id>.XXXXXX/` dir per pull (mode 0700; the root too), with
-`fetch.raw` and `fetch.err` (deleted by the render, so comment text is on disk
-only while it runs) and the candidate `issue.md`. It is outside git and must
+`fetch.raw` (deleted by the render, so comment text is on disk only while it
+runs) and the candidate `issue.md`. It is outside git and must
 not resolve inside the project's `devdoc_dir` (pull dies before creating
 anything if it does). Every exit removes the dir:
 
@@ -679,7 +679,7 @@ account ids; never a login or display name), an empty `worker_identities` or
 refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 `idlist` `["<backend>:<id>", …]`, `repolist` repo keys, `str`, `strlist`,
 `charlist` single code points, `steering` a list drawn from a closed set (#715,
-below), `bool`, `int` (non-negative; `size_cap` at most 2147483647), `provenance`
+below), `bool`, `int` (non-negative, at most 2147483647), `provenance`
 `required`|`optional`, `approval` `{kind = "label"|"status", id}`,
 `size_classes` a table of non-negative ints, `trackers` `github.host`,
 `gitlab.api_url`, `jira.base_url`, `jira.project_key`, `hardening` a subset of
