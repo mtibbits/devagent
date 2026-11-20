@@ -397,6 +397,11 @@ inline code comments this way.
 
 ## Running the test suite
 
+This section is contributor setup for devAgent's own test suite, and its
+requirements (a filesystem where `chmod` works, for a suite that references file
+modes) apply to your project's suite too, because `scripts/run-suite.sh` is the
+evidence runner the workflow uses for every project.
+
 The canonical runner is `scripts/run-suite.sh`, which runs bats and pytest with
 the hermetic environment baked in and writes the provenance artifact
 `<issue-dir>/analysis/<date>-suite-count.txt` that `preship-evidence.sh` reads:
@@ -454,8 +459,9 @@ On Windows that means **a WSL clone on a native Linux filesystem (ext4) — not 
 checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
 mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
 with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
-is fine for individual scripts (a preship check there attests the WSL tree,
-below), but not for the full suite; the `gitbash`-tagged files run on Windows
+is the supported Windows environment for users, and is fine for individual
+scripts (a preship check there attests the WSL tree, below), but the full suite
+needs the WSL clone; the `gitbash`-tagged files run on Windows
 CI. That `noacl` limit is a property of the mount, not a defect to repair. Run the suite in the WSL clone on the
 issue's branch, never a detached SHA: `git fetch origin && git checkout <branch>`
 the first time, and `git merge --ff-only origin/<branch>` after that.
