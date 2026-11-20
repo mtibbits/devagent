@@ -32,9 +32,9 @@ Linux and WSL are where the suite is green, and where CI runs the full suite
 Windows (`windows-2025`, `.github/workflows/gitbash.yml`). The suite needs a
 filesystem where `chmod` really changes a mode and a UTF-8 locale; native Git
 Bash on Windows provides neither by default. Git Bash is the supported Windows
-environment for devAgent's users and runs individual scripts, but the full suite
-needs a WSL clone: on Windows, develop in a WSL clone on a native Linux
-filesystem, not under `/mnt/c`. The README section named above explains the
+environment for devAgent's users and runs individual scripts, but not the full
+suite: on Windows, develop in a WSL clone on a native Linux filesystem, not under
+`/mnt/c`. The README section named above explains the
 mechanism behind both requirements.
 For a tree with `tests/test_*.py`, `scripts/run-suite.sh` prefers
 `<tree>/.venv/bin/python` over `python3`; if no candidate can run pytest, the

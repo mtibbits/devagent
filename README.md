@@ -83,15 +83,13 @@ devAgent's commands use that tool. Running Claude Code inside WSL counts as
 Linux. Supported means Windows defects get fixed; the known ones are tracked in
 the epic
 [Support Windows users through Git Bash](https://github.com/mtibbits/devagent/issues/983).
-devAgent's own test suite needs a filesystem where `chmod` works, which Git
-Bash's default `noacl` mounts do not provide, so contributors run it in a WSL
-clone on a Linux filesystem (see [Running the test suite](#running-the-test-suite)).
-The same limit reaches users: a project whose own tests mention file modes at all
-(even a `chmod +x` on a test stub) cannot produce suite evidence in Git Bash, so it
-runs that step in a WSL clone on a Linux filesystem, not under `/mnt/c`. macOS
-should work with Homebrew bash and GNU coreutils, sed and findutils (the scripts
-use `stat -c`, `sed -i`, `find -printf` and `readlink -f`), but nobody has tested
-it.
+Git Bash's default `noacl` mounts make `chmod` a no-op, so a suite that mentions
+file modes at all (devAgent's own, or your project's, even a `chmod +x` on a test
+stub) cannot produce suite evidence in Git Bash: run that step in a WSL clone on
+a Linux filesystem, not under `/mnt/c` (see
+[Running the test suite](#running-the-test-suite)). macOS should work with
+Homebrew bash and GNU coreutils, sed and findutils (the scripts use `stat -c`,
+`sed -i`, `find -printf` and `readlink -f`).
 CI runs the full suite on Linux, and runs the `gitbash`-tagged test files under
 Git Bash on Windows.
 
@@ -460,9 +458,8 @@ checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
 mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
 with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
 is the supported Windows environment for users, and is fine for individual
-scripts (a preship check there attests the WSL tree, below), but the full suite
-needs the WSL clone; the `gitbash`-tagged files run on Windows
-CI. That `noacl` limit is a property of the mount, not a defect to repair. Run the suite in the WSL clone on the
+scripts (a preship check there attests the WSL tree, below), but not for the
+full suite; the `gitbash`-tagged files run on Windows CI. That `noacl` limit is a property of the mount, not a defect to repair. Run the suite in the WSL clone on the
 issue's branch, never a detached SHA: `git fetch origin && git checkout <branch>`
 the first time, and `git merge --ff-only origin/<branch>` after that.
 
