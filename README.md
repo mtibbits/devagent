@@ -209,6 +209,23 @@ bash scripts/lib/notify.sh --rotate <new-name>
 which renames it under the appender's lock. The line format, the events, the
 exit codes and the reader rules are the launcher contract in spec §7.3.
 
+A launcher can also ask whether a session it started is still making progress
+(#932):
+
+```sh
+bash scripts/watchdog.sh check <project> <issue> --transcript <path> --since <launch time>
+```
+
+prints `ok` (exit 0) or one `stalled no-progress …` line (exit 3); exit 1 means
+it could not tell, and exit 2 a wrong call. It kills nothing and writes
+nothing. In an unattended session `next` tells the session to run long commands
+under `libexec/long-run.sh`, so that their output counts as progress. Granting
+that wrapper a permission rule is the same as allowing every command, which is
+why no devagent command or skill grants it. The limits are four optional config
+keys (`docs/configuration.md`, "Watchdog limits"); the progress sources, the
+transcript recipe, the state layout and the permission rule are in spec §7.3,
+"The no-progress watchdog".
+
 ## Trust policy
 
 On a shared queue, a trust policy (`policy.toml`, #711) names the trusted
