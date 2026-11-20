@@ -96,6 +96,10 @@ _question_check() {
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     [[ "$line" =~ $QUESTION_OPTION_RE ]] || { _QV_ERR=option; return 2; }
+    # A mark or tag that missed the grammar must not pass as option text: the
+    # text never starts with `(recommended)` or `[`.
+    [[ "${BASH_REMATCH[6]}" != "(recommended)"* && "${BASH_REMATCH[6]}" != "["* ]] \
+      || { _QV_ERR=option; return 2; }
     id="${BASH_REMATCH[1]}"
     [[ -z "${seen_id[$id]-}" ]] || { _QV_ERR=option-id; return 2; }
     seen_id[$id]=1
@@ -290,7 +294,7 @@ question_line_logged() {
   local nn
   [[ "$3" =~ ^[0-9]{2,4}$ ]] || return 1
   nn="$(printf '%02d' "$((10#$3))")"
-  grep -Eq "^- [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}  $2: hold line written for question $nn\$" \
+  grep -Eq "^- [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}  $2: hold line written for question $nn"$'\r'"?\$" \
     "$1/checklist.md" 2>/dev/null
 }
 
@@ -322,7 +326,7 @@ question_lock() {
 question_unlock() {
   if [[ -n "${_QUESTION_LOCK:-}" ]] \
      && [[ "$(cat "$_QUESTION_LOCK" 2>/dev/null)" == "${_QUESTION_LOCK_PID:-}" ]]; then
-    rm -f "$_QUESTION_LOCK"
+    rm -f "$_QUESTION_LOCK" 2>/dev/null || true
   fi
   _QUESTION_LOCK="" _QUESTION_LOCK_PID=""
   return 0

@@ -1,6 +1,12 @@
 # tests/lib/hold-fixture.bash — #962: the `_toy` fixture and readers shared by
 # tests/hold.bats and tests/next-hold.bats. Load after lib/bats-helpers.
 # shellcheck shell=bash
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322, #338)
+
+# _tset <key> <toml-value> / _tunset <key>: edit toy's state through the
+# fail-loud TOML helper (#335), never sed.
+_tset() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/toy.toml" "$1" "$2"; }
+_tunset() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/state/toy.toml" "$1"; }
 
 # _toy: project `toy`, active Issue-7 (rows 0 pull, 2 draft, 4 scope done; 5
 # improve in progress; 6 prune and 12 commit pending; a Log), and Issue-8.

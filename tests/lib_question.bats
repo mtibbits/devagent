@@ -176,7 +176,13 @@ Other options: b' ]
   sed 's/^- `b`/- `b` (recommended)/' "$q" > "$f";             _case recommended
   sed 's/^- `b`/- `b` [grant: x]/' "$q" > "$f";                _case tag
   sed 's/^- `b`/- `b` [probe: no]/' "$q" > "$f";               _case tag-check
-  [ "$n" -eq 16 ]
+  # a malformed mark or tag is never prose (review I2)
+  sed 's/^- `b` Stop and prune\.$/- `b` (recommended)/' "$q" > "$f";      _case option
+  sed 's/^- `b` Stop and prune\.$/- `b` [nosuchtag: x]/' "$q" > "$f";     _case option
+  sed 's/^- `b`/- `b` [nosuchtag: x] /' "$q" > "$f";                       _case option
+  sed 's/^- `b`/- `b` [nosuchtag:x]/' "$q" > "$f";                         _case option
+  sed 's/^- `b`/- `b` [NoSuch: x]/' "$q" > "$f";                           _case option
+  [ "$n" -eq 21 ]
   sed 's/^- `b`/- `b` [probe: ok]/' "$q" > "$f"
   run question_validate "$f"
   [ "$status" -eq 0 ]
@@ -277,6 +283,14 @@ Other options: b' ]
   _render "$BATS_TEST_TMPDIR/q.md" 03 > "$D/STUCK"
   [ "$(question_number "$D/STUCK")" = 03 ]
   [ "$(question_next_number "$D")" = 04 ]
+}
+
+@test "question: a CRLF checklist's hold-line entry still reads as logged" {
+  printf '%s\r\n' '- [?]  5. improve' '' '## Log' \
+    '- 2026-11-20 10:31  improve: hold line written for question 04' > "$D/checklist.md"
+  question_line_logged "$D" improve 04
+  run question_line_logged "$D" improve 05
+  [ "$status" -eq 1 ]
 }
 
 @test "question: the next number skips numbers named in the log" {

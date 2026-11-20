@@ -120,6 +120,21 @@ _refused() {
   [ "$n" -eq 8 ]
 }
 
+@test "hold: an issue id outside the tracker id shape is refused usage before the entry checks" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local before id m n=0
+  before="$(_snap)"
+  for id in ./Issue-7 Issue-8/../Issue-7 ..; do
+    for m in "" 1; do
+      DEVAGENT_UNATTENDED="$m" run --separate-stderr "$H" toy "$id" --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+      _refused usage || { echo "id=$id marker=$m" >&2; return 1; }
+      [ "$(_snap)" = "$before" ]
+      n=$((n + 1))
+    done
+  done
+  [ "$n" -eq 6 ]
+}
+
 @test "hold: an empty, multi-line or 201-byte reason exits 2 and writes nothing" {
   _q "$BATS_TEST_TMPDIR/q.md"
   local before long n=0 r m
@@ -305,7 +320,7 @@ Last good:   4 scope" ]
 }
 
 @test "hold: a pinned hold leaves the shared active issue unchanged" {
-  sed -i 's/^active_issue = .*/active_issue = "Issue-8"/' "$DA_HOME/state/toy.toml"
+  _tset active_issue '"Issue-8"'
   DEVAGENT_ACTIVE_PROJECT=toy DEVAGENT_ACTIVE_ISSUE=Issue-7 _hold
   [ "$status" -eq 0 ]
   grep -qE '^active_issue = "Issue-8"$' "$DA_HOME/state/toy.toml"
@@ -399,12 +414,14 @@ Last good:   4 scope" ]
 }
 
 @test "hold: a line the notify check refuses exits 2 before anything is written" {
-  mkdir -p "$DEVDOC/_7"
-  cp "$CK" "$DEVDOC/_7/checklist.md"
+  # a relative devdoc_dir gives a relative STUCK path, which the line's
+  # `question` rule (absolute) refuses; the issue id itself is refused earlier.
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.toy.devdoc_dir '"devdoc"'
   _q "$BATS_TEST_TMPDIR/q.md"
   local before
   before="$(_snap)"
-  DEVAGENT_UNATTENDED=1 run --separate-stderr "$H" toy _7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  cd "$BATS_TEST_TMPDIR"
+  DEVAGENT_UNATTENDED=1 run --separate-stderr "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
   _refused notify
   [ "$(_snap)" = "$before" ]
 }
@@ -518,7 +535,7 @@ _noask() { run --separate-stderr "$H" toy Issue-7 --step "${1:-improve}" --no-as
   _hold
   [ "$status" -eq 1 ]
   grep -qE 'park: issue parked: operator question 01: ' "$CK"
-  sed -i '/^Issue-7 *= *true$/d' "$DA_HOME/state/toy.toml"
+  _tunset parked.Issue-7
   rmdir "$(NF)"
   _noask
   [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
@@ -570,4 +587,17 @@ _noask() { run --separate-stderr "$H" toy Issue-7 --step "${1:-improve}" --no-as
   [ "$(cat "$b")" = 0 ] || { cat "$b.err" >&2; return 1; }
   [ "$(_lines)" = 1 ]
   [ "$(_parks)" -eq 1 ]
+}
+
+@test "hold: a failing rm in the exit trap still releases the lock and keeps the exit status" {
+  _ask
+  local real
+  real="$(command -v rm)"
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/usr/bin/env bash\ncase "$*" in *.body.*) exit 1 ;; esac\nexec %q "$@"\n' "$real" > "$BATS_TEST_TMPDIR/bin/rm"
+  chmod +x "$BATS_TEST_TMPDIR/bin/rm"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run --separate-stderr "$H" toy Issue-7 --step improve --no-ask
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ ! -e "$D/questions/.lock" ]
+  [ "$(_lines)" = 1 ]
 }

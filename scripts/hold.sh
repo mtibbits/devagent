@@ -70,8 +70,11 @@ _refuse() {
 # run created that is still empty (a refusal after the lock writes nothing).
 _HOLD_MADE_QDIR=0 _HOLD_TMP=""
 _hold_exit() {
-  [[ -z "$_HOLD_TMP" ]] || rm -f "$_HOLD_TMP"
+  # errexit is live in a trap: one failing rm must not skip the unlock or turn
+  # the script's status into 1.
+  set +e
   question_unlock
+  [[ -z "$_HOLD_TMP" ]] || rm -f "$_HOLD_TMP" 2>/dev/null
   if (( _HOLD_MADE_QDIR )); then rmdir "$issue_dir/questions" 2>/dev/null || true; fi
 }
 
@@ -125,6 +128,9 @@ done
 (( ${#_pos[@]} == 2 )) || _refuse usage
 project="${_pos[0]}" issue="${_pos[1]}"
 [[ -n "$project" && -n "$issue" && -n "$step" ]] || _refuse usage
+# The tracker id shape (the notifications file's issue rule): no path, so the
+# id the quarantine guard checks is the directory written to.
+[[ "$issue" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || _refuse usage
 # --reason and --question-file come together; neither is legal only with --no-ask.
 have_r=0 have_q=0
 [[ -z "${_seen[--reason]-}" ]] || have_r=1

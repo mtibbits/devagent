@@ -51,7 +51,8 @@ _held_lines() {
 }
 
 @test "next: a question STUCK stops the call with operator-question and prints the STUCK path and the answer line" {
-  sed -i 's/^active_issue = .*/active_issue = "Issue-8"/; s|^issue_dir = .*|issue_dir = "'"$DEVDOC"'/Issue-8"|' "$DA_HOME/state/toy.toml"
+  _tset active_issue '"Issue-8"'
+  _tset issue_dir "\"$DEVDOC/Issue-8\""
   _q "$BATS_TEST_TMPDIR/q.md"
   DEVAGENT_UNATTENDED=1 DEVAGENT_ACTIVE_PROJECT=toy DEVAGENT_ACTIVE_ISSUE=Issue-7 run "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
   [ "$status" -eq 0 ]
