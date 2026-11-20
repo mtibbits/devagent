@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
 # #713 AC1 (no-policy goldens): with no trust policy on the host, four reference
 # entry points print byte-identical stdout/stderr, exit the same, and make the
 # same backend calls as at the captured commit. Each scenario copies its source

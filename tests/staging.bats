@@ -303,7 +303,7 @@ PY
   [ "$STAGE_REASON" = "" ]
   [ -s "$STAGE_MD" ]
   [ ! -e "$STAGE_RAW" ]
-  [ -z "$(ls -A "$STAGE_DIR" | grep -vx issue.md)" ]
+  [ -z "$(find "$STAGE_DIR" -mindepth 1 ! -name issue.md)" ]
   # A layout defect: the fixed reason is kept.
   printf 'not a fetch\n' > "$STAGE_RAW"
   rc=0

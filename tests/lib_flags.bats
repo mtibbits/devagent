@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
 
 load 'lib/bats-helpers'
 
