@@ -2668,7 +2668,9 @@ failing token quarantines (exit 6). `steering` reads the body's live
 `## Workflow flags` key lines with `flags_enumerate` (the validate machine's
 quiet mode) and the `tier:*` labels with `issue_labels`, and requires each to be
 listed in `allowed_steering` (§3.8); `size` compares the candidate's bytes
-with `size_cap`. Until PASS pull prints no ticket byte.
+with `size_cap`. Until PASS pull prints no ticket byte, and each check prints
+at most 20 diagnostic lines, then a count of the rest (`FLOOR_SAY_MAX`), so a
+ticket's author cannot set how much the worker session reads.
 
 #### `mr-comments` output (code backends, #592)
 

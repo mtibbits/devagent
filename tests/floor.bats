@@ -275,6 +275,7 @@ _forms() {
   re+="|steering: an unrecognised '## Workflow flags' key on body line [0-9]+ cannot be listed"
   re+="|steering: 'tier:' label [0-9]+ of [0-9]+ is not listed in allowed_steering"
   re+="|size: [0-9]+ bytes staged, size_cap is [0-9]+"
+  re+="|(steering|size): [0-9]+ more not shown"
   re+="|for the operator: .*)$"
   local diag
   diag="$(_diag)" || return 1   # an unprefixed line (a tool's own) fails here
@@ -345,4 +346,19 @@ _forms() {
   [ "$output" = steering ]
   [ "$(_diag | grep -c '^steering: ')" -eq 2 ]
   [[ "$(_diag)" == *"key 'research' on body line 3 is not listed"* ]]
+}
+
+@test "floor: each check prints at most FLOOR_SAY_MAX diagnostics, then a count (red team)" {
+  local body='## Workflow flags' i
+  for i in $(seq 1 50); do body+=$'\n''zz: 1'; done
+  _cand "$body"
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 0 ]
+  [ "$output" = steering ]
+  [ "$(_diag | grep -c "^steering: an unrecognised")" -eq "$FLOOR_SAY_MAX" ]
+  [ "$(_diag | grep -c '^steering: 30 more not shown$')" -eq 1 ]
+  # The remedy lines are never capped and still come last.
+  [ "$(_diag | tail -n 2)" = "$REMEDY_UNLISTABLE
+$REMEDY_LAST" ]
+  _forms
 }

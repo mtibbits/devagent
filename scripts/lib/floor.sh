@@ -39,9 +39,17 @@ declare -F info >/dev/null || source "$_FLOOR_LIB_DIR/io.sh"
 
 FLOOR_CHECKS=(steering size)
 
+# A check prints at most FLOOR_SAY_MAX diagnostics, then `<check>: <n> more not
+# shown`: the ticket's author must not set how much the worker session reads.
+FLOOR_SAY_MAX=20
+
 # _floor_say <text>: one diagnostic line, on fd 3 (floor_run points it at
-# stderr).
-_floor_say() { info "floor: $1" 2>&3; }
+# stderr), unless this check has already said FLOOR_SAY_MAX (it counts them).
+_floor_say() {
+  _FLOOR_SAID=$((_FLOOR_SAID + 1))
+  [ "$_FLOOR_SAID" -le "$FLOOR_SAY_MAX" ] || return 0
+  info "floor: $1" 2>&3
+}
 
 # floor_run <candidate>: the first failing check's token on stdout, or nothing.
 # rc 0 whenever a check failed or all passed; rc 3, no token, when no check
@@ -53,17 +61,22 @@ floor_run() { _floor_run "$1" 3>&2; }
 # non-UTF-8 byte under a UTF-8 locale) is never printed before PASS; a check
 # speaks only through _floor_say and reports a failed read by its status.
 _floor_run() {
-  local cand="$1" check rc token="" cannot=0
+  local cand="$1" check rc more token="" cannot=0
   _FLOOR_CLASS_LISTABLE=0 _FLOOR_CLASS_UNLISTABLE=0 _FLOOR_CLASS_SIZE=0
   for check in "${FLOOR_CHECKS[@]}"; do
-    rc=0
+    rc=0 _FLOOR_SAID=0
     "_floor_$check" "$cand" 2>/dev/null || rc=$?
+    if [ "$_FLOOR_SAID" -gt "$FLOOR_SAY_MAX" ]; then
+      more=$((_FLOOR_SAID - FLOOR_SAY_MAX)) _FLOOR_SAID=0
+      _floor_say "$check: $more more not shown"
+    fi
     case "$rc" in
       0) ;;
       1) [ -n "$token" ] || token="$check" ;;
       *) cannot=1 ;;
     esac
   done
+  _FLOOR_SAID=0
   if [ -n "$token" ]; then
     if [ "$_FLOOR_CLASS_LISTABLE" = 1 ]; then
       _floor_say "for the operator: remove the flag or label from the ticket, or list the entry in the trust policy's allowed_steering; a trusted approver then releases the quarantine"
