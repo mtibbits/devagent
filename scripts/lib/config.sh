@@ -183,7 +183,8 @@ config_suite_env_resolve() {
 }
 
 # SUITE_CHILD_UNSET - the one-run control variables no suite child may inherit (#240
-# session pins, #593 jobs, #660 fetch bound, #1122 collection bound), as `env -u` flags:
+# session pins, #593 jobs, #660 fetch bound, #1122 collection bound, #961 unattended
+# marker), as `env -u` flags:
 # ONE list for every child that runs a project's tests (run-suite's bats and pytest, and
 # claims-check.sh's pytest collection), so a new knob cannot be scrubbed from one child
 # and forgotten in another (quality, 2026-09-27; hoisted from run-suite by #1122). Splice
@@ -191,7 +192,7 @@ config_suite_env_resolve() {
 # declares one of these names in its suite_env re-injects it deliberately.
 # shellcheck disable=SC2034  # read by run-suite.sh and claims-check.sh
 SUITE_CHILD_UNSET=(-u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS
-                   -u DEVAGENT_FETCH_TIMEOUT -u DEVAGENT_COLLECT_TIMEOUT)
+                   -u DEVAGENT_FETCH_TIMEOUT -u DEVAGENT_COLLECT_TIMEOUT -u DEVAGENT_UNATTENDED)
 
 # code_backend_is_local <name>: 0 iff <name>, CR-stripped, is exactly `local`
 # (#1016), the name every dispatch site builds scripts/code/<name>.sh from. No

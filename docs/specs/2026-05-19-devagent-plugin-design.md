@@ -106,7 +106,8 @@ devAgent/
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
 │   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
-│   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker)
+│   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker,
+│   │                        #   notify.sh + _notify.py — #961 launcher notifications appender)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh;
 │   │                        #   local.sh — #1016 git only, no forge (§9.2)
@@ -312,6 +313,14 @@ The types, ranges, rule strings and document are pinned in `docs/configuration.m
 
 Mutable. Out of git. One active issue per project.
 
+The directory `$(devagent_home)/state/` holds, per project, `<project>.toml`
+(this section), reap's `<project>.reaped.toml` and `/devagent:depends`'
+`<project>.depends.toml`; the global pointer `_active.toml`; each TOML file's
+`.lock` sidecar (`<name>.toml.lock`); and the launcher notifications file
+`notifications.jsonl`, its `notifications.jsonl.lock`, and any name a launcher
+rotated it to (§7.3, #961). Reap and depends follow `DEVAGENT_STATE_DIR` when it
+is set; everything else here follows `devagent_home`.
+
 ```toml
 active_issue   = "Issue-676"             # or "Issue-Fork-42"; null when idle
 issue_dir      = "~/src/devDoc/volk/Issue-676"
@@ -407,7 +416,7 @@ step name for callers that run outside a revision block, and dies when no row
 carries the requested glyph after the write (#589). Lines that deliberately cite pre-#558 numbers
 carry a `#558-old-scheme` marker so the checker exemption is greppable.
 
-All writes to state files go through `scripts/lib/_toml.py`, which
+All writes to the TOML state files go through `scripts/lib/_toml.py`, which
 holds an exclusive lock (`fcntl.flock` on POSIX, `msvcrt.locking` on
 Windows) on a sibling `.lock` file across the entire read-modify-write
 cycle and writes via tempfile + atomic `rename`. Readers do not need to
@@ -417,6 +426,9 @@ holding the file open makes the replace, or its own open, raise a
 transient sharing violation), so the racing sites bounded-retry that
 transient error on Windows only (`_retry_windows_share`, #293); on POSIX
 the retry is a passthrough.
+The notifications file is the exception: it is appended to, never
+rewritten, only through `scripts/lib/notify.sh` and its helper
+`scripts/lib/_notify.py`, under its own `notifications.jsonl.lock` (§7.3).
 
 #### devDoc repository lock (#749)
 
@@ -1261,6 +1273,164 @@ the chain and makes `next` exit non-zero; at steps 21-24 it is an exit-0
 Step 20 waiting for a merge is a `[?]` mergemr row with no `STUCK` file
 and next's `WAITING` line: retry on the worker's own schedule; a `[!]`
 mergemr row with `STUCK` reason `mergemr rule <N>: …` needs a human.
+
+#### The launcher contract (#961)
+
+An external launcher (an auto-launcher such as blazeAhead) may start sessions
+with no person at the keyboard and decide what runs next when one stops. It
+reads two things devagent owns: the notifications file, and the unattended
+marker. Both are contracts with code outside devagent, so each has one owner.
+The writers of the file arrive with #962 (the hold), #964 (the answer), #965
+(notify-only questions, notices and grants), #966 (the leak gate's audit lines)
+and #972 (the watchdog's kill record); until they land, nothing in devagent
+writes a line.
+
+**The notifications file.** `$(devagent_home)/state/notifications.jsonl`
+(`devagent_home` respects `DA_HOME`; the file does not follow reap's
+`DEVAGENT_STATE_DIR` override). devagent sends nothing off the machine. A home
+shared between WSL and Windows is not supported. One JSON object per line:
+
+- `v`: the format version, the integer `1`;
+- `ts`: the write time, ISO 8601 with a numeric zone offset;
+- `event`: one of `hold`, `notify`, `answered`, `stuck`;
+- `project`: a configured project's name;
+- exactly one of `issue` (the issue's directory name in the project's devdoc,
+  such as `Issue-12` or `Issue-Fork-12`) and `capture` (a capture slug); the
+  other key is absent;
+- `step`: a step name as the writer gives it (a checklist step, or a capture
+  stage such as `crrf`), or null;
+- `question`: an absolute path in the platform's native form (`C:/...` with
+  forward slashes on Windows), or null;
+- `detail`: one non-empty line, in a fixed form each writer defines.
+
+Two rendered lines:
+
+```
+{"v":1,"ts":"2026-11-16T23:15:51-05:00","event":"hold","project":"toy","issue":"Issue-7","step":"improve","question":"/abs/STUCK","detail":"operator question 03 at improve; parked"}
+{"v":1,"ts":"2026-11-16T23:15:52-05:00","event":"notify","project":"toy","capture":"2026-11-09-some-capture","step":null,"question":null,"detail":"notice"}
+```
+
+The file is shared by every devagent session on the machine, so a launcher
+acts only on lines for issues it runs itself (an issue it pinned a session to);
+for any other issue it only tells the operator.
+
+| Event | Meaning | `question` | Written by | Launcher action |
+|---|---|---|---|---|
+| `hold` | an issue is held and parked on a question | the STUCK path | the hold (#962) | stop running the issue; tell the operator |
+| `notify` | the operator is told something; nothing was parked | a question record or capture STUCK path, or null for a notice or an audit line | notify-only questions and notices (#965); the leak gate (#966), whose audit lines are written in interactive sessions too | tell the operator. A notice whose `detail` is `waiting on #<N>` (#938) means the issue may be resumed once it has no open dependency |
+| `answered` | the operator answered | the answered record's path | the answer (#964) | when `detail` ends in `; resume`, resume the issue and, if the resume succeeds, run it; when it ends in `; no resume` or in anything else, only tell the operator |
+| `stuck` | the watchdog recorded a killed step | null; `detail` names the STUCK path | `watchdog.sh fire` (#972) | defined by #972 |
+
+Only `answered` lines are merged: the answer delivers each at least once, and a
+launcher treats two `answered` lines with the same project, the same issue or
+capture, and the same `question` path as one answer; that path names one
+numbered record, so two different answers never share it. Every other line is
+its own event, even when it repeats another line's fields.
+
+A line never carries question text or the model's prose; `detail` is a fixed
+form each writer defines. Paths can contain the local user name; a launcher
+that relays lines off the machine does so outside the leak gate and answers for
+what it relays.
+
+A reader ignores fields and events it does not know. It consumes only through
+the last `\n`, so it never reads a line a writer has not finished, and it skips
+a complete line that does not parse (a torn line left by a crashed writer).
+`v` changes only for a change that breaks a reader at the old version.
+
+devagent never rewrites, truncates or rotates the file, so a launcher can keep
+a byte-offset cursor. It records the file's identity (device and inode, or the
+Windows file index) with the cursor; when the identity changes, it finishes the
+old file if it still has it, then reads the new one from 0. On Windows it opens
+the file with read, write and delete sharing, so it never blocks a writer or a
+rotation. A launcher that rotates the file runs `notify.sh --rotate
+<new-name>`, which renames it under the appender's lock to a bare name in the
+same directory, so a launcher in another language need not take the lock. The
+name holds no `/`, `\` or `:`, is not `.` or `..`, and does not end in `.toml`
+or `.lock` (`rotate-name`: devagent reads every `*.toml` in `state/` as project
+state, `_state_list_projects` in `scripts/lib/state.sh`, and a `.lock` is a
+sidecar); it does not start with `-` (`usage`), and does not already exist
+(`rotate-exists`).
+
+**One appender.** `scripts/lib/notify.sh` is the only way any devagent script
+writes the file:
+
+```
+notify.sh --check <key>=<value>...        exit 0 | 2 | 4
+notify.sh --rotate <new-name>             exit 0 | 2 | 3 | 4 | 5
+sourced:  notify_append <key>=<value>...  notify_check <key>=<value>...
+```
+
+A writer passes `step` or `question` as null by leaving the key out; present
+but empty is refused. `notify.sh` refuses a value holding a newline or CR before
+anything else runs, converts `question` with `cygpath -m` on Git Bash, refuses
+a `capture` that `devagent_validate_slug` refuses (in bash, so this check comes
+before the helper's ordered list), and hands the fields to
+`scripts/lib/_notify.py` on stdin, one `<key>=<value>` per line in UTF-8, never
+as arguments or environment values, which Git Bash rewrites. The helper
+refuses, in this order: a CR, input that is not UTF-8, a line without `=`, an
+unknown field, a duplicate key, an unknown `event`, a `project` that is not a
+configured project, both or neither of `issue` and `capture`, an `issue`
+outside `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, a `capture` that is empty, starts
+with `-`, or holds a space or a control character, a `step` outside `[A-Za-z][A-Za-z0-9_-]{0,63}`, a
+relative `question`, and an empty `detail`. An input with one fault gets one
+id. `notify_check` and `notify.sh --check` run the same checks and write
+nothing; a writer that appends last runs one first, so a line refused for its
+fields never follows work already done. Only `event`, `issue` and `step` are
+limited to a safe alphabet; a launcher that builds a command from `project`,
+`capture`, `question` or `detail` quotes them.
+
+The line is built with `json.dumps` (`ensure_ascii=False`). When the encoded
+line with its `\n` would be longer than 4,096 bytes, `detail` keeps its longest
+prefix that fits with `…` appended; a line still too long with `detail` equal to
+`…` is refused. The cut takes the end of `detail`, so a writer keeps any token a
+launcher keys on (such as `; resume`) inside the budget, and a launcher treats a
+`detail` ending in `…` as shortened. The helper creates `state/` (0700) when it is missing and the
+file with mode 0600, and writes under an exclusive lock on
+`notifications.jsonl.lock` (`fcntl.flock` on POSIX, a one-byte
+`msvcrt.locking` on Windows), polled for at most 10 seconds; on Windows an open
+refused for sharing is retried within the same 10 seconds. Under the lock it
+writes a `\n` first when the file does not end in one, then the line, opened
+with `O_APPEND` and `O_BINARY` so Windows writes no CR.
+
+Diagnostics go to stderr and stdout stays empty; no message repeats a field
+value. Callers key on the exit status and the id, never the prose:
+
+| Exit | Stderr | Ids |
+|---|---|---|
+| 2 | `notify: refused (<id>): <rule>` | `usage`, `newline`, `encoding`, `framing`, `unknown-field`, `duplicate`, `event`, `project`, `issue-capture`, `issue`, `capture`, `step`, `question`, `detail`, `too-long`, `rotate-name`, `rotate-exists` |
+| 3 | `notify: lock-timeout: waited 10 s for notifications.jsonl.lock; nothing written` | |
+| 4 | `notify: io: <what>` | an unreadable config, a state directory or file that cannot be written, a failed rename, no `python3`, an unreadable helper |
+| 5 | `notify: nothing-to-rotate` | `--rotate` found no file |
+
+No failure adds a complete line: a refusal, a lock timeout and a missing file
+write nothing to it, and an I/O fault part-way through a write leaves at most a
+torn fragment, which the next append mends. Sourcing `notify.sh` when
+`devagent_validate_slug` is unavailable prints the `io` line and returns 1
+without defining `notify_append`; a writer maps that to 4. What a writer does
+after a failure is that writer's rule.
+
+**The unattended marker.** A launcher that starts a session without a person
+at the keyboard sets `DEVAGENT_UNATTENDED` in that session's environment, and
+only there. An interactive session never sets it, even one the operator started
+by hand with `--auto`. Any non-empty value means unattended; devagent does not
+read the value, and never sets the variable itself. Every reader asks
+`devagent_unattended` (`scripts/lib/paths.sh`), never its own test of the
+variable. The readers arrive with later issues: the hold helper asks in the
+session when the marker is unset and holds the issue when it is set (#962); the
+watchdog watches only marked sessions (#932); the answer command (#964), grants
+(#965) and the leak gate's re-record command (#966) refuse to run in a marked
+session. Whether a line is written does not depend on the marker unless a
+writer says so: the hold writes a `hold` line in an unattended session, and in
+an interactive one only when it falls back to holding (`--no-ask`, or an ask
+that could not be shown or got no answer); notify-only questions, capture
+questions and notices follow the same rule; the leak gate's audit lines and
+every `answered` and `stuck` line are written in both. The marker is not a
+trust boundary: any process in the session can unset it. It stops accidents,
+not a deliberate bypass. Sessions are identified
+by Claude Code's `CLAUDE_CODE_SESSION_ID`; devagent defines no session-id
+function. devagent's test suite unsets the marker in its shared guard
+(`tests/lib/hermetic-env.bash`) and in `SUITE_CHILD_UNSET`, so an unattended
+session that runs the suite runs its attended paths.
 
 ### 7.4 Step model tiers (`step_models`)
 

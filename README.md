@@ -190,6 +190,25 @@ pin), run `/devagent:use <project>` — the one arg-driven writer of the shared
 pointer; hand-editing `_active.toml` is the fallback.
 Details: `skills/next/references/concurrency.md`.
 
+## Launchers and unattended sessions
+
+An external launcher that starts a session with no person at the keyboard sets
+`DEVAGENT_UNATTENDED` (any non-empty value) in that session's environment, and
+only there; scripts ask `devagent_unattended` (`scripts/lib/paths.sh`), never
+the variable. devagent never sets it, and it is not a trust boundary.
+
+What a launcher reads is `$(devagent_home)/state/notifications.jsonl`, one JSON
+object per line, appended only through `scripts/lib/notify.sh`. devagent never
+rewrites, truncates or rotates it, so a byte-offset cursor stays valid. A
+launcher that wants to rotate it runs:
+
+```sh
+bash scripts/lib/notify.sh --rotate <new-name>
+```
+
+which renames it under the appender's lock. The line format, the events, the
+exit codes and the reader rules are the launcher contract in spec §7.3.
+
 ## Trust policy
 
 On a shared queue, a trust policy (`policy.toml`, #711) names the trusted
@@ -652,8 +671,9 @@ passes no `--filter-tags`.
 
 Every test file must be hermetic: one stray `export DEVAGENT_ACTIVE_ISSUE=…` in a
 developer's shell must not change a verdict. `tests/lib/hermetic-env.bash` is the
-single home for that — it unsets the #240 session pins and neutralizes a hostile
-global gitconfig, `TZ`, and locale. How a file gets it depends on its shape:
+single home for that — it unsets the #240 session pins and a launcher's
+`DEVAGENT_UNATTENDED` marker, and neutralizes a hostile global gitconfig, `TZ`, and
+locale. How a file gets it depends on its shape:
 
 - A file that `load`s a setup layer (`load 'lib/bats-helpers'`, `load 'helpers/fixtures'`)
   inherits the guard from that layer. Nothing to do.

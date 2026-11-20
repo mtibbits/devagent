@@ -60,7 +60,9 @@ a new file inherits:
 - Git identity is per-repo under tmp; `lib/hermetic-env.bash` nulls the global
   config, TZ and locale, and unsets the session pins, `DEVAGENT_SUITE_JOBS`,
   `DEVAGENT_FETCH_TIMEOUT`, `DEVAGENT_COLLECT_TIMEOUT`, `DEVAGENT_BC_MAX_PAGES`,
-  `BC_MAX_PAGES`, `DEVAGENT_DEVDOC_LOCK_DEADLINE` and `DEVAGENT_DEVDOC_SYNC_SECS`. It also
+  `BC_MAX_PAGES`, `DEVAGENT_DEVDOC_LOCK_DEADLINE`, `DEVAGENT_DEVDOC_SYNC_SECS` and the
+  launcher's `DEVAGENT_UNATTENDED` marker (on every source, so a test that needs
+  the marker sets it after its fixtures). It also
   unsets `CLAUDE_CONFIG_DIR` and `DA_HOME`, but only the first time a shell
   sources it (`_DEVAGENT_HERMETIC_HOMES`), so a harness that re-sources it
   inside a test keeps the `DA_HOME` its `setup()` exported.
