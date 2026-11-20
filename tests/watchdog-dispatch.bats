@@ -6,9 +6,10 @@
 # in an attended one it does neither.
 # Method (tests/next-backing.bats): the REAL next.sh runs from a copied tree in
 # which the one script-backed step used here is a stub, so no real commit runs.
-# The wrapping line's sentence is provisional (it is reworded until the
-# wrapping-line eval passes), so these pin its facts — one line, right after the
-# header, the wrapper's path, the interval — and never the sentence.
+# The wrapping line's sentence is the one the wrapping-line eval passed (see
+# dispatch_wrap_line in scripts/next.sh); a rewording re-runs that eval, so these
+# pin its facts — one line, right after the header, the wrapper's path, the
+# interval — and never the sentence.
 
 bats_require_minimum_version 1.5.0   # run --separate-stderr
 

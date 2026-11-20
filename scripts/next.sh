@@ -95,11 +95,13 @@ merged_closeout() {
 # after the dispatch header that tells the session how to run a long command so
 # that its output counts as progress (libexec/long-run.sh). Prints nothing in an
 # attended session.
-# The sentence has this ONE home. Its wording is PROVISIONAL until the
-# wrapping-line eval (Issue-932 Task 6) passes, so tests/watchdog-dispatch.bats
-# pins facts, not the sentence: one line, right after the header; the wrapper's
-# path; the interval; the Bash tool; commands that finish; the declared-window
-# flag.
+# The sentence has this ONE home. This wording passed the wrapping-line eval
+# (Issue-932 Task 6, 2026-11-20, Claude Code 2.1.329: haiku 14/15 and opus 15/15
+# long commands wrapped, no service wrapped, --silent passed 3/3, none through
+# PowerShell); a rewording needs that eval again. tests/watchdog-dispatch.bats
+# pins its facts, not the sentence: one line, right after the header; the
+# wrapper's path; the interval; the Bash tool; commands that finish; the
+# declared-window flag.
 # The interval is the project's watchdog_telemetry_secs. A malformed or
 # unreadable one warns and prints the shipped constant: the line never fails a
 # dispatch. The root is printed in the form Claude Code expands on Windows
