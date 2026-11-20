@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # scripts/park.sh — park an issue; clears active_issue if it was active.
 # Spec §5.1 [P], §6.5.
-# Usage: park.sh <project> [issue-id]
+# Usage: park.sh <project> [issue-id] [--reason <text>]
+# --reason (#962): one non-empty line, appended to the park's log entry. A third
+# positional is refused: /devagent:park passes $ARGUMENTS unquoted, so an
+# unquoted multi-word reason would otherwise overflow into it.
 
 set -euo pipefail
 
@@ -25,9 +28,28 @@ source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
+_park_usage() {
+  echo "park.sh: usage: park.sh <project> [issue-id] [--reason <text>]" >&2
+  exit 2
+}
+
 main() {
-  local project="${1:-}"
-  local issue="${2:-}"
+  local project="" issue="" reason="" have_reason=0
+  local -a pos=()
+  while (( $# )); do
+    case "$1" in
+      --reason)
+        (( $# >= 2 && ! have_reason )) || _park_usage
+        reason="$2"; have_reason=1
+        [[ -n "${reason//[[:space:]]/}" && "$reason" != *$'\n'* && "$reason" != *$'\r'* ]] || _park_usage
+        shift 2 ;;
+      --*) _park_usage ;;
+      *) pos+=("$1"); shift ;;
+    esac
+  done
+  (( ${#pos[@]} <= 2 )) || _park_usage
+  project="${pos[0]:-}"
+  issue="${pos[1]:-}"
   [[ -n "$project" ]] || die "project required"
   config_is_project "$project" || die "unknown project '$project'"
 
@@ -57,12 +79,21 @@ quarantine_guard "park" "$project" "$issue"
   [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir (typo in issue id?)"
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
-    local cur
-    cur="$(checklist_current_step "$checklist")"
-    if [[ -n "$cur" && "$cur" != "done" ]]; then
-      checklist_mark "$checklist" "$cur" "P"
+    local cur was name entry="issue parked"
+    # #962: an issue held on an operator question keeps its `[?]` row — no row
+    # is marked `[P]`, so the question's row stays the one the hold marked.
+    if [[ "$(stuck_kind "$issue_dir")" != question ]]; then
+      cur="$(checklist_current_step "$checklist")"
+      if [[ -n "$cur" && "$cur" != "done" ]]; then
+        was="$(checklist_step_state "$checklist" "$cur" 2>/dev/null || true)"
+        name="$(checklist_step_name "$checklist" "$cur" 2>/dev/null || true)"
+        checklist_mark "$checklist" "$cur" "P"
+        # #962: the earlier mark is recorded so hold.sh can return the row to it.
+        [[ -z "$was" || -z "$name" ]] || entry+=" (row $cur $name was [$was])"
+      fi
     fi
-    ( log_append "$issue_dir" "park" "issue parked" ) 2>/dev/null || true
+    [[ -z "$reason" ]] || entry+=": $reason"
+    ( log_append "$issue_dir" "park" "$entry" ) 2>/dev/null || true
   fi
 
   state_add_parked "$project" "$issue"
