@@ -520,6 +520,22 @@ project_devdoc_dir() {
   printf '%s\n' "${devdoc}"
 }
 
+# config_repo_path_valid <e>: rc 0 iff <e> is an exact repo-relative path —
+# non-empty, no leading /, no drive letter, none of * ? [, and no empty, . or ..
+# component. The one home of this rule for a config entry that becomes a git
+# pathspec, so a hole closed here is closed for every such key:
+# merge_forward_entry_valid (lib/merge-forward.sh, append_only) is this predicate,
+# and required_checks_path_valid below adds its own two rules to it.
+config_repo_path_valid() {
+  local e="$1"
+  [[ -n "$e" ]] || return 1
+  [[ "$e" != /* ]] || return 1
+  [[ ! "$e" =~ ^[A-Za-z]: ]] || return 1
+  [[ "$e" != *[\*\?\[]* ]] || return 1
+  case "/$e/" in */./*|*/../*|*//*) return 1 ;; esac
+  return 0
+}
+
 # --- #1097: the CI checks a project requires ---------------------------------
 #   [project.<name>]
 #   required_checks       = ["Git Bash tagged files"]   # absent or [] = none
@@ -545,16 +561,13 @@ required_check_name_valid() {
 # directory — no leading /, no drive letter, none of * ? [, no TAB or line break,
 # and no empty, . or .. component; one trailing / is allowed. It is matched as a
 # git :(literal) pathspec (the file itself, or everything under the directory),
-# so a glob character would never mean what it reads as.
+# so a glob character would never mean what it reads as. Its own two rules are
+# the trailing slash and the control characters; the rest is
+# config_repo_path_valid, shared with merge_forward.append_only.
 required_checks_path_valid() {
   local e="${1%/}"
-  [[ -n "$e" ]] || return 1
-  [[ "$e" != /* ]] || return 1
-  [[ ! "$e" =~ ^[A-Za-z]: ]] || return 1
-  [[ "$e" != *[\*\?\[]* ]] || return 1
   [[ "$e" != *[$'\t\r\n']* ]] || return 1
-  case "/$e/" in */./*|*/../*|*//*) return 1 ;; esac
-  return 0
+  config_repo_path_valid "$e"
 }
 
 # _required_checks_list <project> <key> <example entry>: sets _REQUIRED_LIST to

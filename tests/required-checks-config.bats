@@ -197,6 +197,22 @@ _dies() {
     [[ "$output" == *": could not read [project.$TEST_PROJECT] required_checks (exit 2)" ]]
 }
 
+@test "#1097 config: an append_only entry and a required_checks_paths entry are held to one path rule" {
+    # Both become git pathspecs, so a hole closed for one must be closed for the
+    # other: each predicate has to go through config_repo_path_valid.
+    _lib
+    source "$DEVAGENT_ROOT/scripts/lib/merge-forward.sh"
+    # Control: the real rule accepts this path for both.
+    merge_forward_entry_valid docs/NEWS.md
+    required_checks_path_valid docs/NEWS.md
+    # Replace the shared rule with one that refuses everything: both must follow it.
+    config_repo_path_valid() { return 1; }
+    run merge_forward_entry_valid docs/NEWS.md
+    [ "$status" -eq 1 ]
+    run required_checks_path_valid docs/NEWS.md
+    [ "$status" -eq 1 ]
+}
+
 @test "#1097 list: prints the names; nothing without the key; exit 1 on a bad value" {
     # without the key: exit 0 and no output
     run --separate-stderr "$RCS" "$TEST_PROJECT"
