@@ -152,15 +152,84 @@ if (( have_q )); then
   _id="$(question_validate "$qfile")" || _refuse "${_id:-question-file}"
 fi
 
+hold_mode=0
+if (( no_ask )) || devagent_unattended; then hold_mode=1; fi
+
+# ---- hold mode: the line's own checks, before anything is written ----------
+# The number here only fills the detail's shape; the real one is taken under
+# the lock.
+if (( hold_mode )); then
+  _nn="$(question_next_number "$issue_dir" 2>/dev/null)" || _nn=01
+  _rc=0
+  _out="$(notify_check event=hold "project=$project" "issue=$issue" "step=$step"     "question=$issue_dir/STUCK" "detail=operator question $_nn at $step; parked" 2>&1)" || _rc=$?
+  (( _rc != 2 )) || _refuse notify
+  (( _rc == 0 )) || { printf '%s\n' "$_out" >&2; exit 1; }
+fi
+
 # ---- the lock: held to the end through the one EXIT trap -------------------
 [[ -d "$issue_dir/questions" ]] || _HOLD_MADE_QDIR=1
 trap _hold_exit EXIT
 question_lock "$issue_dir" || exit 1
 
-# ---- the mode --------------------------------------------------------------
-if (( no_ask )) || devagent_unattended; then
-  echo "hold.sh: the hold is not implemented yet" >&2
-  exit 1
+# ---- the hold --------------------------------------------------------------
+# _restore_parked_row: on a parked issue whose `[P]` row is not <step>'s, return
+# that row to the mark the LAST park entry naming it recorded (` ` or `~`),
+# else to ` ` — the `[?]` row is the issue's one stop.
+_restore_parked_row() {
+  local pl line pnum pname g
+  pl="$(checklist_find_glyph_line "$checklist" P)"
+  [[ -n "$pl" ]] || return 0
+  line="${pl%%:*}" pnum="${pl#*:}"
+  pname="$(checklist_step_name_at_line "$checklist" "$line" 2>/dev/null)" || return 0
+  [[ "$pname" != "$step" ]] || return 0
+  g="$(sed -nE "s/^- [0-9-]+ [0-9:]+  park: issue parked \(row $pnum $pname was \[(.)\]\).*\$/\1/p" "$checklist" | tail -n 1)"
+  [[ "$g" == " " || "$g" == "~" ]] || g=" "
+  checklist_mark_line "$checklist" "$line" "$g"
+}
+
+_is_parked() { state_list_parked "$project" | grep -qxF -- "$issue"; }
+
+# _hold <NN> <reason> <record-or-empty>: steps 3-7 (the STUCK is on disk).
+_hold() {
+  local nn="$1" why="$2" rec="$3" label park_rc=0 append_rc=0
+  [[ -z "$rec" ]] || rm -f "$rec"
+  if _is_parked; then _restore_parked_row; fi
+  [[ "$(checklist_active_step_state_by_name "$checklist" "$step")" == "?" ]] \
+    || checklist_mark_by_name "$checklist" "$step" '?'
+  if _is_parked; then
+    if grep -qE "^- [0-9-]+ [0-9:]+  park: issue parked.*: operator question $nn: " "$checklist"; then
+      label="parked"
+    else
+      label="already parked"
+    fi
+  else
+    "$PLUGIN_ROOT/scripts/park.sh" "$project" "$issue" --reason "operator question $nn: $why" >&2 || park_rc=$?
+    if (( park_rc == 0 )); then label="parked"; else label="park refused (exit $park_rc)"; fi
+  fi
+  if ! question_line_logged "$issue_dir" "$step" "$nn"; then
+    notify_append event=hold "project=$project" "issue=$issue" "step=$step" \
+      "question=$issue_dir/STUCK" "detail=operator question $nn at $step; $label" || append_rc=$?
+    (( append_rc != 0 )) || log_append "$issue_dir" "$step" "hold line written for question $nn"
+  fi
+  if (( park_rc )); then
+    (( park_rc != 2 && park_rc != 3 )) || exit 1
+    exit "$park_rc"
+  fi
+  (( append_rc == 0 )) || exit 1
+  exit 0
+}
+
+if (( hold_mode )); then
+  record="$(question_open_record "$issue_dir" "$step")"
+  if [[ -n "$record" ]]; then
+    nn="${record##*/}"; nn="${nn%%-*}"
+  else
+    nn="$(question_next_number "$issue_dir")" || exit 1
+  fi
+  tmp="$(mktemp "$issue_dir/questions/.tmp.XXXXXX")"
+  _render_to "$tmp" "$qfile" "$nn" || { rm -f "$tmp"; exit 1; }
+  question_publish "$tmp" "$issue_dir/STUCK" || _refuse one-stop
+  _hold "$nn" "$reason" "$record"
 fi
 
 # The ask: the open record's number, else the next; render, publish, exit 3.

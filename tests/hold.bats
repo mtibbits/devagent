@@ -350,3 +350,153 @@ Last good:   4 scope" ]
   [ "$output" = "$D/questions/03-improve.md" ]
   [ "$(sha256sum < "$D/questions/02-improve.md")" = "$b" ]
 }
+
+# ---- the hold (Task 6) ----
+
+NF() { printf '%s\n' "$DA_HOME/state/notifications.jsonl"; }
+_lines() { if [ -f "$(NF)" ]; then wc -l < "$(NF)" | tr -d ' '; else echo 0; fi; }
+_field() { python3 "$PLUGIN_ROOT/tests/helpers/notify_probe.py" field "$(NF)" -1 "$1"; }
+_native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m -- "$1"; else printf '%s\n' "$1"; fi; }
+question_number_of() { ( _lib; question_number "$1" ); }
+_parks() { grep -cE '^- [0-9-]+ [0-9:]+  park: issue parked' "$CK" || true; }
+
+# _hold [args...]: an unattended hold of Issue-7 at improve with _q's question.
+_hold() {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  DEVAGENT_UNATTENDED=1 run --separate-stderr "$H" toy Issue-7 --step "${1:-improve}" --reason "improve: 14 bugs" --question-file "$BATS_TEST_TMPDIR/q.md"
+}
+
+@test "hold: an unpinned hold writes the question STUCK, marks [?], parks and appends one hold line" {
+  _hold
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$(sed -n 1,4p "$D/STUCK")" = "Kind:        question
+Step:        5 improve
+Reason:      improve: 14 bugs
+Last good:   4 scope" ]
+  sed -n 5p "$D/STUCK" | grep -qE '^Created:     [0-9]{4}-[0-9]{2}-[0-9]{2}T'
+  [ "$(grep '^## ' "$D/STUCK" | tr '\n' '|')" = "## Question|## Impediment|## Options|## Evidence|## How to answer|" ]
+  grep -qE '^- \[\?\]  5\. improve$' "$CK"
+  ! grep -qE '^- \[P\]' "$CK"
+  grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
+  ! grep -qE '^active_issue' "$DA_HOME/state/toy.toml"
+  [ "$(_lines)" = 1 ]
+  [ "$(_field event)" = hold ]
+  [ "$(_field question)" = "$(_native "$D/STUCK")" ]
+  [ "$(_field detail)" = "operator question 01 at improve; parked" ]
+  grep -qE '^- [0-9-]+ [0-9:]+  improve: hold line written for question 01$' "$CK"
+  grep -qE '^- [0-9-]+ [0-9:]+  park: issue parked: operator question 01: improve: 14 bugs$' "$CK"
+  [ ! -e "$D/questions/.lock" ]
+}
+
+@test "hold: the STUCK has the umask mode" {
+  case "$(uname -s)" in MINGW*|MSYS*) skip "POSIX modes: Git Bash has no umask-driven file modes" ;; esac
+  umask 022
+  _hold
+  [ "$status" -eq 0 ]
+  assert_file_mode "$D/STUCK" 644
+}
+
+@test "hold: a pinned hold leaves the shared active issue unchanged" {
+  sed -i 's/^active_issue = .*/active_issue = "Issue-8"/' "$DA_HOME/state/toy.toml"
+  DEVAGENT_ACTIVE_PROJECT=toy DEVAGENT_ACTIVE_ISSUE=Issue-7 _hold
+  [ "$status" -eq 0 ]
+  grep -qE '^active_issue = "Issue-8"$' "$DA_HOME/state/toy.toml"
+  grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
+  [ "$(_lines)" = 1 ]
+}
+
+@test "hold: a hold naming a later row leaves the earlier row unchanged and no [P] row" {
+  _hold commit
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[~\]  5\. improve$' "$CK"
+  grep -qE '^- \[\?\] 12\. commit$' "$CK"
+  ! grep -qE '^- \[P\]' "$CK"
+  [ "$(_field detail)" = "operator question 01 at commit; parked" ]
+}
+
+@test "hold: on a parked issue it writes STUCK, marks [?] and one line with already parked" {
+  "$PLUGIN_ROOT/scripts/park.sh" toy Issue-7
+  local parks
+  parks="$(_parks)"
+  [ "$parks" -eq 1 ]
+  _hold
+  [ "$status" -eq 0 ]
+  [ -f "$D/STUCK" ]
+  grep -qE '^- \[\?\]  5\. improve$' "$CK"
+  [ "$(_lines)" = 1 ]
+  [ "$(_field detail)" = "operator question 01 at improve; already parked" ]
+  [ "$(_parks)" -eq "$parks" ]
+}
+
+@test "hold: a [P] row on another row returns to its earlier mark" {
+  "$PLUGIN_ROOT/scripts/park.sh" toy Issue-7
+  grep -qE '^- \[P\]  5\. improve$' "$CK"
+  _hold commit
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[~\]  5\. improve$' "$CK"
+  grep -qE '^- \[\?\] 12\. commit$' "$CK"
+  # an older park entry that records no mark: the row returns to [ ].
+  _toy
+  sed -i 's/^- \[~\]  5\. improve/- [P]  5. improve/' "$CK"
+  printf '%s\n' '- 2026-11-01 09:00  park: issue parked' >> "$CK"
+  printf '\n[parked]\nIssue-7 = true\n' >> "$DA_HOME/state/toy.toml"
+  rm -f "$D/STUCK"; rm -rf "$D/questions"; rm -f "$(NF)"
+  _hold commit
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[ \]  5\. improve$' "$CK"
+  grep -qE '^- \[\?\] 12\. commit$' "$CK"
+}
+
+@test "hold: a refused park leaves STUCK and [?], names the refusal in the one line and exits with park's code" {
+  _tree
+  local code want
+  for code in 11 3; do
+    _toy
+    rm -f "$D/STUCK" "$(NF)"; rm -rf "$D/questions"
+    printf '#!/usr/bin/env bash\nexit %s\n' "$code" > "$TREE/scripts/park.sh"
+    _q "$BATS_TEST_TMPDIR/q.md"
+    DEVAGENT_UNATTENDED=1 run --separate-stderr "$TREE/scripts/hold.sh" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+    want="$code"; [ "$code" != 3 ] || want=1
+    [ "$status" -eq "$want" ] || { echo "park $code: rc=$status err=$stderr" >&2; return 1; }
+    [ -f "$D/STUCK" ]
+    grep -qE '^- \[\?\]  5\. improve$' "$CK"
+    [ "$(_lines)" = 1 ]
+    [ "$(_field detail)" = "operator question 01 at improve; park refused (exit $code)" ]
+  done
+}
+
+@test "hold: a failing appender parks, exits 1 and logs no hold line" {
+  mkdir -p "$(NF)"   # U2: a directory where the file goes makes the append fail
+  _hold
+  [ "$status" -eq 1 ]
+  [ -f "$D/STUCK" ]
+  grep -qE '^- \[\?\]  5\. improve$' "$CK"
+  grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
+  ! grep -q 'hold line written' "$CK"
+}
+
+@test "hold: a second question after a hand-removed STUCK gets a new number, parks and writes its line" {
+  _hold
+  [ "$status" -eq 0 ]
+  rm -f "$D/STUCK"
+  # resume by hand: unpark and make Issue-7 active again, row 5 back to [~].
+  printf 'active_issue = "Issue-7"\nissue_dir = "%s"\n' "$D" > "$DA_HOME/state/toy.toml"
+  sed -i 's/^- \[?\]  5\. improve/- [~]  5. improve/' "$CK"
+  _hold
+  [ "$status" -eq 0 ]
+  [ "$(question_number_of "$D/STUCK")" = 02 ]
+  [ "$(_lines)" = 2 ]
+  [ "$(_field detail)" = "operator question 02 at improve; parked" ]
+  grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
+}
+
+@test "hold: a line the notify check refuses exits 2 before anything is written" {
+  mkdir -p "$DEVDOC/_7"
+  cp "$CK" "$DEVDOC/_7/checklist.md"
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local before
+  before="$(_snap)"
+  DEVAGENT_UNATTENDED=1 run --separate-stderr "$H" toy _7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  _refused notify
+  [ "$(_snap)" = "$before" ]
+}
