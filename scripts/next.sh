@@ -52,6 +52,10 @@ source "$PLUGIN_ROOT/scripts/lib/ci.sh"
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/heartbeat.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/watchdog-limits.sh"
 
 # phase_breaks_resolve <project> — sets PHASE_BREAKS, the step names a continued
 # chain stops before (one space-separated line; "" is a legal "no breaks"), and
@@ -85,6 +89,37 @@ merged_closeout() {
   mm="$(checklist_active_step_state_by_name "$1" mergemr 2>/dev/null || true)"
   [[ "$mm" == x ]] || [[ "$mm" == - && \
     "$(checklist_active_step_state_by_name "$1" ship 2>/dev/null || true)" == - ]]
+}
+
+# dispatch_wrap_line <project> — #932: in an unattended session, the one line
+# after the dispatch header that tells the session how to run a long command so
+# that its output counts as progress (libexec/long-run.sh). Prints nothing in an
+# attended session.
+# The sentence has this ONE home. Its wording is PROVISIONAL until the
+# wrapping-line eval (Issue-932 Task 6) passes, so tests/watchdog-dispatch.bats
+# pins facts, not the sentence: one line, right after the header; the wrapper's
+# path; the interval; the Bash tool; commands that finish; the declared-window
+# flag.
+# The interval is the project's watchdog_telemetry_secs. A malformed or
+# unreadable one warns and prints the shipped constant: the line never fails a
+# dispatch. The root is printed in the form Claude Code expands on Windows
+# (`cygpath -m`, C:/...). The wrapper lives outside scripts/ on purpose: the
+# skills' `scripts/*` grants must not reach a run-any-command wrapper.
+dispatch_wrap_line() {
+  devagent_unattended || return 0
+  local rc=0 secs shown="$PLUGIN_ROOT" converted wrapper
+  watchdog_limit watchdog_telemetry_secs "$1" || rc=$?
+  secs="${WATCHDOG_LIMIT:-}"
+  if (( rc != 0 )) || [[ -z "$secs" ]]; then
+    secs="$WATCHDOG_DEFAULT_TELEMETRY_SECS"
+    warn "watchdog_telemetry_secs could not be read for $1 (doctor names the value); the wrapping line says ${secs} s"
+  fi
+  if command -v cygpath >/dev/null 2>&1; then
+    converted="$(cygpath -m -- "$shown" 2>/dev/null)" || converted=""
+    [[ -z "$converted" ]] || shown="$converted"
+  fi
+  wrapper="bash \"$shown/libexec/long-run.sh\""
+  echo "long-run: this session is watched for progress; with the Bash tool (not PowerShell), run any command that finishes (not servers, watchers or \`tail -f\`) and may take longer than ${secs} s, in the foreground or the background, as: ${wrapper} <command> [args]   (for a pipeline, a \`cd … &&\` chain or a loop: ${wrapper} bash -c '<the whole line>'; if the plan's \`## Declared silent windows\` names this command, put \`--silent <window>\` before it)"
 }
 
 # #812: scripts that carry a workflow step's NAME but are helpers its slash
@@ -328,7 +363,12 @@ quarantine_guard "next" "$project"
     _backing="$(step_backing "$name" "$script_path")"
     # Header, not a trailing parenthetical: it now precedes BOTH branches, so it
     # must read as a label for what follows rather than dangle above it.
+    # #932: the step goes on the session's heartbeat record first (a no-op in an
+    # attended session, and never a failure), so a launcher that sees the header
+    # can already read which step it is; the wrapping line follows the header.
+    heartbeat_note dispatch "v1 $project $active $cur $name"
     echo "dispatch: $project/$active — step $cur ($name), $_backing"
+    dispatch_wrap_line "$project"
     if [[ "$_backing" == script-backed ]]; then
       # Script-backed step: exec it. The script marks the checkbox and logs.
       # When chaining (and not at the target), suppress the script's

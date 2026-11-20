@@ -88,6 +88,28 @@ teardown() { teardown_phase9_env; }
   grep -q '^## Potholes considered' "${DEVAGENT_REPO_ROOT}/templates/imPlan_template.md"
 }
 
+@test "imPlan_template carries the Declared silent windows section (#932)" {
+  local t="${DEVAGENT_REPO_ROOT}/templates/imPlan_template.md"
+  [ "$(grep -c '^## Declared silent windows$' "$t")" -eq 1 ]
+  # the default is (none), and no entry is live: the form and its example are
+  # inside a comment, indented
+  local body
+  body="$(awk '/^## Declared silent windows$/{on=1; next} on && /^## /{exit} on{print}' "$t")"
+  [ "$(grep -c '^(none)$' <<<"$body")" -eq 1 ]
+  [ "$(grep -c '^- ' <<<"$body")" -eq 0 ]
+  [ "$(grep -cF -- '- <command> | --silent <window> | why it cannot print' <<<"$body")" -eq 1 ]
+  [ "$(grep -cE -- '^ +- .+ \| --silent [1-9][0-9]*[ms]? \| .+' <<<"$body")" -eq 1 ]
+  [ "$(grep -c -- '^<!--' <<<"$body")" -eq 1 ]
+  [ "$(grep -c -- '-->$' <<<"$body")" -eq 1 ]
+  # it sits between Tasks and Validation, where the tasks' commands are in view
+  local tasks win val
+  tasks="$(grep -n '^## Tasks$' "$t" | cut -d: -f1)"
+  win="$(grep -n '^## Declared silent windows$' "$t" | cut -d: -f1)"
+  val="$(grep -n '^## Validation$' "$t" | cut -d: -f1)"
+  [ "$tasks" -lt "$win" ]
+  [ "$win" -lt "$val" ]
+}
+
 @test "global [paths] table is a fallback for potholes_workflow only, absolute paths only (#611)" {
   printf '\n[paths]\nmr_template = "%s/mr.md"\npotholes_workflow = "%s/wf.md"\n' "${TEST_TMP}" "${TEST_TMP}" >> "${TEST_TMP}/config.toml"
   run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj mr_template"
