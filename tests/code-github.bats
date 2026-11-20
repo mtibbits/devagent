@@ -615,7 +615,7 @@ _bucket_of() {
     done
     grep -qxF $'fail\tcr-action_required\thttps://github.com/acme/volk/actions/runs/1/job/86\tACTION_REQUIRED' <<<"$output"
     grep -qxF $'fail\tsc-error\thttps://ci.example/5\tERROR' <<<"$output"
-    grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80' <<<"$output"
+    grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80\tSUCCESS' <<<"$output"
 }
 
 @test "#782 mr-checks emits - for an empty link, so the conclusion keeps its own field" {
@@ -623,14 +623,14 @@ _bucket_of() {
     [ "$status" -eq 0 ]
     grep -qxF $'fail\tsc-nolink\t-\tFAILURE' <<<"$output"
     grep -qxF $'fail\tcr-nolink\t-\tCANCELLED' <<<"$output"
-    grep -qxF $'pass\tcr-pass-nolink\t-' <<<"$output"
+    grep -qxF $'pass\tcr-pass-nolink\t-\tSUCCESS' <<<"$output"
 }
 
 @test "#782 mr-checks keeps the latest run per workflow+name (CANCELLED then SUCCESS → one pass)" {
     _chk superseded
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 3 ]
-    [ "${lines[2]}" = $'pass\tlint\thttps://github.com/acme/volk/actions/runs/1/job/52' ]
+    [ "${lines[2]}" = $'pass\tlint\thttps://github.com/acme/volk/actions/runs/1/job/52\tSUCCESS' ]
 }
 
 @test "#782 a queued re-run outranks its completed FAILURE" {
@@ -700,6 +700,82 @@ _bucket_of() {
     [ "$status" -eq 2 ]
     run "$DEVAGENT_ROOT/scripts/code/gitlab.sh" mr-checks "$CHK_URL"
     [ "$status" -eq 2 ]
+}
+
+# ---- #1097: a pass line carries its conclusion --------------------------------
+# A required check is `success` only on pass + SUCCESS (lib/ci.sh
+# ci_required_eval), so the verb says which of its three passing conclusions a
+# line had.
+
+@test "#1097 mr-checks: pass lines carry SUCCESS, SKIPPED or NEUTRAL; pending lines stay three fields" {
+    _chk buckets
+    [ "$status" -eq 0 ]
+    grep -qxF $'pass\tcr-skipped\thttps://github.com/acme/volk/actions/runs/1/job/81\tSKIPPED' <<<"$output"
+    grep -qxF $'pass\tcr-neutral\thttps://github.com/acme/volk/actions/runs/1/job/82\tNEUTRAL' <<<"$output"
+    # a commit status has no conclusion: its state stands in
+    grep -qxF $'pass\tsc-success\thttps://ci.example/1\tSUCCESS' <<<"$output"
+    # every pass line, not only the three named: four fields, one of the three values
+    [ "$(awk -F'\t' '$1 == "pass" { print NF ":" $4 }' <<<"$output" | sort | tr '\n' ' ')" \
+        = "4:NEUTRAL 4:SKIPPED 4:SUCCESS 4:SUCCESS " ]
+    # every pending line: name and link, nothing after them (not even an empty field)
+    [ "$(grep -c $'^pending\t' <<<"$output")" -eq 3 ]
+    [ "$(awk -F'\t' '$1 == "pending" { print NF }' <<<"$output" | sort -u)" = 3 ]
+}
+
+@test "#1097 mr-checks: a pass line with no link keeps - and its conclusion" {
+    _chk nolink
+    [ "$status" -eq 0 ]
+    grep -qxF $'pass\tcr-pass-nolink\t-\tSUCCESS' <<<"$output"
+}
+
+@test "#1097 mr-checks: an empty conclusion prints -, on pass and fail alike" {
+    # No recorded body has this shape (a commit status carries no `conclusion` key);
+    # jq's `//` keeps an empty string, so this is the one way the field can be empty.
+    jq '.statusCheckRollup |= map(if .__typename == "StatusContext" then .conclusion = "" else . end)' \
+        "$GQL_FIX/mr-checks-buckets.json" > "$DEVAGENT_TMP/empty-conclusion.json"
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    GH_STUB_PR_CHECKS_FILE="$DEVAGENT_TMP/empty-conclusion.json" \
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-checks "$CHK_URL"
+    [ "$status" -eq 0 ]
+    grep -qxF $'pass\tsc-success\thttps://ci.example/1\t-' <<<"$output"
+    grep -qxF $'fail\tsc-failure\thttps://ci.example/4\t-' <<<"$output"
+    # a check run's own conclusion is untouched
+    grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80\tSUCCESS' <<<"$output"
+}
+
+@test "#1097 round trip: github.sh's own lines for the green fixture evaluate success, success, skipped" {
+    local l
+    _chk green
+    [ "$status" -eq 0 ]
+    # A code backend that replays what the verb just printed, so lib/ci.sh reads
+    # github.sh's own lines and not lines a test wrote by hand.
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/mr-checks.out"
+    mkdir -p "$DEVAGENT_TMP/code"
+    cat > "$DEVAGENT_TMP/code/replay.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = mr-checks ] || exit 2
+cat "$REPLAY_FILE"
+EOF
+    chmod +x "$DEVAGENT_TMP/code/replay.sh"
+    export REPLAY_FILE="$DEVAGENT_TMP/mr-checks.out" DEVAGENT_CODE_BACKEND_DIR="$DEVAGENT_TMP/code"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" \
+        "project.$TEST_PROJECT.code_source.backend" replay
+    for l in paths io config state active checklist log ci; do
+        # shellcheck source=/dev/null
+        source "$DEVAGENT_ROOT/scripts/lib/$l.sh"
+    done
+    ci_read "$TEST_PROJECT" Issue-1 "$CHK_URL"
+    [ "$CI_RESULT" = green ]
+    [ "$CI_LINE" = "CI PASSED: 3 checks on $CHK_URL (head a1b2c3d)" ]
+    ci_required_eval "bats shard 1 of 4" lint "Analyze (actions)"
+    [ "$RC_REPORT" = "bats shard 1 of 4: success; lint: success; Analyze (actions): skipped" ]
+    [ "$RC_OK" = 0 ]
+    [ "$RC_BAD" = "Analyze (actions) (skipped)" ]
+    # the two that ran, without the skipped one: nothing left to stop on
+    ci_required_eval "bats shard 1 of 4" lint
+    [ "$RC_REPORT" = "bats shard 1 of 4: success; lint: success" ]
+    [ "$RC_OK" = 1 ]
 }
 
 # --- mr-view (#885) -----------------------------------------------------------

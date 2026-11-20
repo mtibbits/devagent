@@ -2578,12 +2578,19 @@ order (TAB-separated):
 ```
 state    open|merged|closed
 head     <40-hex>
-pass     <name>  <link>
+pass     <name>  <link>  <CONCLUSION>
 pending  <name>  <link>
 fail     <name>  <link>  <CONCLUSION>
 ```
 
-`<link>` is `-` when the check has none (an empty TAB field would collapse).
+`<link>` is `-` when the check has none (an empty TAB field would collapse),
+and an empty `<CONCLUSION>` is printed `-` as well.
+
+A `pass` line carries its conclusion (#1097), so a reader can tell a check
+that succeeded from one that was skipped. GitHub's `pass` conclusions are
+`SUCCESS`, `SKIPPED` and `NEUTRAL` (a commit status: its `state`). A backend
+MAY omit the field on `pass`; the line then passes as an ordinary check and
+is `no conclusion`, not success, as a required one.
 
 GitHub makes one `gh pr view --json headRefOid,state,statusCheckRollup`
 call. A not-yet-completed run counts as pending and outranks a completed
