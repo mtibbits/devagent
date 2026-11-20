@@ -7,7 +7,9 @@
 # branch, bounded by DEVAGENT_MERGEMR_FETCH_SECS, and runs a local `git merge-tree`
 # that writes loose objects into the issue tree, to name the conflicted paths.
 # With `required_checks` set (#1097) it merges only when each of those checks is
-# `success` at that head (rules 15 and 16), and rules 8 and 12 report their states.
+# `success` at that head (rules 15 and 16), and rules 8 and 12 report their states. On
+# a code backend that cannot report checks it stops instead (rule 20, CI NOT CHECKED),
+# whatever merge_mr says.
 #
 # It marks its own row BY NAME and ends one of four ways:
 #   [x] merged, [-] ship was skipped   exit 0 (also writes last_step/last_step_name)
@@ -26,7 +28,8 @@
 # dependency read), DEVAGENT_MERGEMR_MERGE_SECS (30; the merge call and the auto-merge
 # disable), DEVAGENT_MERGEMR_FETCH_SECS (20; rule 14's base fetch, #1125),
 # DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace, and #1097's for a required
-# check that has not reported).
+# check that has not reported), DEVAGENT_CI_READ_SECS (20; ci_read's bound, for the
+# required-checks read on a backend other than github, #1097).
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -170,6 +173,16 @@ _rc_eval() {
     [ "${#REQUIRED_CHECKS[@]}" -eq 0 ] || sfx="; required checks at ${CI_HEAD:0:7}: $RC_REPORT"
 }
 
+# _stop_unchecked <why> (#1097), rule 20: the project requires checks and this code
+# backend cannot report them, so nothing here can say they succeeded. It applies
+# whatever merge_mr says, and it is the operator's to clear: no preship record and no
+# forward matches it. <why> is the bare reason (lib/ci.sh's _CI_REASON form).
+_stop_unchecked() {
+    local names
+    names="$(printf ', %s' "${REQUIRED_CHECKS[@]}")"
+    _stop 20 "CI NOT CHECKED: $1; required check ${names#, } cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck"
+}
+
 R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
 
 # ---- rules 1-2: whatever the backend -------------------------------------------------
@@ -196,6 +209,10 @@ fi
 # Merging is GitHub only (#885). Decided by the code backend's name, so a non-github
 # backend never reaches ci_read_view. Exit 78 (not implemented) or 2 (unknown verb)
 # means the backend cannot tell; any other failure is a read that decided nothing.
+# With required_checks set (#1097) an open PR also gets one ci_read (mr-checks; the
+# local backend is not asked): no step here may leave a PR waiting for a hand merge
+# when nothing can say its required checks succeeded (rule 20). A backend that has the
+# verb reports their states on rule 8's line, as the github path does.
 if [ "$backend" != github ]; then
     if [ ! -x "$code_sh" ]; then
         _wait read "could not read PR $mr_url: ${backend:-(none)}.sh not found or not executable"
@@ -203,14 +220,24 @@ if [ "$backend" != github ]; then
     _mr_state "$mr_url"
     case "$_CALL_RC" in
         0) ;;
-        78|2) _wait read "cannot read PR state on ${backend:-(none)}; merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
+        78|2)
+            [ "${#REQUIRED_CHECKS[@]}" -eq 0 ] || _stop_unchecked "${backend:-(none)} has no mr-state"
+            _wait read "cannot read PR state on ${backend:-(none)}; merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
         *) _wait read "could not read PR $mr_url: $_CALL_ERR" ;;
     esac
     case "$_ST" in
         merged) _merged "PR $mr_url merged (merge commit -)" ;;
         closed) _stop 4 "$R4_TEXT" ;;
         draft)  _wait 5 "draft PR" ;;
-        open)   _wait 8 "waiting for merge (merge step supports github only)" ;;
+        open)
+            [ "${#REQUIRED_CHECKS[@]}" -gt 0 ] || _wait 8 "waiting for merge (merge step supports github only)"
+            ci_read "$project" "$issue_arg" "$mr_url"
+            case "$CI_RESULT" in
+                notchecked|notapplicable) _stop_unchecked "$_CI_REASON" ;;
+                unknown) _wait read "could not read required checks on $mr_url: ${_CI_REASON:-unknown error}" ;;
+            esac
+            _rc_eval
+            _wait 8 "waiting for merge (merge step supports github only)$sfx" ;;
         *)      _wait read "could not read PR $mr_url: unrecognised mr-state output '$_ST'" ;;
     esac
 fi
@@ -218,7 +245,14 @@ fi
 # ---- the PR read -----------------------------------------------------------------
 
 ci_read_view "$project" "$issue_arg" "$mr_url"
-[ "$MV_OK" = 1 ] || _wait read "could not read PR $mr_url: ${MV_ERR:-${_CI_REASON:-unknown error}}"
+if [ "$MV_OK" != 1 ]; then
+    # rule 20 (#1097): a backend script without mr-view (exit 78 or 2) cannot report
+    # the required checks either. Any other failed read decided nothing: it waits.
+    if [ "$CI_RESULT" = notchecked ] && [ "${#REQUIRED_CHECKS[@]}" -gt 0 ]; then
+        _stop_unchecked "$_CI_REASON"
+    fi
+    _wait read "could not read PR $mr_url: ${MV_ERR:-${_CI_REASON:-unknown error}}"
+fi
 ci_report "$issue_dir"
 _rc_eval
 

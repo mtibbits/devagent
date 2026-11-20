@@ -8,7 +8,8 @@
 # Stub code backend (DEVAGENT_CODE_BACKEND_DIR): mr-view serves $MV_OUT ($MV_OUT_AFTER
 # once a merge-mr call succeeded); merge-mr writes its argv to $MERGE_LOG (one
 # `[elem]` line per element, then `--`) and exits $MERGE_RC; mr-state/issue-mrs answer
-# from files under $STUB_DIR; every call is counted in $STUB_DIR/calls. Stub issue
+# from files under $STUB_DIR; every call is counted in $STUB_DIR/calls; mr-checks is an
+# unknown verb (exit 2) unless a test serves $MC_OUT (#1097, _checks). Stub issue
 # backend: state-class from $STUB_DIR/sc.<num>, transition logged to $DEVAGENT_STUB_LOG.
 # Fixture checklist: ship [x] 18, mergetoall 19, mergemr 20, updatewbs 21.
 load 'helpers/common'
@@ -109,6 +110,11 @@ case "$v" in
     if [ "${STUB_IM_RC:-0}" != 0 ]; then echo "stub: issue-mrs failed" >&2; exit "$STUB_IM_RC"; fi
     shift
     for n in "$@"; do printf 'issue\t%s\t%s\n' "$n" "$(cat "$d/im.$n" 2>/dev/null || echo none)"; done ;;
+  mr-checks)
+    [ -n "${MC_OUT:-}" ] || exit 2
+    [ -z "${STUB_CHECKS_SLEEP:-}" ] || exec sleep "$STUB_CHECKS_SLEEP"
+    if [ "${STUB_CHECKS_RC:-0}" != 0 ]; then echo "stub: mr-checks failed" >&2; exit "$STUB_CHECKS_RC"; fi
+    cat "$MC_OUT" ;;
   *) exit 2 ;;
 esac
 EOF
@@ -1959,4 +1965,195 @@ R12_REQ="merges only when every required check is successful"
     _run
     _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (pending), but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: pending"
     [ ! -e "$MERGE_LOG" ]
+}
+
+# ---- #1097: CI NOT CHECKED (rule 20) ------------------------------------------------
+# A project with required checks on a code backend that cannot report checks stops
+# [!], whatever merge_mr says: nothing there can say a required check succeeded. The
+# gitlab stub has no mr-checks (exit 2) until _checks serves one.
+
+# _nc <why> [<names>]: rule 20's text.
+_nc() {
+    printf '%s' "CI NOT CHECKED: $1; required check ${2:-$GBT} cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck"
+}
+
+# _checks [<kind>|<name>[|<CONCLUSION>] ...]: the stub answers mr-checks from $MC_OUT:
+# an open PR at $PR_HEAD with these check lines (the fields of _view's rchecks).
+_checks() {
+    local item kind name concl
+    export MC_OUT="$STUB_DIR/checks.txt"
+    {
+        printf 'state\topen\nhead\t%s\n' "$PR_HEAD"
+        for item in "$@"; do
+            IFS='|' read -r kind name concl <<<"$item"
+            if [ -n "$concl" ]; then printf '%s\t%s\t-\t%s\n' "$kind" "$name" "$concl"
+            else printf '%s\t%s\t-\n' "$kind" "$name"; fi
+        done
+    } > "$MC_OUT"
+}
+
+# _custom: the project's code backend is the shipped scripts/code/custom.sh (exit 78
+# on mr-state), behind a wrapper that counts the call.
+_custom() {
+    cat > "$DEVAGENT_TMP/fake-code/custom.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >> "\$STUB_DIR/calls"
+exec "$DEVAGENT_ROOT/scripts/code/custom.sh" "\$@"
+EOF
+    chmod +x "$DEVAGENT_TMP/fake-code/custom.sh"
+    _set code_source.backend custom
+}
+
+@test "#1097 other backend: an open PR with a required check is [!] CI NOT CHECKED under both merge_mr values" {
+    _gitlab
+    _req "[\"$GBT\", \"lint\"]"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run                                    # the gitlab stub has no mr-checks: exit 2
+        _stop_is 20 "$(_nc "gitlab has no mr-checks" "$GBT, lint")"
+        _unstuck
+    done
+    [ "$(_calls mr-state)" -eq 2 ]
+    [ "$(_calls mr-checks)" -eq 2 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 local backend: CI NOT CHECKED; the script is never asked for mr-checks" {
+    cp "$DEVAGENT_TMP/fake-code/github.sh" "$DEVAGENT_TMP/fake-code/local.sh"
+    _set code_source.backend local
+    _req "[\"$GBT\"]"
+    _run
+    _stop_is 20 "$(_nc "local code backend")"
+    [ "$(_calls mr-state)" -eq 1 ]
+    [ "$(_calls mr-checks)" -eq 0 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+}
+
+@test "#1097 custom backend (mr-state exits 78) with a required check: CI NOT CHECKED" {
+    _custom
+    _req "[\"$GBT\"]"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run
+        _stop_is 20 "$(_nc "custom has no mr-state")"
+        _unstuck
+    done
+    [ "$(_calls mr-state)" -eq 2 ]
+    [ "$(_calls mr-checks)" -eq 0 ]
+    _gitlab                                     # an unknown verb (exit 2) is the same stop
+    STUB_MRSTATE_RC=2 run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 20 "$(_nc "gitlab has no mr-state")"
+}
+
+# inv: green before and after.
+@test "#1097 custom backend (mr-state exits 78) with no key or an empty list: today's [?] cannot read PR state" {
+    _custom
+    _run
+    _wait_is read "cannot read PR state on custom; merge by hand, then mark this step [x] with /devagent:checklist-mark"
+    _req '[]'
+    _run
+    _wait_is read "cannot read PR state on custom; merge by hand, then mark this step [x] with /devagent:checklist-mark"
+    [ "$(_calls mr-state)" -eq 2 ]
+    [ "$(_calls mr-checks)" -eq 0 ]
+}
+
+# inv: green before and after. No CI read unless the PR is open.
+@test "#1097 other backend: merged, closed and draft are unchanged" {
+    _gitlab
+    _req "[\"$GBT\"]"
+    STUB_MRSTATE=draft run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is 5 "draft PR"
+    STUB_MRSTATE=closed run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 4 "PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
+    _unstuck
+    STUB_MRSTATE=MERGED run "$MM" "$TEST_PROJECT" </dev/null
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    _mrlog | grep -qxF "PR $URL merged (merge commit -)"
+    [ "$(_calls mr-checks)" -eq 0 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+}
+
+@test "#1097 other backend with mr-checks: [?] names each required check" {
+    _gitlab
+    _req "[\"$GBT\", \"lint\", \"docs\"]"
+    _checks "pass|ci" "pass|$GBT|SUCCESS" "pass|lint|SKIPPED"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run
+        _wait_is 8 "waiting for merge (merge step supports github only); required checks at ${PR_HEAD:0:7}: $GBT: success; lint: skipped; docs: missing"
+    done
+    [ "$(_calls mr-checks)" -eq 2 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# inv: green before and after. Without the key nothing reads CI on another backend.
+@test "#1097 other backend with mr-checks and no key: today's [?], no CI read" {
+    _gitlab
+    _checks "pass|$GBT|SKIPPED"
+    _run
+    _wait_is 8 "waiting for merge (merge step supports github only)"
+    [[ "$output" != *"required checks"* ]]
+    [ "$(_calls mr-checks)" -eq 0 ]
+}
+
+@test "#1097 other backend: a failed mr-checks read waits, no STUCK" {
+    _gitlab
+    _req "[\"$GBT\"]"
+    _checks "pass|$GBT|SUCCESS"
+    STUB_CHECKS_RC=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read required checks on $URL: stub: mr-checks failed"
+    STUB_CHECKS_SLEEP=10 DEVAGENT_CI_READ_SECS=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read required checks on $URL: timed out after 1s"
+    printf 'state\topen\n' > "$MC_OUT"          # no head line: not an mr-checks reply
+    _run
+    _wait_is read "could not read required checks on $URL: unrecognised mr-checks output"
+    [ "$(_calls mr-checks)" -eq 3 ]
+}
+
+@test "#1097 a github backend without mr-view stops CI NOT CHECKED" {
+    _req "[\"$GBT\"]"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        for rc in 78 2; do
+            STUB_VIEW_RC=$rc run "$MM" "$TEST_PROJECT" </dev/null
+            _stop_is 20 "$(_nc "github has no mr-view")"
+            _unstuck
+        done
+    done
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# inv: green before and after. Only a missing verb is rule 20: a read that failed
+# another way still waits, with a required check too.
+@test "#1097 a github backend without mr-view and no key: today's read wait" {
+    STUB_VIEW_RC=78 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read PR $URL: github has no mr-view"
+    _req "[\"$GBT\"]"
+    STUB_VIEW_RC=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read PR $URL: HTTP 502: bad gateway"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 remedy: merge by hand, unstuck; the next run is [x]; unstuck alone stops again" {
+    _gitlab
+    _req "[\"$GBT\"]"
+    _run
+    _stop_is 20 "$(_nc "gitlab has no mr-checks")"
+    _preship                                    # operator-only: a passing preship leaves it
+    assert_step "$CL" 20 '!' mergemr
+    [ "$(_reason)" = "mergemr rule 20: $(_nc "gitlab has no mr-checks")" ]
+    _unstuck
+    _run                                        # unstuck alone: the PR is still open
+    _stop_is 20 "$(_nc "gitlab has no mr-checks")"
+    _unstuck
+    STUB_MRSTATE=MERGED run "$MM" "$TEST_PROJECT" </dev/null    # merged by hand
+    echo "status=$status output=$output" >&2
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _mrlog | grep -qxF "PR $URL merged (merge commit -)"
+    [ "$(_transitions)" -eq 1 ]
 }
