@@ -22,6 +22,10 @@ Each item links the first published release that has it.
   can name an issue in another of your projects, and the portfolio's ready
   list waits for it.
   [Release 3.0.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.0.0)
+- **Keeping an issue out of the work breakdown.** One command records that an
+  issue stays out of a project's work breakdown, so rebuilding it from the
+  tracker no longer brings the issue back.
+  [Release 3.4.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.4.0)
 
 ### Ship on evidence
 
@@ -63,6 +67,13 @@ Each item links the first published release that has it.
   ship with no forge and no push: it records the merge request locally and
   notices when you merge the branch yourself.
   [Release 3.2.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.2.0)
+
+### Several machines
+
+- **Shared records kept in step across machines.** When an issue closes,
+  devagent merges and pushes the records your machines share, so they stay in
+  step, and the status view counts any records not yet pushed.
+  [Release 3.4.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.4.0)
 
 ### Cost and rules
 
