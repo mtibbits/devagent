@@ -232,7 +232,7 @@ SLOTS
   run --separate-stderr "$PULL" wid origin 10
   [ "$status" -eq 1 ]
   [[ "$stderr" != *"simulated failure"* ]]
-  [[ "$stderr" == *"pull.sh: github.sh fetch failed for acme/widgets#10 (exit 1); its stderr is not shown under a trust policy: the operator can re-run 'github.sh fetch acme/widgets 10' by hand to see it"* ]]
+  [[ "$stderr" == *"pull.sh: github.sh fetch failed for acme/widgets#10 (exit 1); its stderr is not shown under a trust policy: the operator can re-run '"*"/scripts/issue/github.sh fetch acme/widgets 10 >/dev/null' by hand to see it"* ]]
   [ ! -e "$DEVDOC/Issue-10" ]
   _empty_staging
 }

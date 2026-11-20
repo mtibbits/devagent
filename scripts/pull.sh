@@ -56,7 +56,7 @@ _pull_staged() {
   rc=0
   "$backend_script" fetch "$repo" "$num" > "$STAGE_RAW" 2>/dev/null || rc=$?
   [[ "$rc" -eq 0 ]] \
-    || die "${backend}.sh fetch failed for ${repo}#${num} (exit $rc); its stderr is not shown under a trust policy: the operator can re-run '${backend}.sh fetch ${repo} ${num}' by hand to see it"
+    || die "${backend}.sh fetch failed for ${repo}#${num} (exit $rc); its stderr is not shown under a trust policy: the operator can re-run '${backend_script} fetch ${repo} ${num} >/dev/null' by hand to see it"
   rc=0
   staging_render "$repo" "$num" || rc=$?
   if [[ "$rc" -ne 0 ]]; then

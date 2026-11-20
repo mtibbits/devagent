@@ -476,7 +476,9 @@ quarantine_pull_guard() {
 # turn another's QUARANTINE into PASS. A source that could not run, or prints
 # anything but one listed token (`PASS` included), is no verdict: nothing on
 # stdout, and quarantine_verdict returns 3 (callers treat anything but the
-# exact word PASS as no verdict). Append a source; never reorder the floor.
+# exact word PASS as no verdict). Out of scope a source prints nothing and
+# returns 0: pull's no-policy path calls quarantine_verdict without capturing
+# its status, under `set -e`. Append a source; never reorder the floor.
 QUARANTINE_SOURCES=(_quarantine_src_floor _quarantine_src_seam)
 
 quarantine_verdict() {

@@ -179,8 +179,9 @@ Consumer action per code:
 - `1` under a trust policy, with nothing written (the fetch failed, the
   fetched text is not in the fetch layout, there was no quarantine verdict, or
   `issue.md` could not be written) → skip the ticket and surface it to the
-  operator; do not retry in a loop. The fetch-failure message says how to
-  re-run the backend's `fetch` by hand to see its stderr.
+  operator; do not retry in a loop. The fetch-failure message gives the
+  backend script's path and a command that re-runs its `fetch` by hand with
+  stdout discarded, so the operator sees its stderr and no ticket text.
 
 With no trust policy on the host and no quarantine marker in the issue dir, none of these codes is emitted.
 

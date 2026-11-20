@@ -24,8 +24,7 @@
 # addressed to the operator, never to the worker session.
 #
 # Reads only the candidate it is handed and TRUST_VAL; reads no config, writes
-# nothing, never dies. Load after io.sh (info). Source-only file: do not
-# execute directly.
+# nothing, never dies. Source-only file: do not execute directly.
 
 _FLOOR_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Issue-1050: the guard names every flags.sh function used here.
@@ -35,6 +34,8 @@ _FLOOR_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   || source "$_FLOOR_LIB_DIR/flags.sh"
 # shellcheck source=/dev/null
 declare -F _trust_list >/dev/null || source "$_FLOOR_LIB_DIR/trust.sh"
+# shellcheck source=/dev/null
+declare -F info >/dev/null || source "$_FLOOR_LIB_DIR/io.sh"
 
 FLOOR_CHECKS=(steering size)
 
