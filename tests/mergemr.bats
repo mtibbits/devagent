@@ -1817,6 +1817,21 @@ _next_run_merges() {
     [ ! -e "$MERGE_LOG" ]
 }
 
+# The merge's precondition, stated once before the merge call: unreachable while the
+# verdict arms hold, so the state is forced through a copy of the plugin whose
+# evaluator reports a required check as neither successful, bad, pending nor missing.
+@test "#1097 required: a required check that is not successful never reaches the merge call (forced state)" {
+    local root="$DEVAGENT_TMP/root"
+    mkdir -p "$root"
+    cp -R "$DEVAGENT_ROOT/scripts" "$root/scripts"
+    printf '%s\n' 'ci_required_eval() { RC_OK=0 RC_BAD="" RC_PENDING="" RC_MISSING="" RC_REPORT="$1: odd"; }' >> "$root/scripts/lib/ci.sh"
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SUCCESS"
+    DEVAGENT_ROOT="$root" run "$root/scripts/mergemr.sh" "$TEST_PROJECT" </dev/null
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT: odd; $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
 @test "#1097 merge_mr=false: the [?] line names each required check and its state at the head" {
     _req "[\"$GBT\", \"lint\", \"docs\"]"
     _setb permissions.merge_mr false

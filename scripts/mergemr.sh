@@ -284,6 +284,8 @@ _stop_unchecked() {
 }
 
 R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
+# rule 15's remedy for a required check that is not successful (#1097).
+R15_REQ_FIX="re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 
 # ---- rules 1-2: whatever the backend -------------------------------------------------
 
@@ -603,7 +605,7 @@ case "$CI_VERDICT" in
     red)                                                                      # rule 15
         _stop 15 "$CI_LINE; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;
     hold|proceed)                                 # rule 15; `;;&` goes on to the verdict's own arm
-        [ -z "$RC_BAD" ] || _stop 15 "required check not successful on head ${verified_head:0:7}: $RC_BAD${RC_MISSING:+; not reported: $RC_MISSING}; re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;&
+        [ -z "$RC_BAD" ] || _stop 15 "required check not successful on head ${verified_head:0:7}: $RC_BAD${RC_MISSING:+; not reported: $RC_MISSING}; $R15_REQ_FIX" ;;&
     hold)                                                                     # rule 16
         [ "$CI_RESULT" != none ] || _wait 16 "checks not reported yet (grace ${_CI_SECS}s)"
         _wait 16 "$CI_LINE" ;;
@@ -631,6 +633,14 @@ case "$MV_MERGESTATE" in                                                      # 
     CLEAN|HAS_HOOKS) ;;
     *) _stop 18 "blocked by a forge rule ($MV_MERGESTATE); resolve it on the forge, then run /devagent:unstuck" ;;
 esac
+
+# rule 15 once more (#1097), the merge's precondition stated in one place: nothing
+# below runs while a required check is not success. The verdict arms above already
+# stop or wait on every such state (a bad, pending or missing check), so this is
+# unreachable until one of them changes; it names every required check and its state.
+if [ "${#REQUIRED_CHECKS[@]}" -gt 0 ] && [ "$RC_OK" != 1 ]; then
+    _stop 15 "required check not successful on head ${verified_head:0:7}: $RC_REPORT; $R15_REQ_FIX"
+fi
 
 # rule 21 (#1097), the self-certification stop. It sits here, after the CI verdict is
 # green and every forge rule has passed, so one acknowledgment covers one green head;
