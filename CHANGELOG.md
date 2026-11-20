@@ -28,6 +28,96 @@ compiles the files into its dated section.
 
 ## [Unreleased]
 
+## [3.4.0] — 2026-11-19
+
+A minor release: a new command, new config and two fixes for unattended
+runs, with no change that breaks an existing project's `config.toml`, devdoc
+layout or command contract. Added: `/devagent:wbs exclude`, which writes a
+`wbs-exclude` line in `WBS.md` for you; an optional `[capacity]` config that
+`doctor` checks; a devDoc sync at cleanup, so with an `origin`,
+`commit_devdoc` now also means fetch, merge and push, and
+`/devagent:status` counts devDoc commits not yet on origin; and the launcher
+contract (a notifications file and the `DEVAGENT_UNATTENDED` marker), which
+no script writes to yet. Fixed: `/devagent:prune` no longer halts an
+unattended run on a one-task plan, and `/devagent:implement` keeps the work
+in the issue's recorded tree and leaves integrating the branch to ship and
+mergemr.
+
+- **Fixed: `/devagent:implement` keeps the work in the issue's recorded tree (#1153).**
+  On `superpowers:executing-plans`, a switch to
+  `subagent-driven-development` and the no-draft direct path, it now states
+  devagent's worktree preference: work in place in the recorded tree
+  (`worktree_path` when set, else `source_dir`) and create or enter no other
+  worktree. It also leaves the issue branch's integration to ship and
+  mergemr: no `finishing-a-development-branch`, and no merge, push, delete
+  or pull request of that branch. On a checklist with no branch step (a
+  one-shot), a push, merge or pull request that the issue names as the
+  work is still done. Checked with superpowers 7.0.2 in three unattended
+  runs, which kept the work on the issue branch in `source_dir`. The
+  original failure is intermittent, and a control run on the old text did
+  not reproduce it.
+  The no-superpowers fallback is unchanged.
+
+- **Added: cleanup syncs devDoc with origin and reports a failed sync (#1148).**
+  At the end of every close with `commit_devdoc = true`, a devDoc in git and an
+  `origin`, cleanup fetches origin's branch of the local branch's name, merges
+  it in (one `devagent` merge commit when the two diverged; never a rebase),
+  and pushes, carrying commits from `statusreport`, the pothole register and
+  earlier failed pushes too. The network calls run unlocked under one budget,
+  `DEVAGENT_DEVDOC_SYNC_SECS` (1-99999 s, default 30). A conflict, a file in
+  the way or a busy lock changes nothing (a push refused or skipped after a
+  merge keeps the merge commit locally for the next close to push), and each
+  prints one `WARNING: devDoc sync …` line with the reason and the next step;
+  cleanup still exits 0. A host without coreutils `timeout` skips the sync on
+  every close. `/devagent:status` now prints
+  `devDoc <repo>: <N> commits not on origin/<branch>, oldest <date>` for each
+  devDoc repository with unpushed commits. With an origin, `commit_devdoc` now
+  also means fetch, merge and push.
+
+- **Fixed: `/devagent:prune` no longer halts on a one-task plan (#1078).**
+  On a one-task plan with no `[defer]` item, nothing substantive out of
+  scope, and no operator note (`$NOTE`), it logs
+  `nothing to prune: one-task plan`, leaves an empty enhancements file for
+  tighten, and marks the step `[-]`, so `next --auto` goes on to tighten.
+  With a note, it still asks.
+
+- **Added: a launcher notifications file and an unattended marker (#961).**
+  `scripts/lib/notify.sh` is the one appender of
+  `$(devagent_home)/state/notifications.jsonl`: `notify_append` writes one
+  version-1 JSON line under a lock (10 s bound), `notify.sh --check` runs the
+  same field checks without writing, and `notify.sh --rotate <new-name>`
+  renames the file under the lock. `devagent_unattended` in
+  `scripts/lib/paths.sh` reads the `DEVAGENT_UNATTENDED` marker a launcher
+  sets; the test suite unsets it. No script writes a line yet: the writers
+  arrive with #962, #964, #965, #966 and #972. Spec §7.3 has the contract.
+
+- **Added: `/devagent:wbs exclude` writes a wbs-exclude line (#761).**
+  `/devagent:wbs exclude [project] <issue-id>...` adds the ids to one
+  `<!-- wbs-exclude: ... -->` line in `WBS.md`, so `wbs init --merge` and
+  `wbs update` leave those issues out. It checks every id first, with no
+  tracker call: a bad id, or a project with no source that has backend,
+  repo and `dir_prefix`, exits 2 and writes nothing. Ids already listed,
+  by the rule `wbs update` reads the lines with, are skipped. The line goes
+  after the last exclusion line, with its indentation, or at the end, and
+  is written under the devDoc lock only when the file gains that one line
+  and a re-parse lists exactly the new ids. It never removes or re-glyphs
+  a leaf.
+
+- **Added: declare operator capacity in config, checked by doctor (#743).**
+  A shared `[capacity]` table (operator hours, lane hours, the lane pool,
+  and a weekly and per-window token budget in weighted input-token
+  equivalents) and an optional `[project.<name>.capacity]` table (priority,
+  lane cap, `paused`, deadline, reservations) declare what the operator can
+  give devagent each week. `scripts/capacity.sh` resolves and validates them
+  into a versioned JSON document and exits 3 with one
+  `capacity: <where>: <rule>` line per violation. A bare `doctor` now ends
+  with a `[capacity]` block: two lines when nothing is declared
+  (`[capacity]` and `OK   capacity: not declared (forecasting off)`), a FAIL
+  per violation, and a WARN per unknown key. `doctor <project>` is
+  unchanged. devagent does not know the subscription's limits: the example
+  values in the config skeleton and `docs/configuration.md` are examples.
+  Dividing capacity and forecasting are planned (#744).
+
 ## [3.3.0] — 2026-11-18
 
 A minor release: new features and one changed default, with no change that

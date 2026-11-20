@@ -101,5 +101,11 @@ These are directions, not promises.
 - **Issues that carry their own plan.** Coming: on trackers you opt in, the
   issue becomes the one place its dependencies, parent, estimate and model
   tiers are kept, and the work breakdown copies them from there.
+- **Work across your machines.** Coming: one command to start a background
+  session on an issue on any of your machines, and one table of every
+  session, flagging the ones that are waiting on you.
+- **One issue, several small merge requests.** Coming: the plan splits a large
+  issue into slices that each land as their own reviewable merge request,
+  while the design and close-out happen once.
 
-Roadmap last checked against the open epics on 2026-11-18.
+Roadmap last checked against the open epics on 2026-11-19.
