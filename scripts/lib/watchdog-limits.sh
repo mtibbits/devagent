@@ -111,6 +111,53 @@ watchdog_limit() {
   return 0
 }
 
+# watchdog_analyze_window <project> <analyze timeout> — the silent window every
+# analyze leg declares, resolved once before any leg runs. Sets
+# WATCHDOG_ANALYZE_SECS and WATCHDOG_ANALYZE_NOTE. Returns
+#   0  WATCHDOG_ANALYZE_SECS holds seconds within the maximum. The note is
+#      empty, or a warning for the caller to print: analyze_silent_secs (or the
+#      maximum) could not be read, and the window is the derived one,
+#      min(<analyze timeout>, the maximum), by the shipped maximum if need be.
+#   2  analyze_silent_secs is set above the maximum: nothing may run. The note
+#      names the key, its value and the maximum.
+watchdog_analyze_window() {
+  local _wa_project="${1:-}" _wa_timeout="${2:-}" _wa_r=0 _wa_mr=0 _wa_value _wa_src _wa_max _wa_why=""
+  WATCHDOG_ANALYZE_SECS="" WATCHDOG_ANALYZE_NOTE=""
+  watchdog_limit analyze_silent_secs "$_wa_project" "$_wa_timeout" || _wa_r=$?
+  _wa_value="$WATCHDOG_LIMIT" _wa_src="$WATCHDOG_LIMIT_SRC"
+  if (( _wa_r == 0 )) && [[ "$_wa_src" == derived ]]; then
+    WATCHDOG_ANALYZE_SECS="$_wa_value"
+    return 0
+  fi
+  case "$_wa_r" in
+    0) ;;
+    2) _wa_why="analyze_silent_secs is not seconds from 1 to ${WATCHDOG_SECS_MAX}${_wa_src:+ in [${_wa_src}]}" ;;
+    *) _wa_why="analyze_silent_secs could not be read from the config" ;;
+  esac
+  watchdog_limit watchdog_silent_max_secs || _wa_mr=$?
+  _wa_max="$WATCHDOG_LIMIT"
+  if (( _wa_mr != 0 )); then
+    _wa_max="$WATCHDOG_DEFAULT_SILENT_MAX_SECS"
+    # An unset key fails here too (its derivation reads the maximum), so the
+    # maximum is the one fault this can name.
+    _wa_why="watchdog_silent_max_secs could not be read, so the shipped maximum of ${_wa_max} s stands in"
+  fi
+  if (( _wa_r == 0 )); then
+    if (( 10#$_wa_value > 10#$_wa_max )); then
+      WATCHDOG_ANALYZE_NOTE="analyze_silent_secs = ${_wa_value} s (${_wa_src}) exceeds the silent-window maximum, watchdog_silent_max_secs = ${_wa_max} s; set a window within the maximum (the maximum is operator-set, in [defaults])"
+      return 2
+    fi
+    WATCHDOG_ANALYZE_SECS="$_wa_value"
+  else
+    WATCHDOG_ANALYZE_SECS="$_wa_max"
+    if watchdog_secs_ok "$_wa_timeout" && (( 10#$_wa_timeout < 10#$_wa_max )); then
+      WATCHDOG_ANALYZE_SECS="$_wa_timeout"
+    fi
+  fi
+  [[ -z "$_wa_why" ]] || WATCHDOG_ANALYZE_NOTE="${_wa_why} (doctor names the value); the analyze legs declare a silent window of ${WATCHDOG_ANALYZE_SECS} s"
+  return 0
+}
+
 # watchdog_window <text> [<project>] [<maximum>] — the --silent grammar:
 # <N> or <N>m is N minutes (exactly N x 60 s), <N>s is N seconds, N matching
 # ^[1-9][0-9]{0,5}$. Sets WATCHDOG_WINDOW_SECS. Returns

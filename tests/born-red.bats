@@ -321,3 +321,44 @@ PYEOF
     [[ "$output" == *"UNMEASURABLE"* ]]
     [[ "$output" == *"DEVAGENT_PYTEST_PYTHON"* ]]
 }
+
+# --- #932: a classified row is progress ---
+#
+# born-red's own bats and pytest runs are short and many, so they are not
+# wrapped; the script moves the session's `script` heartbeat after each row
+# instead. The stub pre-dates that file every time it runs and records whether
+# it found it fresh, so each move is seen by the NEXT bats call: with two new
+# files the calls are base(1) head(1) base(2) head(2), and only a move after
+# row 1 makes base(2) see a fresh file.
+BR932_ID=0f8fad5b-d9cb-469f-a165-70867728950e
+
+@test "born-red moves script once per row (#932)" {
+    _add_real_test
+    _add_vacuous_test
+    printf '%s\n' 'tests/vacuous.bats :: always true — fixture' > "$DEVDOC_DIR/Issue-1/.devagent-born-red-allow"
+    export BR932_SCRIPT="$HOME/.claude/devagent/state/watchdog/$BR932_ID/script"
+    export BR932_REF="$DEVAGENT_TMP/ref"
+    touch -d '1 hour ago' "$BR932_REF"
+    mv "$DEVAGENT_TMP/binstub/bats" "$DEVAGENT_TMP/binstub/bats.real"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'if [ "$BR932_SCRIPT" -nt "$BR932_REF" ]; then echo fresh; else echo stale; fi >> "$DEVAGENT_TMP/seen-script"' \
+        '[ ! -e "$BR932_SCRIPT" ] || touch -d "2 hours ago" "$BR932_SCRIPT"' \
+        'exec bash "$0.real" "$@"' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$BR932_ID" \
+        "$DEVAGENT_ROOT/scripts/born-red.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c ' | baseline=' "$(_artifact)")" -eq 2 ]
+    # base(1): fresh from the script's entry; head(1): stale; base(2): fresh from
+    # row 1; head(2): stale; and row 2's move is the file's state at the end.
+    [ "$(tr '\n' ' ' < "$DEVAGENT_TMP/seen-script")" = "fresh stale fresh stale " ]
+    [ "$BR932_SCRIPT" -nt "$BR932_REF" ]
+}
+
+@test "born-red with no marker writes no heartbeat (#932)" {
+    _add_real_test
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run env "CLAUDE_CODE_SESSION_ID=$BR932_ID" \
+        "$DEVAGENT_ROOT/scripts/born-red.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ ! -e "$HOME/.claude/devagent/state/watchdog" ]
+}

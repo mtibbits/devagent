@@ -297,6 +297,13 @@ if [ -n "$_push_remote" ] && [ "$_push_remote" != "origin" ]; then
 fi
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
 
+# #932: the wrapper both suite captures run under (see the bats capture).
+# --project goes in only for a name the wrapper's grammar takes; any other
+# project runs without it, on the [defaults] interval.
+long_run=(bash "$DEVAGENT_ROOT/libexec/long-run.sh" --merge)
+[[ ! "$project" =~ ^[A-Za-z0-9_-]+$ ]] || long_run+=(--project "$project")
+long_run+=(--)
+
 bats_line="bats: (none)"
 bats_jobs_line="bats_jobs: (none)"
 if $has_bats; then
@@ -353,12 +360,17 @@ if $has_bats; then
   # Not absolute, for either set: SUITE_ENV_ASSIGNMENTS is spliced AFTER these flags,
   # and `env -u X X=8` still exports X=8 — so a project that declares one of these
   # names in its own [project.<name>.suite_env] (#603) re-injects it deliberately.
-  tap="$(env "${SUITE_CHILD_UNSET[@]}" \
+  # #932: the capture runs under libexec/long-run.sh, so a long suite's output is
+  # the session's progress. --merge because the capture ended `2>&1`: the suite's
+  # stderr joins its stdout in one pipe and their order stays the suite's own.
+  # The wrapper sits OUTSIDE the env -u list: it sees the unattended marker, and
+  # the suite's children still do not.
+  tap="$("${long_run[@]}" env "${SUITE_CHILD_UNSET[@]}" \
            -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES \
            -u BATS_PARALLEL_BINARY_NAME \
            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
            LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" \
-           bats --tap "${bats_flags[@]+"${bats_flags[@]}"}" tests/ 2>&1 || true)"
+           bats --tap "${bats_flags[@]+"${bats_flags[@]}"}" tests/ || true)"
   ok="$(printf '%s\n' "$tap"    | grep -c '^ok '     || true)"
   notok="$(printf '%s\n' "$tap" | grep -c '^not ok ' || true)"
   plan="$(printf '%s\n' "$tap"  | sed -n 's/^1\.\.\([0-9][0-9]*\)$/\1/p' | tail -1)"
@@ -419,9 +431,10 @@ if $has_pytest; then
   # Both faults are the same mistake: reading prose where an authoritative signal
   # exists. The exit code IS that signal (pytest documents 0/1/2/3/4/5).
   pout=""; prc=0
-  pout="$(env "${SUITE_CHILD_UNSET[@]}" \
+  # #932: wrapped like the bats capture above; the wrapper's exit code is pytest's.
+  pout="$("${long_run[@]}" env "${SUITE_CHILD_UNSET[@]}" \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
-            "$py" -m pytest tests/ -q 2>&1)" || prc=$?
+            "$py" -m pytest tests/ -q)" || prc=$?
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
   # column 0, which pytest -q's summary ("285 passed, 9 skipped in Xs") always
   # is. The prior sed required a non-digit BEFORE the digits and so recorded 0

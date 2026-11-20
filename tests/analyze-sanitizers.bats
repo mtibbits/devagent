@@ -346,3 +346,124 @@ _failing_bin() {
         grep -q 'exit=0' "$(_san_artifact "$tag")"
     done
 }
+
+# --- #932: every leg runs under libexec/long-run.sh, in the stream shape it had ---
+#
+# Configure and build wrote `2>&1` into the artifact and now pass --merge; ctest
+# kept its stderr out of the artifact and still does (two streams). Each leg
+# declares the silent window resolved ONCE, before any leg: analyze_silent_secs,
+# or min(the analyze timeout, watchdog_silent_max_secs) when that key is unset.
+# The window tests read the window file the wrapper holds open WHILE a stub
+# runs, so they assert what `watchdog.sh check` would read, not an argv.
+SAN_ID=0f8fad5b-d9cb-469f-a165-70867728950e
+_san_cfg()  { printf '%s' "$HOME/.claude/devagent/config.toml"; }
+_san_wd()   { printf '%s' "$HOME/.claude/devagent/state/watchdog"; }
+_san_unattended() {
+    run env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$SAN_ID" "$@" \
+        "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+}
+# cmake and ctest stubs that append the live window (one line per call) to
+# $DEVAGENT_TMP/seen-window; no window open reads as `none`.
+_san_window_stubs() {
+    local cmd
+    export SAN_WD_DIR; SAN_WD_DIR="$(_san_wd)/$SAN_ID"
+    for cmd in cmake ctest; do
+        printf '%s\n' '#!/usr/bin/env bash' \
+            "echo \"$cmd \$*\" >> \"\$DEVAGENT_STUB_LOG\"" \
+            'cat "$SAN_WD_DIR"/wrap.*.window >> "$DEVAGENT_TMP/seen-window" 2>/dev/null || echo none >> "$DEVAGENT_TMP/seen-window"' \
+            > "$DEVAGENT_STUB_BIN/$cmd"
+        chmod +x "$DEVAGENT_STUB_BIN/$cmd"
+    done
+}
+# 9 = three legs x (configure, build, ctest), every one under the same window.
+_san_windows_all() {
+    [ "$(wc -l < "$DEVAGENT_TMP/seen-window")" -eq 9 ]
+    [ "$(sort -u "$DEVAGENT_TMP/seen-window")" = "$1" ]
+}
+
+@test "attended sanitizer artifacts are unchanged (#932)" {
+    printf '%s\n' '#!/usr/bin/env bash' 'echo c-out' 'echo c-err >&2' > "$DEVAGENT_STUB_BIN/cmake"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo t-out' 'echo t-err >&2' > "$DEVAGENT_STUB_BIN/ctest"
+    chmod +x "$DEVAGENT_STUB_BIN/cmake" "$DEVAGENT_STUB_BIN/ctest"
+    run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # The artifact, whole: configure and build merged (stdout then stderr, the
+    # stub's own order), ctest's stdout only.
+    local tag
+    for tag in asan ubsan tsan; do
+        printf '%s\n' "=== $tag ===" "analyzer: $tag (version unknown)" \
+            c-out c-err c-out c-err t-out exit=0 > "$DEVAGENT_TMP/want.txt"
+        diff "$DEVAGENT_TMP/want.txt" "$(_san_artifact "$tag")"
+    done
+    # ctest's stderr reaches the caller, once per leg, and nothing else does.
+    [ "$output" = "$(printf 't-err\nt-err\nt-err')" ]
+    # Attended: no session directory; the wrapper's logs are the only trace.
+    [ -z "$(find "$(_san_wd)" -mindepth 1 -maxdepth 1 ! -name logs 2>/dev/null)" ]
+    [ "$(find "$(_san_wd)/logs" -name 'no-session.*.log' | wc -l)" -eq 12 ]   # 3 x (1 + 1 + 2)
+}
+
+@test "a timed-out analyze leg still records \"timed out >Ns\" under the wrapper (#932)" {
+    cat > "$DEVAGENT_STUB_BIN/ctest" <<'STUB'
+#!/usr/bin/env bash
+echo "ctest $*" >> "$DEVAGENT_STUB_LOG"
+exec sleep 300
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/ctest"
+    _san_unattended DEVAGENT_ANALYZE_TIMEOUT=1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"asan (ctest timed out >1s)"* ]]
+    [[ "$output" == *"tsan (ctest timed out >1s)"* ]]
+    grep -q '^ctest timed out (>1s — killed by timeout(1)); exit=124$' "$(_san_artifact asan)"
+    # The run was a watched one: nine wrapped legs, and no window outlives them.
+    [ "$(find "$(_san_wd)/$SAN_ID" -name 'wrap.*' ! -name '*.window' | wc -l)" -eq 9 ]
+    [ -z "$(find "$(_san_wd)/$SAN_ID" -name '*.window')" ]
+}
+
+@test "analyze_silent_secs above the maximum fails before any leg runs (#932)" {
+    devagent_config_set_int "$(_san_cfg)" defaults.watchdog_silent_max_secs 60
+    devagent_config_set_int "$(_san_cfg)" "project.$TEST_PROJECT.analyze_silent_secs" 61
+    run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    devagent_refute_logged 'cmake'
+    devagent_refute_logged 'ctest'
+    [ ! -e "$(_san_artifact asan)" ]
+    [[ "$output" == *"analyze_silent_secs"* ]]
+    [[ "$output" == *"61"* ]]
+    [[ "$output" == *"watchdog_silent_max_secs"* ]]
+    [[ "$output" == *"60"* ]]
+}
+
+@test "analyze_silent_secs equal to a 3590 maximum runs the legs with a 3590 window (#932)" {
+    devagent_config_set_int "$(_san_cfg)" defaults.watchdog_silent_max_secs 3590
+    devagent_config_set_int "$(_san_cfg)" "project.$TEST_PROJECT.analyze_silent_secs" 3590
+    _san_window_stubs
+    _san_unattended
+    [ "$status" -eq 0 ]
+    _san_windows_all 3590
+}
+
+@test "unset analyze_silent_secs: the legs declare min(analyze timeout, maximum) (#932)" {
+    _san_window_stubs
+    _san_unattended                         # the default budget, 1800 s, under the shipped 3600
+    [ "$status" -eq 0 ]
+    _san_windows_all 1800
+}
+
+@test "a malformed analyze_silent_secs warns once and the legs take the derived window (#932)" {
+    devagent_config_set "$(_san_cfg)" "project.$TEST_PROJECT.analyze_silent_secs" abc
+    _san_window_stubs
+    _san_unattended DEVAGENT_ANALYZE_TIMEOUT=50
+    [ "$status" -eq 0 ]
+    _san_windows_all 50
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/out.txt"
+    [ "$(grep -c 'analyze_silent_secs' "$DEVAGENT_TMP/out.txt")" -eq 1 ]
+    grep -q 'WARNING: .*analyze_silent_secs.*50 s' "$DEVAGENT_TMP/out.txt"
+}
+
+@test "an attended run opens no window and creates no session directory (#932)" {
+    _san_window_stubs
+    run env "CLAUDE_CODE_SESSION_ID=$SAN_ID" "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    _san_windows_all none
+    [ ! -e "$(_san_wd)/$SAN_ID" ]
+}
