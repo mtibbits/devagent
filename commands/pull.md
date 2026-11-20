@@ -177,10 +177,10 @@ Consumer action per code:
 - `9` → stop polling: the host needs fixing, and a retry will refuse again.
 - `10` → retry later: a check could not run (network, rate limit, 5xx). Under trust a missing or inaccessible issue also reads 10 (the `events` read cannot tell a 404 from an outage; its detail carries the backend's message), so bound the retries per ticket.
 - `11` → skip the ticket; a human must release it.
-- `1` under a trust policy, with nothing written (the fetch failed, the
-  fetched text is not in the fetch layout, there was no quarantine verdict, or
-  `issue.md` could not be written) → skip the ticket and surface it to the
-  operator; do not retry in a loop. The fetch-failure message gives the
+- `1` under a trust policy, with nothing written (the staging dir could not
+  be created, the fetch failed, the fetched text is not in the fetch layout,
+  there was no quarantine verdict, or `issue.md` could not be written) → skip
+  the ticket and surface it to the operator; do not retry in a loop. The fetch-failure message gives the
   backend script's path and a command that re-runs its `fetch` by hand with
   stdout discarded, so the operator sees its stderr and no ticket text.
 

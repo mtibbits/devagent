@@ -39,7 +39,8 @@ _staging_canon() {
 # staging_open <project> <issue_id> <devdoc_dir>: make this pull's staging dir.
 # SETTER-GLOBAL STAGE_DIR STAGE_RAW STAGE_MD — call it bare. Dies when
 # the staging root resolves inside <devdoc_dir> (checked before anything is
-# created), so staged text can never sit under a devdoc tree.
+# created), so staged text never sits under this project's devdoc tree. Returns
+# non-zero, with no staging dir made, when the root or the dir cannot be made.
 staging_open() {
   local project="$1" id="$2" devdoc="$3" root croot cdev
   root="$(devagent_home)/state/staging"
@@ -49,11 +50,10 @@ staging_open() {
   case "$croot/" in
     "$cdev"/*) die "the staging root $root is inside devdoc_dir $devdoc; move devagent_home or devdoc_dir apart" ;;
   esac
-  mkdir -p "$root"
-  chmod 700 "$root"
-  root="$(cd "$root" && pwd -P)"
+  STAGE_DIR=""
+  mkdir -p "$root" && chmod 700 "$root" && root="$(cd "$root" && pwd -P)" || return
   find "$root" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null || true
-  STAGE_DIR="$(mktemp -d "$root/$project.$id.XXXXXX")"
+  STAGE_DIR="$(mktemp -d "$root/$project.$id.XXXXXX")" || return
   STAGE_RAW="$STAGE_DIR/fetch.raw"
   STAGE_MD="$STAGE_DIR/issue.md"
 }

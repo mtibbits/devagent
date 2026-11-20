@@ -397,3 +397,13 @@ event 2026-11-02T12:00:00Z 3" ]
   [ "$(sed -n 3p "$DEVDOC/Issue-9/QUARANTINE")" = "reason steering" ]
   [ ! -e "$DEVDOC/Issue-9/issue.md" ]
 }
+
+@test "pull: a staging dir that cannot be created dies with the fixed message (red team)" {
+  qf_policy separate
+  mkdir -p "$DA_HOME/state"
+  : > "$STAGING"   # a file where the staging root should be
+  run --separate-stderr "$PULL" wid origin 9
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"pull.sh: could not create the staging dir for acme/widgets#9 (exit 1); nothing was written"* ]]
+  [ ! -e "$DEVDOC/Issue-9" ]
+}

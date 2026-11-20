@@ -51,7 +51,9 @@ _pull_staged() {
   local project="$1" issue_id="$2" issue_dir="$3" devdoc="$4" backend="$5" repo="$6" num="$7"
   local backend_script="$PLUGIN_ROOT/scripts/issue/${backend}.sh" verdict rc
   [[ -x "$backend_script" ]] || die "backend script not executable: $backend_script"
-  staging_open "$project" "$issue_id" "$devdoc"
+  rc=0
+  staging_open "$project" "$issue_id" "$devdoc" || rc=$?
+  [[ "$rc" -eq 0 ]] || die "could not create the staging dir for ${repo}#${num} (exit $rc); nothing was written"
   trap staging_discard EXIT
   rc=0
   "$backend_script" fetch "$repo" "$num" > "$STAGE_RAW" 2>/dev/null || rc=$?

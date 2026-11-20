@@ -285,6 +285,16 @@ PY
   [ ! -e "$DA_HOME/state/staging" ]
 }
 
+@test "staging: open returns non-zero and makes no dir when the root cannot be made (red team)" {
+  mkdir -p "$DA_HOME/state"
+  : > "$DA_HOME/state/staging"   # a file where the root should be: mkdir -p fails
+  local rc=0
+  staging_open wid Issue-7 "$DEVDOC" 2>/dev/null || rc=$?
+  [ "$rc" -ne 0 ]
+  [ -z "$STAGE_DIR" ]
+  [ -f "$DA_HOME/state/staging" ]
+}
+
 @test "staging: open works before the devdoc dir exists and creates nothing under it" {
   [ ! -e "$BATS_TEST_TMPDIR/devDoc" ]
   staging_open wid Issue-7 "$DEVDOC"
