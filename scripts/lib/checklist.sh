@@ -627,3 +627,31 @@ checklist_template_name() {
   printf '%s\n' "$out"
   return 0
 }
+
+# stuck_kind <issue-dir> — #962: the ONE reader of a STUCK's `Kind:` header.
+# Prints `none` when <issue-dir>/STUCK neither exists nor is a dangling link;
+# otherwise reads the header (lines up to the first blank line or `## `
+# heading), strips CR and surrounding blanks, and prints the first non-empty
+# `Kind:` value, else `stuck` (every STUCK written before #962 has no Kind line).
+# A STUCK it cannot read (a directory, a dangling link, no permission) prints
+# `stuck`, never `none`: "cannot tell" is not "absent" (register S:243).
+# Always returns 0, so it is safe inside `$( ... )` under errexit.
+stuck_kind() {
+  local f="$1/STUCK" kind=""
+  if [[ ! -e "$f" && ! -L "$f" ]]; then
+    printf 'none\n'
+    return 0
+  fi
+  if [[ -f "$f" && -r "$f" ]]; then
+    kind="$(awk '
+      { sub(/\r$/, "") }
+      /^[ \t]*$/ || /^## / { exit }
+      /^Kind:/ {
+        v = $0; sub(/^Kind:/, "", v); gsub(/^[ \t]+|[ \t]+$/, "", v)
+        if (v != "") { print v; exit }
+      }
+    ' "$f" 2>/dev/null)" || kind=""
+  fi
+  printf '%s\n' "${kind:-stuck}"
+  return 0
+}
