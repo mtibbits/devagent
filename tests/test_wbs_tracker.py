@@ -390,3 +390,11 @@ def test_names_issue_delegates_to_same_issue():
     assert calls, "names_issue does not call same_issue"
     assert not [n for n in ast.walk(fn) if isinstance(n, ast.Compare)
                 and any(isinstance(op, ast.Is) for op in n.ops)]
+
+
+def test_row_re_name_group():
+    # #734: milestones.py reads step names through the shared step-row
+    # predicate; group 1 (the glyph) is what checklist_state reads.
+    m = wbs_tracker.ROW_RE.match("- [x]  9. implement")
+    assert m.group("name") == "implement"
+    assert m.group(1) == "x"
