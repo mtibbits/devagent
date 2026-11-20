@@ -109,6 +109,7 @@ _argv_for() {
                                  ARGS=(wid) ;;
     capture/file)                ARGS=(--slug idea --target origin) ;;
     resume|switch)               ARGS=(wid Issue-8) ;;
+    hold)                        ARGS=(wid Issue-7 --step draft --reason r --question-file "$BATS_TEST_TMPDIR/q.md") ;;
     stuck)                       ARGS=(wid "a reason") ;;
     revise)                      ARGS=(wid --no-chain) ;;
     spike)                       ARGS=(create wid) ;;
@@ -197,6 +198,20 @@ _lib() {
     fi
   done
   [ "$fails" -eq 0 ]
+}
+
+# #962: hold.sh reads the unattended marker to choose ask or hold; the loop
+# above runs it with the marker unset, this case with it set.
+@test "entry-points: hold refuses with 9 and writes nothing with the marker set" {
+  _wid
+  _argv_for hold
+  : > "$BATS_TEST_TMPDIR/q.md"
+  local before
+  before="$(_snap)"
+  DEVAGENT_UNATTENDED=1 run --separate-stderr "$PLUGIN_ROOT/scripts/hold.sh" "${ARGS[@]}"
+  [ "$status" -eq 9 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  [[ "$stderr" == *"trust: account github:1001 is in trusted_approvers"* ]]
+  [ "$(_snap)" = "$before" ]
 }
 
 @test "file: project derived from devdoc_dir; zero or two matches refuse 9" {

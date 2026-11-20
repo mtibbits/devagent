@@ -156,3 +156,197 @@ _question_stuck() {
   grep -qE '^- \[P\]  5\. improve$' "$CK"
   grep -qE '^- [0-9-]+ [0-9:]+  park: issue parked \(row 5 improve was \[~\]\)$' "$CK"
 }
+
+# ---- hold.sh entry, validation and the ask (Task 5) ----
+
+H="$PLUGIN_ROOT/scripts/hold.sh"
+
+# _refused <id>: the last run exited 2 with that refusal id on stderr.
+_refused() {
+  [ "$status" -eq 2 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  [[ "$stderr" == "hold.sh: refused ($1): "* ]] || { echo "want $1, stderr=$stderr" >&2; return 1; }
+}
+
+@test "hold: hold.sh is tracked 100755" {
+  run git -C "$PLUGIN_ROOT" ls-files -s scripts/hold.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == 100755\ * ]]
+}
+
+@test "hold: usage errors exit 2 and write nothing" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local q="$BATS_TEST_TMPDIR/q.md" before n=0
+  before="$(_snap)"
+  _row() {
+    local id="$1"; shift
+    run --separate-stderr "$H" "$@"
+    _refused "$id" || { echo "row: $*" >&2; return 1; }
+    [ "$(_snap)" = "$before" ] || { echo "wrote: $*" >&2; return 1; }
+    n=$((n + 1))
+  }
+  _row usage toy Issue-7 --reason r --question-file "$q"
+  _row usage toy Issue-7 --step improve --reason r --question-file "$q" --bogus
+  _row usage toy Issue-7 --step improve --reason r
+  _row usage toy Issue-7 --step improve
+  _row usage toy Issue-7 --step "" --reason r --question-file "$q"
+  _row usage nope Issue-7 --step improve --reason r --question-file "$q"
+  _row step toy Issue-7 --step spike --reason r --question-file "$q"
+  printf '%s\n' '' '## Revision 2' '' '- [ ]  6. prune' >> "$CK"
+  before="$(_snap)"
+  _row step toy Issue-7 --step improve --reason r --question-file "$q"
+  [ "$n" -eq 8 ]
+}
+
+@test "hold: an empty, multi-line or 201-byte reason exits 2 and writes nothing" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local before long n=0 r m
+  long="$(printf '€%.0s' $(seq 1 67))"   # 67 three-byte characters: 201 bytes
+  [ "$(printf '%s' "$long" | LC_ALL=C wc -c)" -eq 201 ]
+  before="$(_snap)"
+  for r in " " $'two\nlines' "$long"; do
+    for m in "" 1; do
+      DEVAGENT_UNATTENDED="$m" LC_ALL=C.UTF-8 run --separate-stderr "$H" toy Issue-7 --step improve --reason "$r" --question-file "$BATS_TEST_TMPDIR/q.md"
+      _refused reason
+      [ "$(_snap)" = "$before" ]
+      n=$((n + 1))
+    done
+  done
+  [ "$n" -eq 6 ]
+}
+
+@test "hold: a checklist with no Log section exits 2 no-log and writes nothing" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  sed -i '/^## Log$/d' "$CK"
+  local before
+  before="$(_snap)"
+  run --separate-stderr "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  _refused no-log
+  [ "$(_snap)" = "$before" ]
+}
+
+@test "hold: a step marked [x] or [-] exits 2 step-done and writes nothing" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  sed -i 's/^- \[ \]  6\. prune/- [-]  6. prune/' "$CK"
+  local before s n=0
+  before="$(_snap)"
+  for s in scope prune; do
+    run --separate-stderr "$H" toy Issue-7 --step "$s" --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+    _refused step-done
+    [ "$(_snap)" = "$before" ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 2 ]
+}
+
+@test "hold: a malformed question file exits 2 with its id and writes nothing in both modes" {
+  local q="$BATS_TEST_TMPDIR/q.md" f="$BATS_TEST_TMPDIR/bad.md" before n=0 m
+  _q "$q"
+  before="$(_snap)"
+  _row() {
+    for m in "" 1; do
+      DEVAGENT_UNATTENDED="$m" run --separate-stderr "$H" toy Issue-7 --step improve --reason r --question-file "$f"
+      _refused "$1"
+      [ "$(_snap)" = "$before" ]
+      [[ "$stderr" != *Proceed* ]]
+    done
+    n=$((n + 1))
+  }
+  awk '/^## /{skip = ($0 == "## Evidence")} !skip' "$q" > "$f";  _row section
+  sed '/^- `/d' "$q" > "$f";                                     _row option
+  sed 's/^- `b`/- `b` (recommended)/' "$q" > "$f";               _row recommended
+  sed 's/^- `b`/- `a`/' "$q" > "$f";                             _row option-id
+  sed 's/^- `b`/- `b` [probe: ok]/' "$q" > "$f";                 _row tag
+  [ "$n" -eq 5 ]
+}
+
+# _tree: a copy of scripts/ and templates/ for a test that needs the probe tag,
+# a stub park.sh or a fixture step. Sets TREE.
+_tree() {
+  TREE="$BATS_TEST_TMPDIR/tree"
+  mkdir -p "$TREE"
+  cp -r "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/templates" "$TREE/"
+}
+
+@test "hold: a registered tag whose check fails exits 2 and writes nothing" {
+  _tree
+  cat "$PLUGIN_ROOT/tests/fixtures/hold/test-tag.sh" >> "$TREE/scripts/lib/question-actions.sh"
+  local q="$BATS_TEST_TMPDIR/q.md" before m
+  _q "$q"
+  sed -i 's/^- `b`/- `b` [probe: no]/' "$q"
+  before="$(_snap)"
+  for m in "" 1; do
+    DEVAGENT_UNATTENDED="$m" run --separate-stderr "$TREE/scripts/hold.sh" toy Issue-7 --step improve --reason r --question-file "$q"
+    _refused tag-check
+    [ "$(_snap)" = "$before" ]
+  done
+  sed -i 's/\[probe: no\]/[probe: ok]/' "$q"
+  run --separate-stderr "$TREE/scripts/hold.sh" toy Issue-7 --step improve --reason r --question-file "$q"
+  [ "$status" -eq 3 ]
+}
+
+@test "ask: with the marker unset hold.sh writes the open record, prints its path and exits 3" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local ck st
+  ck="$(sha256sum < "$CK")" st="$(sha256sum < "$DA_HOME/state/toy.toml")"
+  run --separate-stderr "$H" toy Issue-7 --step improve --reason "improve: 14 bugs" --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  [ "$output" = "$D/questions/01-improve.md" ]
+  local r="$D/questions/01-improve.md"
+  [ "$(sed -n 1,5p "$r" | cut -c1-13)" = "Kind:        
+Step:        
+Reason:      
+Last good:   
+Created:     " ]
+  [ "$(sed -n 1,4p "$r")" = "Kind:        question
+Step:        5 improve
+Reason:      improve: 14 bugs
+Last good:   4 scope" ]
+  sed -n 5p "$r" | grep -qE '^Created:     [0-9]{4}-[0-9]{2}-[0-9]{2}T'
+  [ "$(grep '^## ' "$r" | tr '\n' '|')" = "## Question|## Impediment|## Options|## Evidence|## How to answer|" ]
+  [ ! -e "$D/STUCK" ]
+  [ "$(sha256sum < "$CK")" = "$ck" ]
+  [ "$(sha256sum < "$DA_HOME/state/toy.toml")" = "$st" ]
+  [ ! -e "$DA_HOME/state/notifications.jsonl" ]
+  [ ! -e "$D/questions/.lock" ]
+  [ "$(find "$D/questions" -type f | wc -l)" -eq 1 ]
+}
+
+@test "ask: a second call for the step reuses the number and rewrites the record" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  run "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  sed 's/Proceed with round 4?/Stop now?/' "$BATS_TEST_TMPDIR/q.md" > "$BATS_TEST_TMPDIR/q2.md"
+  run "$H" toy Issue-7 --step improve --reason r2 --question-file "$BATS_TEST_TMPDIR/q2.md"
+  [ "$status" -eq 3 ]
+  [ "$output" = "$D/questions/01-improve.md" ]
+  [ "$(find "$D/questions" -type f | wc -l)" -eq 1 ]
+  grep -q '^Stop now?$' "$D/questions/01-improve.md"
+  ! grep -q 'Proceed' "$D/questions/01-improve.md"
+}
+
+@test "ask: DEVAGENT_CHAIN_ACTIVE does not change the mode" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  DEVAGENT_CHAIN_ACTIVE=1 run "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  [ ! -e "$D/STUCK" ]
+}
+
+@test "ask: a notify-only or answered record for the step is not reused" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  _lib
+  mkdir -p "$D/questions"
+  question_render "$BATS_TEST_TMPDIR/q.md" toy Issue-7 improve 5 r "4 scope" 01 t > "$D/questions/01-improve.md"
+  printf '\n## Answer\n\na\n' >> "$D/questions/01-improve.md"
+  local a b
+  a="$(sha256sum < "$D/questions/01-improve.md")"
+  run "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  [ "$output" = "$D/questions/02-improve.md" ]
+  [ "$(sha256sum < "$D/questions/01-improve.md")" = "$a" ]
+  sed -i '1a Blocking:    no' "$D/questions/02-improve.md"
+  b="$(sha256sum < "$D/questions/02-improve.md")"
+  run "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  [ "$output" = "$D/questions/03-improve.md" ]
+  [ "$(sha256sum < "$D/questions/02-improve.md")" = "$b" ]
+}

@@ -49,7 +49,7 @@ _names() { sed -e "s|^$PLUGIN_ROOT/scripts/||" -e 's|\.sh$||' | sort; }
   found="$(MSYS_NO_PATHCONV=1 grep -lE "$GUARD_RE" "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh | _names)"
   want="$(printf '%s\n' "${QUARANTINE_GUARD_POINTS[@]}" | sort)"
   [ "$found" = "$want" ] || { diff <(echo "$want") <(echo "$found") >&2; false; }
-  [ "${#QUARANTINE_GUARD_POINTS[@]}" -eq 44 ]   # #1122: claims-check, preship-preflight
+  [ "${#QUARANTINE_GUARD_POINTS[@]}" -eq 45 ]   # #1122: claims-check, preship-preflight; #962: hold
 }
 
 @test "census: every script calling issue_context_dir|issue_dir_for|active_resolve_issue is guarded or on the reader allow-list" {
@@ -113,6 +113,7 @@ declare -gA EARLY_READ=(
     "checklist-advance $D" "checklist-init --project wid $D" "checklist-stuck $D a-reason"
     "checklist-log $D draft a-message" "stuck wid a-reason" "branch wid" "spike create wid"
     "mergemr wid" "comments wid" "analyze wid" "rebaseline wid" "depends --project wid Issue-7 on Issue-8"
+    "hold wid Issue-7 --step draft --reason r --question-file $BATS_TEST_TMPDIR/q.md"
   )
   for i in "${cases[@]}"; do
     # shellcheck disable=SC2086  # word-split each case on purpose
@@ -133,6 +134,24 @@ declare -gA EARLY_READ=(
   [ "$(_sha "$D/checklist.md")" = "$cl" ] || { echo "checklist changed" >&2; fails=$((fails + 1)); }
   [ ! -s "$QB_DIR/calls" ] || { echo "backend calls: $(cat "$QB_DIR/calls")" >&2; fails=$((fails + 1)); }
   [ "$fails" -eq 0 ]
+}
+
+@test "entry: hold on a marked issue exits 11 and writes nothing, marker set and unset" {
+  _mark "$D"
+  local want st cl m q="$BATS_TEST_TMPDIR/q.md"
+  printf '## Question\n\nq?\n\n## Impediment\n\ni\n\n## Options\n\n- `a` (recommended) A.\n\n## Evidence\n\ne\n' > "$q"
+  want="$(_msg)"
+  st="$(_sha "$STATE")" cl="$(_sha "$D/checklist.md")"
+  for m in "" 1; do
+    DEVAGENT_UNATTENDED="$m" run --separate-stderr "$S/hold.sh" wid Issue-7 --step draft --reason r --question-file "$q"
+    [ "$status" -eq 11 ] || { echo "marker=$m rc=$status err=$stderr" >&2; return 1; }
+    [ "$stderr" = "$want" ]
+    [ ! -e "$D/STUCK" ] || ! grep -q '^Kind:' "$D/STUCK"
+    [ ! -e "$D/questions" ]
+  done
+  [ "$(_sha "$STATE")" = "$st" ]
+  [ "$(_sha "$D/checklist.md")" = "$cl" ]
+  [ ! -e "$DA_HOME/state/notifications.jsonl" ]
 }
 
 @test "entry: tracker label applied mid-work → next rc 11, marker created; ship makes no push call" {
