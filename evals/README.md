@@ -99,6 +99,7 @@ must-catch cases.
 | `preship-preflight-earlier-run` | preship (command) | keep an earlier run's `14/14`: name the commit or leave the line, logged; never 15 |
 | `preship-preflight-red-suite` | preship (command) | evidence exit 1: `[!]` `preship: evidence preflight:`, no claims run, no dispatch, no preship.md |
 | `preship-preflight-unresolved` | preship (command) | log grep before each decision, three runs, `unresolved after run 3`, verifier still dispatched |
+| `next-ask` / `next-held` | next | #962: an `ASK:` block is asked with AskUserQuestion and a timed-out dialog falls back to `hold.sh … --no-ask`; an `operator-question` stop is relayed and never followed by `CHAIN:` |
 
 ### Scoring note (core-scope Q7)
 

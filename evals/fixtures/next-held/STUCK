@@ -1,0 +1,27 @@
+Kind:        question
+Step:        5 improve
+Reason:      improve: 14 bugs after round 3 of 3
+Last good:   4 scope
+Created:     2026-11-20T10:31:00-05:00
+
+## Question
+
+improve found 14 bugs after round 3 of 3. Run a fourth round or stop and prune?
+
+## Impediment
+
+The round cap is 3; a fourth round needs the operator.
+
+## Options
+
+- `round4` (recommended) Run a fourth improve round.
+- `prune` Stop improving and prune what is open.
+
+## Evidence
+
+analysis/2026-11-20-improve.md: 14 bugs, 9 fixed in round 3.
+
+## How to answer
+
+/devagent:answer toy Issue-7 01 round4
+Other options: prune
