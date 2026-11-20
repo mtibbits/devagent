@@ -500,3 +500,166 @@ Last good:   4 scope" ]
   _refused notify
   [ "$(_snap)" = "$before" ]
 }
+
+# ---- --no-ask, takeover, re-entry and one stop (Task 7) ----
+
+# _ask: the interactive ask, leaving the open record questions/01-improve.md.
+_ask() {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  run "$H" toy Issue-7 --step improve --reason "improve: 14 bugs" --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  REC="$D/questions/01-improve.md"
+  [ -f "$REC" ]
+}
+
+_noask() { run --separate-stderr "$H" toy Issue-7 --step "${1:-improve}" --no-ask "${@:2}"; }
+
+@test "no-ask: with an open record and no question file it holds with the record's question, reason and number" {
+  _ask
+  _lib
+  question_body "$REC" > "$BATS_TEST_TMPDIR/rec-body"
+  _noask
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  question_body "$D/STUCK" > "$BATS_TEST_TMPDIR/stuck-body"
+  cmp "$BATS_TEST_TMPDIR/rec-body" "$BATS_TEST_TMPDIR/stuck-body"
+  [ "$(question_reason "$D/STUCK")" = "improve: 14 bugs" ]
+  [ "$(question_number "$D/STUCK")" = 01 ]
+  [ ! -e "$REC" ]
+  grep -qE '^- \[\?\]  5\. improve$' "$CK"
+  grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
+  [ "$(_lines)" = 1 ]
+}
+
+@test "no-ask: with a question file it holds with the file's question and the record's number" {
+  _ask
+  sed 's/Proceed with round 4?/Stop now?/' "$BATS_TEST_TMPDIR/q.md" > "$BATS_TEST_TMPDIR/q2.md"
+  _noask improve --reason "dismissed" --question-file "$BATS_TEST_TMPDIR/q2.md"
+  [ "$status" -eq 0 ]
+  grep -q '^Stop now?$' "$D/STUCK"
+  grep -q '^Reason:      dismissed$' "$D/STUCK"
+  [ "$(question_number_of "$D/STUCK")" = 01 ]
+  [ ! -e "$REC" ]
+  [ "$(_lines)" = 1 ]
+}
+
+@test "no-ask: with neither a question file nor an open record it exits 2" {
+  local before
+  before="$(_snap)"
+  _noask
+  _refused no-question
+  [ "$(_snap)" = "$before" ]
+}
+
+@test "takeover: stopped after STUCK and before the record's removal, a re-run removes the record and leaves one question" {
+  _ask
+  _lib
+  question_body "$REC" > "$BATS_TEST_TMPDIR/b.md"
+  question_render "$BATS_TEST_TMPDIR/b.md" toy Issue-7 improve 5 "improve: 14 bugs" "4 scope" 01 t > "$D/STUCK"
+  local s
+  s="$(sha256sum < "$D/STUCK")"
+  _noask
+  [ "$status" -eq 0 ]
+  [ ! -e "$REC" ]
+  [ "$(find "$D/questions" -name '*.md' 2>/dev/null | wc -l)" -eq 0 ]
+  [ "$(sha256sum < "$D/STUCK")" = "$s" ]
+  [ "$(_lines)" = 1 ]
+}
+
+@test "takeover: with the marker set a question file keeps the open record's number and a notify-only record is left alone" {
+  _ask
+  _lib
+  question_render "$BATS_TEST_TMPDIR/q.md" toy Issue-7 improve 5 r "4 scope" 02 t | sed '1a Blocking:    no' > "$D/questions/02-improve.md"
+  local nb
+  nb="$(sha256sum < "$D/questions/02-improve.md")"
+  _hold
+  [ "$status" -eq 0 ]
+  [ "$(question_number "$D/STUCK")" = 01 ]
+  [ ! -e "$REC" ]
+  [ "$(sha256sum < "$D/questions/02-improve.md")" = "$nb" ]
+}
+
+@test "re-entry: after STUCK, after the mark and after the park a re-run completes the rest and leaves STUCK unchanged with exactly one hold line" {
+  local stage s n=0
+  for stage in stuck mark park; do
+    _toy
+    rm -rf "$D/questions" "$D/STUCK" "$(NF)"
+    _question_stuck improve 5
+    _lib
+    [ "$stage" = stuck ] || checklist_mark_by_name "$CK" improve '?'
+    [ "$stage" != park ] || "$PLUGIN_ROOT/scripts/park.sh" toy Issue-7 --reason "operator question 01: r" 2>/dev/null
+    s="$(sha256sum < "$D/STUCK")"
+    _noask
+    [ "$status" -eq 0 ] || { echo "$stage: rc=$status err=$stderr" >&2; return 1; }
+    [ "$(sha256sum < "$D/STUCK")" = "$s" ]
+    grep -qE '^- \[\?\]  5\. improve$' "$CK"
+    grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
+    [ "$(_lines)" = 1 ]
+    [ "$(_field detail)" = "operator question 01 at improve; parked" ]
+    [ "$(_parks)" -eq 1 ]
+    _noask
+    [ "$status" -eq 0 ]
+    [ "$(_lines)" = 1 ]
+    [ "$(_parks)" -eq 1 ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 3 ]
+}
+
+@test "re-entry: a logged park whose state entry is gone parks again" {
+  mkdir -p "$(NF)"
+  _hold
+  [ "$status" -eq 1 ]
+  grep -qE 'park: issue parked: operator question 01: ' "$CK"
+  sed -i '/^Issue-7 *= *true$/d' "$DA_HOME/state/toy.toml"
+  rmdir "$(NF)"
+  _noask
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
+  [ "$(_lines)" = 1 ]
+  [ "$(_field detail)" = "operator question 01 at improve; parked" ]
+  [ "$(_parks)" -eq 2 ]
+}
+
+@test "one-stop: a stuck, a watchdog, an answered and another step's question STUCK each exit 2 and write nothing in both modes" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local kind m before n=0
+  for kind in stuck watchdog answered other; do
+    case "$kind" in
+      stuck)    printf 'Step:        5 improve\nReason:      x\n' > "$D/STUCK" ;;
+      watchdog) printf 'Kind:        watchdog\nStep:        5 improve\n' > "$D/STUCK" ;;
+      answered) _question_stuck improve 5; printf '\n## Answer\n\na\n' >> "$D/STUCK" ;;
+      other)    _question_stuck prune 6 ;;
+    esac
+    before="$(_snap)"
+    for m in "" 1; do
+      DEVAGENT_UNATTENDED="$m" run --separate-stderr "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+      _refused one-stop || { echo "$kind marker=$m" >&2; return 1; }
+      [ "$(_snap)" = "$before" ] || { echo "$kind marker=$m wrote" >&2; return 1; }
+      n=$((n + 1))
+    done
+  done
+  [ "$n" -eq 8 ]
+}
+
+@test "one-stop: an interactive call for a step with an unanswered question STUCK exits 0 and writes no record" {
+  _question_stuck improve 5
+  _q "$BATS_TEST_TMPDIR/q.md"
+  run --separate-stderr "$H" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$(find "$D/questions" -name '*.md' 2>/dev/null | wc -l)" -eq 0 ]
+  grep -qE '^- \[\?\]  5\. improve$' "$CK"
+}
+
+@test "re-entry: two concurrent --no-ask re-runs after STUCK write exactly one hold line and park once" {
+  _question_stuck improve 5
+  local a="$BATS_TEST_TMPDIR/a.rc" b="$BATS_TEST_TMPDIR/b.rc"
+  local f
+  for f in "$a" "$b"; do
+    ( rc=0; "$H" toy Issue-7 --step improve --no-ask >/dev/null 2>"$f.err" || rc=$?; echo "$rc" > "$f" ) &
+  done
+  wait
+  [ "$(cat "$a")" = 0 ] || { cat "$a.err" >&2; return 1; }
+  [ "$(cat "$b")" = 0 ] || { cat "$b.err" >&2; return 1; }
+  [ "$(_lines)" = 1 ]
+  [ "$(_parks)" -eq 1 ]
+}

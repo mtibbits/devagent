@@ -287,8 +287,9 @@ question_line_logged() {
 # again, nor question_action_perform.
 question_lock() {
   local lock="$1/questions/.lock" wait="${2:-10}" me="$BASHPID" start="$SECONDS"
-  mkdir -p "$1/questions" 2>/dev/null || return 1
   while :; do
+    # Made on every try: a holder that finishes removes an empty questions/.
+    mkdir -p "$1/questions" 2>/dev/null || return 1
     if ( set -C; printf '%s\n' "$me" > "$lock" ) 2>/dev/null; then
       _QUESTION_LOCK="$lock" _QUESTION_LOCK_PID="$me"
       return 0

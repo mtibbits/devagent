@@ -298,6 +298,17 @@ Other options: b' ]
   [ ! -e "$D/questions/.lock" ]
 }
 
+@test "lock: a waiting taker still takes the lock after the holder removes an empty questions directory" {
+  question_lock "$D"
+  local rcf="$BATS_TEST_TMPDIR/rc"
+  ( rc=0; bash -c "$(_libs); question_lock '$D' 5" 2>/dev/null || rc=$?; echo "$rc" > "$rcf" ) &
+  sleep 0.5
+  question_unlock
+  rmdir "$D/questions"
+  wait
+  [ "$(cat "$rcf")" = 0 ]
+}
+
 @test "lock: 20 concurrent allocators take 20 distinct numbers" {
   local i libs
   libs="$(_libs)"

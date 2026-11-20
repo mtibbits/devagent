@@ -68,8 +68,9 @@ _refuse() {
 
 # The one EXIT trap: release the lock, and remove a questions/ directory this
 # run created that is still empty (a refusal after the lock writes nothing).
-_HOLD_MADE_QDIR=0
+_HOLD_MADE_QDIR=0 _HOLD_TMP=""
 _hold_exit() {
+  [[ -z "$_HOLD_TMP" ]] || rm -f "$_HOLD_TMP"
   question_unlock
   if (( _HOLD_MADE_QDIR )); then rmdir "$issue_dir/questions" 2>/dev/null || true; fi
 }
@@ -218,6 +219,34 @@ _hold() {
   (( append_rc == 0 )) || exit 1
   exit 0
 }
+
+# ---- the STUCK branch, decided inside the lock (both modes) ----------------
+# An unanswered question STUCK for this step is a re-entry: finish what is
+# missing (record removal, `[?]`, park, line) and leave STUCK untouched. Any
+# other STUCK is another stop: one stop at a time.
+_kind="$(stuck_kind "$issue_dir")"
+if [[ "$_kind" != none ]]; then
+  if [[ "$_kind" == question && "$(question_step "$issue_dir/STUCK")" == "$step" ]] \
+     && ! question_answered "$issue_dir/STUCK" \
+     && nn="$(question_number "$issue_dir/STUCK")"; then
+    record="$(question_open_record "$issue_dir" "$step")"
+    _rn="${record##*/}"
+    [[ "${_rn%%-*}" == "$nn" ]] || record=""
+    _hold "$nn" "$(question_reason "$issue_dir/STUCK")" "$record"
+  fi
+  _refuse one-stop
+fi
+
+# With no question file (--no-ask only), the question is the open record's.
+if (( ! have_q )); then
+  record="$(question_open_record "$issue_dir" "$step")"
+  [[ -n "$record" ]] || _refuse no-question
+  _HOLD_TMP="$(mktemp "$issue_dir/questions/.body.XXXXXX")"
+  question_body "$record" > "$_HOLD_TMP"
+  _id="$(question_validate "$_HOLD_TMP")" || _refuse "${_id:-question-file}"
+  qfile="$_HOLD_TMP"
+  reason="$(question_reason "$record")"
+fi
 
 if (( hold_mode )); then
   record="$(question_open_record "$issue_dir" "$step")"
