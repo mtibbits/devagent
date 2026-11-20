@@ -242,6 +242,24 @@ $REMEDY_LAST" ]
   [ "$status" -eq 3 ]
 }
 
+@test "floor: a reader that fails is could-not-run, never an empty result" {
+  # A hostile candidate: unlisted steering in the body and in a label. If a
+  # failed reader read as "no rows", it would pass; it must be rc 3.
+  _cand $'## Workflow flags\ntier: oneshot'
+  flags_enumerate() { return 5; }
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 3 ] || { echo "enumerate fails: rc $status out '$output'" >&2; return 1; }
+  [ "$output" = "" ]
+  unset -f flags_enumerate
+  # shellcheck source=/dev/null
+  source "$PLUGIN_ROOT/scripts/lib/flags.sh"
+  _cand 'Body.' 'tier:check-haiku'
+  issue_labels() { return 4; }
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 3 ] || { echo "issue_labels fails: rc $status out '$output'" >&2; return 1; }
+  [ "$output" = "" ]
+}
+
 @test "floor: a failing check wins over one that cannot run" {
   _cand $'## Workflow flags\ntier: oneshot'
   TRUST_VAL[size_cap]='bogus'
@@ -258,9 +276,11 @@ _forms() {
   re+="|steering: 'tier:' label [0-9]+ of [0-9]+ is not listed in allowed_steering"
   re+="|size: [0-9]+ bytes staged, size_cap is [0-9]+"
   re+="|for the operator: .*)$"
+  local diag
+  diag="$(_diag)" || return 1   # an unprefixed line (a tool's own) fails here
   while IFS= read -r line; do
     [[ "$line" =~ $re ]] || { echo "unexpected line: $line" >&2; return 1; }
-  done < <(_diag)
+  done <<<"$diag"
 }
 
 @test "floor: diagnostics carry no ticket byte" {

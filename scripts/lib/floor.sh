@@ -107,6 +107,13 @@ _floor_label_listable() {
 }
 
 # _floor_steering <candidate>: 0 pass, 1 fail, 3 could not run.
+# The three reads below send their stderr to /dev/null: a tool's own line (gawk's
+# "Invalid multibyte data" warning on a non-UTF-8 byte under a UTF-8 locale) is
+# printed before PASS, and each read's status is checked instead (`wait $!`).
+# LOAD-BEARING: the floor reads the candidate in the SAME locale as the scaffold
+# that later applies it (flags_get, issue_labels). The block grammar depends on
+# the locale ([[:space:]] matches U+3000 under UTF-8, not under C), so never pin
+# LC_ALL for the floor's reads alone: checked and applied steering would part.
 _floor_steering() {
   local cand="$1" e rule n key val lbl i=0 total=0 fail=0 rc=0
   [ -f "$cand" ] && [ -r "$cand" ] || return 3
@@ -117,7 +124,7 @@ _floor_steering() {
   done < <(_trust_list "${TRUST_VAL[allowed_steering]:-[]}")
   # The header ends at issue_labels' own `^---` rule; fetch puts one blank
   # line after it, so body line 1 is the ticket body's first line.
-  rule="$(awk '/^---[[:space:]]*$/ { print NR; exit }' "$cand")" || return 3
+  rule="$(awk '/^---[[:space:]]*$/ { print NR; exit }' "$cand" 2>/dev/null)" || return 3
   [[ "$rule" =~ ^[0-9]+$ ]] || return 3
   while IFS=$'\t' read -r n key val; do
     _floor_listed "$key: $val" "${body_ok[@]}" && continue
@@ -129,12 +136,12 @@ _floor_steering() {
       _floor_say "steering: an unrecognised '## Workflow flags' key on body line $((n - rule - 1)) cannot be listed"
       _FLOOR_CLASS_UNLISTABLE=1
     fi
-  done < <(flags_enumerate "$cand")
+  done < <(flags_enumerate "$cand" 2>/dev/null)
   wait $! || rc=$?
   [ "$rc" -eq 0 ] || return 3
   while IFS= read -r lbl; do
     [[ "$lbl" == tier:* ]] && labels+=("$lbl")
-  done < <(issue_labels "$cand")
+  done < <(issue_labels "$cand" 2>/dev/null)
   wait $! || return 3
   total="${#labels[@]}"
   for lbl in "${labels[@]}"; do
