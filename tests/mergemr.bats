@@ -2186,3 +2186,17 @@ EOF
     _unstuck
     _mark_x
 }
+
+# ---- #1097: the self-certification scan (lib/selfcert.sh) -----------------------------
+# mergemr's rule 21 and preship's warning read one lib. Its tag-line regex is the one
+# the Git Bash job's malformed-line detector greps, so the two cannot drift.
+
+@test "#1097 selfcert: SELFCERT_TAG_RE is the regex gitbash-tagged.sh greps" {
+    run bash -c '. "$1" && printf "%s" "$SELFCERT_TAG_RE"' _ "$DEVAGENT_ROOT/scripts/lib/selfcert.sh"
+    echo "status=$status output=$output" >&2
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+    # the detector's own literal, quotes included, on exactly one line
+    [ "$(grep -cF -- "'$output'" "$DEVAGENT_ROOT/scripts/ci/gitbash-tagged.sh")" -eq 1 ]
+    grep -F -- "'$output'" "$DEVAGENT_ROOT/scripts/ci/gitbash-tagged.sh" | grep -qF 'grep -niE'
+}
