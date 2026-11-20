@@ -200,6 +200,7 @@ Other options: b' ]
   _q "$BATS_TEST_TMPDIR/q.md"
   _render "$BATS_TEST_TMPDIR/q.md" > "$D/STUCK"
   [ "$(question_number "$D/STUCK")" = 03 ]
+  [ "$(question_answer_line "$D/STUCK")" = "/devagent:answer toy Issue-7 03 a" ]
   [ "$(question_step "$D/STUCK")" = improve ]
   [ "$(question_reason "$D/STUCK")" = "improve: 14 bugs after round 3 of 3" ]
   question_body "$D/STUCK" > "$BATS_TEST_TMPDIR/body.md"

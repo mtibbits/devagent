@@ -52,6 +52,8 @@ source "$PLUGIN_ROOT/scripts/lib/ci.sh"
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/question-actions.sh"
 
 # phase_breaks_resolve <project> — sets PHASE_BREAKS, the step names a continued
 # chain stops before (one space-separated line; "" is a legal "no breaks"), and
@@ -120,6 +122,50 @@ through_target_state() {
     die "$flag: that step is only in an older revision block of $file, where it is already done. Choose a --through step from the active revision."
   fi
   die "$flag: that step is only in an older revision block of $file, not the active one. Run /devagent:$step $proj directly, or choose a --through step from the active revision."
+}
+
+# question_stop <step-name-or-empty> (#962): the operator-question stop. Reads
+# main's project, active, issue_dir and resume_flags (dynamic scope).
+# Rule 1, a question STUCK: when its hold line is not logged, one
+# `hold.sh --no-ask` finishes the hold (a failure only warns); then print the
+# three hold lines and exit `operator-question`. Nothing is dispatched.
+# Rule 2, <step> has an open in-session record: interactive, print the ASK block
+# and return 1 (main returns 0); unattended, hold it with `--no-ask`, then rule
+# 1, or exit with the hold's failing status.
+question_stop() {
+  local step="$1" code row qstep nn rc err rec stuck="$issue_dir/STUCK"
+  if [[ "$(stuck_kind "$issue_dir")" == question ]]; then
+    code="$(trust_exit_code operator-question || true)"
+    [[ "$code" =~ ^[0-9]+$ ]] || die "the exit table has no numeric operator-question code"
+    row="$(question_step_row "$stuck" || true)"
+    qstep="${row##* }"
+    nn="$(question_number "$stuck" || true)"
+    if [[ -n "$qstep" ]] && ! question_line_logged "$issue_dir" "$qstep" "${nn:-none}"; then
+      rc=0
+      err="$("$PLUGIN_ROOT/scripts/hold.sh" "$project" "$active" --step "$qstep" --no-ask 2>&1 >/dev/null)" || rc=$?
+      if (( rc != 0 )); then
+        echo "next.sh: WARNING: hold not completed (hold.sh exit $rc)" >&2
+        [[ -z "$err" ]] || printf '%s\n' "$err" >&2
+      fi
+    fi
+    echo "OPERATOR QUESTION: $project/$active is held at step ${row%% *} ($qstep); nothing was run."
+    echo "  Question: $stuck"
+    echo "  Answer:   $(question_answer_line "$stuck" || true)"
+    exit "$code"
+  fi
+  [[ -n "$step" ]] || return 0
+  rec="$(question_open_record "$issue_dir" "$step")"
+  [[ -n "$rec" ]] || return 0
+  if ! devagent_unattended; then
+    echo "ASK: $rec"
+    echo "  After the reply is recorded, continue: /devagent:next $project$resume_flags"
+    echo "  No answer in the session: hold.sh $project $active --step $step --no-ask"
+    return 1
+  fi
+  rc=0
+  "$PLUGIN_ROOT/scripts/hold.sh" "$project" "$active" --step "$step" --no-ask >/dev/null || rc=$?
+  (( rc == 0 )) || exit "$rc"
+  question_stop ""
 }
 
 main() {
@@ -196,6 +242,8 @@ quarantine_guard "next" "$project"
   # Dispatch loop. Each iteration re-reads the checklist so script steps
   # that mark themselves complete cause the next iteration to advance.
   while :; do
+    # #962 rule 1: a question STUCK stops every call, before anything else.
+    question_stop ""
     # Before identifying the current step, check whether the chain target
     # is already complete. This guards skill-backed targets: after the
     # skill marks itself [x], the model re-invokes next.sh and we must
@@ -231,6 +279,9 @@ quarantine_guard "next" "$project"
       [[ -f "$issue_dir/STUCK" ]] && sed 's/^/  /' "$issue_dir/STUCK" >&2
       return 1
     fi
+    # #962 rule 2: an open in-session question for this step is asked (or, in
+    # an unattended session, held) before anything is dispatched.
+    question_stop "$name" || return 0
     # #885: a [?] mergemr row is a wait on the PR, resumed by re-running the step
     # (it re-reads and marks itself); every other [?] keeps the park hint.
     if [[ "$cur_state" == "?" && "$name" != mergemr ]]; then
@@ -345,11 +396,17 @@ quarantine_guard "next" "$project"
       # positionally as `-- "$note"` would land in the script's $2, which
       # every script parses as the issue arg (#123). NOTE="$note" is one
       # token regardless of spaces; empty when no note (downstream-safe).
+      # #962: the step's status is captured, not left to set -e, so a step that
+      # asked or held stops here first; a failing step otherwise still returns
+      # its own status, as before.
+      local step_rc=0
       if (( chain_intends_continue == 1 )); then
-        DEVAGENT_CHAIN_ACTIVE=1 NOTE="$note" "$script_path" "$project"
+        DEVAGENT_CHAIN_ACTIVE=1 NOTE="$note" "$script_path" "$project" || step_rc=$?
       else
-        NOTE="$note" "$script_path" "$project"
+        NOTE="$note" "$script_path" "$project" || step_rc=$?
       fi
+      question_stop "$name" || return 0
+      (( step_rc == 0 )) || return "$step_rc"
       # #782 (D1): a mergetoall that merged ([x]) passed its own CI gate, which read
       # and printed the line; an auto-skip ([-]) read nothing, so the next step reads.
       if [[ "$name" == mergetoall ]] && (( ci_done == 0 )) \

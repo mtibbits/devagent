@@ -198,9 +198,17 @@ question_step() {
   printf '%s\n' "${v##* }"
 }
 
-# question_number <file>: the NN of the answer line, read only after the
+# question_step_row <file>: the `Step:` header as written (`5 improve`).
+question_step_row() {
+  local v
+  v="$(_question_header_value "$1" Step)"
+  [[ -n "$v" ]] || return 1
+  printf '%s\n' "$v"
+}
+
+# question_answer_line <file>: the answer line, read only after the
 # `## How to answer` heading (a quoted answer line in a section never counts).
-question_number() {
+question_answer_line() {
   local LC_ALL=C line on=0
   [[ -f "$1" ]] || return 1
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -210,11 +218,19 @@ question_number() {
       continue
     fi
     if [[ "$line" =~ $QUESTION_ANSWER_RE ]]; then
-      printf '%s\n' "${BASH_REMATCH[1]}"
+      printf '%s\n' "$line"
       return 0
     fi
   done < "$1"
   return 1
+}
+
+# question_number <file>: the NN of the answer line.
+question_number() {
+  local LC_ALL=C line
+  line="$(question_answer_line "$1")" || return 1
+  [[ "$line" =~ $QUESTION_ANSWER_RE ]] || return 1
+  printf '%s\n' "${BASH_REMATCH[1]}"
 }
 
 # question_answered <file>: 0 iff the file has a `## Answer` line.
