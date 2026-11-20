@@ -97,8 +97,10 @@ writes or prints any of it:
 
 1. **Staging.** It fetches into a staging dir under devAgent's state
    directory, `<devagent_home>/state/staging/<project>.<id>.XXXXXX/` (mode
-   0700, outside git and every devdoc tree; spec §3.3). The backend's stderr
-   is discarded, never shown. Every exit removes the dir.
+   0700, never inside this project's `devdoc_dir`; spec §3.3). The backend's
+   stderr is discarded, never shown. Every exit but KILL removes the dir; a
+   fetch or render child still running at TERM can leave a file there until
+   the next trusted pull's 60-minute sweep.
 2. **The render.** It writes the candidate `issue.md` there in the fetch
    layout: title, header and body as fetched, and the comments reduced to one
    line, `Comments not rendered under trust: N`. A control byte in the title or
@@ -180,9 +182,10 @@ Consumer action per code:
 - `1` under a trust policy, with nothing written (the staging dir could not
   be created, the fetch failed, the fetched text is not in the fetch layout,
   there was no quarantine verdict, or `issue.md` could not be written) → skip
-  the ticket and surface it to the operator; do not retry in a loop. The fetch-failure message gives the
-  backend script's path and a command that re-runs its `fetch` by hand with
-  stdout discarded, so the operator sees its stderr and no ticket text.
+  the ticket and surface it to the operator; do not retry in a loop. The
+  fetch-failure message gives the backend script's path and a command that
+  re-runs its `fetch` by hand with stdout discarded, so the operator sees its
+  stderr and no ticket text.
 
 With no trust policy on the host and no quarantine marker in the issue dir, none of these codes is emitted.
 

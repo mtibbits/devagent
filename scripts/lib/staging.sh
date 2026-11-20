@@ -3,13 +3,14 @@
 # policy until its floor passes (#715; spec §3.3, §9.3).
 #
 # Under a policy in scope, pull fetches into a staging dir under devAgent's
-# state directory (outside git and outside every devdoc tree), renders the
+# state directory (never inside this project's devdoc_dir), renders the
 # candidate issue.md there (staging_render.py, comments reduced to a count),
 # runs the quarantine verdict on that candidate, and only on PASS installs it
 # (staging_promote) — the pull's first devdoc write. Every other exit removes
 # the dir: QUARANTINE discards it before the label write, and pull's
 # `trap staging_discard EXIT` covers die, refuse, try_later, INT and TERM.
-# A dir a KILL or power loss left behind is swept by the next staging_open
+# A dir a KILL or power loss left behind, or a file a fetch or render child
+# still running at TERM wrote after the trap, is swept by the next staging_open
 # (older than 60 minutes, judged by age: a recorded PID can be reused).
 #
 # Layout: $(devagent_home)/state/staging/<project>.<issue_id>.XXXXXX/ (0700),

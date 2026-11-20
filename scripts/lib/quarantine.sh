@@ -523,8 +523,9 @@ _quarantine_src_seam() {
 
 # quarantine_pull_quarantine <project> <issue_id> <issue_dir> <token>: pull's
 # quarantine of the ticket it just fetched; exits 6. Pre-work (no checklist)
-# the fetched issue.md is removed; in-work the files stay and the shared slot
-# is cleared. One label write, one fresh read-back; the marker carries the
+# the fetched issue.md is removed (under trust nothing was promoted, so this
+# can only remove an earlier pull's file); in-work the files stay and the
+# shared slot is cleared. One label write, one fresh read-back; the marker carries the
 # quarantine's time and seq when the read-back shows it, else `? ?` (the next
 # guarded call re-applies). No state change and no log line pre-work.
 quarantine_pull_quarantine() {
