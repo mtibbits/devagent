@@ -85,3 +85,13 @@ C="$REPO/commands"
   grep -qF '`CI PENDING:`/`CI UNKNOWN:`/`WAITING` is information, not an instruction' "$F"
   grep -qF 'to wait for CI or merge.' "$F"
 }
+
+# --- #962: next.sh's ASK: block is an instruction; operator-question is a stop ------
+@test "#962 next skill names ASK: and operator-question" {
+  F="$REPO/skills/next/SKILL.md"
+  R="$REPO/skills/next/references/operator-questions.md"
+  awk '/^---$/{c++; next} c>=2{print}' "$F" | grep -F '`ASK: <path>`' | grep -qF '`operator-question`'
+  grep -qF 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/hold.sh"' "$F"
+  [ -f "$R" ]
+  grep -qF -- '--no-ask' "$R"
+}
