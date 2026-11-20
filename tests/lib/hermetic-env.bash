@@ -15,6 +15,7 @@ unset DEVAGENT_COLLECT_TIMEOUT   # #1122: claims-check's one-run pytest collecti
 unset DEVAGENT_DEVDOC_LOCK_DEADLINE   # #749: a run's shared lock deadline must not leak in from a calling cleanup
 unset DEVAGENT_DEVDOC_SYNC_SECS   # #1148: cleanup's devDoc sync budget (a one-run knob)
 unset DEVAGENT_UNATTENDED   # #961: a launcher's unattended marker; unset on EVERY source, so a test that needs it sets it after its fixtures
+unset CLAUDE_CODE_SESSION_ID DEVAGENT_WATCHDOG_TRANSCRIPT   # #932: the session id the heartbeat is keyed by, and check's transcript path; on every source, like the marker
 # #731: cleanup runs the transcript archiver, which reads ${CLAUDE_CONFIG_DIR:-~/.claude}
 # and ${DA_HOME}/config.toml. An inherited DA_HOME would archive fixture transcripts
 # into the operator's real archive, an inherited CLAUDE_CONFIG_DIR the operator's

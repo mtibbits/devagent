@@ -671,8 +671,9 @@ passes no `--filter-tags`.
 
 Every test file must be hermetic: one stray `export DEVAGENT_ACTIVE_ISSUE=…` in a
 developer's shell must not change a verdict. `tests/lib/hermetic-env.bash` is the
-single home for that — it unsets the #240 session pins and a launcher's
-`DEVAGENT_UNATTENDED` marker, and neutralizes a hostile global gitconfig, `TZ`, and
+single home for that — it unsets the #240 session pins, a launcher's
+`DEVAGENT_UNATTENDED` marker, and the watchdog's `CLAUDE_CODE_SESSION_ID` and
+`DEVAGENT_WATCHDOG_TRANSCRIPT`, and neutralizes a hostile global gitconfig, `TZ`, and
 locale. How a file gets it depends on its shape:
 
 - A file that `load`s a setup layer (`load 'lib/bats-helpers'`, `load 'helpers/fixtures'`)
