@@ -11,6 +11,12 @@
 #   GH_STUB_BODY_JSON     if set, issue-view body — a JSON-encoded STRING (#537)
 #   GH_STUB_COMMENTS_JSON if set, issue-view comments — a JSON array (#537)
 #   GH_STUB_LABELS_JSON   if set, issue-view labels — a JSON array (#561)
+#   GH_STUB_TITLE_JSON    if set, issue-view title — a JSON-encoded STRING (#715)
+#   GH_STUB_VIEW_SLEEP=<n>  `gh issue view` sleeps <n> seconds before it
+#                         answers (#715; the GH_STUB_PR_CHECKS_SLEEP shape). With
+#                         GH_STUB_VIEW_PROBE_DIR and GH_STUB_VIEW_PROBE_OUT set,
+#                         it first writes `ls -A <dir>` to <out> (via a tmp file
+#                         and mv, so a waiter never reads it half-written).
 #   GH_STUB_ISSUE_STATE   issue-view state (#885; default OPEN)
 #   GH_STUB_STATE_REASON  issue-view stateReason, e.g. COMPLETED (#885;
 #                         default null)
@@ -169,6 +175,9 @@ _issue_json() {
   # #537: per-test payload knobs — JSON-encoded string / array, verbatim.
   [ -n "${GH_STUB_COMMENTS_JSON:-}" ] && comments="$GH_STUB_COMMENTS_JSON"
   body='"Body line one.\n\nBody line two."'
+  # #715: same shape for the title.
+  local title='"Demo issue title"'
+  [ -n "${GH_STUB_TITLE_JSON:-}" ] && title="$GH_STUB_TITLE_JSON"
   [ -n "${GH_STUB_BODY_JSON:-}" ] && body="$GH_STUB_BODY_JSON"
   # #561: same shape, default-off — see the header note on why the defaults are
   # deliberately non-`tier:*`.
@@ -181,7 +190,7 @@ _issue_json() {
   cat <<JSON
 {
   "number": $number,
-  "title": "Demo issue title",
+  "title": $title,
   "state": "${GH_STUB_ISSUE_STATE:-OPEN}",
   "stateReason": $reason,
   "author": {"login": "alice"},
@@ -217,6 +226,13 @@ case "$sub $sub2" in
       404) echo "gh: HTTP 404: Not Found (issue $num)" >&2; exit 1 ;;
       401) echo "gh: HTTP 401: Bad credentials" >&2; exit 1 ;;
     esac
+    if [ -n "${GH_STUB_VIEW_SLEEP:-}" ]; then
+      if [ -n "${GH_STUB_VIEW_PROBE_DIR:-}" ] && [ -n "${GH_STUB_VIEW_PROBE_OUT:-}" ]; then
+        ls -A "$GH_STUB_VIEW_PROBE_DIR" > "$GH_STUB_VIEW_PROBE_OUT.tmp" 2>&1
+        mv -f "$GH_STUB_VIEW_PROBE_OUT.tmp" "$GH_STUB_VIEW_PROBE_OUT"
+      fi
+      sleep "$GH_STUB_VIEW_SLEEP"
+    fi
     case "${GH_STUB_CASE:-standard}" in
       fail)  echo "stub-gh: simulated failure" >&2; exit 1 ;;
       noisy) echo "stub-gh: A new release of gh is available: 2.40.0 → 2.50.0" >&2 ;;

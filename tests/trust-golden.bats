@@ -29,6 +29,16 @@
 # pull @test name carries no SHA: under a squash merge the branch SHA is
 # unreachable from master.
 #
+# #715 adds pull-steering and pull-flagsdiag, captured at 1b24202 (before any
+# #715 code): two no-policy pulls whose tickets cross every print site #715
+# refactors (S1-S3, S6-S9 of its plan's table C), each asserting a floor of
+# `warn:` lines so a scenario that stops crossing them reddens. The three pull
+# scenarios also carry the opt-in `.tree` kind (no new files; see
+# _golden_check); pull.tree alone was captured into the existing scenario with
+# `TRUST_GOLDEN_CAPTURE_SHA=1b24202 TRUST_GOLDEN_CAPTURE_KINDS=tree bats -f
+# 'trust-golden: pull no-policy' tests/trust-golden.bats`, so pull's other
+# fixtures keep their captured-at line.
+#
 # Retirement: the four #713 fixtures stay until #902 merges (#902's AC reuses them).
 # After that, only "no-policy runs make no whoami/events call" is the standing
 # guard and the fixture comparisons may be deleted.
@@ -47,6 +57,22 @@ teardown() {
 @test "trust-golden: pull no-policy output is byte-identical to its golden (#713, re-captured #1099)" {
   _scenario_pull
   _golden_check pull "$GOLDEN_ARGV"
+}
+
+@test "trust-golden: pull-steering no-policy output is byte-identical to the 1b24202 golden" {
+  _scenario_pull_steering
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check pull-steering "$GOLDEN_ARGV"
+  # The scenario must keep crossing the print sites: S3, S6 (two), S7, S8 (two), S9.
+  [ "$(grep -c 'warn:' "$GOLDEN_DIR/pull-steering.err")" -ge 6 ]
+}
+
+@test "trust-golden: pull-flagsdiag no-policy output is byte-identical to the 1b24202 golden" {
+  _scenario_pull_flagsdiag
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check pull-flagsdiag "$GOLDEN_ARGV"
+  # S1, S2 and the fence-close warning.
+  [ "$(grep -c 'flags.sh: warn:' "$GOLDEN_DIR/pull-flagsdiag.err")" -ge 3 ]
 }
 
 @test "trust-golden: ship no-policy output is byte-identical to the 891254c golden" {

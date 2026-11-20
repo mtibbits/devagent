@@ -1,0 +1,9 @@
+captured-at 1b24202
+## ls -A issue dir
+checklist.md
+issue.md
+## ls -A state
+volk.toml
+volk.toml.lock
+41ee20643c493a3795d6d93fbf49c42a1c932b8f77ecdc2ccc035d756c5a19e8  issue.md
+absent  .devagent-step-models
