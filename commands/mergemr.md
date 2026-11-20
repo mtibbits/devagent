@@ -19,12 +19,15 @@ passing `/devagent:preship` recorded as `verified_head`, or that
 `preship-verified-head.sh forward` re-recorded after a merge-forward git made
 itself (#1125; merged only on green CI, rule 17). With `required_checks` set
 (#1097) it merges only when each of those CI checks is `success` at that head,
-and on a code backend that cannot report checks it stops `[!]` `CI NOT
-CHECKED` (rule 20).
+and only when the PR's own diff cannot change what they measure or the
+operator has acknowledged that diff for that head (rule 21). On a code
+backend that cannot report checks it stops `[!]` `CI NOT CHECKED` (rule 20).
 It never uses the permission gate, so `DA_YES=1` and an interactive terminal
 cannot open it.
 With `merge_mr` false or unset it never merges by any route: it marks `[?]`
-until the PR is merged elsewhere.
+until the PR is merged elsewhere, and stops `[!]` only where a rule that
+applies whatever `merge_mr` says stops (rules 4 and 20). Rule 21 does not
+stop it then: the `[?]` line names the self-certifying paths instead.
 
 ## How a run ends
 
@@ -45,7 +48,7 @@ Every run that reads the PR also prints the `CI …:` line and logs it under
 
 `<rule>` is the number below, or `read` for a read that decided nothing.
 Rules 1-8 apply whatever `merge_mr` says; rules 9-19 only when the step would
-merge.
+merge; rules 20-21 are operator-only stops; each row states where it sits in the order.
 
 | # | condition | mark — text |
 |---|---|---|
@@ -57,11 +60,11 @@ merge.
 | 5 | draft PR | `[?]` `draft PR` |
 | 6 | base is not the default base (`default_baseline` without its remote, else `main`) | `[?]` `stacked on <base>`. The step does not retarget; retarget the PR on the forge |
 | 7 | a dependency is not satisfied | `[?]` `waiting for <dep> (<found>)[; <dep> (<found>)…]`; a failed dependency read: `[?]` `could not read <dep> <PR state\|linked PRs\|tracker state>: <error>`; a tracker with no `state-class`: `[?]` `cannot read <dep> tracker state on <backend>; merge order is yours: record its PR as [context.<dep>].mr_url, or merge by hand, then mark this step [x] with /devagent:checklist-mark` |
-| 8 | `merge_mr` not `true` | `[?]` `waiting for merge (<CI result>, <mergeable>/<mergeStateStatus>)`. With `required_checks` set (#1097) the line ends `; required checks at <sha7>: <name>: <state>[; <name>: <state>…]`: every required check in config order, at the PR head, `<state>` as "Config and knobs" lists them |
+| 8 | `merge_mr` not `true` | `[?]` `waiting for merge (<CI result>, <mergeable>/<mergeStateStatus>)`. With `required_checks` set (#1097) the line ends `; required checks at <sha7>: <name>: <state>[; <name>: <state>…]`: every required check in config order, at the PR head, `<state>` as "Config and knobs" lists them. Then `; self-certifying: <result>`, rule 21's scan: `none`, the paths (as rule 21 lists them, then ` (acknowledged)` once the operator has acknowledged them for this head), or `unknown (<why>)`; besides rule 21's reasons, `<why>` is `no verified head recorded` or, because the result would describe another commit, `PR head <sha7> is not the verified head <sha7>` |
 | 9 | the PR is not on ship's target repo (`code_source.upstream`, or `code_source.fork` under `fork_first`; case-insensitive) | `[!]` `PR is not on <target>; it is on <repo>. Fix mr_url or code_source, then run /devagent:unstuck`. No target configured: `[!]` `no code_source.upstream configured for '<project>'; set it, then run /devagent:unstuck` |
 | 10 | no `verified_head` | `[!]` `no verified head for this PR; run /devagent:preship` |
 | 11 | PR head is not `verified_head` | `[!]` `PR head <sha7> was not verified; run /devagent:preship on it (or push the verified head <verified sha7>)`. With auto-merge on, it first disables it and adds ` (auto-merge disabled)`, or ` (could not disable auto-merge: <error>; disable it on the forge)` |
-| 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`, ending with rule 8's `; required checks at …` when `required_checks` is set; no second merge call. The PR is left to the forge only when no later rule still has to decide. It is not left when the head was recorded by `forward` (as rule 17 reads `verified_by`) and CI is not green (#1125): `<why>` is `head <sha7> was recorded by forward and merges only on green CI (<CI result>)`, and the stops below are rule 17. Otherwise it is not left when a required check is not `success` (#1097): `<why>` is `head <sha7> merges only when every required check is successful`, and the stops below are rule 15. With auto-merge on, the step disables it, prints `mergemr: auto-merge disabled: <why>`, logs the same text, and rules 13-17 decide. A failed disable is `[!]` `<why>; could not disable auto-merge: <error>; disable it on the forge, then run /devagent:unstuck`. In a merge queue it is `[!]` `<why>, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck`. Both stops end with rule 8's `; required checks at …` when `required_checks` is set |
+| 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`, ending with rule 8's `; required checks at …; self-certifying: …` when `required_checks` is set; no second merge call. The PR is left to the forge only when no later rule still has to decide. It is not left when the head was recorded by `forward` (as rule 17 reads `verified_by`) and CI is not green (#1125): `<why>` is `head <sha7> was recorded by forward and merges only on green CI (<CI result>)`, and the stops below are rule 17. Otherwise it is not left when a required check is not `success` (#1097): `<why>` is `head <sha7> merges only when every required check is successful`, and the stops below are rule 15. Otherwise it is not left when the PR's diff is self-certifying and not acknowledged for this head, or cannot be read (#1097, rule 21): `<why>` is `head <sha7> merges only when an operator has acknowledged its self-certifying diff`, or `head <sha7> merges only when its self-certifying diff can be read`, and the stops below are rule 21. With auto-merge on, the step disables it, prints `mergemr: auto-merge disabled: <why>`, logs the same text, and the rules below decide. A failed disable is `[!]` `<why>; could not disable auto-merge: <error>; disable it on the forge, then run /devagent:unstuck`. In a merge queue it is `[!]` `<why>, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck`. Both stops end with rule 8's `; required checks at …; self-certifying: …` when `required_checks` is set |
 | 13 | `mergeable` or `mergeStateStatus` is `UNKNOWN` | `[?]` `mergeability not computed yet` |
 | 14 | `CONFLICTING` | `[!]`, naming git's own conflicted paths (`git merge-tree` of `verified_head` and the base tip, after one bounded fetch of `default_baseline`; `<paths>` sorted, joined `, `). With `merge_forward` `verify = "ci"`, every conflicted path in `append_only`, merged by git as text and only insertions on both sides (each conflict hunk's base section empty), no merge driver on any path of git's merged tree (as `forward` checks), and no merge gate in `mr.md`: `conflict only in <paths>; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward`. Otherwise `conflict with <base> in <paths>; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. When the paths cannot be known: `conflict with <base> (conflicted paths unknown: <why>); <the same remedy>`, `<why>` one of `could not fetch '<remote>' (<reason>)`, `cannot resolve <base_ref>`, `git merge-tree exited <rc>`, `cannot resolve the issue tree: <reason>`, `a conflicted path contains a newline`, `git reports a conflict but names no conflicted path`. When git finds none: `conflict with <base> (git finds no conflict between <verified sha7> and <tip sha7>); <the same remedy>` |
 | 15 | CI red (red wins over pending); a required check that ended without success, or is still not reported after the grace | `[!]` `<CI FAILED line>; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. A required check (#1097) that ended without success, even while other checks are pending (a failed one is red CI and stops with the line above): `[!]` `required check not successful on head <sha7>: <name> (<how it ended>)[; <name> (<how it ended>)…][; not reported: <name>[; <name>…]]; re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. A required check still not reported after the grace, decided after rule 17's forward stop and before its no-checks arm, so `merge_checks = "if-present"` never merges past it: `[!]` `required check not reported on head <sha7> after <n>s: <name>[; <name>…]; start it on the forge and run /devagent:unstuck, or push a head that runs it, then run /devagent:preship` |
@@ -70,6 +73,7 @@ merge.
 | 18 | `mergeStateStatus` not `CLEAN` or `HAS_HOOKS` (e.g. `BLOCKED`, `BEHIND`) | `[!]` `blocked by a forge rule (<status>); resolve it on the forge, then run /devagent:unstuck` |
 | 19 | merge | see below |
 | 20 | `required_checks` set (#1097) and the code backend cannot report checks | `[!]` `CI NOT CHECKED: <why>; required check <name>[, <name>…] cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck`, whatever `merge_mr` says. Where the step cannot read the PR's state either (a github backend without `mr-view`; another backend without `mr-state`) no later run can see the hand merge, and the text ends `…, then run /devagent:unstuck and mark this step [x] with /devagent:checklist-mark`. It sits where the PR is read: on a github backend whose script has no `mr-view` (exit 78 or 2), in place of the `read` wait and so ahead of rule 3; on any other backend, in place of rule 8's `[?]` for an open PR or of the `cannot read PR state` `[?]`, as "Other code backends" says. `<why>` is `<backend> has no <verb>` (`mr-view`, `mr-checks` or `mr-state`) or `local code backend` |
+| 21 | `required_checks` set (#1097) and the PR's diff is self-certifying, as "Self-certifying diffs" defines it, and not acknowledged for this head | `[!]` `self-certifying diff: <paths> changed in <base sha7>..<head sha7>, so this PR can change what its required checks measure. Operator only (reviewed workflow change only): record the review in <issue-dir>/.devagent-selfcert-ack as commands/mergemr.md "Escapes" describes, then /devagent:unstuck`; `<paths>` sorted, joined `, `, the first 10 and then ` (+<n> more)`. It sits after rule 18 and before rule 19, so only when the step would merge: CI is green and no forge rule blocks, and one acknowledgment covers one green head. Under `merge_mr` false nothing stops: rule 8's line names the paths. Acknowledged for this head, the step prints `mergemr: self-certifying diff acknowledged at <sha7>: <paths> — <reason>`, logs it once per recorded head, and goes on to rule 19. When the diff cannot be read: `[!]` `self-certifying diff unknown: <why>; fix that, then run /devagent:unstuck`, `<why>` one of `no baseline_sha recorded`, `<sha7> is not a commit in <tree>`, `git diff exited <rc>`, `required_checks_paths entry '<entry>' names no path at <base sha7> or <head sha7>; fix the key, or merge the base forward` |
 
 A `/devagent:preship` pass after ship records the new head and clears a rule
 10, 11, 14 or 15 stop by itself, forward's rule-17 stop, and a stop left by a
@@ -80,7 +84,7 @@ never rule 10, 15, a `preship:` stop or its own rule 17. Every other stop names
 passing preship for a new head, `/devagent:unstuck` once the check has
 succeeded at the same head. The rule-15 stops rule 12 raises name
 `/devagent:unstuck` only; a passing preship clears them as well. A rule 20
-stop is the operator's: no preship pass and no `forward` clears it.
+or rule 21 stop is the operator's: no preship pass and no `forward` clears it.
 
 ## Dependencies (rule 7)
 
@@ -100,6 +104,28 @@ any other `issue_source`:
 
 A dependency is readable only with a GitHub tracker or a recorded `mr_url`;
 on any other tracker (no `state-class`) the step waits and names the remedy.
+
+## Self-certifying diffs (rule 21)
+
+With `required_checks` set (#1097), a PR is self-certifying when its own
+diff, `baseline_sha..verified_head` (the two commits compared), can change
+what those checks measure. The paths that count:
+
+- every changed file under `.github/workflows/`;
+- every changed file that is, or is under, a `required_checks_paths` entry;
+- every changed `*.bats` file, at any depth, that had a Git Bash tag line at
+  `baseline_sha` (a comment line naming `file_tags` and `gitbash`, in any
+  case) and whose tag lines at `verified_head` are not the same lines: one
+  was removed or edited, or the file was deleted or renamed (it is named by
+  its old path). A file with no tag line at `baseline_sha` never counts, so
+  adding a tag line, or a new tagged file, does not stop.
+
+The commits are read in the issue's recorded tree while it exists, else in
+`source_dir`, which keeps a removed worktree's commits. A commit that is not
+there gets one bounded fetch by id from `default_baseline`'s remote first; it
+writes no ref. After a merge-forward, `rebaseline.sh` moves `baseline_sha` to
+the base commit merged in, so the base's own workflow changes are not the
+PR's.
 
 ## Merging (rule 19)
 
@@ -159,7 +185,8 @@ closed and draft read as above. An open PR gets one more read, `mr-checks`
 - a failed read: `[?]` (read) `could not read required checks on <url>:
   <error>`; no STUCK;
 - a backend that has the verb: rule 8's `[?]`, ending `; required checks at
-  <sha7>: <name>: <state>[; <name>: <state>…]` as on GitHub.
+  <sha7>: <name>: <state>[; <name>: <state>…]; self-certifying: <result>` as
+  on GitHub.
 
 After the hand merge and `/devagent:unstuck`, the next run reads the PR as
 merged and marks `[x]`; `/devagent:unstuck` alone stops again.
@@ -196,7 +223,11 @@ and mark this step [x] with /devagent:checklist-mark`.
   backend that cannot report checks the step stops at rule 20.
 - `required_checks_paths = ["<path>", …]` (#1097; optional, same table):
   repo-relative files or directories (one trailing `/` allowed) that decide
-  what a required check measures, e.g. `["scripts/ci/"]`.
+  what a required check measures, e.g. `["scripts/ci/"]`. A PR that changes
+  one is self-certifying (rule 21); `.github/workflows/` is always watched and
+  needs no entry. An entry is compared byte for byte, and one that names no
+  path at `baseline_sha` or at `verified_head` stops the step (`unknown`)
+  rather than match nothing.
 - Both are validated at the start of every run, whatever `merge_mr` says: a
   bad value dies naming the key, e.g. `required_checks must be an array of
   single-line strings, e.g. required_checks = ["Git Bash tagged files"]; fix
@@ -216,7 +247,8 @@ and mark this step [x] with /devagent:checklist-mark`.
 - `DEVAGENT_CI_READ_SECS` (20): the bound on the `mr-checks` read an open PR
   gets on a code backend other than github when `required_checks` is set.
 - `DEVAGENT_MERGEMR_FETCH_SECS` (20): the bound on rule 14's fetch of
-  `default_baseline`'s branch. Rule 14 also runs a local `git merge-tree`, which
+  `default_baseline`'s branch, and on the fetch rule 21's scan makes for a
+  commit its tree lacks. Rule 14 also runs a local `git merge-tree`, which
   writes loose objects into the issue tree.
 - `[project.<name>.merge_forward]` (#1125; per project, no `[defaults]` layer):
   `verify = "ci"` turns on the cheap remedy for a merge-forward that only
@@ -245,6 +277,18 @@ To take a `[!]` back after doing what its message says, run
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name <issue-dir> mergemr x
 ```
+
+A rule 21 stop is taken back only by the operator, after reviewing what the
+listed paths change. The acknowledgment is line 1 of
+`<issue-dir>/.devagent-selfcert-ack`: `<verified_head> <reason>`, that is all
+40 hex digits of the verified head in lower case, blanks, then a reason that
+is not blank, e.g.
+`echo "<verified_head> <reason>" > <issue-dir>/.devagent-selfcert-ack`. Then
+run `/devagent:unstuck`. It covers that head only: a new head stops again
+until it is acknowledged, and `/devagent:unstuck` alone stops again. Only the
+operator writes this file, never an agent: it records a person's review of a
+change to the checks themselves. An agent that meets a rule 21 stop reports
+the paths to the operator and goes no further.
 
 A PR that stays open for a long time (a `merge_mr = false` project, or a
 draft) holds cleanup, which waits for this row. Either park the issue with
