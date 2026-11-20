@@ -19,9 +19,12 @@ teardown() { teardown_tmp_devagent_home; }
 
 # hb <marker> <session id> <bash text> — source paths.sh and heartbeat.sh under
 # -euo pipefail, then run the text. An empty marker or id leaves it unset.
+# _DEVAGENT_NO_ENTRY_BEAT keeps paths.sh's own entry refresh out of the library's
+# tests: what is written here is written by the text. The entry refresh has its
+# own tests at the end of this file, which do not set it.
 hb() {
   local marker="$1" id="$2" body="$3"
-  local -a envv=(env -u DEVAGENT_UNATTENDED -u CLAUDE_CODE_SESSION_ID)
+  local -a envv=(env -u DEVAGENT_UNATTENDED -u CLAUDE_CODE_SESSION_ID _DEVAGENT_NO_ENTRY_BEAT=1)
   [ -z "$marker" ] || envv+=("DEVAGENT_UNATTENDED=$marker")
   [ -z "$id" ] || envv+=("CLAUDE_CODE_SESSION_ID=$id")
   run --separate-stderr "${envv[@]}" bash -euo pipefail -c '
@@ -207,7 +210,7 @@ mtime() { stat -c %Y "$1"; }
   local flags
   for flags in '-euo pipefail' '+e'; do
     # shellcheck disable=SC2086  # $flags is a word list on purpose
-    run --separate-stderr env DEVAGENT_UNATTENDED=1 CLAUDE_CODE_SESSION_ID="$ID" bash $flags -c '
+    run --separate-stderr env DEVAGENT_UNATTENDED=1 CLAUDE_CODE_SESSION_ID="$ID" _DEVAGENT_NO_ENTRY_BEAT=1 bash $flags -c '
       source "$1/scripts/lib/paths.sh"
       before="$(set +o; shopt -p)"
       source "$1/scripts/lib/heartbeat.sh"
@@ -220,4 +223,215 @@ mtime() { stat -c %Y "$1"; }
     [ -z "$stderr" ]
   done
   [ -f "$WD/$ID/script" ]
+}
+
+# ---------------------------------------------------------------------------
+# The script-entry refresh: the tail of scripts/lib/paths.sh (#932 Task 4).
+# Every script that sources paths.sh moves <id>/script in an unattended
+# session. None of these sets _DEVAGENT_NO_ENTRY_BEAT.
+
+# seed_where: a one-project config, enough for where.sh to report "no active issue".
+seed_where() {
+  cat > "$DA_HOME/config.toml" <<TOML
+[defaults]
+checklist_template = "standard"
+
+[project.volk]
+source_dir = "$DA_HOME/fake-src"
+devdoc_dir = "$DA_HOME/fake-devdoc"
+TOML
+}
+
+# strict <text> [<arg>...] — a fresh `bash -euo pipefail -c <text>` in an
+# unattended session with the id set; the text sees the arguments as $1...
+strict() {
+  local text="$1"
+  shift
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" \
+    bash -euo pipefail -c "$text" _ "$@"
+}
+
+# The sourcing script ran on past the source: exit 0, nothing on stdout, and the
+# sentinel its next statement writes.
+ran_on() {
+  [ "$status" -eq 0 ] || { echo "rc=$status out=$output err=$stderr" >&2; return 1; }
+  [ -z "$output" ]
+  [ -f "$BATS_TEST_TMPDIR/after" ]
+}
+
+# copy_lib: paths.sh alone in a directory of its own. Sets COPY.
+copy_lib() {
+  COPY="$BATS_TEST_TMPDIR/copy/lib"
+  mkdir -p "$COPY"
+  cp "$PLUGIN_ROOT/scripts/lib/paths.sh" "$COPY/paths.sh"
+}
+
+@test "a devagent script call moves script in an unattended session" {
+  seed_where
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" bash "$PLUGIN_ROOT/scripts/where.sh" volk
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [[ "$output" == *"Active issue: (none)"* ]]
+  [ -f "$WD/$ID/script" ]
+  [ ! -s "$WD/$ID/script" ]
+  run find "$WD" -type f
+  [ "$output" = "$WD/$ID/script" ]     # and nothing else
+
+  # A second call moves a pre-dated mtime and leaves the session's other records.
+  hb 1 "$ID" 'heartbeat_note dispatch "v1 volk Issue-7 9 implement"; heartbeat_note beat.window 120'
+  quiet_ok
+  touch -d '2020-01-01 00:00:00' "$WD/$ID/script" "$WD/$ID/dispatch" "$WD/$ID/beat.window"
+  local old now d w
+  old="$(mtime "$WD/$ID/script")"
+  d="$(mtime "$WD/$ID/dispatch")"
+  w="$(mtime "$WD/$ID/beat.window")"
+  now="$(date +%s)"
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" bash "$PLUGIN_ROOT/scripts/where.sh" volk
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(mtime "$WD/$ID/script")" -gt "$old" ]
+  [ "$(mtime "$WD/$ID/script")" -ge "$((now - 5))" ]
+  [ "$(cat "$WD/$ID/dispatch")" = "v1 volk Issue-7 9 implement" ]
+  [ "$(cat "$WD/$ID/beat.window")" = 120 ]
+  [ "$(mtime "$WD/$ID/dispatch")" -eq "$d" ]
+  [ "$(mtime "$WD/$ID/beat.window")" -eq "$w" ]
+}
+
+@test "the same call with no marker creates no state/watchdog directory" {
+  seed_where
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" bash "$PLUGIN_ROOT/scripts/where.sh" volk
+  [ "$status" -eq 0 ]
+  local unattended="$output"
+  [ -d "$WD/$ID" ]
+  rm -rf "$WD"
+  run --separate-stderr env "CLAUDE_CODE_SESSION_ID=$ID" bash "$PLUGIN_ROOT/scripts/where.sh" volk
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$output" = "$unattended" ]        # the report itself does not depend on the marker
+  [ ! -e "$WD" ]
+  # the opt-out is the other way to write nothing
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" _DEVAGENT_NO_ENTRY_BEAT=1 bash "$PLUGIN_ROOT/scripts/where.sh" volk
+  [ "$status" -eq 0 ]
+  [ ! -e "$WD" ]
+}
+
+@test "broken tail: heartbeat.sh missing beside a copied paths.sh exits 0 with empty stdout" {
+  copy_lib
+  # control: with the library beside it, the copy writes
+  cp "$PLUGIN_ROOT/scripts/lib/heartbeat.sh" "$COPY/heartbeat.sh"
+  strict 'source "$1/paths.sh"; : > "$2"' "$COPY" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  [ -f "$WD/$ID/script" ]
+  rm -rf "$WD" "$BATS_TEST_TMPDIR/after" "$COPY/heartbeat.sh"
+  strict 'source "$1/paths.sh"; : > "$2"' "$COPY" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  [ ! -e "$WD" ]
+}
+
+@test "broken tail: heartbeat.sh with a syntax error exits 0 with empty stdout" {
+  copy_lib
+  printf 'heartbeat_touch() {\n  if then\n}\n' > "$COPY/heartbeat.sh"
+  run bash -n "$COPY/heartbeat.sh"
+  [ "$status" -ne 0 ]                  # it is a syntax error
+  strict 'source "$1/paths.sh"; : > "$2"' "$COPY" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  [ ! -e "$WD" ]
+}
+
+@test "broken tail: heartbeat_touch reading an unbound variable exits 0 with empty stdout" {
+  copy_lib
+  printf 'heartbeat_touch() { : "$HEARTBEAT_NEVER_SET_932"; }\n' > "$COPY/heartbeat.sh"
+  # control: called outside the tail, that function ends a set -u shell
+  strict 'source "$1/heartbeat.sh"; heartbeat_touch script; : > "$2"' "$COPY" "$BATS_TEST_TMPDIR/after"
+  [ "$status" -ne 0 ]
+  [ ! -e "$BATS_TEST_TMPDIR/after" ]
+  strict 'source "$1/paths.sh"; : > "$2"' "$COPY" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  # and the caller's set -u is back on after the tail
+  strict 'source "$1/paths.sh"; : "$HEARTBEAT_NEVER_SET_932"; echo reached' "$COPY"
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
+
+@test "broken tail: POSIXLY_CORRECT=1 with heartbeat.sh missing exits 0 with empty stdout" {
+  copy_lib
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" POSIXLY_CORRECT=1 \
+    bash -euo pipefail -c 'source "$1/paths.sh"; : > "$2"' _ "$COPY" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  [ ! -e "$WD" ]
+  # control: in the real tree a POSIX-mode caller writes
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" POSIXLY_CORRECT=1 \
+    bash -euo pipefail -c 'source "$1/scripts/lib/paths.sh"; echo reached' _ "$PLUGIN_ROOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = reached ]
+  [ -z "$stderr" ]
+  [ -f "$WD/$ID/script" ]
+}
+
+@test "broken tail: an unwritable state root exits 0 with empty stdout and one warning" {
+  rm -rf "$DA_HOME/state"
+  : > "$DA_HOME/state"
+  strict 'source "$1/scripts/lib/paths.sh"; : > "$2"' "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ "$stderr" = "heartbeat: warning: cannot write $WD/$ID/script" ]
+  [ -f "$DA_HOME/state" ]
+}
+
+@test "broken tail: an absent id exits 0 with empty stdout" {
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 \
+    bash -euo pipefail -c 'source "$1/scripts/lib/paths.sh"; : > "$2"' _ "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  [ ! -e "$WD" ]
+}
+
+@test "broken tail: paths.sh sourced by bare name exits 0 with empty stdout" {
+  strict 'cd "$1/scripts/lib"; source paths.sh; : > "$2"' "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  # and by a relative path with a directory part it writes
+  rm -rf "$WD"
+  strict 'cd "$1/scripts"; source lib/paths.sh; : > "$2"' "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  [ -f "$WD/$ID/script" ]
+}
+
+@test "sourcing paths.sh with the marker set leaves set +o and shopt -p unchanged" {
+  local flags
+  for flags in '-euo pipefail' '+e' '-u' '-e'; do
+    rm -rf "$WD"
+    # shellcheck disable=SC2086  # $flags is a word list on purpose
+    run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" bash $flags -c '
+      before="$(set +o; shopt -p)"
+      source "$1/scripts/lib/paths.sh"
+      after="$(set +o; shopt -p)"
+      [ "$before" = "$after" ] && echo same
+    ' _ "$PLUGIN_ROOT"
+    [ "$status" -eq 0 ] || { echo "$flags: rc=$status err=$stderr" >&2; return 1; }
+    [ "$output" = same ] || { echo "$flags: out=$output" >&2; return 1; }
+    [ -z "$stderr" ]
+    [ -f "$WD/$ID/script" ]            # and the tail did run under those flags
+  done
+}
+
+@test "notify.sh sourced with the marker set prints nothing" {
+  strict 'source "$1/scripts/lib/notify.sh"; : > "$2"' "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  [ -f "$WD/$ID/script" ]
+}
+
+@test "sourcing paths.sh twice, and from a function, writes one file and prints nothing" {
+  strict 'f() { source "$1/scripts/lib/paths.sh"; }; f "$1"; source "$1/scripts/lib/paths.sh"; : > "$2"' \
+    "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/after"
+  ran_on
+  [ -z "$stderr" ]
+  run find "$WD" -type f
+  [ "$output" = "$WD/$ID/script" ]
 }

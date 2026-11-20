@@ -100,7 +100,29 @@ declare -gA EARLY_READ=(
 
 # The matrix (trust off, marker present): every entry refuses 11 with the
 # same bytes and changes nothing.
+#
+# #932, the one exemption: in an unattended session (DEVAGENT_UNATTENDED set,
+# CLAUDE_CODE_SESSION_ID a UUID) every script that sources paths.sh moves
+# $DA_HOME/state/watchdog/<session id>/script before it can refuse, so a
+# refusal may leave that one empty file and nothing else. It is a progress
+# mark for the launcher's watchdog, not issue state. `_matrix unattended` runs
+# the same cases in such a session and allows exactly that path.
+SID=0f8fad5b-d9cb-469f-a165-70867728950e
+
 @test "entry: byte-identical refusals across the entry points, no state or checklist change, no CHAIN:, no backend call" {
+  _matrix
+  [ ! -e "$DA_HOME/state/watchdog" ]
+}
+
+@test "entry: the same refusals in an unattended session leave state/watchdog/<id>/script and nothing else (#932)" {
+  _matrix unattended
+}
+
+# _matrix [unattended]
+_matrix() {
+  local unattended="${1:-}" marked=0 tree
+  local -a session=()
+  [ -z "$unattended" ] || session=(env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$SID")
   _mark "$D"
   printf 'Step:        2 draft\nReason:      fixture\n' > "$D/STUCK"
   local want st cl fails=0 i
@@ -117,18 +139,32 @@ declare -gA EARLY_READ=(
   for i in "${cases[@]}"; do
     # shellcheck disable=SC2086  # word-split each case on purpose
     set -- $i
+    rm -rf "$DA_HOME/state/watchdog"
     if [ "$1" = PIN ]; then
       shift
-      DEVAGENT_ACTIVE_ISSUE=Issue-7 run --separate-stderr "$S/$1.sh" wid
+      DEVAGENT_ACTIVE_ISSUE=Issue-7 run --separate-stderr "${session[@]}" "$S/$1.sh" wid
     else
       local ep="$1"; shift
-      run --separate-stderr "$S/$ep.sh" "$@"
+      run --separate-stderr "${session[@]}" "$S/$ep.sh" "$@"
     fi
     if [ "$status" -ne 11 ] || [ "$stderr" != "$want" ] || [[ "$output" == *CHAIN:* ]]; then
       echo "$i: rc=$status out=$output err=$stderr" >&2
       fails=$((fails + 1))
     fi
+    [ -n "$unattended" ] || continue
+    # The exemption, exactly: nothing, or the one empty file.
+    tree="$(cd "$DA_HOME/state" && find watchdog 2>/dev/null | sort | xargs)"
+    case "$tree" in
+      "") ;;
+      "watchdog watchdog/$SID watchdog/$SID/script")
+        marked=$((marked + 1))
+        [ ! -s "$DA_HOME/state/watchdog/$SID/script" ] || { echo "$i: script is not empty" >&2; fails=$((fails + 1)); } ;;
+      *) echo "$i: left under state/watchdog: $tree" >&2; fails=$((fails + 1)) ;;
+    esac
   done
+  # Every case here sources paths.sh, so every refusal left the mark.
+  [ -z "$unattended" ] || [ "$marked" -eq "${#cases[@]}" ] || { echo "only $marked of ${#cases[@]} left the mark" >&2; fails=$((fails + 1)); }
+  rm -rf "$DA_HOME/state/watchdog"
   [ "$(_sha "$STATE")" = "$st" ] || { echo "state changed" >&2; fails=$((fails + 1)); }
   [ "$(_sha "$D/checklist.md")" = "$cl" ] || { echo "checklist changed" >&2; fails=$((fails + 1)); }
   [ ! -s "$QB_DIR/calls" ] || { echo "backend calls: $(cat "$QB_DIR/calls")" >&2; fails=$((fails + 1)); }

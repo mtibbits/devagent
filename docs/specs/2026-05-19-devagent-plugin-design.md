@@ -1432,6 +1432,16 @@ function. devagent's test suite unsets the marker in its shared guard
 (`tests/lib/hermetic-env.bash`) and in `SUITE_CHILD_UNSET`, so an unattended
 session that runs the suite runs its attended paths.
 
+**The script-entry mark (#932).** In a marked session whose
+`CLAUDE_CODE_SESSION_ID` is a UUID, every devagent script that sources
+`scripts/lib/paths.sh` moves the mtime of the empty file
+`$(devagent_home)/state/watchdog/<session id>/script` as it starts, before any
+check of its own. This is the one exemption to "a refusal writes nothing": a
+trust refusal (exit 9) or a quarantine refusal (exit 11) in a marked session
+may leave that file and nothing else. It is a progress mark for the watchdog,
+not issue state, and it is never written in an unmarked session
+(`tests/trust-entry.bats`, `tests/quarantine-entry.bats`, `tests/heartbeat.bats`).
+
 ### 7.4 Step model tiers (`step_models`)
 
 An optional `[project.<name>.step_models]` table steers which model tier

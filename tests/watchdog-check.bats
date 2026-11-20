@@ -637,3 +637,19 @@ refused() {
     [[ "$output" == 100755\ * ]] || { echo "$f: $output" >&2; return 1; }
   done
 }
+
+# ---------------------------------------------------------------- Script entry (Task 4)
+
+@test "a real where.sh call is a progress source for check" {
+  at "$((T - 9000))" "$TR"
+  [ ! -e "$WD" ]
+  run --separate-stderr env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" bash "$PLUGIN_ROOT/scripts/where.sh" volk
+  [ "$status" -eq 0 ]
+  [ -f "$WD/$ID/script" ]
+  local s
+  s="$(stat -c %Y "$WD/$ID/script")"
+  chk "$((s + LIMIT - 1))"
+  is_ok
+  chk "$((s + LIMIT + 5))"
+  is_stalled script "$s" "$((LIMIT + 5))"
+}
