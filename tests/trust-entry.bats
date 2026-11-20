@@ -139,7 +139,7 @@ _lib() {
   while IFS= read -r f; do
     f="${f#"$PLUGIN_ROOT/scripts/"}"
     found+=("${f%.sh}")
-  done < <(grep -rlE --include='*.sh' '^trust_(entry_check(_devdoc)?|doctor_block) "' "$PLUGIN_ROOT/scripts" | sort)
+  done < <(grep -rlE --include='*.sh' '^trust_(entry_check(_devdoc)?|doctor_block) "' "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/libexec" | sort)
   want="$(printf '%s\n' "${TRUST_ENTRY_POINTS[@]}" | sort)"
   missing="$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "${found[@]}" | sort))"
   extra="$(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "${found[@]}" | sort))"
@@ -158,7 +158,7 @@ _lib() {
     f="${f#"$PLUGIN_ROOT/scripts/"}"
     hits+=("${f%.sh}")
   done < <(grep -lE 'BACKEND_DIR|scripts/issue|scripts/code|backend_sh|/\$backend\.sh|/\$\{backend\}\.sh|gh (api|pr|issue|auth)' \
-             "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh | sort)
+             "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh "$PLUGIN_ROOT"/libexec/*.sh | sort)
   # positive control: the sweep sees known dispatchers.
   [[ " ${hits[*]} " == *" pull "* && " ${hits[*]} " == *" wbs-init "* ]] || { echo "sweep found: ${hits[*]}" >&2; return 1; }
   stray="$(comm -23 <(printf '%s\n' "${hits[@]}") <(printf '%s\n' "${TRUST_ENTRY_POINTS[@]}" init | sort))"

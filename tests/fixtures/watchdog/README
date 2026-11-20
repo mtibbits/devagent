@@ -1,7 +1,16 @@
-tests/fixtures/watchdog/ — fixtures for scripts/watchdog.sh (#932)
+tests/fixtures/watchdog/ — fixtures for scripts/watchdog.sh and
+libexec/long-run.sh (#932)
 
 launcher.sh   a model launcher: polls `watchdog.sh check` on a virtual clock
               (--now stepped by the poll interval). See its header.
+
+Commands for the wrapper to run (tests/long-run.bats); each header has the usage:
+
+interleave.sh  forty stdout lines interleaved with forty stderr lines, exit 3
+hold.sh        prints, then waits for the files a test creates
+chunks.sh      three chunks, each written once the log shows the one before
+gappy.sh       two lines with one silent gap between them
+echo-stdin.sh  prints one variable of its environment, then its stdin
 
 The session layout the tests build by hand, and that `check` reads, is the one
 Claude Code 2.1.329 writes, measured on 2026-11-20 (Issue-932 spike, U1-U3):
@@ -32,5 +41,8 @@ devagent's own half of the record (scripts/lib/heartbeat.sh):
   $(devagent_home)/state/watchdog/<uuid>/beat.window        "<seconds>", while a --silent gap is open
   $(devagent_home)/state/watchdog/<uuid>/wrap.<run>         last output of one wrapped run
   $(devagent_home)/state/watchdog/<uuid>/wrap.<run>.window  "<seconds>", while that run lives
+  $(devagent_home)/state/watchdog/logs/<uuid>.<run>.log     a --merge run's output; two streams:
+                                                            <uuid>.<run>.out.log and .err.log
+                                                            (no session: no-session.<run>.…)
 
 Progress is each file's mtime; the tests set it with `touch -d @<epoch>`.

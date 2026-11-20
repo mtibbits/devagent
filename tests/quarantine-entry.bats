@@ -40,13 +40,16 @@ _msg() { bash -c 'source "$PLUGIN_ROOT/scripts/lib/refusals.sh"; quarantine_mess
 
 _sha() { sha256sum "$1" | cut -d' ' -f1; }
 
-# _scripts: every script under scripts/ (and capture/) by its name minus .sh.
+# _scripts: every script under scripts/ (and capture/) by its name minus .sh. A
+# libexec/ script (#932: outside scripts/, so no skill grant reaches it) is swept
+# too and keeps its full path here, so one that gains a guard or a resolver call
+# fails the census by name until it is listed.
 _names() { sed -e "s|^$PLUGIN_ROOT/scripts/||" -e 's|\.sh$||' | sort; }
 
 @test "census: QUARANTINE_GUARD_POINTS equals the scripts carrying a column-0 quarantine_guard call (both directions; count asserted)" {
   _lib
   local found want
-  found="$(MSYS_NO_PATHCONV=1 grep -lE "$GUARD_RE" "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh | _names)"
+  found="$(MSYS_NO_PATHCONV=1 grep -lE "$GUARD_RE" "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh "$PLUGIN_ROOT"/libexec/*.sh | _names)"
   want="$(printf '%s\n' "${QUARANTINE_GUARD_POINTS[@]}" | sort)"
   [ "$found" = "$want" ] || { diff <(echo "$want") <(echo "$found") >&2; false; }
   [ "${#QUARANTINE_GUARD_POINTS[@]}" -eq 44 ]   # #1122: claims-check, preship-preflight
@@ -55,7 +58,7 @@ _names() { sed -e "s|^$PLUGIN_ROOT/scripts/||" -e 's|\.sh$||' | sort; }
 @test "census: every script calling issue_context_dir|issue_dir_for|active_resolve_issue is guarded or on the reader allow-list" {
   _lib
   local hits s stray=""
-  hits="$( { MSYS_NO_PATHCONV=1 grep -lE "$RESOLVER_RE" "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh | _names
+  hits="$( { MSYS_NO_PATHCONV=1 grep -lE "$RESOLVER_RE" "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh "$PLUGIN_ROOT"/libexec/*.sh | _names
              printf '%s\n' "${TRUST_ENTRY_POINTS[@]}"; } | sort -u)"
   # positive control: the sweep sees known resolvers and a reader.
   [[ $'\n'"$hits"$'\n' == *$'\n'analyze-static$'\n'* && $'\n'"$hits"$'\n' == *$'\n'where$'\n'* ]]
