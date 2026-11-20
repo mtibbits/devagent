@@ -6,6 +6,8 @@
 # run decides at once. Rule 14 (#1125) also makes one fetch of default_baseline's
 # branch, bounded by DEVAGENT_MERGEMR_FETCH_SECS, and runs a local `git merge-tree`
 # that writes loose objects into the issue tree, to name the conflicted paths.
+# With `required_checks` set (#1097) it merges only when each of those checks is
+# `success` at that head (rules 15 and 16), and rules 8 and 12 report their states.
 #
 # It marks its own row BY NAME and ends one of four ways:
 #   [x] merged, [-] ship was skipped   exit 0 (also writes last_step/last_step_name)
@@ -23,7 +25,8 @@
 # Knobs: DEVAGENT_MERGEMR_READ_SECS (20; the PR read, the re-read after a merge, each
 # dependency read), DEVAGENT_MERGEMR_MERGE_SECS (30; the merge call and the auto-merge
 # disable), DEVAGENT_MERGEMR_FETCH_SECS (20; rule 14's base fetch, #1125),
-# DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace).
+# DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace, and #1097's for a required
+# check that has not reported).
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -58,6 +61,7 @@ config_is_project "$project" || die "unknown project '$project'"
 merge_checks_resolve "$project"
 merge_method_resolve "$project"
 merge_forward_resolve "$project"     # #1125: MF_VERIFY, MF_APPEND_ONLY
+required_checks_resolve "$project"   # #1097: REQUIRED_CHECKS, REQUIRED_CHECKS_PATHS
 
 trust_entry_check "mergemr" "$project"
 quarantine_guard "mergemr" "$project" "${2:-}"
@@ -156,6 +160,16 @@ _mr_state() {
     _ST="$(printf '%s' "$_CALL_OUT" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 }
 
+# _rc_eval (#1097): after a CI read, judges the project's required checks by the lines
+# the read kept (ci_required_eval: RC_OK, RC_BAD, RC_PENDING, RC_MISSING, RC_REPORT)
+# and sets sfx, which ends rule 8's and rule 12's [?] line. With no required_checks
+# RC_OK is 1 and the rest, sfx included, is empty, so every rule reads as it did.
+_rc_eval() {
+    ci_required_eval ${REQUIRED_CHECKS[@]+"${REQUIRED_CHECKS[@]}"}
+    sfx=""
+    [ "${#REQUIRED_CHECKS[@]}" -eq 0 ] || sfx="; required checks at ${CI_HEAD:0:7}: $RC_REPORT"
+}
+
 R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
 
 # ---- rules 1-2: whatever the backend -------------------------------------------------
@@ -206,6 +220,7 @@ fi
 ci_read_view "$project" "$issue_arg" "$mr_url"
 [ "$MV_OK" = 1 ] || _wait read "could not read PR $mr_url: ${MV_ERR:-${_CI_REASON:-unknown error}}"
 ci_report "$issue_dir"
+_rc_eval
 
 # ---- rules 3-8: whatever merge_mr says ------------------------------------------------
 
@@ -294,7 +309,7 @@ _deps_check() {
 }
 _deps_check
 
-[ "$merge_ok" = 1 ] || _wait 8 "waiting for merge ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"   # rule 8
+[ "$merge_ok" = 1 ] || _wait 8 "waiting for merge ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)$sfx"   # rule 8
 
 # ---- rules 9-18: only when the step would merge ----------------------------------------
 
@@ -345,7 +360,7 @@ fwd_text="head ${verified_head:0:7} was recorded by forward and merges only on g
 # rules 13-17 decide; a merge queue cannot be left from here, so it stops.
 if [ "$MV_AUTOMERGE" = on ] || [ "$MV_QUEUE" = true ]; then
     if [ "$vb_forward" = 0 ] || [ "$CI_RESULT" = green ]; then
-        _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"
+        _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)$sfx"
     fi
     if [ "$MV_QUEUE" = true ]; then
         _stop 17 "$fwd_text, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck"
@@ -426,21 +441,35 @@ _r14() {
 [ "$MV_MERGEABLE" != CONFLICTING ] || _r14                                     # rule 14
 
 # rules 15-17: #782's verdict, unchanged. ci_gate does not apply here: merging is a
-# stronger act than reporting.
+# stronger act than reporting. A required check (#1097) is judged beside it: one that
+# ended without success stops at rule 15 even while other checks are pending (a
+# terminal conclusion at this head cannot change), a pending one is a pending check
+# (rule 16), and one that did not report waits out the grace (rule 16), then stops.
 ci_verdict
 case "$CI_VERDICT" in
     red)                                                                      # rule 15
         _stop 15 "$CI_LINE; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;
+    hold|proceed)                                 # rule 15; `;;&` goes on to the verdict's own arm
+        [ -z "$RC_BAD" ] || _stop 15 "required check not successful on head ${verified_head:0:7}: $RC_BAD${RC_MISSING:+; not reported: $RC_MISSING}; re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;&
     hold)                                                                     # rule 16
         [ "$CI_RESULT" != none ] || _wait 16 "checks not reported yet (grace ${_CI_SECS}s)"
         _wait 16 "$CI_LINE" ;;
-    proceed) ;;
+    proceed)                                                                  # rule 16
+        if [ -n "$RC_MISSING" ]; then
+            _ci_grace_over || _wait 16 "required check not reported yet: $RC_MISSING (grace ${_CI_SECS}s)"
+            grace_secs="$_CI_SECS"      # past it: the stop below rule 17's forward arm
+        fi ;;
     *) _wait 16 "unexpected CI verdict '$CI_VERDICT'" ;;
 esac
 # rule 17, a head recorded by forward (#1125): it merges only on green CI, whatever
 # merge_checks says (vb_forward, read before rule 12).
 if [ "$vb_forward" = 1 ] && [ "$CI_RESULT" != green ]; then
     _stop 17 "$fwd_text; to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+fi
+# rule 15 again (#1097), ahead of merge_checks: a required check still not reported
+# after the grace (inside it, rule 16 waited above), so "if-present" never merges past it.
+if [ -n "$RC_MISSING" ]; then
+    _stop 15 "required check not reported on head ${verified_head:0:7} after ${grace_secs}s: $RC_MISSING; start it on the forge and run /devagent:unstuck, or push a head that runs it, then run /devagent:preship"
 fi
 if [ "$CI_RESULT" = none ] && [ "$MERGE_CHECKS" = required ]; then           # rule 17
     _stop 17 "no CI checks on head commit; set merge_checks = \"if-present\" to merge without CI, then run /devagent:unstuck"

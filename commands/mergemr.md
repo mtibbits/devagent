@@ -17,8 +17,10 @@ ship recorded (`mr_url`) and decides at once; nothing waits. It merges only
 when `permissions.merge_mr` is exactly `true`, and only at the head the last
 passing `/devagent:preship` recorded as `verified_head`, or that
 `preship-verified-head.sh forward` re-recorded after a merge-forward git made
-itself (#1125; merged only on green CI, rule 17). It never uses the
-permission gate, so `DA_YES=1` and an interactive terminal cannot open it.
+itself (#1125; merged only on green CI, rule 17). With `required_checks` set
+(#1097) it merges only when each of those CI checks is `success` at that head.
+It never uses the permission gate, so `DA_YES=1` and an interactive terminal
+cannot open it.
 With `merge_mr` false or unset it never merges by any route: it marks `[?]`
 until the PR is merged elsewhere.
 
@@ -53,16 +55,16 @@ merge.
 | 5 | draft PR | `[?]` `draft PR` |
 | 6 | base is not the default base (`default_baseline` without its remote, else `main`) | `[?]` `stacked on <base>`. The step does not retarget; retarget the PR on the forge |
 | 7 | a dependency is not satisfied | `[?]` `waiting for <dep> (<found>)[; <dep> (<found>)…]`; a failed dependency read: `[?]` `could not read <dep> <PR state\|linked PRs\|tracker state>: <error>`; a tracker with no `state-class`: `[?]` `cannot read <dep> tracker state on <backend>; merge order is yours: record its PR as [context.<dep>].mr_url, or merge by hand, then mark this step [x] with /devagent:checklist-mark` |
-| 8 | `merge_mr` not `true` | `[?]` `waiting for merge (<CI result>, <mergeable>/<mergeStateStatus>)` |
+| 8 | `merge_mr` not `true` | `[?]` `waiting for merge (<CI result>, <mergeable>/<mergeStateStatus>)`. With `required_checks` set (#1097) the line ends `; required checks at <sha7>: <name>: <state>[; <name>: <state>…]`: every required check in config order, at the PR head, `<state>` as "Config and knobs" lists them |
 | 9 | the PR is not on ship's target repo (`code_source.upstream`, or `code_source.fork` under `fork_first`; case-insensitive) | `[!]` `PR is not on <target>; it is on <repo>. Fix mr_url or code_source, then run /devagent:unstuck`. No target configured: `[!]` `no code_source.upstream configured for '<project>'; set it, then run /devagent:unstuck` |
 | 10 | no `verified_head` | `[!]` `no verified head for this PR; run /devagent:preship` |
 | 11 | PR head is not `verified_head` | `[!]` `PR head <sha7> was not verified; run /devagent:preship on it (or push the verified head <verified sha7>)`. With auto-merge on, it first disables it and adds ` (auto-merge disabled)`, or ` (could not disable auto-merge: <error>; disable it on the forge)` |
-| 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`; no second merge call. A head recorded by `forward` (as rule 17 reads `verified_by`) whose CI is not green is not left to the forge (#1125): with auto-merge on, the step disables it, prints `mergemr: auto-merge disabled: head <sha7> was recorded by forward and merges only on green CI (<CI result>)`, logs the same text, and rules 13-17 decide. A failed disable is `[!]` (rule 17) `head <sha7> was recorded by forward and merges only on green CI (<CI result>); could not disable auto-merge: <error>; disable it on the forge, then run /devagent:unstuck`. In a merge queue it is `[!]` (rule 17) `head <sha7> was recorded by forward and merges only on green CI (<CI result>), but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck` |
+| 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`, ending with rule 8's `; required checks at …` when `required_checks` is set; no second merge call. A head recorded by `forward` (as rule 17 reads `verified_by`) whose CI is not green is not left to the forge (#1125): with auto-merge on, the step disables it, prints `mergemr: auto-merge disabled: head <sha7> was recorded by forward and merges only on green CI (<CI result>)`, logs the same text, and rules 13-17 decide. A failed disable is `[!]` (rule 17) `head <sha7> was recorded by forward and merges only on green CI (<CI result>); could not disable auto-merge: <error>; disable it on the forge, then run /devagent:unstuck`. In a merge queue it is `[!]` (rule 17) `head <sha7> was recorded by forward and merges only on green CI (<CI result>), but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck` |
 | 13 | `mergeable` or `mergeStateStatus` is `UNKNOWN` | `[?]` `mergeability not computed yet` |
 | 14 | `CONFLICTING` | `[!]`, naming git's own conflicted paths (`git merge-tree` of `verified_head` and the base tip, after one bounded fetch of `default_baseline`; `<paths>` sorted, joined `, `). With `merge_forward` `verify = "ci"`, every conflicted path in `append_only`, merged by git as text and only insertions on both sides (each conflict hunk's base section empty), no merge driver on any path of git's merged tree (as `forward` checks), and no merge gate in `mr.md`: `conflict only in <paths>; merge it forward keeping both sides' lines, run rebaseline.sh, push, then run preship-verified-head.sh forward`. Otherwise `conflict with <base> in <paths>; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. When the paths cannot be known: `conflict with <base> (conflicted paths unknown: <why>); <the same remedy>`, `<why>` one of `could not fetch '<remote>' (<reason>)`, `cannot resolve <base_ref>`, `git merge-tree exited <rc>`, `cannot resolve the issue tree: <reason>`, `a conflicted path contains a newline`, `git reports a conflict but names no conflicted path`. When git finds none: `conflict with <base> (git finds no conflict between <verified sha7> and <tip sha7>); <the same remedy>` |
-| 15 | CI red (red wins over pending) | `[!]` `<CI FAILED line>; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
-| 16 | CI pending or unknown, or no checks inside the grace | `[?]` the `CI …:` line; no checks yet: `checks not reported yet (grace <n>s)` |
-| 17 | a head recorded by `forward` (#1125) that is not green, or no checks after the grace | `verified_by` is `forward` (or unreadable, or neither `preship` nor empty) and CI is not green: `[!]` `head <sha7> was recorded by forward and merges only on green CI (<CI result>); to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. Otherwise no checks after the grace: `merge_checks = "required"`: `[!]` `no CI checks on head commit; set merge_checks = "if-present" to merge without CI, then run /devagent:unstuck`; `"if-present"`: continue |
+| 15 | CI red (red wins over pending); a required check that ended without success, or is still not reported after the grace | `[!]` `<CI FAILED line>; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. A required check (#1097) that ended without success, even while other checks are pending (a failed one is red CI and stops with the line above): `[!]` `required check not successful on head <sha7>: <name> (<how it ended>)[; <name> (<how it ended>)…][; not reported: <name>[; <name>…]]; re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. A required check still not reported after the grace, decided after rule 17's forward stop and before its no-checks arm, so `merge_checks = "if-present"` never merges past it: `[!]` `required check not reported on head <sha7> after <n>s: <name>[; <name>…]; start it on the forge and run /devagent:unstuck, or push a head that runs it, then run /devagent:preship` |
+| 16 | CI pending or unknown, no checks inside the grace, or a required check not reported inside the grace | `[?]` the `CI …:` line (a pending required check is a pending check); no checks yet: `checks not reported yet (grace <n>s)`; CI otherwise done and a required check not reported yet: `required check not reported yet: <name>[; <name>…] (grace <n>s)` |
+| 17 | a head recorded by `forward` (#1125) that is not green, or no checks after the grace | `verified_by` is `forward` (or unreadable, or neither `preship` nor empty) and CI is not green: `[!]` `head <sha7> was recorded by forward and merges only on green CI (<CI result>); to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. Otherwise (a required check not reported has stopped at rule 15 by now) no checks after the grace: `merge_checks = "required"`: `[!]` `no CI checks on head commit; set merge_checks = "if-present" to merge without CI, then run /devagent:unstuck`; `"if-present"`: continue |
 | 18 | `mergeStateStatus` not `CLEAN` or `HAS_HOOKS` (e.g. `BLOCKED`, `BEHIND`) | `[!]` `blocked by a forge rule (<status>); resolve it on the forge, then run /devagent:unstuck` |
 | 19 | merge | see below |
 
@@ -71,7 +73,9 @@ A `/devagent:preship` pass after ship records the new head and clears a rule
 failing post-ship preship. A successful `preship-verified-head.sh forward`
 (#1125) clears a rule-14 stop, and a rule-11 stop that names HEAD's short SHA;
 never rule 10, 15, a `preship:` stop or its own rule 17. Every other stop names
-`/devagent:unstuck`.
+`/devagent:unstuck`. A rule-15 stop over a required check names both: the
+passing preship for a new head, `/devagent:unstuck` once the check has
+succeeded at the same head.
 
 ## Dependencies (rule 7)
 
@@ -153,6 +157,26 @@ read PR <url>: <error>`.
   `merge_method must be squash, merge or rebase (got '<v>'); fix
   [project.<name>] merge_method` (`[defaults]` when the value came from
   there).
+- `required_checks = ["<check-run name>", …]` (#1097; `[project.<name>]` only,
+  no `[defaults]` layer: the names belong to one repository): the CI checks
+  the merge needs. A name is compared byte for byte with a check's name on the
+  PR, and every check of that name counts. Each required check has one state
+  at the PR head: `success` (passed with the conclusion `SUCCESS`, the only
+  state that merges); `pending` (rule 16); `missing`, no check of that name
+  (rule 16 inside the grace, rule 15 after it); or how it ended without
+  success, e.g. `skipped`, `neutral`, `cancelled`, `failure`, or `no
+  conclusion` for a passing line whose backend prints none (rule 15). Absent
+  or `[]`: no required checks, and every rule reads as it did.
+- `required_checks_paths = ["<path>", …]` (#1097; optional, same table):
+  repo-relative files or directories (one trailing `/` allowed) that decide
+  what a required check measures, e.g. `["scripts/ci/"]`.
+- Both are validated at the start of every run, whatever `merge_mr` says: a
+  bad value dies naming the key, e.g. `required_checks must be an array of
+  single-line strings, e.g. required_checks = ["Git Bash tagged files"]; fix
+  [project.<name>] required_checks`. Either key under `[defaults]` dies
+  (`required_checks is per project (its values belong to one repository);
+  move it from [defaults] to [project.<name>]`), and so does
+  `required_checks_paths` without `required_checks`.
 - `ci_gate = "off"` does **not** apply here: rules 15-17 always use #782's
   CI verdict, because merging is a stronger act than reporting.
 - `DEVAGENT_MERGEMR_READ_SECS` (20): the bound on the PR read, the re-read
@@ -160,7 +184,8 @@ read PR <url>: <error>`.
   every re-check of a waiting row, whatever `merge_mr` says.
 - `DEVAGENT_MERGEMR_MERGE_SECS` (30): the bound on the merge call and on the
   auto-merge disable.
-- `DEVAGENT_CI_GRACE_SECS` (120): #782's grace before "no checks" counts.
+- `DEVAGENT_CI_GRACE_SECS` (120): #782's grace before "no checks" counts, and
+  before a required check that has not reported stops the step.
 - `DEVAGENT_MERGEMR_FETCH_SECS` (20): the bound on rule 14's fetch of
   `default_baseline`'s branch. Rule 14 also runs a local `git merge-tree`, which
   writes loose objects into the issue tree.

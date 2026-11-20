@@ -137,13 +137,16 @@ teardown() { devagent_test_teardown; }
 
 # _view [key=value ...]: write an mr-view reply to $MV_OUT (out=after writes
 # $MV_OUT_AFTER instead). checks: space-separated <kind>:<name> (pass|pending|fail),
-# empty = no checks. closes/trailers: `;`-separated. commits: "<total> <read>".
+# empty = no checks; a pass line has three fields, as a backend that prints no
+# conclusion writes it. rchecks (#1097): `;`-separated <kind>|<name>[|<CONCLUSION>],
+# for a name with a space and a line with its conclusion (the fourth field, left out
+# when <CONCLUSION> is). closes/trailers: `;`-separated. commits: "<total> <read>".
 _view() {
-    local -A f=([state]=open [head]="$PR_HEAD" [checks]="pass:ci" [draft]=false [base]=main
+    local -A f=([state]=open [head]="$PR_HEAD" [checks]="pass:ci" [rchecks]="" [draft]=false [base]=main
                 [mergeable]=MERGEABLE [mergestate]=CLEAN [automerge]=off [queue]=false
                 [number]=77 [title]="Add the thing" [mergecommit]=- [commits]="1 1"
                 [closes]="" [trailers]="Signed-off-by: Tess <tess@example.com>" [out]="")
-    local kv c item path="$DEVAGENT_TMP/view.txt" k
+    local kv c item path="$DEVAGENT_TMP/view.txt" k kind name concl
     for kv in "$@"; do f[${kv%%=*}]="${kv#*=}"; done
     if [ "${f[out]}" = after ]; then path="$DEVAGENT_TMP/view-after.txt"; export MV_OUT_AFTER="$path"
     else export MV_OUT="$path"; fi
@@ -152,6 +155,13 @@ _view() {
         for c in ${f[checks]}; do
             if [ "${c%%:*}" = fail ]; then printf 'fail\t%s\t-\tFAILURE\n' "${c#*:}"
             else printf '%s\t%s\t-\n' "${c%%:*}" "${c#*:}"; fi
+        done
+        IFS=';' read -ra items <<<"${f[rchecks]}"
+        for item in "${items[@]}"; do
+            [ -n "$item" ] || continue
+            IFS='|' read -r kind name concl <<<"$item"
+            if [ -n "$concl" ]; then printf '%s\t%s\t-\t%s\n' "$kind" "$name" "$concl"
+            else printf '%s\t%s\t-\n' "$kind" "$name"; fi
         done
         for k in draft base mergeable mergestate automerge queue number title mergecommit; do
             [ "${f[$k]}" = OMIT ] || printf '%s\t%s\n' "$k" "${f[$k]}"
@@ -1659,4 +1669,242 @@ _no_checks_past_grace() {
     [[ "$output" == *"mergemr: waiting (read): "* ]]
     _mrlog | grep -q '^waiting (read): '
     [ "$(_merges)" -eq 0 ]
+}
+
+# ---- #1097: required checks ------------------------------------------------------
+# `[project.<p>] required_checks` names the check runs the merge needs: each must be
+# `pass` + SUCCESS at the verified head. The default fixture stays key-less, and its
+# `pass ci -` line is the ordinary check that prints no conclusion.
+
+GBT="Git Bash tagged files"
+RC_BAD_REMEDY="re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+RC_MISSING_REMEDY="start it on the forge and run /devagent:unstuck, or push a head that runs it, then run /devagent:preship"
+
+# _proj_key <key> <toml value>: insert `<key> = <value>` right after the
+# [project.$TEST_PROJECT] header (`_toml.py set` stores an array as a string). Fails
+# unless exactly one header took the insert: an edit that no-ops must not pass.
+_proj_key() {
+    local line out="" n=0
+    while IFS= read -r line; do
+        out+="$line"$'\n'
+        if [ "$line" = "[project.$TEST_PROJECT]" ]; then out+="$1 = $2"$'\n'; n=$((n + 1)); fi
+    done < "$CFG"
+    [ "$n" -eq 1 ] || { echo "_proj_key: [project.$TEST_PROJECT] matched $n header lines in $CFG" >&2; return 1; }
+    printf '%s' "$out" > "$CFG"
+}
+
+# _req '<toml array>': required_checks, read back as an array of strings.
+_req() {
+    _proj_key required_checks "$1"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get-list "$CFG" "project.$TEST_PROJECT.required_checks" >/dev/null \
+        || { echo "_req: get-list does not read required_checks as an array" >&2; return 1; }
+}
+
+# _past_grace: the head's grace clock ran out long ago.
+_past_grace() {
+    devagent_state_set "$STATE" "context.Issue-1.ci_seen_head" "$PR_HEAD"
+    devagent_state_set "$STATE" "context.Issue-1.ci_seen_at" 1000
+}
+
+_unstuck() {
+    run bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    [ "$status" -eq 0 ]
+}
+
+# _next_run_merges <head>: the PR merges on the next run, at <head>.
+_next_run_merges() {
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    echo "status=$status output=$output" >&2
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    [ "$(_merges)" -eq 1 ]
+    grep -qxF "[$1]" "$MERGE_LOG"
+}
+
+@test "#1097 required: success at the verified head merges" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SUCCESS"          # beside the ordinary three-field `pass ci -`
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 required: pending holds through rule 16" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pending|$GBT"
+    _run
+    _wait_is 16 "CI PENDING: 1 of 2 checks still running on $URL (head ${PR_HEAD:0:7}): $GBT"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: failure stops at rule 15 naming the check" {
+    _req "[\"$GBT\"]"
+    _view rchecks="fail|$GBT|FAILURE"
+    _run
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): $GBT; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: skipped stops" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: skipped stops while another check is still pending" {
+    _req "[\"$GBT\"]"
+    _view checks="pending:ci" rchecks="pass|$GBT|SKIPPED"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: neutral stops" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|NEUTRAL"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (neutral); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: a pass line with no conclusion fails closed" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (no conclusion); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: missing inside the grace waits, past it stops" {
+    _req "[\"$GBT\"]"
+    export DEVAGENT_CI_GRACE_SECS=300           # both messages carry the knob, not its default
+    _run                                        # `pass ci -` alone: CI is green, the required check absent
+    _wait_is 16 "required check not reported yet: $GBT (grace 300s)"
+    [ ! -e "$MERGE_LOG" ]
+    _past_grace
+    _run
+    _stop_is 15 "required check not reported on head ${PR_HEAD:0:7} after 300s: $GBT; $RC_MISSING_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: no checks at all past the grace stops naming the check, also under if-present" {
+    _req "[\"$GBT\"]"
+    _view checks=""
+    _past_grace
+    _run
+    _stop_is 15 "required check not reported on head ${PR_HEAD:0:7} after 120s: $GBT; $RC_MISSING_REMEDY"
+    _unstuck
+    _set merge_checks if-present
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    _stop_is 15 "required check not reported on head ${PR_HEAD:0:7} after 120s: $GBT; $RC_MISSING_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: one skipped and one missing are both named" {
+    _req "[\"$GBT\", \"lint\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); not reported: lint; $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 merge_mr=false: the [?] line names each required check and its state at the head" {
+    _req "[\"$GBT\", \"lint\", \"docs\"]"
+    _setb permissions.merge_mr false
+    _view rchecks="pass|$GBT|SUCCESS;pass|lint|SKIPPED"
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN); required checks at ${PR_HEAD:0:7}: $GBT: success; lint: skipped; docs: missing"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 R12: auto-merge on with every required check successful waits and names them" {
+    _req "[\"$GBT\", \"lint\"]"
+    _view automerge=on rchecks="pass|$GBT|SUCCESS;pass|lint|SUCCESS"
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN); required checks at ${PR_HEAD:0:7}: $GBT: success; lint: success"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 no key: a skipped check and a three-field pass line merge as today" {
+    _view rchecks="pass|$GBT|SKIPPED"          # beside the three-field `pass ci -`
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 empty list: auto-merge on with a skipped check waits at rule 12 as today, no disable call" {
+    _req '[]'
+    _view automerge=on rchecks="pass|$GBT|SKIPPED"
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 config: a bad required_checks dies at mergemr start, also with merge_mr false" {
+    _proj_key required_checks "\"$GBT\""        # a string where the key takes an array
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run
+        echo "status=$status output=$output" >&2
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"required_checks must be an array of single-line strings, e.g. required_checks = [\"$GBT\"]; fix [project.testproj] required_checks"* ]]
+        assert_step "$CL" 20 ' ' mergemr
+    done
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 remedy: re-run on the forge, unstuck; the next run merges" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not successful on head ${PR_HEAD:0:7}: "* ]]
+    _view rchecks="pass|$GBT|SUCCESS"           # the re-run job succeeded at the same head
+    _unstuck
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 remedy: fix, push, preship clears the stop; the next run merges" {
+    local h2
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not successful on head ${PR_HEAD:0:7}: "* ]]
+    ( cd "$SOURCE_DIR" && echo fix > fix.txt && git add fix.txt && git commit -q -m fix )
+    h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _view head="$h2" rchecks="pass|$GBT|SUCCESS"
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _next_run_merges "$h2"
+}
+
+@test "#1097 remedy: start the check on the forge, unstuck; the next run merges" {
+    _req "[\"$GBT\"]"
+    _past_grace
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not reported on head ${PR_HEAD:0:7} after 120s: "* ]]
+    _view rchecks="pass|$GBT|SUCCESS"           # started by hand, it succeeded at the same head
+    _unstuck
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 remedy: push a head that runs the check, preship clears the stop; the next run merges" {
+    local h2
+    _req "[\"$GBT\"]"
+    _past_grace
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not reported on head ${PR_HEAD:0:7} after 120s: "* ]]
+    ( cd "$SOURCE_DIR" && git commit -q --allow-empty -m "run the checks" )
+    h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _view head="$h2" rchecks="pass|$GBT|SUCCESS"
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _next_run_merges "$h2"
 }
