@@ -14,6 +14,7 @@
 Work breakdown built from the tracker | #706
 Portfolio view across projects | #726
 Dependencies that cross projects | #727
+Keeping an issue out of the work breakdown | #761
 Evidence attested across environments | #655
 Evidence stamps in the merge request body | #894
 Claims and evidence checked before the verifier runs | #1122
@@ -22,6 +23,7 @@ A trust policy baseline for shared queues | #713
 Issues kept as files on disk | #1009
 A starter checklist | #989
 A local code backend, no forge needed | #1016
+Shared records kept in step across machines | #1148
 Token cost per issue and step | kw:cost-report.sh
 Breaks for a fresh session on long runs | kw:phase breaks
 Close-out without a break once the pull request is merged | #933
