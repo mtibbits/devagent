@@ -69,13 +69,25 @@ at run time — `commands/analyze.md` says where it is recorded. The backend and
 scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (JIRA),
 as appropriate for your backend.
 
-**Supported platforms.** devAgent is developed and tested on **Linux**, including
-WSL on Windows. Native Git Bash on Windows can run the plugin.
-macOS is currently untested: the scripts assume GNU coreutils (`stat -c`, GNU
-`sed -i`, `readlink -f`). CI runs the full suite on Linux, and runs the
-`gitbash`-tagged test files under Git Bash on Windows; the full suite needs a
-filesystem where `chmod` works, which Git Bash's default `noacl` mounts are not
-(see [Running the test suite](#running-the-test-suite)).
+<!-- tests/docs-site.bats: docs-site/install.md copies this paragraph's opening line word for word (check_platform_sentence); keep each PLATFORM_CLAIMS token on one line -->
+**Supported platforms.** Linux, or Windows with Git Bash.
+WSL is for contributors to devAgent itself. macOS is untested.
+With Git for Windows installed, Claude Code's Bash tool runs in Git Bash, and
+devAgent's commands use that tool. Running Claude Code inside WSL counts as
+Linux. Supported means Windows defects get fixed; the known ones are tracked in
+the epic
+[Support Windows users through Git Bash](https://github.com/mtibbits/devagent/issues/983).
+devAgent's own test suite needs a filesystem where `chmod` works, which Git
+Bash's default `noacl` mounts do not provide, so contributors run it in a WSL
+clone on a Linux filesystem (see [Running the test suite](#running-the-test-suite)).
+The same limit reaches users: a project whose own tests mention file modes at all
+(even a `chmod +x` on a test stub) cannot produce suite evidence in Git Bash, so it
+runs that step in a WSL clone on a Linux filesystem, not under `/mnt/c`. macOS
+should work with Homebrew bash and GNU coreutils, sed and findutils (the scripts
+use `stat -c`, `sed -i`, `find -printf` and `readlink -f`), but nobody has tested
+it.
+CI runs the full suite on Linux, and runs the `gitbash`-tagged test files under
+Git Bash on Windows.
 
 **Claude Code version.** Developed and verified against Claude Code **2.1.223**;
 earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,
