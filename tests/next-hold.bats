@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# bats file_tags=gitbash
+# Not gitbash-tagged: the Git Bash job budget (#962 measured ~28 min with it);
+# its Windows evidence is the hand-run file in the issue directory.
 # tests/next-hold.bats — #962: next.sh's question_stop. A question STUCK stops
 # every call with exit `operator-question`; an open record for the current or
 # just-dispatched step prints the ASK block (interactive) or becomes a hold

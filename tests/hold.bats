@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# bats file_tags=gitbash
+# Not gitbash-tagged: the Git Bash job budget (#962 measured ~28 min with it);
+# its Windows evidence is the hand-run file in the issue directory.
 # tests/hold.bats — #962: scripts/hold.sh (ask, --no-ask, the hold, re-entry,
 # one stop at a time) and park.sh's --reason and kept `[?]`.
 bats_require_minimum_version 1.5.0
