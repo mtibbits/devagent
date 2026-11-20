@@ -271,25 +271,41 @@ issue_labels() {
 # heading parsed after a comment-hidden fence marker warns that parity may be
 # inverted; and at END a heading swallowed by a fence that never closed, or by
 # one that a hidden marker inverted, warns.
-flags_validate() {
-  local file="$1"
+flags_validate() { _flags_scan warn "$1"; }
+
+# flags_enumerate <issue-md-path> — the QUIET mode of the same machine (#715):
+# one `<line-number>\t<key>\t<value>` line on stdout per live key line of the
+# body's `## Workflow flags` blocks, unknown keys and duplicates included, in file
+# order. The value is trimmed as flags_get trims it, comes last and may be empty,
+# so `IFS=$'\t' read -r n key val` reads it unshifted. Nothing on stderr: under a
+# trust policy pull's floor reads the ticket with this before PASS, when no ticket
+# byte may be printed. rc 0, for an absent file too. Being a mode of the validate
+# machine, not a third machine, it cannot drift from what flags_validate sees;
+# tests/lib_flags.bats holds it equal to flags_get over a planted corpus.
+flags_enumerate() { _flags_scan enum "$1"; }
+
+# _flags_scan <warn|enum> <issue-md-path> — the validate machine. `warn` prints
+# flags_validate's diagnostics on stderr and nothing on stdout; `enum` prints
+# flags_enumerate's rows on stdout and nothing on stderr.
+_flags_scan() {
+  local mode="$1" file="$2"
   [[ -f "$file" ]] || return 0
-  awk -v known=" $(flags_known_keys) " '
+  awk -v mode="$mode" -v known=" $(flags_known_keys) " '
     /^## Comments \(/ { exit }
-    inblock && !incomment && /^[a-z][a-z-]*:/ && /<!--/ {
+    mode == "warn" && inblock && !incomment && /^[a-z][a-z-]*:/ && /<!--/ {
       ckey = $0; sub(/:.*/, "", ckey)
       print "flags.sh: warn: inline <!-- on ## Workflow flags key '\''" ckey "'\'' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
     }
     /<!--/ { cblock = ($0 ~ /^[ ]*<!--/); incomment = 1 }
     incomment { if ((fence && $0 ~ /^[[:space:]]*```[[:space:]]*$/) || (!fence && !cblock && /^[[:space:]]*```/)) divergent = 1; if ($0 ~ /-->/) incomment = 0; next }
     /^[[:space:]]*```/ {
-      if (inblock)
+      if (inblock && mode == "warn")
         print "flags.sh: warn: ## Workflow flags block closed by a code fence — any keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
       fence = !fence; if (!fence) swallowed = 0; inblock = 0; next
     }
     fence { if ($0 ~ /^## Workflow flags[[:space:]]*$/) { swallowed = 1; if (divergent) swallowed_div = 1 }; next }
     /^## Workflow flags[[:space:]]*$/ {
-      if (divergent)
+      if (divergent && mode == "warn")
         print "flags.sh: warn: a fence marker above this ## Workflow flags block was hidden inside an <!-- --> span — fence parity may be inverted, so this block may be a documented example; check the fences above it" > "/dev/stderr"
       inblock = 1; seen = 0; next
     }
@@ -299,16 +315,22 @@ flags_validate() {
       inblock = 0
       cline = $0; gsub(/[^ -~]/, "?", cline)
       if (length(cline) > 60) cline = substr(cline, 1, 60) "..."
-      print "flags.sh: warn: ## Workflow flags block closed at a non-key line: '\''" cline "'\'' — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
+      if (mode == "warn")
+        print "flags.sh: warn: ## Workflow flags block closed at a non-key line: '\''" cline "'\'' — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
     }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
       key = $0; sub(/:.*/, "", key)
-      if (index(known, " " key " ") == 0)
+      if (mode == "enum") {
+        val = substr($0, length(key) + 2)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+        print NR "\t" key "\t" val
+      }
+      if (mode == "warn" && index(known, " " key " ") == 0)
         print "flags.sh: warn: unknown ## Workflow flags key '\''" key "'\'' — ignored (forward-compat)" > "/dev/stderr"
     }
     END {
-      if ((fence && swallowed) || swallowed_div)
+      if (mode == "warn" && ((fence && swallowed) || swallowed_div))
         print "flags.sh: warn: unbalanced code fence (never closed, or a fence marker hidden inside an <!-- --> span) — a ## Workflow flags heading was treated as documentation and IGNORED" > "/dev/stderr"
     }
   ' "$file"

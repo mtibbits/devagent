@@ -898,3 +898,100 @@ print(" ".join(m.MODEL_TOKENS))' "$PLUGIN_ROOT/scripts/lib/wbs-parser.py" | tr -
   run grep -cE "^tier_allowlist\(\) \{ printf '[A-Za-z0-9._ -]+'; \}$" "$PLUGIN_ROOT/scripts/lib/flags.sh"
   [ "$output" = "1" ]
 }
+
+# --- #715: flags_enumerate, the quiet enumerate mode of the validate machine
+
+bats_require_minimum_version 1.5.0   # run --separate-stderr
+
+# _fx <body>: a fetch-shaped issue.md around <body> at $BATS_TEST_TMPDIR/fx.md.
+_fx() {
+  printf '# a/b#1 — t\n\n- State: open\n- Labels: \n\n---\n\n%s\n\n---\n\n## Comments (0)\n' "$1" \
+    > "$BATS_TEST_TMPDIR/fx.md"
+}
+
+@test "flags_enumerate: every live key line, duplicates included (#715)" {
+  _fx $'## Workflow flags\ntier: opus-checking\ntier: oneshot'
+  run --separate-stderr flags_enumerate "$BATS_TEST_TMPDIR/fx.md"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "" ]
+  [ "$output" = $'9\ttier\topus-checking\n10\ttier\toneshot' ]
+}
+
+@test "flags_enumerate: a fenced block, a commented block and a block below '## Comments (' print nothing (#715)" {
+  local body
+  for body in $'```\n## Workflow flags\ntier: oneshot\n```' \
+              $'<!--\n## Workflow flags\ntier: oneshot\n-->' \
+              $'Body.\n\n---\n\n## Comments (1)\n\n## Workflow flags\ntier: oneshot'; do
+    _fx "$body"
+    run --separate-stderr flags_enumerate "$BATS_TEST_TMPDIR/fx.md"
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ] || { echo "rows for: $body: $output" >&2; return 1; }
+    [ "$stderr" = "" ]
+  done
+}
+
+@test "flags_enumerate: silent where flags_validate warns (#715)" {
+  local body
+  # S1 (inline <!-- on a key), S2 (a non-key line closes the block), S3 (unknown key).
+  for body in $'## Workflow flags\ntier: oneshot <!-- note -->' \
+              $'## Workflow flags\nTier: oneshot' \
+              $'## Workflow flags\nzz-unknown: 1'; do
+    _fx "$body"
+    run --separate-stderr flags_validate "$BATS_TEST_TMPDIR/fx.md"
+    [[ "$stderr" == *"flags.sh: warn:"* ]] || { echo "no warn for: $body" >&2; return 1; }
+    run --separate-stderr flags_enumerate "$BATS_TEST_TMPDIR/fx.md"
+    [ "$status" -eq 0 ]
+    [ "$stderr" = "" ] || { echo "enumerate printed: $stderr" >&2; return 1; }
+  done
+}
+
+@test "flags_enumerate: twin of flags_get over the planted corpus (#715, U3)" {
+  local -A want=([plain]=2 [fenced]=1 [comment]=1 [clause553]=0 [duplicates]=3
+                 [twoblocks]=4 [crlf]=2 [comments-exit]=1)
+  local f name rows key first n=0
+  for f in "$PLUGIN_ROOT"/tests/fixtures/flags-twin/*.md; do
+    name="$(basename "$f" .md)"
+    [ -n "${want[$name]+x}" ] || { echo "no expected row count for $name" >&2; return 1; }
+    cp "$f" "$BATS_TEST_TMPDIR/t.md"
+    # .gitattributes keeps the tree LF; the CRLF clause is made here.
+    if [ "$name" = crlf ]; then sed -i 's/$/\r/' "$BATS_TEST_TMPDIR/t.md"; grep -q $'\r' "$BATS_TEST_TMPDIR/t.md"; fi
+    rows="$(flags_enumerate "$BATS_TEST_TMPDIR/t.md")"
+    [ "$(grep -c . <<<"$rows")" -eq "${want[$name]}" ] \
+      || { echo "$name: want ${want[$name]} rows, got: $rows" >&2; return 1; }
+    for key in $(flags_known_keys); do
+      first="$(awk -F'\t' -v k="$key" '$2 == k { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }' <<<"$rows")"
+      if grep -q $'^[0-9]*\t'"$key"$'\t' <<<"$rows"; then
+        run flags_get "$BATS_TEST_TMPDIR/t.md" "$key"
+        [ "$status" -eq 0 ] || { echo "$name/$key: flags_get rc $status, enumerator has a row" >&2; return 1; }
+        [ "$output" = "$first" ] || { echo "$name/$key: flags_get '$output' != '$first'" >&2; return 1; }
+      else
+        run flags_get "$BATS_TEST_TMPDIR/t.md" "$key"
+        [ "$status" -eq 1 ] || { echo "$name/$key: flags_get rc $status, enumerator has no row" >&2; return 1; }
+      fi
+    done
+    n=$((n + 1))
+  done
+  [ "$n" -eq "${#want[@]}" ]
+}
+
+@test "flags_enumerate: empty value and CRLF (#715)" {
+  local n key val
+  _fx $'## Workflow flags\ntier:\nresearch: required'
+  run flags_enumerate "$BATS_TEST_TMPDIR/fx.md"
+  [ "$status" -eq 0 ]
+  IFS=$'\t' read -r n key val <<<"$(head -n 1 <<<"$output")"
+  [ "$n" = 9 ] && [ "$key" = tier ] && [ "$val" = "" ]
+  IFS=$'\t' read -r n key val <<<"$(sed -n 2p <<<"$output")"
+  [ "$n" = 10 ] && [ "$key" = research ] && [ "$val" = required ]
+  _fx $'## Workflow flags\ntier: oneshot'
+  sed -i 's/$/\r/' "$BATS_TEST_TMPDIR/fx.md"
+  run flags_enumerate "$BATS_TEST_TMPDIR/fx.md"
+  [ "$output" = $'9\ttier\toneshot' ]
+}
+
+@test "flags_enumerate: an absent file prints nothing, rc 0 (#715)" {
+  run --separate-stderr flags_enumerate "$BATS_TEST_TMPDIR/nope.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+  [ "$stderr" = "" ]
+}
