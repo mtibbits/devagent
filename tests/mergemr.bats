@@ -2671,29 +2671,125 @@ _sc_acked() { printf '%s' "self-certifying diff acknowledged at ${PR_HEAD:0:7}: 
     _stop_is 21 "$(_sc_text ".github/workflows/a?b.yml")"      # _reason reads one line
 }
 
-@test "#1097 selfcert: a head the repo directory lacks is fetched by id, bounded, then scanned" {
-    local origin="$DEVAGENT_TMP/origin.git" clone="$DEVAGENT_TMP/clone"
+# _sc_origin: a bare origin (SC_ORIGIN) that holds main and the issue branch and
+# serves a partial clone.
+_sc_origin() {
+    SC_ORIGIN="$DEVAGENT_TMP/origin.git"
+    git -c init.defaultBranch=main init -q --bare "$SC_ORIGIN"
+    git -C "$SC_ORIGIN" config uploadpack.allowFilter true
+    git -C "$SOURCE_DIR" push -q "$SC_ORIGIN" main feat/1-x
+}
+
+# In a partial clone git fetches a missing object by itself, unbounded, on any read
+# that touches it. The scan's own reads never do, so the one bounded fetch is the only
+# way the commit arrives.
+@test "#1097 selfcert: a head the repo directory lacks is fetched by id, bounded, then scanned; in a partial clone too" {
+    local clone kind
+    local -a filter
     _req "[\"$GBT\"]"
     _sc_put "$WF" 'on: push'
     _sc_head
-    git -c init.defaultBranch=main init -q --bare "$origin"
-    git -C "$SOURCE_DIR" push -q "$origin" main feat/1-x
-    git clone -q --no-local --single-branch -b main "$origin" "$clone"     # main only
-    run git -C "$clone" cat-file -e "$PR_HEAD^{commit}"
-    [ "$status" -ne 0 ]                         # the PR head is not in this clone
-    _set source_dir "$clone"
-    # a fetch that hangs is cut at the bound: the diff is unknown
+    _sc_origin
     printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = fetch ] && exec sleep 30; done\nexec git "$@"\n' > "$DEVAGENT_TMP/gitshim"
     chmod +x "$DEVAGENT_TMP/gitshim"
-    DEVAGENT_GIT="$DEVAGENT_TMP/gitshim" DEVAGENT_MERGEMR_FETCH_SECS=1 run "$MM" "$TEST_PROJECT" </dev/null
-    _stop_is 21 "$(_sc_unknown "${PR_HEAD:0:7} is not a commit in $clone")"
-    _unstuck
-    _run                                        # one fetch of the missing commit from default_baseline's remote
-    _stop_is 21 "$(_sc_text "$WF")"
-    [ -z "$(git -C "$clone" for-each-ref --contains "$PR_HEAD")" ]      # no ref was written for it
-    [ ! -e "$clone/.git/FETCH_HEAD" ]
+    for kind in full partial; do
+        echo "kind=$kind" >&2
+        clone="$DEVAGENT_TMP/clone-$kind"
+        filter=()
+        [ "$kind" = full ] || filter=(--filter=blob:none)
+        git clone -q --single-branch -b main "${filter[@]}" "file://$SC_ORIGIN" "$clone"      # main only
+        GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none run git -C "$clone" cat-file -e "$PR_HEAD^{commit}"
+        [ "$status" -ne 0 ]                     # the PR head is not in this clone
+        _set source_dir "$clone"
+        # a fetch that hangs is cut at the bound: the diff is unknown
+        DEVAGENT_GIT="$DEVAGENT_TMP/gitshim" DEVAGENT_MERGEMR_FETCH_SECS=1 run "$MM" "$TEST_PROJECT" </dev/null
+        _stop_is 21 "$(_sc_unknown "${PR_HEAD:0:7} is not a commit in $clone")"
+        _unstuck
+        _run                                    # one fetch of the missing commit from default_baseline's remote
+        _stop_is 21 "$(_sc_text "$WF")"
+        [ -z "$(git -C "$clone" for-each-ref --contains "$PR_HEAD")" ]      # no ref was written for it
+        [ ! -e "$clone/.git/FETCH_HEAD" ]
+        _unstuck
+    done
 }
 
+# The entry check and the diff must read an entry the same way: literally. A form git
+# would otherwise read as pathspec magic names a path for one and nothing for the other.
+@test "#1097 selfcert: a required_checks_paths entry written as pathspec magic names no path: it stops \"unknown\", never matching nothing" {
+    local main e
+    main="$(git -C "$SOURCE_DIR" rev-parse main)"
+    _req "[\"$GBT\"]"
+    _sc_put scripts/ci/x.sh 'echo x'
+    _sc_head
+    _proj_key required_checks_paths '["scripts/ci/"]'
+    for e in ':/scripts/ci/' ':(top)scripts/ci/' ':(literal)scripts/ci/'; do
+        sed -i "s|^required_checks_paths = .*|required_checks_paths = [\"$e\"]|" "$CFG"
+        grep -qxF "required_checks_paths = [\"$e\"]" "$CFG"
+        _run
+        echo "entry=$e" >&2
+        _stop_is 21 "$(_sc_unknown "required_checks_paths entry '$e' names no path at ${main:0:7} or ${PR_HEAD:0:7}; fix the key, or merge the base forward")"
+        _unstuck
+    done
+    [ ! -e "$MERGE_LOG" ]
+    # the remedy: the path as git stores it names the changed file
+    sed -i 's|^required_checks_paths = .*|required_checks_paths = ["scripts/ci/"]|' "$CFG"
+    _run
+    _stop_is 21 "$(_sc_text scripts/ci/x.sh)"
+}
+
+@test "#1097 selfcert: a tagged file that cannot be read at the base, or at the head, stops \"unknown\", never as a file with no tag line" {
+    local side nth at
+    _req "[\"$GBT\"]"
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# a body line'
+    _sc_base
+    _sc_put tests/a.bats '#!/usr/bin/env bats' '# bats file_tags=slow,gitbash' '# a body line'
+    _sc_head
+    # a git whose nth `cat-file blob` fails. One file changed, so the 1st call reads it
+    # at the base and the 2nd at the head.
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'if [[ " $* " == *" cat-file blob "* ]]; then' \
+        '    n=$(( $(cat "$BLOB_COUNT" 2>/dev/null || echo 0) + 1 ))' \
+        '    echo "$n" > "$BLOB_COUNT"' \
+        '    [ "$n" -ne "$FAIL_BLOB" ] || exit 3' \
+        'fi' \
+        'exec git "$@"' > "$DEVAGENT_TMP/gitshim"
+    chmod +x "$DEVAGENT_TMP/gitshim"
+    export BLOB_COUNT="$DEVAGENT_TMP/blob-count"
+    for side in base head; do
+        if [ "$side" = base ]; then nth=1 at="$SC_BASE"; else nth=2 at="$PR_HEAD"; fi
+        rm -f "$BLOB_COUNT"
+        FAIL_BLOB="$nth" DEVAGENT_GIT="$DEVAGENT_TMP/gitshim" run "$MM" "$TEST_PROJECT" </dev/null
+        echo "side=$side" >&2
+        _stop_is 21 "$(_sc_unknown "tests/a.bats at ${at:0:7} cannot be read in $SOURCE_DIR (git cat-file exited 3)")"
+        _unstuck
+    done
+    [ ! -e "$MERGE_LOG" ]
+    _run                                        # readable again: the edited tag line is what stops
+    _stop_is 21 "$(_sc_text tests/a.bats)"
+}
+
+@test "#1097 selfcert: in a partial clone a file that is not there is never fetched: the diff is unknown until the operator fetches it" {
+    local clone="$DEVAGENT_TMP/partial" at_base at_head
+    _req "[\"$GBT\"]"
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# a body line'
+    _sc_base
+    _sc_put tests/a.bats '#!/usr/bin/env bats' '# a body line'      # the tag line removed
+    _sc_head
+    at_base="$(git -C "$SOURCE_DIR" rev-parse "$SC_BASE:tests/a.bats")"
+    at_head="$(git -C "$SOURCE_DIR" rev-parse "$PR_HEAD:tests/a.bats")"
+    _sc_origin
+    git clone -q --no-checkout --filter=blob:none "file://$SC_ORIGIN" "$clone"    # every commit and tree, no file
+    _set source_dir "$clone"
+    _run
+    _stop_is 21 "$(_sc_unknown "tests/a.bats at ${SC_BASE:0:7} cannot be read in $clone (git cat-file exited 128)")"
+    git -C "$clone" rev-list --objects --missing=print "$SC_BASE" | grep -qxF "?$at_base"      # still not there
+    # the remedy: the operator fetches what is missing, then unstuck
+    git -C "$clone" fetch -q origin "$at_base" "$at_head"
+    _unstuck
+    _run
+    _stop_is 21 "$(_sc_text tests/a.bats)"
+    [ ! -e "$MERGE_LOG" ]
+}
 
 # commands/mergemr.md is read by an agent (Issue-461). It names rule 21 and how the
 # operator acknowledges it; the acknowledgment is never in a fenced block, which an

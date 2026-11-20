@@ -199,6 +199,9 @@ _rc_eval() {
 # a removed worktree's commits. One that is not there gets one bounded fetch by id
 # from default_baseline's remote first (DEVAGENT_MERGEMR_FETCH_SECS); the fetch
 # writes no ref and no FETCH_HEAD, and a failed one leaves the scan to say `unknown`.
+# That fetch is the only one: the probe for a missing commit and every read of the
+# scan go through _selfcert_git, so in a partial clone git fetches nothing by itself
+# and a file that is not there reads `unknown` too.
 _selfcert_scan() {
     local head tree="" remote e rc=0
     local -a want=()
@@ -226,7 +229,7 @@ _selfcert_scan() {
         if [ -n "$tree" ] && [ -d "$tree" ]; then
             for e in "$SELFCERT_BASE" "$head"; do
                 [[ "$e" =~ ^[0-9a-f]{40,64}$ ]] || continue
-                "$DEVAGENT_GIT" -C "$tree" cat-file -e "${e}^{commit}" 2>/dev/null || want+=("$e")
+                _selfcert_git -C "$tree" cat-file -e "${e}^{commit}" 2>/dev/null || want+=("$e")
             done
         fi
         if [ "${#want[@]}" -gt 0 ]; then

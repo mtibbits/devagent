@@ -73,7 +73,7 @@ merge; rules 20-21 are operator-only stops; each row states where it sits in the
 | 18 | `mergeStateStatus` not `CLEAN` or `HAS_HOOKS` (e.g. `BLOCKED`, `BEHIND`) | `[!]` `blocked by a forge rule (<status>); resolve it on the forge, then run /devagent:unstuck` |
 | 19 | merge | see below |
 | 20 | `required_checks` set (#1097) and the code backend cannot report checks | `[!]` `CI NOT CHECKED: <why>; required check <name>[, <name>…] cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck`, whatever `merge_mr` says. Where the step cannot read the PR's state either (a github backend without `mr-view`; another backend without `mr-state`) no later run can see the hand merge, and the text ends `…, then run /devagent:unstuck and mark this step [x] with /devagent:checklist-mark`. It sits where the PR is read: on a github backend whose script has no `mr-view` (exit 78 or 2), in place of the `read` wait and so ahead of rule 3; on any other backend, in place of rule 8's `[?]` for an open PR or of the `cannot read PR state` `[?]`, as "Other code backends" says. `<why>` is `<backend> has no <verb>` (`mr-view`, `mr-checks` or `mr-state`) or `local code backend` |
-| 21 | `required_checks` set (#1097) and the PR's diff is self-certifying, as "Self-certifying diffs" defines it, and not acknowledged for this head | `[!]` `self-certifying diff: <paths> changed in <base sha7>..<head sha7>, so this PR can change what its required checks measure. Operator only (reviewed workflow change only): record the review in <issue-dir>/.devagent-selfcert-ack as commands/mergemr.md "Escapes" describes, then /devagent:unstuck`; `<paths>` sorted, joined `, `, the first 10 and then ` (+<n> more)`. It sits after rule 18 and before rule 19, so only when the step would merge: CI is green and no forge rule blocks, and one acknowledgment covers one green head. Under `merge_mr` false nothing stops: rule 8's line names the paths. Acknowledged for this head, the step prints `mergemr: self-certifying diff acknowledged at <sha7>: <paths> — <reason>`, logs it once per recorded head, and goes on to rule 19. When the diff cannot be read: `[!]` `self-certifying diff unknown: <why>; fix that, then run /devagent:unstuck`, `<why>` one of `no baseline_sha recorded`, `<sha7> is not a commit in <tree>`, `git diff exited <rc>`, `required_checks_paths entry '<entry>' names no path at <base sha7> or <head sha7>; fix the key, or merge the base forward` |
+| 21 | `required_checks` set (#1097) and the PR's diff is self-certifying, as "Self-certifying diffs" defines it, and not acknowledged for this head | `[!]` `self-certifying diff: <paths> changed in <base sha7>..<head sha7>, so this PR can change what its required checks measure. Operator only (reviewed workflow change only): record the review in <issue-dir>/.devagent-selfcert-ack as commands/mergemr.md "Escapes" describes, then /devagent:unstuck`; `<paths>` sorted, joined `, `, the first 10 and then ` (+<n> more)`. It sits after rule 18 and before rule 19, so only when the step would merge: CI is green and no forge rule blocks, and one acknowledgment covers one green head. Under `merge_mr` false nothing stops: rule 8's line names the paths. Acknowledged for this head, the step prints `mergemr: self-certifying diff acknowledged at <sha7>: <paths> — <reason>`, logs it once per recorded head, and goes on to rule 19. When the diff cannot be read: `[!]` `self-certifying diff unknown: <why>; fix that, then run /devagent:unstuck`, `<why>` one of `no baseline_sha recorded`, `<sha7> is not a commit in <tree>`, `git diff exited <rc>`, `<path> at <sha7> cannot be read in <tree> (git cat-file exited <rc>)` (or `git ls-tree exited <rc>`) for a changed `*.bats` file whose tag lines could not be compared, `required_checks_paths entry '<entry>' names no path at <base sha7> or <head sha7>; fix the key, or merge the base forward` |
 
 A `/devagent:preship` pass after ship records the new head and clears a rule
 10, 11, 14 or 15 stop by itself, forward's rule-17 stop, and a stop left by a
@@ -123,9 +123,11 @@ what those checks measure. The paths that count:
 The commits are read in the issue's recorded tree while it exists, else in
 `source_dir`, which keeps a removed worktree's commits. A commit that is not
 there gets one bounded fetch by id from `default_baseline`'s remote first; it
-writes no ref. After a merge-forward, `rebaseline.sh` moves `baseline_sha` to
-the base commit merged in, so the base's own workflow changes are not the
-PR's.
+writes no ref. Nothing else is fetched: in a partial clone a file the tree
+lacks is not downloaded, and the diff reads `unknown` (`<path> at <sha7>
+cannot be read in <tree> …`) until you fetch it there. After a merge-forward,
+`rebaseline.sh` moves `baseline_sha` to the base commit merged in, so the
+base's own workflow changes are not the PR's.
 
 ## Merging (rule 19)
 
@@ -225,9 +227,10 @@ and mark this step [x] with /devagent:checklist-mark`.
   repo-relative files or directories (one trailing `/` allowed) that decide
   what a required check measures, e.g. `["scripts/ci/"]`. A PR that changes
   one is self-certifying (rule 21); `.github/workflows/` is always watched and
-  needs no entry. An entry is compared byte for byte, and one that names no
-  path at `baseline_sha` or at `verified_head` stops the step (`unknown`)
-  rather than match nothing.
+  needs no entry. An entry is the path as git stores it, compared byte for
+  byte: nothing in it is read as pathspec magic (`:/…`, `:(top)…`). One that
+  names no path at `baseline_sha` or at `verified_head` stops the step
+  (`unknown`) rather than match nothing.
 - Both are validated at the start of every run, whatever `merge_mr` says: a
   bad value dies naming the key, e.g. `required_checks must be an array of
   single-line strings, e.g. required_checks = ["Git Bash tagged files"]; fix
