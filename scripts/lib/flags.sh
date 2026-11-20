@@ -200,9 +200,10 @@ tier_shim_model() {
 # HEADER segment's `- Labels: <csv>` line.
 #
 # This IS the backend payload as pull.sh sees it (#561 operator answer A1):
-# the §9.1 backend contract defines `fetch` as markdown-to-stdout and
-# pull.sh writes that stdout verbatim, so no JSON crosses the process
-# boundary — the `- Labels:` line the backends render
+# the §9.1 backend contract defines `fetch` as markdown-to-stdout and, with
+# no policy in scope, pull.sh writes that stdout verbatim (under trust, the
+# trust render: the same header, control bytes escaped; spec §9.3), so no JSON
+# crosses the process boundary — the `- Labels:` line the backends render
 # (scripts/issue/github.sh, scripts/lib/backend-common.sh) is the structured
 # surface available here.
 #

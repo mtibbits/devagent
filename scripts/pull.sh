@@ -257,8 +257,9 @@ quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
     # the issue.md this run just wrote from the backend's stdout — read once,
     # header segment only, never the body and never a comment. There is no JSON
     # payload to parse here: the §9.1 backend contract defines `fetch` as
-    # markdown-to-stdout (spec §9.1) and pull.sh writes it verbatim (§9.3), so the
-    # markdown IS the payload at this point.
+    # markdown-to-stdout (spec §9.1) and, with no policy in scope, pull.sh writes
+    # it verbatim (§9.3; under trust it writes the trust render, whose header is
+    # the fetch's, control bytes escaped), so the markdown IS the payload here.
     #
     # The loop is fed by process substitution, NOT a pipe: the body must run in
     # THIS shell so `die` below actually exits the script instead of a subshell
