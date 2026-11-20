@@ -1972,9 +1972,19 @@ R12_REQ="merges only when every required check is successful"
 # [!], whatever merge_mr says: nothing there can say a required check succeeded. The
 # gitlab stub has no mr-checks (exit 2) until _checks serves one.
 
-# _nc <why> [<names>]: rule 20's text.
+# _nc <why> [<names>]: rule 20's text. _nc_mark: the same where the step cannot read
+# the PR's state, so the remedy also marks the row.
 _nc() {
     printf '%s' "CI NOT CHECKED: $1; required check ${2:-$GBT} cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck"
+}
+_nc_mark() { printf '%s and mark this step [x] with /devagent:checklist-mark' "$(_nc "$@")"; }
+
+# _mark_x: the remedy's last step where no run can see the hand merge.
+_mark_x() {
+    run bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" mergemr x
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
 }
 
 # _checks [<kind>|<name>[|<CONCLUSION>] ...]: the stub answers mr-checks from $MC_OUT:
@@ -2036,14 +2046,14 @@ EOF
     for mm in true false; do
         _setb permissions.merge_mr "$mm"
         _run
-        _stop_is 20 "$(_nc "custom has no mr-state")"
+        _stop_is 20 "$(_nc_mark "custom has no mr-state")"
         _unstuck
     done
     [ "$(_calls mr-state)" -eq 2 ]
     [ "$(_calls mr-checks)" -eq 0 ]
     _gitlab                                     # an unknown verb (exit 2) is the same stop
     STUB_MRSTATE_RC=2 run "$MM" "$TEST_PROJECT" </dev/null
-    _stop_is 20 "$(_nc "gitlab has no mr-state")"
+    _stop_is 20 "$(_nc_mark "gitlab has no mr-state")"
 }
 
 # inv: green before and after.
@@ -2119,7 +2129,7 @@ EOF
         _setb permissions.merge_mr "$mm"
         for rc in 78 2; do
             STUB_VIEW_RC=$rc run "$MM" "$TEST_PROJECT" </dev/null
-            _stop_is 20 "$(_nc "github has no mr-view")"
+            _stop_is 20 "$(_nc_mark "github has no mr-view")"
             _unstuck
         done
     done
@@ -2156,4 +2166,23 @@ EOF
     [ ! -e "$ISSUE_DIR/STUCK" ]
     _mrlog | grep -qxF "PR $URL merged (merge commit -)"
     [ "$(_transitions)" -eq 1 ]
+}
+
+@test "#1097 remedy where the PR cannot be read: merge by hand, unstuck, mark [x]; unstuck alone stops again" {
+    _custom
+    _req "[\"$GBT\"]"
+    _run
+    _stop_is 20 "$(_nc_mark "custom has no mr-state")"
+    _unstuck
+    _run                                        # merged by hand or not, no run can tell
+    _stop_is 20 "$(_nc_mark "custom has no mr-state")"
+    _unstuck
+    _mark_x
+    # a github backend without mr-view: the same remedy
+    _set code_source.backend github
+    mark_step "$CL" 20 ' '
+    STUB_VIEW_RC=78 run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 20 "$(_nc_mark "github has no mr-view")"
+    _unstuck
+    _mark_x
 }

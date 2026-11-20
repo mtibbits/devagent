@@ -69,7 +69,7 @@ merge.
 | 17 | a head recorded by `forward` (#1125) that is not green, or no checks after the grace | `verified_by` is `forward` (or unreadable, or neither `preship` nor empty) and CI is not green: `[!]` `head <sha7> was recorded by forward and merges only on green CI (<CI result>); to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship`. Otherwise (a required check not reported has stopped at rule 15 by now) no checks after the grace: `merge_checks = "required"`: `[!]` `no CI checks on head commit; set merge_checks = "if-present" to merge without CI, then run /devagent:unstuck`; `"if-present"`: continue |
 | 18 | `mergeStateStatus` not `CLEAN` or `HAS_HOOKS` (e.g. `BLOCKED`, `BEHIND`) | `[!]` `blocked by a forge rule (<status>); resolve it on the forge, then run /devagent:unstuck` |
 | 19 | merge | see below |
-| 20 | `required_checks` set (#1097) and the code backend cannot report checks | `[!]` `CI NOT CHECKED: <why>; required check <name>[, <name>…] cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck`, whatever `merge_mr` says. It sits where the PR is read: on a github backend whose script has no `mr-view` (exit 78 or 2), in place of the `read` wait and so ahead of rule 3; on any other backend, in place of rule 8's `[?]` for an open PR or of the `cannot read PR state` `[?]`, as "Other code backends" says. `<why>` is `<backend> has no <verb>` (`mr-view`, `mr-checks` or `mr-state`) or `local code backend` |
+| 20 | `required_checks` set (#1097) and the code backend cannot report checks | `[!]` `CI NOT CHECKED: <why>; required check <name>[, <name>…] cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck`, whatever `merge_mr` says. Where the step cannot read the PR's state either (a github backend without `mr-view`; another backend without `mr-state`) no later run can see the hand merge, and the text ends `…, then run /devagent:unstuck and mark this step [x] with /devagent:checklist-mark`. It sits where the PR is read: on a github backend whose script has no `mr-view` (exit 78 or 2), in place of the `read` wait and so ahead of rule 3; on any other backend, in place of rule 8's `[?]` for an open PR or of the `cannot read PR state` `[?]`, as "Other code backends" says. `<why>` is `<backend> has no <verb>` (`mr-view`, `mr-checks` or `mr-state`) or `local code backend` |
 
 A `/devagent:preship` pass after ship records the new head and clears a rule
 10, 11, 14 or 15 stop by itself, forward's rule-17 stop, and a stop left by a
@@ -161,14 +161,13 @@ closed and draft read as above. An open PR gets one more read, `mr-checks`
 - a backend that has the verb: rule 8's `[?]`, ending `; required checks at
   <sha7>: <name>: <state>[; <name>: <state>…]` as on GitHub.
 
-A backend without `mr-state` (exit 78 or 2) is the same rule 20 stop, `CI NOT
-CHECKED: <backend> has no mr-state; …`, in place of the `[?]` above.
-
 After the hand merge and `/devagent:unstuck`, the next run reads the PR as
-merged and marks `[x]`; `/devagent:unstuck` alone stops again. Where the step
-cannot read the PR's state (a backend without `mr-state`; a github backend
-without `mr-view`) it cannot see the hand merge: after `/devagent:unstuck`,
-mark the row `[x]` as "Escapes" shows.
+merged and marks `[x]`; `/devagent:unstuck` alone stops again.
+
+A backend without `mr-state` (exit 78 or 2) is the same rule 20 stop in place
+of the `[?]` above, `CI NOT CHECKED: <backend> has no mr-state; …`. No run
+there can see the hand merge, so its text ends `…, then run /devagent:unstuck
+and mark this step [x] with /devagent:checklist-mark`.
 
 ## Config and knobs
 

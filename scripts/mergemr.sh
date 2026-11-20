@@ -176,11 +176,14 @@ _rc_eval() {
 # _stop_unchecked <why> (#1097), rule 20: the project requires checks and this code
 # backend cannot report them, so nothing here can say they succeeded. It applies
 # whatever merge_mr says, and it is the operator's to clear: no preship record and no
-# forward matches it. <why> is the bare reason (lib/ci.sh's _CI_REASON form).
+# forward matches it. <why> is the bare reason (lib/ci.sh's _CI_REASON form). With
+# `mark` the step cannot read the PR's state on this backend either, so no later run
+# can see the hand merge: the remedy also marks the row, as rule 2's does.
 _stop_unchecked() {
-    local names
+    local names how="then run /devagent:unstuck"
+    [ "${2:-}" != mark ] || how+=" and mark this step [x] with /devagent:checklist-mark"
     names="$(printf ', %s' "${REQUIRED_CHECKS[@]}")"
-    _stop 20 "CI NOT CHECKED: $1; required check ${names#, } cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck"
+    _stop 20 "CI NOT CHECKED: $1; required check ${names#, } cannot be read on this code backend; check it by hand, merge the PR by hand, $how"
 }
 
 R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
@@ -221,7 +224,7 @@ if [ "$backend" != github ]; then
     case "$_CALL_RC" in
         0) ;;
         78|2)
-            [ "${#REQUIRED_CHECKS[@]}" -eq 0 ] || _stop_unchecked "${backend:-(none)} has no mr-state"
+            [ "${#REQUIRED_CHECKS[@]}" -eq 0 ] || _stop_unchecked "${backend:-(none)} has no mr-state" mark
             _wait read "cannot read PR state on ${backend:-(none)}; merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
         *) _wait read "could not read PR $mr_url: $_CALL_ERR" ;;
     esac
@@ -249,7 +252,7 @@ if [ "$MV_OK" != 1 ]; then
     # rule 20 (#1097): a backend script without mr-view (exit 78 or 2) cannot report
     # the required checks either. Any other failed read decided nothing: it waits.
     if [ "$CI_RESULT" = notchecked ] && [ "${#REQUIRED_CHECKS[@]}" -gt 0 ]; then
-        _stop_unchecked "$_CI_REASON"
+        _stop_unchecked "$_CI_REASON" mark
     fi
     _wait read "could not read PR $mr_url: ${MV_ERR:-${_CI_REASON:-unknown error}}"
 fi
