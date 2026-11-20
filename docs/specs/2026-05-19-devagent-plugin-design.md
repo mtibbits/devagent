@@ -3552,8 +3552,8 @@ resolver-scope EXEMPT: the first output line names the project.
 `issue-list` record; `--all`: every record plus every checklist issue;
 `--issue`: the one issue. A checklist dir and a record that `parse_leaf`
 reads as the same source and record are one issue labelled with the
-record's `leaf_for` form (a Jira dir `Issue-PROJ-12` and record `PROJ-12`
-are `Issue-12`); a dir that matches no record keeps its name, and a dir
+record's `leaf_for` form (with the Jira key prefix `PROJ`, a dir
+`Issue-PROJ-12` and record `PROJ-12` are `Issue-12`); a dir that matches no record keeps its name, and a dir
 that names no configured source has checklist rows only. Issues sort by
 source (origin, fork, unmapped), then numeric id, then label.
 
@@ -3592,6 +3592,11 @@ dropped). Per dated line, in file order, the first match wins:
    the first colon, so `real-silicon (prior session)` is one name);
 6. a `- YYYY-MM-DD` line without a time is `log` with name `-` and a date
    `at`.
+
+A dated line whose date or time is not a real one (`2026-02-30`, `24:00`)
+is skipped with
+`milestones: WARNING: <issue-dir>/checklist.md:<line>: unreadable time '<…>'; line skipped`
+on stderr; one typo never fails the report.
 
 The current revision starts at 1. When the revisions started (`{1}` plus
 every rule-1 N) differ from the `## Revision N` headings (a heading may
@@ -3637,8 +3642,8 @@ source); `detail` carries no source prefix:
   backend <b> is not the code backend <cb>; MRs not read` (Jira);
   `<cb> <repo> issue-mrs failed (exit <rc>: <last stderr line>)`.
 
-Malformed `issue-list` or `issue-mrs` output is failed, with the parser's
-reason as the detail. Each failed source also prints one stderr line,
+Malformed `issue-list` or `issue-mrs` output (an `mr` timestamp that is not
+a real time included) is failed, with the parser's reason as the detail. Each failed source also prints one stderr line,
 `milestones: WARNING: <source>: <detail>; other sources still reported`;
 other sources still report and the exit stays `0`.
 

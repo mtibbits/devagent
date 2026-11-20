@@ -70,6 +70,18 @@ def _fmt_set(ns) -> str:
     return "{" + ", ".join(str(n) for n in sorted(ns)) + "}"
 
 
+def _readable(at: str, rel: str, n: int, shown: str, warnings: list[str]) -> bool:
+    """Whether a log line's time is a real one; an unreadable one (a
+    hand-typed `2026-02-30`, `24:00`) is a warning and the line is skipped,
+    so one typo never sinks the report."""
+    try:
+        utc_instant(at)
+    except ValueError:
+        warnings.append(f"{rel}:{n}: unreadable time '{shown}'; line skipped")
+        return False
+    return True
+
+
 def checklist_rows(path: Path, rel: str, project: str, issue: str) -> tuple[list[dict], list[str]]:
     """The rows of one checklist's `## Log`, and its start-count warnings.
 
@@ -94,6 +106,7 @@ def checklist_rows(path: Path, rel: str, project: str, issue: str) -> tuple[list
     headings = {int(m.group(1)) for m in map(REV_HEADING_RE.match, lines) if m}
 
     rows: list[dict] = []
+    warnings: list[str] = []
     revision = 1
     started = {1}
     seen: set[tuple[int, str]] = set()
@@ -108,12 +121,14 @@ def checklist_rows(path: Path, rel: str, project: str, issue: str) -> tuple[list
         m = LOG_RE.match(line)
         if not m:
             d = DATED_RE.match(line)
-            if d:
+            if d and _readable(d.group(1), rel, n, d.group(1), warnings):
                 rows.append({**base, "event": "log", "at": d.group(1), "name": "-",
                              "revision": revision})
             continue
         date, hhmm, name, msg = m.groups()
         at = f"{date}T{hhmm}{suffix}"
+        if not _readable(at, rel, n, f"{date} {hhmm}", warnings):
+            continue
         rv = REVISE_RE.match(msg) if name == "revise" else None
         if rv:
             revision = int(rv.group(1) or rv.group(2))
@@ -129,7 +144,6 @@ def checklist_rows(path: Path, rel: str, project: str, issue: str) -> tuple[list
             rows.append({**base, "event": event, "at": at, "step": name, "revision": revision})
         else:
             rows.append({**base, "event": "log", "at": at, "name": name, "revision": revision})
-    warnings = []
     if started != headings:
         warnings.append(f"{rel}: revision starts logged {_fmt_set(started)} "
                         f"but ## Revision headings {_fmt_set(headings)}")
@@ -273,7 +287,10 @@ def utc_instant(at: str) -> datetime:
     if not m:
         raise ValueError(f"bad time {at!r}")
     date, hh, mm, ss, off = m.groups()
-    dt = datetime.strptime(f"{date} {hh or '00'}:{mm or '00'}:{ss or '00'}", "%Y-%m-%d %H:%M:%S")
+    try:
+        dt = datetime.strptime(f"{date} {hh or '00'}:{mm or '00'}:{ss or '00'}", "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        raise ValueError(f"bad time {at!r}") from None
     if off and off != "Z":
         delta = timedelta(hours=int(off[1:3]), minutes=int(off[4:6]))
         dt = dt - delta if off[0] == "+" else dt + delta
@@ -453,6 +470,10 @@ def mr_inputs(env, sources, issues):
             ids = [k for s, _, k in keys if s == S]
             try:
                 _, mrs = mrl.parse_issue_mrs_detail(_read(env.get(f"MS_MR_{S}_FILE", "")), ids)
+                for mr in (m for v in mrs.values() for m in v):
+                    utc_instant(mr["created"])
+                    if mr["merged"] is not None:
+                        utc_instant(mr["merged"])
             except (OSError, ValueError) as e:
                 f = (label, f"{cb} {src['REPO']} issue-mrs failed ({e})")
                 missing.append(f)

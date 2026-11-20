@@ -42,7 +42,8 @@ an unset or missing `devdoc_dir`, or a library failure; print stderr.
   configured issue source (by its `dir_prefix`) or a devdoc dir.
 
 A checklist dir and a tracker issue that name the same issue are one issue
-(on Jira, `Issue-PROJ-12` and `PROJ-12` are `Issue-12`). A dir that names no
+(on Jira with the key prefix `PROJ`, `Issue-PROJ-12` and `PROJ-12` are
+`Issue-12`). A dir that names no
 configured source keeps its name and has checklist rows only.
 
 ## Events
@@ -67,12 +68,14 @@ offset of its checklist's `Created:` line, so its time can be off in two
 ways: a line written on another machine, in another zone, and a line written
 after a daylight-saving change on the same machine, which is off by one hour.
 A checklist whose `Created:` line has no offset gives `tz: unknown`, read as
-UTC.
+UTC. A log line whose date or time is not a real one (a hand-typed
+`2026-02-30` or `24:00`) is skipped with one stderr line,
+`milestones: WARNING: <issue-dir>/checklist.md:<line>: unreadable time '<…>'; line skipped`.
 
 ## Output
 
-Text (the default): the header, a `missing:` line per source that gave no
-rows, one TAB-separated row per event (`<issue>`, `<at>`, `<event>`, the
+Text (the default): the header, a `missing:` line per source that could not
+be read, one TAB-separated row per event (`<issue>`, `<at>`, `<event>`, the
 detail column, `<source>`), then the spans. An excerpt of
 `/devagent:milestones devagent --issue Issue-700` (rows elided between the
 lines shown):
@@ -115,7 +118,7 @@ row, with the event's own keys (`reason`; `mr`, `base`; `step`, `revision`,
 
 ## Missing sources
 
-A source that gives no rows is named in a `missing:` line, never fatal:
+A source that could not be read is named in a `missing:` line, never fatal:
 `tracker` and `fork tracker` (the issue sources), `mr` and `fork mr` (the
 code host, per issue source). A failed call also prints one stderr line,
 `milestones: WARNING: <source>: <detail>; other sources still reported`.

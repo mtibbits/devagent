@@ -401,3 +401,49 @@ def test_missing_keeps_source_order(tmp_path):
     assert missing == [("tracker", "github a/b issue-list failed (exit 1: boom)"),
                        ("fork tracker", "github has no issue-list (gh not on PATH)")]
     assert failed == missing[:1]
+
+
+# --- final review: an unreadable time is reported, never fatal ------------------
+
+def test_bad_log_time_is_skipped_with_warning(tmp_path):
+    p = tmp_path / "Issue-1" / "checklist.md"
+    p.parent.mkdir()
+    p.write_text("Created: 2026-01-01T00:00:00+00:00\n## Revision 1\n- [x]  9. implement\n## Log\n"
+                 "- 2026-02-30 10:00  sync: x\n"
+                 "- 2026-01-01 24:00  implement: a\n"
+                 "- 2026-02-31  closeout: by hand\n"
+                 "- 2026-01-02 10:00  implement: b\n")
+    rows, warnings = _rows(p)
+    assert [(r["event"], r["at"]) for r in rows] == [("step_done", "2026-01-02T10:00+00:00")]
+    assert warnings == [
+        "Issue-1/checklist.md:5: unreadable time '2026-02-30 10:00'; line skipped",
+        "Issue-1/checklist.md:6: unreadable time '2026-01-01 24:00'; line skipped",
+        "Issue-1/checklist.md:7: unreadable time '2026-02-31'; line skipped",
+    ]
+
+
+def test_bad_log_time_cli_exits_0_with_one_warning(tmp_path):
+    d = tmp_path / "Issue-1"
+    d.mkdir()
+    (d / "checklist.md").write_text("## Revision 1\n- [x]  9. implement\n## Log\n"
+                                    "- 2026-02-30 10:00  implement: x\n")
+    p = subprocess.run([sys.executable, str(LIB), "emit", str(tmp_path), "p", "default"],
+                       capture_output=True, env={"PATH": "/usr/bin:/bin"})
+    assert p.returncode == 0, p.stderr
+    assert p.stderr.decode().splitlines() == [
+        "milestones: WARNING: Issue-1/checklist.md:4: unreadable time '2026-02-30 10:00'; line skipped"]
+
+
+def test_bad_mr_time_fails_the_source(tmp_path):
+    out = tmp_path / "mr.out"
+    out.write_text("issue\t1\topen\nmr\t1\ta/b#2\topen\t2026-13-01T00:00:00Z\t-\n")
+    env = {"MS_TRK_ORIGIN_BACKEND": "github", "MS_TRK_ORIGIN_REPO": "a/b",
+           "MS_TRK_ORIGIN_PREFIX": "Issue-", "MS_TRK_ORIGIN_STATUS": "ok",
+           "MS_MR_BACKEND": "github", "MS_MR_STATUS": "ready",
+           "MS_MR_ORIGIN_RC": "0", "MS_MR_ORIGIN_FILE": str(out)}
+    sources = ms.sources_from_env(env)
+    issues = ms.scope_issues("issue", sources, [], tmp_path, "Issue-1")
+    details, missing, failed = ms.mr_inputs(env, sources, issues)
+    assert details == {}
+    assert missing == failed == [
+        ("mr", "github a/b issue-mrs failed (bad time '2026-13-01T00:00:00Z')")]
