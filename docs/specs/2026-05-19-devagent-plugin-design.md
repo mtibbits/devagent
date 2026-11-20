@@ -1529,7 +1529,7 @@ is a progress source for check`; `no transcript, old --since: stalled`
 (`tests/watchdog-check.bats`); `a wrap file the real wrapper left is a progress
 source for check` (`tests/long-run.bats`); `dispatch records v1, project,
 issue, step number and name` (`tests/watchdog-dispatch.bats`); `born-red moves
-script once per row` (`tests/born-red.bats`).
+script once per row (#932)` (`tests/born-red.bats`).
 
 **`check`.**
 
@@ -1863,8 +1863,9 @@ is 60, 2m is 120, 90s is 90; 0, 1h, 1.5 and seven digits are refused`).
 
 - The window is stored in seconds in the source's `.window` file, written
   before the source's own file is touched, and that source's allowance becomes
-  `max(limit, window)`. It stretches that source only (`a wrap file's own
-  window stretches that run only`).
+  `max(limit, window)`. It stretches that source only
+  (`tests/watchdog-check.bats`: `a wrap file's own window stretches that run
+  only`).
 - A wrapped run's window is a per-gap allowance for the life of the run: output
   moves `wrap.<run>` and the window stays, and the wrapper removes the
   `.window` file when the command ends (`tests/long-run.bats`: `--silent 1
@@ -1873,24 +1874,27 @@ is 60, 2m is 120, 90s is 90; 0, 1h, 1.5 and seven digits are refused`).
   A killed wrapper leaves its window behind; it expires by its own age, once
   (`a wrap file and window left by a killed wrapper are ok at T+window-1 and
   stalled, silent-window=expired, at T+window+1`). `heartbeat --silent` is one
-  gap, ended by the next `heartbeat` (`heartbeat --silent 1 (limit 30 by
-  config) is ok at T+59 and stalled, silent-window=expired, at T+61`).
+  gap, ended by the next `heartbeat` (`tests/watchdog-check.bats`: `heartbeat
+  --silent 1 (limit 30 by config) is ok at T+59 and stalled,
+  silent-window=expired, at T+61`).
 - The maximum is the operator's: `watchdog_silent_max_secs`, `[defaults]` only.
   A window above it is refused, exit 2, before anything is written or run, with
   the script's own prefix and the text `--silent <text> exceeds the
   silent-window maximum of <M> s; declare a shorter window (the maximum is
-  operator-set and is not changed from a session)` (`--silent above the maximum
-  exits 2 and writes no window`; `tests/long-run.bats`: `--silent 2 under
-  maximum 60 exits 2 and the command never runs`). A `.window` file holding
-  more than the maximum, or anything that is not seconds, is ignored by
-  `check` (`an over-maximum window planted in the file is ignored`).
+  operator-set and is not changed from a session)`
+  (`tests/watchdog-check.bats`: `--silent above the maximum exits 2 and writes
+  no window`; `tests/long-run.bats`: `--silent 2 under maximum 60 exits 2 and
+  the command never runs`). A `.window` file holding more than the maximum, or
+  anything that is not seconds, is ignored by `check`
+  (`tests/watchdog-check.bats`: `an over-maximum window planted in the file is
+  ignored`).
 - `silent-window=expired` on a `stalled` line means the named source had a
   valid window file when it was judged. A window on any other source does not
-  tag the line (`a stale window on another source does not tag the stalled
-  line`).
+  tag the line (`tests/watchdog-check.bats`: `a stale window on another source
+  does not tag the stalled line`).
 - A plan names such commands under `## Declared silent windows`
   (`templates/imPlan_template.md`; `tests/template.bats`: `imPlan_template
-  carries the Declared silent windows section`), and the wrapping line tells
+  carries the Declared silent windows section (#932)`), and the wrapping line tells
   the session to pass the flag for them.
 
 **Limits.** Four config keys, integer seconds from 1 to 604800, resolved
@@ -1914,26 +1918,27 @@ leg under it in the stream shape the leg had, with `timeout` still the command,
 so a kill still records `timed out` (`tests/analyze-sanitizers.bats`: `a
 timed-out analyze leg still records "timed out >Ns" under the wrapper (#932)`).
 Attended runs take the same path, so an attended `run-suite` or analyze run
-leaves `no-session.*` logs and no heartbeat (`an attended run opens no window
-and creates no session directory (#932)`; `attended sanitizer artifacts are
-unchanged (#932)`; `tests/analyze-static.bats`: `attended static artifact is
-unchanged (#932)`).
+leaves `no-session.*` logs and no heartbeat (`tests/analyze-sanitizers.bats`:
+`an attended run opens no window and creates no session directory (#932)`,
+`attended sanitizer artifacts are unchanged (#932)`;
+`tests/analyze-static.bats`: `attended static artifact is unchanged (#932)`).
 
 Every analyze leg declares a silent window, resolved once before any leg:
 `analyze_silent_secs`, or `min(analyze_timeout, watchdog_silent_max_secs)` when
 that key is unset, so a leg its own budget allows is never `stalled` at the
-shipped limits (`unset analyze_silent_secs: the legs declare min(analyze
-timeout, maximum) (#932)`; `tests/watchdog-config.bats`: `unset
-analyze_silent_secs derives min(analyze_timeout, maximum)`). An
-`analyze_silent_secs` above the maximum fails step 13 before any leg runs, in
-an attended session too, and `doctor` fails the same config
-(`analyze_silent_secs above the maximum fails before any leg runs (#932)`;
+shipped limits (`tests/analyze-sanitizers.bats`: `unset analyze_silent_secs:
+the legs declare min(analyze timeout, maximum) (#932)`;
+`tests/watchdog-config.bats`: `unset analyze_silent_secs derives
+min(analyze_timeout, maximum)`). An `analyze_silent_secs` above the maximum
+fails step 13 before any leg runs, in an attended session too, and `doctor`
+fails the same config (`tests/analyze-sanitizers.bats`: `analyze_silent_secs
+above the maximum fails before any leg runs (#932)`;
 `tests/analyze-static.bats`: `analyze_silent_secs above the maximum fails
 before the configure or the analyzer runs (#932)`; `tests/watchdog-config.bats`:
 `doctor fails analyze_silent_secs above the maximum and passes it equal`). A
-value that cannot be read warns once and the derived window stands in (`a
-malformed analyze_silent_secs warns once and the legs take the derived window
-(#932)`).
+value that cannot be read warns once and the derived window stands in
+(`tests/analyze-sanitizers.bats`: `a malformed analyze_silent_secs warns once
+and the legs take the derived window (#932)`).
 
 How those commands write, measured 2026-11-20 (devDoc `Issue-932/spike.md`, U5
 and R2-U2): `bats --tap` writes one line per finished test and `pytest -q` one
