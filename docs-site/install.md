@@ -9,6 +9,7 @@ macOS is untested.
 
 - [Claude Code](https://claude.com/claude-code) **2.1.223** (earlier versions are untested).
 - `git` ≥ 2.29.
+- On native Windows: Git for Windows, for its Git Bash.
 - `bash` ≥ 4.4.
 - `python3` ≥ 3.11.
 - `jq`.

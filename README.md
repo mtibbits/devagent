@@ -68,6 +68,12 @@ devAgent is tested against `shellcheck` 0.9.0 or newer, and nothing checks the v
 at run time — `commands/analyze.md` says where it is recorded. The backend and auth
 scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (JIRA),
 as appropriate for your backend.
+On native Windows: Git for Windows. Claude Code's
+[setup page](https://code.claude.com/docs/en/setup) lists it as optional, but
+devAgent needs the Git Bash it provides. If Claude Code cannot find Git Bash, set
+`CLAUDE_CODE_GIT_BASH_PATH` to the path of its `bash.exe` (for example
+`C:\Program Files\Git\bin\bash.exe`) in the `env` block of Claude Code's
+`settings.json`.
 
 <!-- tests/docs-site.bats: docs-site/install.md copies this paragraph's opening line word for word (check_platform_sentence); keep each PLATFORM_CLAIMS token on one line -->
 **Supported platforms.** Linux, or Windows with Git Bash.
