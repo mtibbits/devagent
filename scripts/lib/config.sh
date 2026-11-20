@@ -519,3 +519,99 @@ project_devdoc_dir() {
     || die "devdoc_dir for project '${project}' resolved empty — check config.toml"
   printf '%s\n' "${devdoc}"
 }
+
+# --- #1097: the CI checks a project requires ---------------------------------
+#   [project.<name>]
+#   required_checks       = ["Git Bash tagged files"]   # absent or [] = none
+#   required_checks_paths = ["scripts/ci/"]             # optional; absent or [] = none
+# Per project only, unlike merge_checks: both keys describe one repository, so a
+# list inherited from [defaults] would stop every other project on a check it
+# never reports. Either key under [defaults] dies rather than being ignored
+# (Issue-780).
+
+# required_check_name_valid <e>: rc 0 iff <e> is a check-run name — 1-200
+# characters, no TAB, CR or LF, no leading or trailing space. A name is compared
+# byte for byte with an mr-checks <name>, so nothing is trimmed or folded here.
+required_check_name_valid() {
+  local e="$1"
+  [[ -n "$e" ]] || return 1
+  (( ${#e} <= 200 )) || return 1
+  [[ "$e" != *[$'\t\r\n']* ]] || return 1
+  [[ "$e" != ' '* && "$e" != *' ' ]] || return 1
+  return 0
+}
+
+# required_checks_path_valid <e>: rc 0 iff <e> is a repo-relative file or
+# directory — no leading /, no drive letter, none of * ? [, no TAB or line break,
+# and no empty, . or .. component; one trailing / is allowed. It is matched as a
+# git :(literal) pathspec (the file itself, or everything under the directory),
+# so a glob character would never mean what it reads as.
+required_checks_path_valid() {
+  local e="${1%/}"
+  [[ -n "$e" ]] || return 1
+  [[ "$e" != /* ]] || return 1
+  [[ ! "$e" =~ ^[A-Za-z]: ]] || return 1
+  [[ "$e" != *[\*\?\[]* ]] || return 1
+  [[ "$e" != *[$'\t\r\n']* ]] || return 1
+  case "/$e/" in */./*|*/../*|*//*) return 1 ;; esac
+  return 0
+}
+
+# _required_checks_list <project> <key> <example entry>: sets _REQUIRED_LIST to
+# the key's entries in config order (absent or []: empty). Dies naming the key
+# when the value is not an array of single-line strings, when the key sits under
+# [defaults], and when either read fails any other way: a read that failed is
+# never "none" (Issue-713).
+_required_checks_list() {
+  local p="$1" key="$2" eg="$3" out="" rc=0
+  _REQUIRED_LIST=()
+  # `&& printf .` is a sentinel: $( ... ) strips trailing newlines, which would
+  # drop an empty LAST entry before it could be refused (platform.sh).
+  out="$(config_get_project_list "$p" "$key" 2>/dev/null && printf .)" || rc=$?
+  case "$rc" in
+    0) out="${out%.}"
+       [[ -z "$out" ]] || mapfile -t _REQUIRED_LIST <<<"${out%$'\n'}" ;;
+    1) ;;
+    3) die "$key must be an array of single-line strings, e.g. $key = [\"$eg\"]; fix [project.$p] $key" ;;
+    *) die "could not read [project.$p] $key (exit $rc)" ;;
+  esac
+  # get-list, not get: rc 1 is "absent" alone; a value of any type is rc 0 or 3.
+  rc=0
+  _config_toml get-list "$(config_path)" "defaults.$key" >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    1) ;;
+    0|3) die "$key is per project (its values belong to one repository); move it from [defaults] to [project.<name>]" ;;
+    *) die "could not read [defaults] $key (exit $rc)" ;;
+  esac
+}
+
+# required_checks_resolve <project>: SETTER-GLOBALS, call bare (never in $(...)):
+#   REQUIRED_CHECKS        ( check-run name ... ), in config order, duplicates once
+#   REQUIRED_CHECKS_PATHS  ( path ... ), in config order, as written
+# Both are empty when the keys are absent or []. Dies naming the key on a bad
+# value, whatever else is configured (Issue-780), and on required_checks_paths
+# without required_checks. No [defaults] fallback. A project the config does not
+# name reads as one with neither key: the caller checks the name.
+required_checks_resolve() {
+  local p="$1" e seen=$'\n'
+  REQUIRED_CHECKS=(); REQUIRED_CHECKS_PATHS=()
+  [[ -n "$p" ]] || die "required_checks_resolve: project required"
+  _required_checks_list "$p" required_checks "Git Bash tagged files"
+  for e in "${_REQUIRED_LIST[@]}"; do
+    required_check_name_valid "$e" \
+      || die "required_checks entry '$e' is not a check-run name (1-200 characters, no TAB or line break, no leading or trailing space); fix [project.$p] required_checks"
+    # A valid name holds no line break, so newline-delimited membership is exact.
+    [[ "$seen" != *$'\n'"$e"$'\n'* ]] || continue
+    seen+="$e"$'\n'
+    REQUIRED_CHECKS+=("$e")
+  done
+  _required_checks_list "$p" required_checks_paths "scripts/ci/"
+  for e in "${_REQUIRED_LIST[@]}"; do
+    required_checks_path_valid "$e" \
+      || die "required_checks_paths entry '$e' is not a repo-relative file or directory (no leading /, drive letter, TAB, line break, empty, . or .. component, or * ? [; one trailing / is allowed); fix [project.$p] required_checks_paths"
+    REQUIRED_CHECKS_PATHS+=("$e")
+  done
+  if (( ${#REQUIRED_CHECKS_PATHS[@]} > 0 && ${#REQUIRED_CHECKS[@]} == 0 )); then
+    die "required_checks_paths is set but required_checks is not (the paths are watched only where a check is required); set required_checks or remove required_checks_paths; fix [project.$p] required_checks_paths"
+  fi
+}
