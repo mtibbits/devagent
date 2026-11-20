@@ -2605,6 +2605,9 @@ has an `origin`, a local ship never pushes, so a suite artifact's
 <comment body>
 ```
 
+`<title>` is one line: the github backend turns a CR or LF in it into a space
+(#715), so a title can never forge the header lines below it.
+
 With no trust policy in scope, `pull.sh` writes this verbatim to
 `<issue-dir>/issue.md`.
 

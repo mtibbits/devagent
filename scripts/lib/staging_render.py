@@ -27,7 +27,9 @@ Rules:
 - Lines end at LF. A layout line is matched without its trailing CRs (Git
   Bash jq writes CRLF), and every line is copied with its own ending; the
   count line and the blank before it take the comments heading's ending.
-- Strict header: line 1 starts `# <repo>#<num> — `; line 2 is blank; then
+- Strict header: line 1 starts `# <repo>#<num> — ` (the title is one line:
+  scripts/issue/github.sh turns a CR or LF in it into a space, so a title
+  cannot forge the header below it); line 2 is blank; then
   `- State:`, `- Author:`, `- Labels:`, `- URL:` and optionally `- Created:`,
   in that order and nothing else; then blank, `---`, blank.
 - The body ends at the FIRST trailer: a line that is exactly

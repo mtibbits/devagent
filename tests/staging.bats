@@ -168,12 +168,14 @@ _ends_at_heading() {
 }
 
 @test "render: control bytes in the title and header values become <U+00HH>; the body is verbatim" {
-  GH_STUB_LABELS_JSON='[{"name": "x\u001by"}, {"name": "bug"}]' \
-    _fetch '"Body\u001b[31m with ESC,\ta TAB and a mid\rline CR."' '[]' '"a\u001bb\tc\rd\u007fe"'
+  # (github.sh turns a CR or LF in the title into a space, so the mid-line CR
+  # case is in a label name.)
+  GH_STUB_LABELS_JSON='[{"name": "x\u001by\rz"}, {"name": "bug"}]' \
+    _fetch '"Body\u001b[31m with ESC,\ta TAB and a mid\rline CR."' '[]' '"a\u001bb\tc\u007fe"'
   _render
   [ "$status" -eq 0 ] || { echo "rc=$status $output" >&2; return 1; }
-  [ "$(head -n 1 "$OUT")" = '# acme/widgets#7 — a<U+001B>b<U+0009>c<U+000D>d<U+007F>e' ]
-  [ "$(sed -n 5p "$OUT")" = '- Labels: x<U+001B>y, bug' ]
+  [ "$(head -n 1 "$OUT")" = '# acme/widgets#7 — a<U+001B>b<U+0009>c<U+007F>e' ]
+  [ "$(sed -n 5p "$OUT")" = '- Labels: x<U+001B>y<U+000D>z, bug' ]
   cmp <(sed -n '/^---$/,$p' "$OUT") <(_upto_heading "$RAW" | sed -n '/^---$/,$p')
   grep -q $'Body\e\\[31m with ESC,\ta TAB and a mid\rline CR\\.' "$OUT"
 }
