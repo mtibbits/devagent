@@ -73,18 +73,26 @@ UTC.
 
 Text (the default): the header, a `missing:` line per source that gave no
 rows, one TAB-separated row per event (`<issue>`, `<at>`, `<event>`, the
-detail column, `<source>`), then the spans.
+detail column, `<source>`), then the spans. An excerpt of
+`/devagent:milestones devagent --issue Issue-700` (rows elided between the
+lines shown):
 
 ```
 milestones: devagent scope: issue
 Issue-700	2026-10-07	opened	-	https://github.com/mtibbits/devagent/issues/700
 Issue-700	2026-10-11T18:14-04:00	step_done	pull r1 tz=assumed	Issue-700/checklist.md:37
-Issue-700	2026-10-12T13:35:12Z	mr_opened	mtibbits/devagent#723 base=master	https://github.com/mtibbits/devagent/pull/723
-Issue-700	2026-10-12T14:16:40Z	mr_merged	mtibbits/devagent#723 base=master	https://github.com/mtibbits/devagent/pull/723
 Issue-700	2026-10-12	closed	done	https://github.com/mtibbits/devagent/issues/700
+Issue-700	2026-10-12T08:11-04:00	step_done	analyze r1 tz=assumed	Issue-700/checklist.md:48
+Issue-700	2026-10-12T08:11-04:00	step_note	analyze r1 tz=assumed	Issue-700/checklist.md:49
+Issue-700	2026-10-12T13:35:28Z	mr_opened	mtibbits/devagent#723 base=master	https://github.com/mtibbits/devagent/pull/723
+Issue-700	2026-10-12T14:07:15Z	mr_merged	mtibbits/devagent#723 base=master	https://github.com/mtibbits/devagent/pull/723
+Issue-700	2026-10-15T20:59-04:00	log	reap r1 tz=assumed	Issue-700/checklist.md:59
 spans:
 Issue-700	opened->merged 5	opened->closed 5	first-step->closed 1	parked 0.0d
 ```
+
+Rows sort by UTC instant: a date-only `opened`/`closed` row counts as
+00:00 UTC, so `closed` lists before that day's steps.
 
 The spans line holds whole UTC calendar days from `opened` to the first
 `mr_merged`, from `opened` to `closed` and from the first `step_done` to
