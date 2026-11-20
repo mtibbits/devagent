@@ -6,6 +6,7 @@
 # passes B's subdirectory proj/ as devdoc_dir, as a project's devdoc_dir is.
 bats_require_minimum_version 1.5.0
 load 'helpers/devdoc-sync'
+. "${BATS_TEST_DIRNAME}/lib/changelog-text.bash"
 
 setup() {
     R="$(mktemp -d -t devdoc-sync-XXXXXX)"
@@ -639,5 +640,6 @@ _release() { : > "$BATS_TEST_TMPDIR/stop-$1"; wait "$HOLD_PID" || true; }   # by
     grep -q 'commit_devdoc .*syncs it' "$R0/docs/configuration.md"
     grep -q "devDoc sync (#1148)" "$R0/docs/specs/2026-05-19-devagent-plugin-design.md"
     grep -q 'commits not on origin/<branch>, oldest' "$R0/commands/status.md"
-    [ -f "$R0/changelog.d/1148.md" ]
+    local cl; cl="$(changelog_text "$R0")"
+    [[ "$cl" == *'cleanup syncs devDoc with origin and reports a failed sync (#1148)'* ]]
 }

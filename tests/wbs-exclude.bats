@@ -7,6 +7,7 @@
 # shims log to network.log; teardown asserts both absent.
 
 . "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
+. "$(dirname "$BATS_TEST_FILENAME")/lib/changelog-text.bash"
 bats_require_minimum_version 1.5.0   # run --separate-stderr
 
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -304,7 +305,8 @@ _readme_names_exclude() { grep -E '^\| `wbs` \|' "$1" | grep -qF '`exclude`'; }
   sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$spec" | grep -qF '/devagent:wbs exclude'
   sed -n '/^A directive is/,/^$/p' "$spec" | grep -qF 'wbs exclude'
   _readme_names_exclude "$REPO/README.md"
-  grep -qF 'wbs exclude' "$REPO/changelog.d/761.md"
+  local cl; cl="$(changelog_text "$REPO")"
+  [[ "$cl" == *'`/devagent:wbs exclude` writes a wbs-exclude line (#761)'* ]]
   # planted control: a README copy without the token fails the same predicate
   sed 's/ \/ `exclude`//' "$REPO/README.md" > "$TMPROOT/README.md"
   run cmp -s "$REPO/README.md" "$TMPROOT/README.md"
