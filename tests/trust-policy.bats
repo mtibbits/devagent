@@ -224,3 +224,165 @@ EOF
   run trust_py load "$P"
   [ "$status" -eq 0 ]
 }
+
+# --- #715: allowed_steering (type steering) and size_cap
+
+# _steering_all: the 38 legal entries, built here from flags.sh's allowlists
+# (not from trust_policy.py), one per line.
+_steering_all() {
+  ( # shellcheck source=/dev/null
+    source "$PLUGIN_ROOT/scripts/lib/flags.sh"
+    local t m
+    for t in $(tier_allowlist); do echo "tier: $t"; done
+    for m in $(model_token_allowlist); do
+      echo "tier: $m-checking"
+      echo "implementation-model: $m"
+      echo "checking-model: $m"
+      echo "tier:impl-$m"
+      echo "tier:check-$m"
+      echo "tier:$m-checking"
+    done
+    echo "research: required"
+    echo "spike: required" )
+}
+
+# _toml_list <lines on stdin>: a TOML array of basic strings.
+_toml_list() {
+  local e out="" sep=""
+  while IFS= read -r e; do out+="$sep\"$e\""; sep=", "; done
+  printf '[%s]' "$out"
+}
+
+# _val <key>: the JSON value `load` printed for <key> (after `run trust_py load`).
+_val() { awk -F'\t' -v k="$1" '$1 == "val" && $2 == k { print $3 }' <<<"$output"; }
+
+@test "steering: all 38 legal entries load" {
+  local list
+  list="$(_steering_all)"
+  [ "$(grep -c . <<<"$list")" -eq 38 ]
+  trust_fixture_policy "$P" "${TRUST_FIXTURE_MIN[@]}" "allowed_steering = $(_toml_list <<<"$list")"
+  run --separate-stderr trust_py load "$P"
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  local got
+  got="$(_val allowed_steering | python3 -c 'import json, sys; print("\n".join(json.load(sys.stdin)))')"
+  [ "$(grep -c . <<<"$got")" -eq 38 ]
+  [ "$(sort <<<"$got")" = "$(sort <<<"$list")" ]
+}
+
+@test "steering: each legal entry satisfies the real consumer" {
+  # shellcheck source=/dev/null
+  source "$PLUGIN_ROOT/scripts/lib/flags.sh"
+  local vocab e key val n=0 rows
+  # shellcheck disable=SC2016
+  vocab="$(python3 -I -X utf8 -c 'import importlib.util as u, sys
+s = u.spec_from_file_location("tp", sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m)
+print("\n".join(sorted(m.steering_vocabulary())))' "$TRUST_PY" | tr -d '\r')"
+  [ "$(grep -c . <<<"$vocab")" -eq 38 ]
+  # pull.sh's optional-row table: the research / spike trigger values.
+  rows="$(grep -oE '"(research|spike):[a-z]+:[0-9]+"' "$PLUGIN_ROOT/scripts/pull.sh" | tr -d '"')"
+  [ "$(grep -c . <<<"$rows")" -eq 2 ]
+  while IFS= read -r e; do
+    n=$((n + 1))
+    case "$e" in
+      tier:impl-*)  model_token_is_legal "${e#tier:impl-}" ;;
+      tier:check-*) model_token_is_legal "${e#tier:check-}" ;;
+      "tier: "*)    val="${e#tier: }"; tier_is_legal "$val" || tier_shim_model "$val" >/dev/null ;;
+      tier:*-checking) val="${e#tier:}"; model_token_is_legal "${val%-checking}" ;;
+      *": "*)
+        key="${e%%: *}"; val="${e#*: }"
+        [[ " $(flags_known_keys) " == *" $key "* ]] || { echo "unknown key: $e" >&2; return 1; }
+        case "$key" in
+          implementation-model|checking-model) model_token_is_legal "$val" ;;
+          research|spike) grep -qE "^$key:$val:[0-9]+\$" <<<"$rows" ;;
+          *) echo "unexpected key: $e" >&2; return 1 ;;
+        esac ;;
+      *) echo "unexpected shape: $e" >&2; return 1 ;;
+    esac || { echo "consumer rejects: $e" >&2; return 1; }
+  done <<<"$vocab"
+  [ "$n" -eq 38 ]
+}
+
+@test "steering: illegal entries refuse" {
+  local e
+  for e in 'tier:oneshot' 'tier: bogus' 'tier: oneshot ' 'research: yes' 'tier:impl-opus-checking' \
+           'checking-model: gpt' 'foo: bar' '' '*'; do
+    trust_fixture_policy "$P" "${TRUST_FIXTURE_MIN[@]}" "allowed_steering = [\"tier: standard\", \"$e\"]"
+    _refuses "allowed_steering entry '$e' is not a legal steering value"
+  done
+}
+
+@test "steering: unset loads as []" {
+  trust_fixture_policy "$P"
+  run --separate-stderr trust_py load "$P"
+  [ "$status" -eq 0 ]
+  [ "$(_val allowed_steering)" = "[]" ]
+}
+
+@test "size_cap: unset loads as 65536" {
+  trust_fixture_policy "$P"
+  run --separate-stderr trust_py load "$P"
+  [ "$status" -eq 0 ]
+  [ "$(_val size_cap)" = "65536" ]
+}
+
+@test "size_cap: 2147483647 loads, 2147483648 refuses" {
+  trust_fixture_policy "$P" "${TRUST_FIXTURE_MIN[@]}" 'size_cap = 2147483647'
+  run --separate-stderr trust_py load "$P"
+  [ "$status" -eq 0 ]
+  [ "$(_val size_cap)" = "2147483647" ]
+  trust_fixture_policy "$P" "${TRUST_FIXTURE_MIN[@]}" 'size_cap = 2147483648'
+  _refuses "size_cap must be at most 2147483647"
+}
+
+@test "steering: a flags.sh without its allowlist line is a defect" {
+  local lib="$BATS_TEST_TMPDIR/lib"
+  cp -r "$PLUGIN_ROOT/scripts/lib" "$lib"
+  # Split the one-line tier_allowlist literal in two: the reader finds 0 lines.
+  python3 - "$lib/flags.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = "tier_allowlist() { printf 'oneshot standard perf docs-only research starter'; }"
+assert s.count(old) == 1
+s = s.replace(old, "tier_allowlist() {\n  printf 'oneshot standard perf docs-only research starter'\n}")
+open(p, "w", encoding="utf-8").write(s)
+PY
+  trust_fixture_policy "$P" "${TRUST_FIXTURE_MIN[@]}" 'allowed_steering = ["tier: oneshot"]'
+  run --separate-stderr python3 -I -X utf8 "$lib/trust_policy.py" load "$P"
+  [ "$status" -eq 3 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$stderr" = "cannot read the steering vocabulary from flags.sh (0 tier_allowlist lines, 1 model_token_allowlist lines)" ]
+  [ "$output" = "" ]
+  # positive control: an empty list never reads the vocabulary.
+  trust_fixture_policy "$P" "${TRUST_FIXTURE_MIN[@]}" 'allowed_steering = []'
+  run --separate-stderr python3 -I -X utf8 "$lib/trust_policy.py" load "$P"
+  [ "$status" -eq 0 ]
+}
+
+@test "digest: explicit allowed_steering = [] and size_cap = 65536 leave it unchanged" {
+  trust_fixture_policy "$P/a"
+  trust_fixture_policy "$P/b" "${TRUST_FIXTURE_MIN[@]}" 'allowed_steering = []' 'size_cap = 65536'
+  local a
+  a="$(_digest "$P/a")"
+  [[ "$a" == sha256:* ]]
+  [ "$a" = "$(_digest "$P/b")" ]
+}
+
+@test "digest: allowed_steering order and duplicates do not move it" {
+  trust_fixture_policy "$P/a" "${TRUST_FIXTURE_MIN[@]}" 'allowed_steering = ["tier: oneshot", "tier:check-fable"]'
+  trust_fixture_policy "$P/b" "${TRUST_FIXTURE_MIN[@]}" 'allowed_steering = ["tier:check-fable", "tier: oneshot"]'
+  trust_fixture_policy "$P/c" "${TRUST_FIXTURE_MIN[@]}" 'allowed_steering = ["tier: oneshot", "tier:check-fable", "tier: oneshot"]'
+  local a
+  a="$(_digest "$P/a")"
+  [[ "$a" == sha256:* ]]
+  [ "$a" = "$(_digest "$P/b")" ]
+  [ "$a" = "$(_digest "$P/c")" ]
+}
+
+@test "steering: a wrong-typed value refuses" {
+  local v
+  for v in '"tier: oneshot"' 5; do
+    trust_fixture_policy "$P" "${TRUST_FIXTURE_MIN[@]}" "allowed_steering = $v"
+    _refuses "key 'allowed_steering' must be a list of strings"
+    [ "$stderr" = "key 'allowed_steering' must be a list of strings" ]
+  done
+}

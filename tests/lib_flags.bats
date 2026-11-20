@@ -892,3 +892,9 @@ s = u.spec_from_file_location("wp", sys.argv[1]); m = u.module_from_spec(s); s.l
 print(" ".join(m.MODEL_TOKENS))' "$PLUGIN_ROOT/scripts/lib/wbs-parser.py" | tr -d '\r')"
   [ "$py" = "$(model_token_allowlist)" ]
 }
+
+@test "tier_allowlist is one column-0 single-line literal (#715)" {
+  # trust_policy.py's steering vocabulary reads this line (the #890 shape).
+  run grep -cE "^tier_allowlist\(\) \{ printf '[A-Za-z0-9._ -]+'; \}$" "$PLUGIN_ROOT/scripts/lib/flags.sh"
+  [ "$output" = "1" ]
+}

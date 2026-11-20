@@ -65,9 +65,10 @@ KEYS = {
     **{k: "str" for k in ("in_progress", "claim", "quarantine", "devdoc_remote",
                           "screen_model", "keyring", "ssh_keygen")},
     "provenance": "provenance",
-    **{k: "strlist" for k in ("later_stages", "revoking", "allowed_steering",
+    **{k: "strlist" for k in ("later_stages", "revoking",
                               "paths_deny", "paths_allow", "fixture_paths",
                               "outward_actions", "attested_keys")},
+    "allowed_steering": "steering",
     "allowed_chars": "charlist",
     "approval": "approval",
     "size_classes": "size_classes",
@@ -80,12 +81,26 @@ KEYS = {
 
 DEFAULTS = {
     "revoking": [],
+    "allowed_steering": [],     # #715: nothing allowed; a listed entry steers
+    "size_cap": 65536,          # #715: bytes of the staged issue.md
     "require_user_verification": True,
     "test_seams": False,
     "single_identity": False,
     "required_hardening": [],
     **{g: False for g in GATES},
 }
+
+# #715: the largest size_cap; a larger value would overflow bash arithmetic
+# on a 32-bit int and is far beyond any ticket.
+SIZE_CAP_MAX = 2147483647
+
+# #715: the `steering` type's closed vocabulary is built from flags.sh's two
+# allowlists, read from the one column-0 single-line literal of each (the #890
+# reader's shape, wbs-parser.py MODEL_TOKENS_RE), so a value the scaffold would
+# reject can never be listed. tests/lib_flags.bats pins both lines' shape.
+_FLAGS_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flags.sh")
+_TIER_LINE = re.compile(r"^tier_allowlist\(\) \{ printf '([A-Za-z0-9._ -]+)'; \}$", re.MULTILINE)
+_MODEL_LINE = re.compile(r"^model_token_allowlist\(\) \{ printf '([A-Za-z0-9._ -]+)'; \}$", re.MULTILINE)
 
 TRACKER_KEYS = {
     "github": ("host",),
@@ -100,6 +115,39 @@ ID_SHAPES = {
 }
 
 JIRA_KEY = re.compile(r"[A-Z][A-Z0-9_]*")
+
+
+# ---------------------------------------------------------------- steering
+
+
+def steering_vocabulary() -> frozenset:
+    """Every legal `allowed_steering` entry: one exact string per steering
+    value the scaffold would apply (T = tier_allowlist, M = model_token_allowlist):
+
+        tier: <T>                 the checklist template
+        tier: <M>-checking        the #561 shim
+        research: required, spike: required
+        implementation-model: <M>, checking-model: <M>
+        tier:impl-<M>, tier:check-<M>, tier:<M>-checking   (forge labels)
+
+    Read only for a non-empty list, so a policy that lists nothing never
+    depends on flags.sh's layout.
+    """
+    try:
+        with open(_FLAGS_SH, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as e:
+        raise Defect(f"cannot read the steering vocabulary from flags.sh ({e.strerror})") from None
+    tiers, models = _TIER_LINE.findall(text), _MODEL_LINE.findall(text)
+    if len(tiers) != 1 or len(models) != 1 or not tiers[0].split() or not models[0].split():
+        raise Defect(f"cannot read the steering vocabulary from flags.sh ({len(tiers)} tier_allowlist "
+                     f"lines, {len(models)} model_token_allowlist lines)")
+    v = {f"tier: {t}" for t in tiers[0].split()}
+    v |= {"research: required", "spike: required"}
+    for m in models[0].split():
+        v |= {f"tier: {m}-checking", f"implementation-model: {m}", f"checking-model: {m}",
+              f"tier:impl-{m}", f"tier:check-{m}", f"tier:{m}-checking"}
+    return frozenset(v)
 
 
 # ---------------------------------------------------------------- keys
@@ -204,8 +252,15 @@ def _type_check(key: str, kind: str, v):
         need(isinstance(v, str), "a string")
     elif kind == "int":
         need(isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a non-negative integer")
-    elif kind in ("strlist", "idlist", "repolist"):
+        if key == "size_cap" and v > SIZE_CAP_MAX:
+            raise Defect(f"size_cap must be at most {SIZE_CAP_MAX}")
+    elif kind in ("strlist", "idlist", "repolist", "steering"):
         need(str_list(v), "a list of strings")
+        if kind == "steering" and v:
+            vocab = steering_vocabulary()
+            for e in v:
+                if e not in vocab:
+                    raise Defect(f"allowed_steering entry '{e}' is not a legal steering value")
     elif kind == "charlist":
         need(str_list(v) and all(len(e) == 1 for e in v), "a list of single characters")
     elif kind == "provenance":
@@ -260,7 +315,7 @@ def normalise(raw: dict) -> dict:
             pol[k] = sorted({_identity(e) for e in pol[k]})
         elif kind == "repolist":
             pol[k] = sorted({canonical_scope(e) for e in pol[k]})
-        elif kind in ("strlist", "charlist", "hardening"):
+        elif kind in ("strlist", "charlist", "hardening", "steering"):
             pol[k] = sorted(set(pol[k]))
     if not pol.get("worker_identities"):
         raise Defect("worker_identities must be non-empty")

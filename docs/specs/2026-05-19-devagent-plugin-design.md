@@ -662,7 +662,8 @@ account ids; never a login or display name), an empty `worker_identities` or
 `code_host_workers` and `trusted_reviewers`) without `single_identity = true`
 refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 `idlist` `["<backend>:<id>", …]`, `repolist` repo keys, `str`, `strlist`,
-`charlist` single code points, `bool`, `int` (non-negative), `provenance`
+`charlist` single code points, `steering` a list drawn from a closed set (#715,
+below), `bool`, `int` (non-negative; `size_cap` at most 2147483647), `provenance`
 `required`|`optional`, `approval` `{kind = "label"|"status", id}`,
 `size_classes` a table of non-negative ints, `trackers` `github.host`,
 `gitlab.api_url`, `jira.base_url`, `jira.project_key`, `hardening` a subset of
@@ -690,7 +691,7 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `provenance` | `provenance` | — |
 | `later_stages` | `strlist` | — |
 | `revoking` | `strlist` | `[]` |
-| `allowed_steering` | `strlist` | — |
+| `allowed_steering` | `steering` | `[]` |
 | `paths_deny` | `strlist` | — |
 | `paths_allow` | `strlist` | — |
 | `fixture_paths` | `strlist` | — |
@@ -699,7 +700,7 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `allowed_chars` | `charlist` | — |
 | `approval` | `approval` | — |
 | `size_classes` | `size_classes` | — |
-| `size_cap` | `int` | — |
+| `size_cap` | `int` | `65536` |
 | `approver_not_author` | `bool` | — |
 | `require_trusted_reporter` | `bool` | — |
 | `require_user_verification` | `bool` | `true` |
@@ -711,6 +712,16 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `merge_mr` | `bool` | `false` |
 | `file` | `bool` | `false` |
 | `required_hardening` | `hardening` | `[]` |
+
+**`allowed_steering` and `size_cap` (#715).** The steering a ticket may carry
+past pull's floor (§9.3). Each `allowed_steering` entry is one exact string from
+a closed set, built from `tier_allowlist` (T) and `model_token_allowlist` (M) in
+`scripts/lib/flags.sh`: `tier: <T>`, `tier: <M>-checking`, `research: required`,
+`spike: required`, `implementation-model: <M>`, `checking-model: <M>`, and the
+label shapes `tier:impl-<M>`, `tier:check-<M>`, `tier:<M>-checking` (38 entries
+today). Any other entry refuses (exit 3 from the loader, so exit 9 at every
+entry point); the default `[]` allows nothing. `size_cap` is in bytes of the
+staged `issue.md`, default 65536, at most 2147483647.
 
 **Digest.** `sha256:` of the normalised policy (defaults applied, lists sorted
 and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
