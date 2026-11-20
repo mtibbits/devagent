@@ -2550,7 +2550,7 @@ Output, per requested id in request order (TAB-separated):
 
 ```
 issue  <id>  open|draft|merged|none|missing
-mr     <id>  <ref>  open|draft|merged|closed  <created>  <merged>|-
+mr     <id>  <ref>  open|draft|merged|closed  <created>  <merged>|-  [<url>|-  <base>|-]
 ```
 
 The `issue` line carries the aggregate of its `mr` lines: any open
@@ -2559,7 +2559,12 @@ non-draft MR gives `open`, else any draft `draft`, else any merged
 per-issue 404 and has no `mr` lines. One `mr` line follows per linked MR
 (`<ref>` is `owner/repo#N` or `group/project!N`), sorted by creation
 time, with UTC second-precision `YYYY-MM-DDTHH:MM:SSZ` created and merged
-timestamps (#734 reads them; `wbs update` does not).
+timestamps (#734 reads them; `wbs update` does not). The trailing
+`<url>` (the MR's `http(s)://` web URL) and `<base>` (its target branch)
+are optional as a pair (#734): GitHub (`url`, `baseRefName`, fetched in
+the same query) and GitLab (`web_url`, `target_branch`) always print
+them, a backend MAY omit both, and `-` means unknown; a line with one of
+the two is malformed. Readers accept the 6- and the 8-field form.
 `scripts/lib/mr-link.py` applies the link rule, prints this grammar and
 checks it, so the backends and `wbs update` share one predicate. Exit `0`
 is success; `78` (not implemented) and `2` (unknown verb) mean "no MR

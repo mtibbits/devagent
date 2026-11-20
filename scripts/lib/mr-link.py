@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Linked-MR state for `wbs update` (#704): the link rule and the grammar.
+"""Linked-MR state for `wbs update` (#704) and `milestones` (#734): the link
+rule and the grammar.
 
 An MR links issue (R, N) when its title or description carries a
 closing-keyword reference that resolves to (R, N), whatever its target
@@ -12,20 +13,23 @@ The code backends' optional `issue-mrs <repo> <id>...` verb (spec section
 9.2) prints, per requested id in request order:
 
   issue<TAB><id><TAB>(open|draft|merged|none|missing)
-  mr<TAB><id><TAB><ref><TAB>(open|draft|merged|closed)<TAB><created><TAB>(<merged>|-)
+  mr<TAB><id><TAB><ref><TAB>(open|draft|merged|closed)<TAB><created><TAB>(<merged>|-)[<TAB>(<url>|-)<TAB>(<base>|-)]
 
 one `issue` line carrying the aggregate of its `mr` lines, then one `mr`
 line per linked MR (closed-unmerged included), sorted by (created, ref).
 Timestamps are UTC, second precision, `YYYY-MM-DDTHH:MM:SSZ`. `missing` is
-a per-issue 404 and has no `mr` lines.
+a per-issue 404 and has no `mr` lines. The trailing `<url>`/`<base>` pair
+(#734: the MR's web URL and target branch) is optional as a pair: GitHub
+and GitLab always print it, a backend MAY omit it, and `-` means unknown.
 
 CLI:
   mr-link.py emit <github|gitlab> <repo>
         read one normalised JSON object per requested id on stdin
         ({"id", "status": "ok"|"missing", "mrs": [{"repo", "ref", "state":
         "open"|"closed"|"merged", "draft", "created", "merged", "title",
-        "body"}]}), apply the link rule and print the verb's lines; exit 5
-        on bad input (nothing printed).
+        "body", "url", "base"}]}), apply the link rule and print the verb's
+        8-field lines; exit 5 on bad input (nothing printed). A missing
+        `url`/`base` KEY is bad input; a null or empty VALUE prints `-`.
   mr-link.py check <id>...
         read verb output on stdin; print the issue count and exit 0, or name
         the first fault on stderr and exit 1. The backend tests and `wbs
@@ -59,7 +63,8 @@ ISSUE_STATES = ("open", "draft", "merged", "none", "missing")
 MR_STATES = ("open", "draft", "merged", "closed")
 TS = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
 ISSUE_RE = re.compile(rf"^issue\t([^\t]+)\t({'|'.join(ISSUE_STATES)})$")
-MR_RE = re.compile(rf"^mr\t([^\t]+)\t([^\t\s]+[#!][0-9]+)\t({'|'.join(MR_STATES)})\t({TS})\t({TS}|-)$")
+MR_RE = re.compile(rf"^mr\t([^\t]+)\t([^\t\s]+[#!][0-9]+)\t({'|'.join(MR_STATES)})\t({TS})\t({TS}|-)"
+                   r"(?:\t(https?://\S+|-)\t(\S+))?$")
 _TS_IN = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d+)?(Z|[+-]\d\d:\d\d)$")
 
 
@@ -107,14 +112,26 @@ def norm_ts(s: str) -> str:
 
 
 def parse_issue_mrs(text: str, ids) -> dict[str, str]:
-    """Map each requested id -> its `issue` state. Blank lines are skipped;
-    CRLF is absorbed. Raises ValueError on any line outside the grammar, an
-    id missing, repeated or not requested, an `mr` line not under its own
-    `issue` line, a `missing` id with `mr` lines, or an `issue` state that
-    differs from the aggregate of its `mr` lines."""
+    """Map each requested id -> its `issue` state (see
+    parse_issue_mrs_detail, the one predicate)."""
+    return parse_issue_mrs_detail(text, ids)[0]
+
+
+def _dash(v: str | None) -> str | None:
+    return None if v in (None, "-") else v
+
+
+def parse_issue_mrs_detail(text: str, ids) -> tuple[dict[str, str], dict[str, list[dict]]]:
+    """(states, mrs): each requested id -> its `issue` state, and each id ->
+    its MRs in line order as {"ref", "state", "created", "merged", "url",
+    "base"} (`merged`, `url`, `base` are None for `-` or when absent).
+    Blank lines are skipped; CRLF is absorbed. Raises ValueError on any line
+    outside the grammar, an id missing, repeated or not requested, an `mr`
+    line not under its own `issue` line, a `missing` id with `mr` lines, or
+    an `issue` state that differs from the aggregate of its `mr` lines."""
     want = list(ids)
     out: dict[str, str] = {}
-    mrs: dict[str, list[str]] = {}
+    mrs: dict[str, list[dict]] = {}
     cur = None
     for n, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
@@ -136,14 +153,16 @@ def parse_issue_mrs(text: str, ids) -> dict[str, str]:
             raise ValueError(f"line {n}: mr line for {iid} not under its issue line")
         if out[iid] == "missing":
             raise ValueError(f"line {n}: missing id {iid} has mr lines")
-        mrs[iid].append(m.group(3))
+        _, ref, state, created, merged, url, base = m.groups()
+        mrs[iid].append({"ref": ref, "state": state, "created": created,
+                         "merged": _dash(merged), "url": _dash(url), "base": _dash(base)})
     absent = [i for i in want if i not in out]
     if absent:
         raise ValueError(f"id {absent[0]} has no issue line")
     for iid, state in out.items():
-        if state != "missing" and aggregate(mrs[iid]) != state:
+        if state != "missing" and aggregate(r["state"] for r in mrs[iid]) != state:
             raise ValueError(f"id {iid}: state {state} is not the aggregate of its mr lines")
-    return out
+    return out, mrs
 
 
 def _mr_state(mr: dict) -> str:
@@ -172,14 +191,17 @@ def emit(host: str, repo: str, records) -> list[str]:
             state = _mr_state(mr)
             created = norm_ts(mr["created"])
             merged = norm_ts(mr["merged"]) if mr.get("merged") else "-"
+            # #734: the KEYS are required (KeyError -> exit 5); a null or
+            # empty VALUE is unknown and prints `-`, never fails closed.
+            url, base = mr["url"] or "-", mr["base"] or "-"
             if (repo.casefold(), int(iid)) not in linked(
                     host, link_text(mr.get("title"), mr.get("body")), mr["repo"]):
                 continue
-            rows[mr["ref"]] = (created, mr["ref"], state, merged)
+            rows[mr["ref"]] = (created, mr["ref"], state, merged, url, base)
         rows = sorted(rows.values())
         lines.append(f"issue\t{iid}\t{aggregate(r[2] for r in rows)}")
-        lines.extend(f"mr\t{iid}\t{ref}\t{state}\t{created}\t{merged}"
-                     for created, ref, state, merged in rows)
+        lines.extend(f"mr\t{iid}\t{ref}\t{state}\t{created}\t{merged}\t{url}\t{base}"
+                     for created, ref, state, merged, url, base in rows)
     return lines
 
 

@@ -147,10 +147,39 @@ def test_parse_good():
     ("issue\t5\tmerged\nmr\t5\ta/b#1\tmerged\t2026-10-01T00:00:00Z\tnever\n", ["5"]),  # bad merged
     ("issue\t5\topen\nmr\t5\tnot-a-ref\topen\t2026-10-01T00:00:00Z\t-\n", ["5"]),  # bad ref
     ("issue\t5\topen\nmr\t5\ta/b#1\tlocked\t2026-10-01T00:00:00Z\t-\n", ["5"]),  # bad mr state
+    # #734: the optional url/base pair is all-or-nothing and well-formed
+    ("issue\t5\topen\nmr\t5\ta/b#1\topen\t2026-10-01T00:00:00Z\t-\thttps://x/1\n", ["5"]),  # 7 fields
+    ("issue\t5\topen\nmr\t5\ta/b#1\topen\t2026-10-01T00:00:00Z\t-\thttps://x/a b\tmain\n", ["5"]),  # url with space
+    ("issue\t5\topen\nmr\t5\ta/b#1\topen\t2026-10-01T00:00:00Z\t-\thttps://x/1\tmain\textra\n", ["5"]),  # 9 fields
+    ("issue\t5\topen\nmr\t5\ta/b#1\topen\t2026-10-01T00:00:00Z\t-\tftp://x/1\tmain\n", ["5"]),  # ftp url
 ])
 def test_parse_rejects(text, ids):
     with pytest.raises(ValueError):
         mr_link.parse_issue_mrs(text, ids)
+
+
+def test_parse_detail_six_and_eight_fields():
+    # #734: a custom backend's 6-field line and a widened 8-field line parse
+    # side by side; the states are exactly parse_issue_mrs's.
+    text = ("issue\t5\tmerged\n"
+            "mr\t5\ta/b#21\tmerged\t2026-10-01T00:00:00Z\t2026-10-02T00:00:00Z"
+            "\thttps://github.com/a/b/pull/21\tdev/all-prs\n"
+            "mr\t5\ta/b#22\tclosed\t2026-10-03T00:00:00Z\t-\n")
+    states, mrs = mr_link.parse_issue_mrs_detail(text, ["5"])
+    assert states == mr_link.parse_issue_mrs(text, ["5"]) == {"5": "merged"}
+    assert mrs == {"5": [
+        {"ref": "a/b#21", "state": "merged", "created": "2026-10-01T00:00:00Z",
+         "merged": "2026-10-02T00:00:00Z", "url": "https://github.com/a/b/pull/21",
+         "base": "dev/all-prs"},
+        {"ref": "a/b#22", "state": "closed", "created": "2026-10-03T00:00:00Z",
+         "merged": None, "url": None, "base": None},
+    ]}
+
+
+def test_parse_detail_dash_pair_is_none():
+    text = "issue\t5\topen\nmr\t5\ta/b#1\topen\t2026-10-01T00:00:00Z\t-\t-\t-\n"
+    _, mrs = mr_link.parse_issue_mrs_detail(text, ["5"])
+    assert mrs["5"][0]["url"] is None and mrs["5"][0]["base"] is None
 
 
 def _emit(host, repo, records):
@@ -160,17 +189,20 @@ def _emit(host, repo, records):
 
 
 def _pr(ref, state, body, created="2026-10-01T00:00:00Z", merged=None, draft=False,
-        title="t", repo=R):
+        title="t", repo=R, url=None, base=None):
     return {"repo": repo, "ref": ref, "state": state, "draft": draft,
-            "created": created, "merged": merged, "title": title, "body": body}
+            "created": created, "merged": merged, "title": title, "body": body,
+            "url": url, "base": base}
 
 
 def test_emit_then_check_roundtrip():
     recs = [
         {"id": "6", "status": "ok", "mrs": [
-            _pr(f"{R}#22", "open", "Fixes #6", created="2026-10-05T00:00:00.1Z"),
-            _pr(f"{R}#21", "merged", "Closes #6", merged="2026-10-02T10:00:00+02:00"),
-            _pr(f"{R}#21", "merged", "Closes #6", merged="2026-10-02T10:00:00+02:00"),  # dup
+            _pr(f"{R}#22", "open", "Fixes #6", created="2026-10-05T00:00:00.1Z", base="main"),
+            _pr(f"{R}#21", "merged", "Closes #6", merged="2026-10-02T10:00:00+02:00",
+                url=f"https://github.com/{R}/pull/21", base="dev/all-prs"),
+            _pr(f"{R}#21", "merged", "Closes #6", merged="2026-10-02T10:00:00+02:00",
+                url=f"https://github.com/{R}/pull/21", base="dev/all-prs"),  # dup
             _pr(f"{R}#99", "open", "mentions #6"),
             _pr(f"{R}#30", "open", "Closes #6", draft=True, created="2026-10-06T00:00:00Z"),
         ]},
@@ -181,12 +213,13 @@ def test_emit_then_check_roundtrip():
     assert p.returncode == 0, p.stderr
     assert p.stdout.splitlines() == [
         "issue\t6\topen",
-        f"mr\t6\t{R}#21\tmerged\t2026-10-01T00:00:00Z\t2026-10-02T08:00:00Z",
-        f"mr\t6\t{R}#22\topen\t2026-10-05T00:00:00Z\t-",
-        f"mr\t6\t{R}#30\tdraft\t2026-10-06T00:00:00Z\t-",
+        f"mr\t6\t{R}#21\tmerged\t2026-10-01T00:00:00Z\t2026-10-02T08:00:00Z"
+        f"\thttps://github.com/{R}/pull/21\tdev/all-prs",
+        f"mr\t6\t{R}#22\topen\t2026-10-05T00:00:00Z\t-\t-\tmain",
+        f"mr\t6\t{R}#30\tdraft\t2026-10-06T00:00:00Z\t-\t-\t-",
         "issue\t7\tmissing",
         "issue\t8\tnone",
-        f"mr\t8\t{R}#40\tclosed\t2026-10-01T00:00:00Z\t-",
+        f"mr\t8\t{R}#40\tclosed\t2026-10-01T00:00:00Z\t-\t-\t-",
     ]
     assert mr_link.parse_issue_mrs(p.stdout, ["6", "7", "8"]) == {"6": "open", "7": "missing", "8": "none"}
     c = subprocess.run([sys.executable, str(LIB), "check", "6", "7", "8"],
@@ -202,7 +235,7 @@ def test_emit_writes_lf_only():
                        input=(stdin + "\n").encode(), capture_output=True)
     assert p.returncode == 0, p.stderr
     assert b"\r" not in p.stdout
-    assert p.stdout == f"issue\t6\topen\nmr\t6\t{R}#21\topen\t2026-10-01T00:00:00Z\t-\n".encode()
+    assert p.stdout == f"issue\t6\topen\nmr\t6\t{R}#21\topen\t2026-10-01T00:00:00Z\t-\t-\t-\n".encode()
 
 
 def test_emit_fork_pr_links_fork_only():
@@ -219,12 +252,28 @@ def test_emit_fork_pr_links_fork_only():
     json.dumps({"id": "5", "status": "ok", "mrs": [_pr(f"{R}#1", "open", "Closes #5", created="x")]}) + "\n",
     json.dumps({"id": "5", "status": "bogus", "mrs": []}) + "\n",
     json.dumps({"id": "5"}) + "\n",
+    # #734: a normaliser that drops the url KEY is malformed (a null VALUE is not)
+    json.dumps({"id": "5", "status": "ok", "mrs": [
+        {k: v for k, v in _pr(f"{R}#1", "open", "Closes #5").items() if k != "url"}]}) + "\n",
 ])
 def test_emit_bad_input_exits_5(stdin):
     p = subprocess.run([sys.executable, str(LIB), "emit", "github", R],
                        input=stdin, capture_output=True, text=True)
     assert p.returncode == 5
     assert p.stdout == ""
+
+
+def test_emit_prints_url_and_base():
+    pr = _pr(f"{R}#21", "open", "Closes #6", url="https://github.com/a/b/pull/21", base="dev/all-prs")
+    p = _emit("github", R, [{"id": "6", "status": "ok", "mrs": [pr]}])
+    assert p.returncode == 0, p.stderr
+    assert p.stdout.splitlines()[1].endswith("\thttps://github.com/a/b/pull/21\tdev/all-prs")
+    pr = _pr(f"{R}#21", "open", "Closes #6", url=None, base="dev/all-prs")
+    p = _emit("github", R, [{"id": "6", "status": "ok", "mrs": [pr]}])
+    assert p.stdout.splitlines()[1].endswith("\t-\tdev/all-prs")
+    pr = _pr(f"{R}#21", "open", "Closes #6", url="", base="")
+    p = _emit("github", R, [{"id": "6", "status": "ok", "mrs": [pr]}])
+    assert p.stdout.splitlines()[1].endswith("\t-\t-")
 
 
 def test_check_cli_uses_parse():
