@@ -10,11 +10,15 @@ bats_require_minimum_version 1.5.0
 load 'lib/bats-helpers'
 load 'lib/hold-fixture'
 
+setup_file() {
+  OQ="$(bash -c 'source "$1"; trust_exit_code operator-question' _ "$PLUGIN_ROOT/scripts/lib/refusals.sh")"
+  [[ "$OQ" =~ ^[0-9]+$ ]]
+  export OQ
+}
+
 setup() {
   setup_tmp_devagent_home
   _toy
-  OQ="$(bash -c 'source "$1"; trust_exit_code operator-question' _ "$PLUGIN_ROOT/scripts/lib/refusals.sh")"
-  [[ "$OQ" =~ ^[0-9]+$ ]]
 }
 teardown() { teardown_tmp_devagent_home; }
 

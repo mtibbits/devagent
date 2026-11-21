@@ -7,44 +7,14 @@
 bats_require_minimum_version 1.5.0
 
 load 'lib/bats-helpers'
+load 'lib/hold-fixture'   # _q and _lib
 
 setup() {
   setup_tmp_devagent_home
-  # shellcheck source=/dev/null
-  source "$PLUGIN_ROOT/scripts/lib/paths.sh"
-  # shellcheck source=/dev/null
-  source "$PLUGIN_ROOT/scripts/lib/io.sh"
-  # shellcheck source=/dev/null
-  source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
-  # shellcheck source=/dev/null
-  source "$PLUGIN_ROOT/scripts/lib/config.sh"
-  # shellcheck source=/dev/null
-  source "$PLUGIN_ROOT/scripts/lib/question-actions.sh"
+  _lib
   D="$BATS_TEST_TMPDIR/Issue-7"
   mkdir -p "$D"
   printf '[project.toy]\ndevdoc_dir = "%s"\n' "$BATS_TEST_TMPDIR" > "$DA_HOME/config.toml"
-}
-
-# _q <file>: a valid question file (options a recommended, b).
-_q() {
-  cat > "$1" <<'Q'
-## Question
-
-Proceed with round 4?
-
-## Impediment
-
-improve found 14 bugs after round 3 of 3.
-
-## Options
-
-- `a` (recommended) Run round 4.
-- `b` Stop and prune.
-
-## Evidence
-
-analysis/2026-11-20-improve.md
-Q
 }
 
 # _render <file> [NN]: the fixture's render arguments.
@@ -52,10 +22,14 @@ _render() {
   question_render "$1" toy Issue-7 improve 5 "improve: 14 bugs after round 3 of 3" "4 scope" "${2:-03}" 2026-11-20T10:31:00-05:00
 }
 
+# _libs: a `source` line for the same libraries _lib loads, for a child bash.
 _libs() {
-  printf 'source %q; source %q; source %q; source %q\n' \
-    "$PLUGIN_ROOT/scripts/lib/paths.sh" "$PLUGIN_ROOT/scripts/lib/io.sh" \
-    "$PLUGIN_ROOT/scripts/lib/config.sh" "$PLUGIN_ROOT/scripts/lib/question-actions.sh"
+  local l sep=""
+  for l in paths io config checklist question-actions; do
+    printf '%ssource %q' "$sep" "$PLUGIN_ROOT/scripts/lib/$l.sh"
+    sep="; "
+  done
+  printf '\n'
 }
 teardown() { teardown_tmp_devagent_home; }
 

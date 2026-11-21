@@ -105,22 +105,21 @@ _render_to() {
 
 # ---- argv ----------------------------------------------------------------
 project="" issue="" step="" reason="" qfile="" no_ask=0
-declare -A _seen=()
 _pos=()
+# A value flag's value is never empty, so a set variable is a repeated flag.
 while (( $# )); do
   case "$1" in
     --step|--reason|--question-file)
-      [[ -z "${_seen[$1]-}" && $# -ge 2 && -n "$2" ]] || _refuse usage
-      _seen[$1]=1
+      (( $# >= 2 )) && [[ -n "$2" ]] || _refuse usage
       case "$1" in
-        --step) step="$2" ;;
-        --reason) reason="$2" ;;
-        --question-file) qfile="$2" ;;
+        --step) [[ -z "$step" ]] || _refuse usage; step="$2" ;;
+        --reason) [[ -z "$reason" ]] || _refuse usage; reason="$2" ;;
+        --question-file) [[ -z "$qfile" ]] || _refuse usage; qfile="$2" ;;
       esac
       shift 2 ;;
     --no-ask)
-      [[ -z "${_seen[--no-ask]-}" ]] || _refuse usage
-      _seen[--no-ask]=1; no_ask=1; shift ;;
+      (( ! no_ask )) || _refuse usage
+      no_ask=1; shift ;;
     -*) _refuse usage ;;
     *) _pos+=("$1"); shift ;;
   esac
@@ -133,8 +132,8 @@ project="${_pos[0]}" issue="${_pos[1]}"
 [[ "$issue" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || _refuse usage
 # --reason and --question-file come together; neither is legal only with --no-ask.
 have_r=0 have_q=0
-[[ -z "${_seen[--reason]-}" ]] || have_r=1
-[[ -z "${_seen[--question-file]-}" ]] || have_q=1
+[[ -z "$reason" ]] || have_r=1
+[[ -z "$qfile" ]] || have_q=1
 (( have_r == have_q )) || _refuse usage
 (( have_q || no_ask )) || _refuse usage
 config_is_project "$project" || _refuse usage
@@ -189,7 +188,7 @@ _restore_parked_row() {
   line="${pl%%:*}" pnum="${pl#*:}"
   pname="$(checklist_step_name_at_line "$checklist" "$line" 2>/dev/null)" || return 0
   [[ "$pname" != "$step" ]] || return 0
-  g="$(sed -nE "s/^- [0-9-]+ [0-9:]+  park: issue parked \(row $pnum $pname was \[(.)\]\).*\$/\1/p" "$checklist" | tail -n 1)"
+  g="$(sed -nE "s/${QUESTION_PARK_ENTRY_RE} \(row $pnum $pname was \[(.)\]\).*\$/\1/p" "$checklist" | tail -n 1)"
   [[ "$g" == " " || "$g" == "~" ]] || g=" "
   checklist_mark_line "$checklist" "$line" "$g"
 }
@@ -198,13 +197,13 @@ _is_parked() { state_list_parked "$project" | grep -qxF -- "$issue"; }
 
 # _hold <NN> <reason> <record-or-empty>: steps 3-7 (the STUCK is on disk).
 _hold() {
-  local nn="$1" why="$2" rec="$3" label park_rc=0 append_rc=0
+  local nn="$1" why="$2" rec="$3" label park_rc=0 append_rc=0 parked=0
   [[ -z "$rec" ]] || rm -f "$rec"
-  if _is_parked; then _restore_parked_row; fi
+  if _is_parked; then parked=1; _restore_parked_row; fi
   [[ "$(checklist_active_step_state_by_name "$checklist" "$step")" == "?" ]] \
     || checklist_mark_by_name "$checklist" "$step" '?'
-  if _is_parked; then
-    if grep -qE "^- [0-9-]+ [0-9:]+  park: issue parked.*: operator question $nn: " "$checklist"; then
+  if (( parked )); then
+    if grep -qE "${QUESTION_PARK_ENTRY_RE}.*: operator question $nn: " "$checklist"; then
       label="parked"
     else
       label="already parked"
@@ -216,7 +215,7 @@ _hold() {
   if ! question_line_logged "$issue_dir" "$step" "$nn"; then
     notify_append event=hold "project=$project" "issue=$issue" "step=$step" \
       "question=$issue_dir/STUCK" "detail=operator question $nn at $step; $label" || append_rc=$?
-    (( append_rc != 0 )) || log_append "$issue_dir" "$step" "hold line written for question $nn"
+    (( append_rc != 0 )) || log_append "$issue_dir" "$step" "$QUESTION_HOLD_LOGGED $nn"
   fi
   if (( park_rc )); then
     (( park_rc != 2 && park_rc != 3 )) || exit 1
@@ -243,9 +242,10 @@ if [[ "$_kind" != none ]]; then
   _refuse one-stop
 fi
 
+record="$(question_open_record "$issue_dir" "$step")"
+
 # With no question file (--no-ask only), the question is the open record's.
 if (( ! have_q )); then
-  record="$(question_open_record "$issue_dir" "$step")"
   [[ -n "$record" ]] || _refuse no-question
   _HOLD_TMP="$(mktemp "$issue_dir/questions/.body.XXXXXX")"
   question_body "$record" > "$_HOLD_TMP"
@@ -254,29 +254,22 @@ if (( ! have_q )); then
   reason="$(question_reason "$record")"
 fi
 
-if (( hold_mode )); then
-  record="$(question_open_record "$issue_dir" "$step")"
-  if [[ -n "$record" ]]; then
-    nn="${record##*/}"; nn="${nn%%-*}"
-  else
-    nn="$(question_next_number "$issue_dir")" || exit 1
-  fi
-  tmp="$(mktemp "$issue_dir/questions/.tmp.XXXXXX")"
-  _render_to "$tmp" "$qfile" "$nn" || { rm -f "$tmp"; exit 1; }
-  question_publish "$tmp" "$issue_dir/STUCK" || _refuse one-stop
-  _hold "$nn" "$reason" "$record"
-fi
-
-# The ask: the open record's number, else the next; render, publish, exit 3.
-record="$(question_open_record "$issue_dir" "$step")"
+# The open record's number, else the next; rendered once for either branch.
 if [[ -n "$record" ]]; then
   nn="${record##*/}"; nn="${nn%%-*}"
 else
   nn="$(question_next_number "$issue_dir")" || exit 1
-  record="$issue_dir/questions/$nn-$step.md"
 fi
 tmp="$(mktemp "$issue_dir/questions/.tmp.XXXXXX")"
 _render_to "$tmp" "$qfile" "$nn" || { rm -f "$tmp"; exit 1; }
+
+if (( hold_mode )); then
+  question_publish "$tmp" "$issue_dir/STUCK" || _refuse one-stop
+  _hold "$nn" "$reason" "$record"
+fi
+
+# The ask: publish the render as the open record, exit 3.
+[[ -n "$record" ]] || record="$issue_dir/questions/$nn-$step.md"
 # W:d-749: a Windows rename can fail while a reader holds the target open.
 for _try in 1 2 3 4 5; do
   if mv -f "$tmp" "$record" 2>/dev/null; then

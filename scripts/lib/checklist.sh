@@ -643,15 +643,22 @@ stuck_kind() {
     return 0
   fi
   if [[ -f "$f" && -r "$f" ]]; then
-    kind="$(awk '
-      { sub(/\r$/, "") }
-      /^[ \t]*$/ || /^## / { exit }
-      /^Kind:/ {
-        v = $0; sub(/^Kind:/, "", v); gsub(/^[ \t]+|[ \t]+$/, "", v)
-        if (v != "") { print v; exit }
-      }
-    ' "$f" 2>/dev/null)" || kind=""
+    kind="$(stuck_header_value "$f" Kind)" || kind=""
   fi
   printf '%s\n' "${kind:-stuck}"
   return 0
+}
+
+# stuck_header_value <file> <key> — #962: the ONE reader of a STUCK-shaped
+# header (a STUCK or a question record): the first non-empty `<key>:` value in
+# the lines before the first blank line or `## ` heading, CR and surrounding
+# blanks stripped. Prints nothing when there is none or the file is unreadable.
+stuck_header_value() {
+  awk -v key="$2:" '
+    { sub(/\r$/, "") }
+    /^[ \t]*$/ || /^## / { exit }
+    index($0, key) == 1 {
+      v = substr($0, length(key) + 1); gsub(/^[ \t]+|[ \t]+$/, "", v)
+      if (v != "") { print v; exit }
+    }' "$1" 2>/dev/null
 }

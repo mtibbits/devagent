@@ -34,13 +34,14 @@ _park_usage() {
 }
 
 main() {
-  local project="" issue="" reason="" have_reason=0
+  local project="" issue="" reason=""
   local -a pos=()
   while (( $# )); do
     case "$1" in
       --reason)
-        (( $# >= 2 && ! have_reason )) || _park_usage
-        reason="$2"; have_reason=1
+        # A blank reason is refused below, so a set one means a repeated flag.
+        (( $# >= 2 )) && [[ -z "$reason" ]] || _park_usage
+        reason="$2"
         [[ -n "${reason//[[:space:]]/}" && "$reason" != *$'\n'* && "$reason" != *$'\r'* ]] || _park_usage
         shift 2 ;;
       --*) _park_usage ;;

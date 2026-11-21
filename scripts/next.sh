@@ -134,6 +134,8 @@ through_target_state() {
 # 1, or exit with the hold's failing status.
 question_stop() {
   local step="$1" code row qstep nn rc err rec stuck="$issue_dir/STUCK"
+  # Runs on every dispatch: with no STUCK and no questions/ to read, no forks.
+  [[ -e "$stuck" || -L "$stuck" ]] || [[ -n "$step" && -d "$issue_dir/questions" ]] || return 0
   if [[ "$(stuck_kind "$issue_dir")" == question ]]; then
     code="$(trust_exit_code operator-question || true)"
     [[ "$code" =~ ^[0-9]+$ ]] || die "the exit table has no numeric operator-question code"

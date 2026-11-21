@@ -6,8 +6,9 @@
 # the questions/.lock, the no-clobber publish, and the option-tag registry.
 #
 # Sourced only. Sourcing prints nothing and sets no shell option. Every
-# function returns a status and never exits. Requires paths.sh and io.sh;
-# question_action_perform also needs config.sh (issue_dir_for).
+# function returns a status and never exits. Requires paths.sh, io.sh and
+# checklist.sh (stuck_header_value); question_action_perform also needs
+# config.sh (issue_dir_for).
 #
 # Question file (spec §5.3): CR stripped; the only `## ` headings are
 # `## Question`, `## Impediment`, `## Options`, `## Evidence`, each once, in that
@@ -20,6 +21,10 @@ QUESTION_OPTION_RE='^- `([a-z0-9][a-z0-9-]{0,31})`( \(recommended\))?( \[([a-z][
 # The answer line, read back only after the `## How to answer` heading.
 QUESTION_ANSWER_RE='^/devagent:answer [^ ]+ [^ ]+ ([0-9]{2,4}) ([a-z0-9][a-z0-9-]{0,31})$'
 QUESTION_SECTIONS=(Question Impediment Options Evidence)
+# The checklist log wording the hold writes and the readers match: park.sh's
+# entry prefix (an ERE) and the hold's proof that its line was appended.
+QUESTION_PARK_ENTRY_RE='^- [0-9-]+ [0-9:]+  park: issue parked'
+QUESTION_HOLD_LOGGED='hold line written for question'
 
 # ---- parsing --------------------------------------------------------------
 
@@ -74,11 +79,9 @@ _question_check() {
   local h i line id tag val rc
   _QV_ERR="" _QV_REC="" _QV_IDS=()
   declare -A seen_h=() seen_id=()
-  for h in "${_QL_ORDER[@]}"; do
-    case "$h" in Question|Impediment|Options|Evidence) ;; *) _QV_ERR=heading; return 2 ;; esac
-  done
   (( _QL_PRE == 0 )) || { _QV_ERR=heading; return 2; }
   for h in "${_QL_ORDER[@]}"; do
+    case "$h" in Question|Impediment|Options|Evidence) ;; *) _QV_ERR=heading; return 2 ;; esac
     [[ -z "${seen_h[$h]-}" ]] || { _QV_ERR=heading; return 2; }
     seen_h[$h]=1
   done
@@ -139,18 +142,6 @@ _question_print_body() {
   done
 }
 
-# _question_header_value <file> <key>: the first `<key>:` value in the header
-# (lines before the first blank line), CR and surrounding blanks stripped.
-_question_header_value() {
-  awk -v key="$2:" '
-    { sub(/\r$/, "") }
-    /^[ \t]*$/ { exit }
-    index($0, key) == 1 {
-      v = substr($0, length(key) + 1); gsub(/^[ \t]+|[ \t]+$/, "", v)
-      print v; exit
-    }' "$1" 2>/dev/null
-}
-
 # ---- the public readers -----------------------------------------------------
 
 # question_validate <file>: 0, or 2 with the refusal id on stdout.
@@ -192,22 +183,21 @@ question_body() {
   _question_print_body
 }
 
-question_reason() { _question_header_value "$1" Reason; }
-
-# question_step <file>: the step NAME of the `Step:` header (`5 improve` → improve).
-question_step() {
-  local v
-  v="$(_question_header_value "$1" Step)"
-  [[ -n "$v" ]] || return 1
-  printf '%s\n' "${v##* }"
-}
+question_reason() { stuck_header_value "$1" Reason; }
 
 # question_step_row <file>: the `Step:` header as written (`5 improve`).
 question_step_row() {
   local v
-  v="$(_question_header_value "$1" Step)"
+  v="$(stuck_header_value "$1" Step)"
   [[ -n "$v" ]] || return 1
   printf '%s\n' "$v"
+}
+
+# question_step <file>: the step NAME of the `Step:` header (`5 improve` → improve).
+question_step() {
+  local v
+  v="$(question_step_row "$1")" || return 1
+  printf '%s\n' "${v##* }"
 }
 
 # question_answer_line <file>: the answer line, read only after the
@@ -251,7 +241,7 @@ question_open_record() {
     name="${f##*/}"
     nn="${name%%-*}"
     [[ "$nn" =~ ^[0-9]{2,4}$ && "$name" == "$nn-$step.md" ]] || continue
-    [[ "$(_question_header_value "$f" Blocking)" == no ]] && continue
+    [[ "$(stuck_header_value "$f" Blocking)" == no ]] && continue
     question_answered "$f" && continue
     if (( 10#$nn > bestn )); then bestn=$((10#$nn)); best="$f"; fi
   done
@@ -280,8 +270,8 @@ question_next_number() {
       [[ "$nn" =~ ^[0-9]{2,4}$ ]] || continue
       (( 10#$nn > top )) && top=$((10#$nn))
     done < <(sed -nE \
-      -e 's/^- .*: hold line written for question ([0-9]{2,4})\r?$/\1/p' \
-      -e 's/^- .*park: issue parked.*: operator question ([0-9]{2,4}): .*$/\1/p' \
+      -e "s/^- .*: $QUESTION_HOLD_LOGGED ([0-9]{2,4})\\r?\$/\\1/p" \
+      -e "s/${QUESTION_PARK_ENTRY_RE}.*: operator question ([0-9]{2,4}): .*\$/\\1/p" \
       "$d/checklist.md")
   fi
   (( top < 9999 )) || return 1
@@ -294,7 +284,7 @@ question_line_logged() {
   local nn
   [[ "$3" =~ ^[0-9]{2,4}$ ]] || return 1
   nn="$(printf '%02d' "$((10#$3))")"
-  grep -Eq "^- [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}  $2: hold line written for question $nn"$'\r'"?\$" \
+  grep -Eq "^- [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}  $2: $QUESTION_HOLD_LOGGED $nn"$'\r'"?\$" \
     "$1/checklist.md" 2>/dev/null
 }
 
