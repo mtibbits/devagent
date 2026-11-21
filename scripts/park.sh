@@ -78,6 +78,14 @@ quarantine_guard "park" "$project" "$issue"
   # checklist mark but still write a [parked] entry, stranding junk that resume
   # can never satisfy. Dir-existence is now a precondition, not an optional branch.
   [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir (typo in issue id?)"
+  # #962: `operator question <NN>: …` is the hold's own park reason, and the log
+  # entry is read back as that question's number. Only a hold writes it, after
+  # its question STUCK is on disk; anywhere else it would skew or exhaust the
+  # numbers.
+  if [[ "$reason" =~ ^operator\ question\ [0-9] && "$(stuck_kind "$issue_dir")" != question ]]; then
+    echo "park.sh: a reason starting 'operator question <NN>' is reserved for hold.sh" >&2
+    exit 2
+  fi
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
     local cur was name entry="issue parked"

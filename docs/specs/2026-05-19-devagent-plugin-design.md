@@ -820,7 +820,7 @@ issue number. A template that writes `#{{issue}}` produces
 | `[-]` | skipped (deliberately not applicable) |
 | `[!]` | stuck (needs human; STUCK file exists) |
 | `[~]` | in-progress (started, not finished) |
-| `[?]` | blocked-on-external (waiting on CI, reviewer, upstream) |
+| `[?]` | blocked-on-external (waiting on CI, reviewer, upstream), or held on an operator question when a `Kind: question` STUCK exists (#962) |
 | `[P]` | parked (deliberately set aside for another issue) |
 
 `where` and `next` treat states as follows:
@@ -2169,6 +2169,23 @@ or gets no answer (refused, timed out, dismissed) records nothing and falls
 back to the hold with `--no-ask`. `/devagent:next` then exits
 `operator-question` until the answer is recorded (#964). The session-side rules
 are `skills/next/references/operator-questions.md`.
+
+**The helper's contract.** Callers branch on `hold.sh`'s exit, so it is fixed
+here:
+
+    hold.sh <project> <issue> --step <step-name> --reason <one line> --question-file <path>
+    hold.sh <project> <issue> --step <step-name> --no-ask [--reason <one line> --question-file <path>]
+
+- `0`: held. The STUCK is in place and its path is on stdout. A re-entry that
+  completed an earlier hold also exits 0.
+- `3`: ask. The open record's path is on stdout; nothing else was written.
+- `2`: refused (`hold.sh: refused (<id>): <rule>` on stderr); nothing written.
+- Anything else stops the step: `1` for a lock timeout, a failed write or an
+  unappended `hold` line, a trust or quarantine code, or park's code after a
+  refused park (a park exit of 2 or 3 is reported as 1).
+
+An option that performs an action records `questions/.performed-<NN>-<tag>`
+once it has run, so a repeated answer never performs it twice.
 
 ## 8. Permission gates
 

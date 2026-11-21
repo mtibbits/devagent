@@ -21,7 +21,26 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   grep -qE '^- [0-9-]+ [0-9:]+  park: issue parked .*: waiting on legal$' "$CK"
   grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
-  ! grep -rq 'waiting on legal' "$DA_HOME/state"
+  run ! grep -rq 'waiting on legal' "$DA_HOME/state"
+}
+
+@test "park: a reason starting operator question is refused with exit 2 unless a question STUCK exists" {
+  local before
+  before="$(_snap)"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/park.sh" toy Issue-7 --reason "operator question 9999: x"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"reserved for hold.sh"* ]]
+  [ "$(_snap)" = "$before" ]
+}
+
+@test "hold: a reason that quotes another question's number does not move the numbering" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  DEVAGENT_UNATTENDED=1 run --separate-stderr "$PLUGIN_ROOT/scripts/hold.sh" toy Issue-7 --step improve \
+    --reason "see notes: operator question 9998: y" --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$(question_number_of "$D/STUCK")" = 01 ]
+  _lib
+  [ "$(question_next_number "$D")" = 02 ]
 }
 
 @test "park: with a question STUCK no row is marked P" {
@@ -82,7 +101,7 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/park.sh" toy Issue-7
   [ "$status" -eq 0 ]
   [ "$(grep -cE '^- [0-9-]+ [0-9:]+  park: issue parked' "$CK")" -eq 2 ]
-  ! grep -qE 'was \[P\]' "$CK"
+  run ! grep -qE 'was \[P\]' "$CK"
 }
 
 # ---- hold.sh entry, validation and the ask (Task 5) ----
@@ -227,11 +246,7 @@ _refused() {
   [ "$status" -eq 3 ]
   [ "$output" = "$D/questions/01-improve.md" ]
   local r="$D/questions/01-improve.md"
-  [ "$(sed -n 1,5p "$r" | cut -c1-13)" = "Kind:        
-Step:        
-Reason:      
-Last good:   
-Created:     " ]
+  [ "$(sed -n 1,5p "$r" | cut -c1-13)" = "$(printf '%-13s\n' Kind: Step: Reason: 'Last good:' Created:)" ]
   [ "$(sed -n 1,4p "$r")" = "Kind:        question
 Step:        5 improve
 Reason:      improve: 14 bugs
@@ -256,7 +271,7 @@ Last good:   4 scope" ]
   [ "$output" = "$D/questions/01-improve.md" ]
   [ "$(find "$D/questions" -type f | wc -l)" -eq 1 ]
   grep -q '^Stop now?$' "$D/questions/01-improve.md"
-  ! grep -q 'Proceed' "$D/questions/01-improve.md"
+  run ! grep -q 'Proceed' "$D/questions/01-improve.md"
 }
 
 @test "ask: DEVAGENT_CHAIN_ACTIVE does not change the mode" {
@@ -305,9 +320,9 @@ Last good:   4 scope" ]
   sed -n 5p "$D/STUCK" | grep -qE '^Created:     [0-9]{4}-[0-9]{2}-[0-9]{2}T'
   [ "$(grep '^## ' "$D/STUCK" | tr '\n' '|')" = "## Question|## Impediment|## Options|## Evidence|## How to answer|" ]
   grep -qE '^- \[\?\]  5\. improve$' "$CK"
-  ! grep -qE '^- \[P\]' "$CK"
+  run ! grep -qE '^- \[P\]' "$CK"
   grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
-  ! grep -qE '^active_issue' "$DA_HOME/state/toy.toml"
+  run ! grep -qE '^active_issue' "$DA_HOME/state/toy.toml"
   [ "$(_lines)" = 1 ]
   [ "$(_field event)" = hold ]
   [ "$(_field question)" = "$(_native "$D/STUCK")" ]
@@ -339,7 +354,7 @@ Last good:   4 scope" ]
   [ "$status" -eq 0 ]
   grep -qE '^- \[~\]  5\. improve$' "$CK"
   grep -qE '^- \[\?\] 12\. commit$' "$CK"
-  ! grep -qE '^- \[P\]' "$CK"
+  run ! grep -qE '^- \[P\]' "$CK"
   [ "$(_field detail)" = "operator question 01 at commit; parked" ]
 }
 
@@ -401,7 +416,7 @@ Last good:   4 scope" ]
   [ -f "$D/STUCK" ]
   grep -qE '^- \[\?\]  5\. improve$' "$CK"
   grep -qE '^Issue-7 *= *true$' "$DA_HOME/state/toy.toml"
-  ! grep -q 'hold line written' "$CK"
+  run ! grep -q 'hold line written' "$CK"
 }
 
 @test "hold: a second question after a hand-removed STUCK gets a new number, parks and writes its line" {
@@ -590,8 +605,17 @@ _noask() { run --separate-stderr "$H" toy Issue-7 --step "${1:-improve}" --no-as
     ( rc=0; "$H" toy Issue-7 --step improve --no-ask >/dev/null 2>"$f.err" || rc=$?; echo "$rc" > "$f" ) &
   done
   wait
-  [ "$(cat "$a")" = 0 ] || { cat "$a.err" >&2; return 1; }
-  [ "$(cat "$b")" = 0 ] || { cat "$b.err" >&2; return 1; }
+  # One run must finish the hold. The other finishes too, or, on a host slow
+  # enough that the hold outlasts the fixed lock wait, exits 1 lock-busy and
+  # writes nothing: either way one line and one park.
+  local rc f2 won=0
+  for f2 in "$a" "$b"; do
+    rc="$(cat "$f2")"
+    if [ "$rc" = 0 ]; then won=1; continue; fi
+    { [ "$rc" = 1 ] && grep -q '^hold: lock busy: ' "$f2.err"; } \
+      || { echo "rc=$rc"; cat "$f2.err"; return 1; } >&2
+  done
+  [ "$won" -eq 1 ]
   [ "$(_lines)" = 1 ]
   [ "$(_parks)" -eq 1 ]
 }

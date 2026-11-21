@@ -49,7 +49,7 @@ _runs() { wc -l < "$COUNTER" | tr -d ' '; }
 # _held_lines: the three hold lines for Issue-7's STUCK.
 _held_lines() {
   local step="$1" num="$2"
-  printf '%s\n' "OPERATOR QUESTION: toy/Issue-7 is held at step $num ($step); nothing was run." \
+  printf '%s\n' "OPERATOR QUESTION: toy/Issue-7 is held at step $num ($step); nothing further is run." \
     "  Question: $D/STUCK" \
     "  Answer:   $(sed -n '/^## How to answer$/,$p' "$D/STUCK" | grep -m1 '^/devagent:answer ')"
 }
@@ -92,7 +92,7 @@ _held_lines() {
         run --separate-stderr "$TREE/scripts/next.sh" toy --auto
       [ "$status" -eq "$OQ" ] || { echo "pin=$pin code=$code rc=$status out=$output err=$stderr" >&2; return 1; }
       [[ "$output" == *"dispatch: toy/Issue-7 — step 12 (commit), script-backed"* ]]
-      [[ "$output" == *"OPERATOR QUESTION: toy/Issue-7 is held at step 12 (commit); nothing was run."* ]]
+      [[ "$output" == *"OPERATOR QUESTION: toy/Issue-7 is held at step 12 (commit); nothing further is run."* ]]
       [[ "$stderr" != *"did not mark itself"* ]]
       [ "$(_runs)" = 1 ]
       [ "$(_lines)" = 1 ]
@@ -111,8 +111,8 @@ _held_lines() {
   grep -qxF "ASK: $rec" <<<"$output"
   grep -qxF "  After the reply is recorded, continue: /devagent:next toy --auto" <<<"$output"
   grep -qxF "  No answer in the session: hold.sh toy Issue-7 --step commit --no-ask" <<<"$output"
-  ! grep -q 'bash ' <<<"$output"
-  ! grep -q '/scripts/' <<<"$output"
+  [[ "$output" != *"bash "* ]]
+  [[ "$output" != */scripts/* ]]
   [[ "$stderr" != *"did not mark itself"* ]]
   [ ! -e "$D/STUCK" ]
   # the printed fallback, run as the skill line runs it, holds.
@@ -175,7 +175,7 @@ _held_lines() {
   [ "$status" -eq "$OQ" ]
   [[ "$stderr" == *"next.sh: WARNING: hold not completed (hold.sh exit 1)"* ]]
   [ "$output" = "$(_held_lines improve 5)" ]
-  ! grep -q 'hold line written' "$CK"
+  run ! grep -q 'hold line written' "$CK"
   rmdir "$(NF)"
   DEVAGENT_ACTIVE_PROJECT=toy DEVAGENT_ACTIVE_ISSUE=Issue-7 run --separate-stderr "$NEXT" toy
   [ "$status" -eq "$OQ" ]

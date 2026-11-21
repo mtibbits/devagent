@@ -25,6 +25,12 @@ QUESTION_SECTIONS=(Question Impediment Options Evidence)
 # entry prefix (an ERE) and the hold's proof that its line was appended.
 QUESTION_PARK_ENTRY_RE='^- [0-9-]+ [0-9:]+  park: issue parked'
 QUESTION_HOLD_LOGGED='hold line written for question'
+# A hold's park entry, up to its number: anchored where park.sh writes it (the
+# optional row note, then the hold's `operator question`), so a free-text
+# reason further along the line is never read as a number. Group 2 is the NN.
+QUESTION_PARK_Q_RE="${QUESTION_PARK_ENTRY_RE}"'( \(row [0-9]+ [^ ]+ was \[.\]\))?: operator question'
+# A step's hold-line entry, anchored at the log's `<step>: ` field.
+QUESTION_HOLD_ENTRY_RE="^- [0-9-]+ [0-9:]+  [^ :]+: $QUESTION_HOLD_LOGGED"
 
 # ---- parsing --------------------------------------------------------------
 
@@ -273,8 +279,8 @@ question_next_number() {
       [[ "$nn" =~ ^[0-9]{2,4}$ ]] || continue
       (( 10#$nn > top )) && top=$((10#$nn))
     done < <(sed -nE \
-      -e "s/^- .*: $QUESTION_HOLD_LOGGED ([0-9]{2,4})\\r?\$/\\1/p" \
-      -e "s/${QUESTION_PARK_ENTRY_RE}.*: operator question ([0-9]{2,4}): .*\$/\\1/p" \
+      -e "s/${QUESTION_HOLD_ENTRY_RE} ([0-9]{2,4})\\r?\$/\\1/p" \
+      -e "s/${QUESTION_PARK_Q_RE} ([0-9]{2,4}): .*\$/\\2/p" \
       "$d/checklist.md")
   fi
   (( top < 9999 )) || return 1
@@ -353,11 +359,15 @@ declare -gA _QA_CHECK _QA_PERFORM
 declare -ga _QA_TAGS
 
 # question_action_register <tag> <check-fn> <perform-fn>: 1 on a bad tag, a
-# duplicate tag or an undefined function.
+# tag registered with other functions, or an undefined function. The same
+# registration again (a re-source) is 0 and changes nothing.
 question_action_register() {
   local tag="$1" check="$2" perform="$3"
   [[ "$tag" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || return 1
-  [[ -z "${_QA_CHECK[$tag]+set}" ]] || return 1
+  if [[ -n "${_QA_CHECK[$tag]+set}" ]]; then
+    [[ "${_QA_CHECK[$tag]}" == "$check" && "${_QA_PERFORM[$tag]}" == "$perform" ]]
+    return
+  fi
   declare -F "$check" > /dev/null && declare -F "$perform" > /dev/null || return 1
   _QA_CHECK[$tag]="$check"
   _QA_PERFORM[$tag]="$perform"

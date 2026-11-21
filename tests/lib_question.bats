@@ -246,7 +246,10 @@ Other options: b' ]
   [ "$status" -eq 1 ]
   [ "$(wc -l < "$PROBE_LOG")" -eq 2 ]
   [ ! -e "$D/questions/.lock" ]
-  run question_action_register probe _probe_check _probe_perform;  [ "$status" -eq 1 ]
+  # A re-source re-registers the same functions (0, listed once); the tag with
+  # other functions is a duplicate (1).
+  question_action_register probe _probe_check _probe_perform
+  run question_action_register probe _probe_check _probe_check;    [ "$status" -eq 1 ]
   run question_action_register other _probe_check _no_such_fn;     [ "$status" -eq 1 ]
   run question_action_register Bad _probe_check _probe_perform;    [ "$status" -eq 1 ]
   [ "$(question_action_tags)" = probe ]

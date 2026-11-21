@@ -16,7 +16,7 @@ trust_exit_table() {
 | 9 | `host` | host-level refusal: identity, policy or environment | #713 |
 | 10 | `try-later` | a check could not run (`whoami` or `events` could-not-run) | #713 |
 | 11 | `quarantine-refused` | refused on quarantine, every entry point but pull | #714 |
-| 12 | `operator-question` | held on an operator question; nothing was run | #962 |
+| 12 | `operator-question` | held on an operator question; nothing further is run | #962 |
 EOF
 }
 

@@ -206,7 +206,7 @@ _hold() {
   [[ "$(checklist_active_step_state_by_name "$checklist" "$step")" == "?" ]] \
     || checklist_mark_by_name "$checklist" "$step" '?'
   if (( parked )); then
-    if grep -qE "${QUESTION_PARK_ENTRY_RE}.*: operator question $nn: " "$checklist"; then
+    if grep -qE "${QUESTION_PARK_Q_RE} $nn: " "$checklist"; then
       label="parked"
     else
       label="already parked"
@@ -271,7 +271,12 @@ tmp="$(mktemp "$issue_dir/questions/.tmp.XXXXXX")"
 _render_to "$tmp" "$qfile" "$nn" || { rm -f "$tmp"; exit 1; }
 
 if (( hold_mode )); then
-  question_publish "$tmp" "$issue_dir/STUCK" || _refuse one-stop
+  if ! question_publish "$tmp" "$issue_dir/STUCK"; then
+    # A STUCK that appeared is another stop; none at all is a failed write.
+    [[ -e "$issue_dir/STUCK" || -L "$issue_dir/STUCK" ]] && _refuse one-stop
+    echo "hold.sh: could not write $issue_dir/STUCK" >&2
+    exit 1
+  fi
   _hold "$nn" "$reason" "$record"
 fi
 

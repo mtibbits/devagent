@@ -150,7 +150,7 @@ question_stop() {
         [[ -z "$err" ]] || printf '%s\n' "$err" >&2
       fi
     fi
-    echo "OPERATOR QUESTION: $project/$active is held at step ${row%% *} ($qstep); nothing was run."
+    echo "OPERATOR QUESTION: $project/$active is held at step ${row%% *} ($qstep); nothing further is run."
     echo "  Question: $stuck"
     echo "  Answer:   $(question_answer_line "$stuck" || true)"
     exit "$code"

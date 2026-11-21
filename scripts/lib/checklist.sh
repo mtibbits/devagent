@@ -649,8 +649,9 @@ stuck_kind() {
   return 0
 }
 
-# stuck_header_value <file> <key> — #962: the ONE reader of a STUCK-shaped
-# header (a STUCK or a question record): the first non-empty `<key>:` value in
+# stuck_header_value <file> <key> — #962: the shared reader of a STUCK-shaped
+# header (a STUCK or a question record; status.sh, preship-verified-head.sh,
+# reap.sh and portfolio.py still read theirs by hand): the first non-empty `<key>:` value in
 # the lines before the first blank line or `## ` heading, CR and surrounding
 # blanks stripped. Prints nothing when there is none or the file is unreadable.
 stuck_header_value() {
