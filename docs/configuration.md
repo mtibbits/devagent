@@ -495,7 +495,12 @@ issue when its title or description carries a closing-keyword reference
 (`Closes #N`, `Fixes owner/repo#N`), whatever its target branch; a
 `Related: #N` mention does not. GitHub costs one GraphQL call per 50 open
 leaves, GitLab one call per open leaf. A backend without it exits 78 (or
-2, unknown verb), and `wbs update` then shows no MR state. See spec §9.2.
+2, unknown verb), and `wbs update` then shows no MR state. Each `mr` line
+may end with an optional `<url> <base>` pair (both or neither; `-` for an
+unknown value), which `/devagent:milestones` reads with the line's
+timestamps; a backend that builds its lines with `scripts/lib/mr-link.py
+emit` must give every normalised MR record both `url` and `base` keys (a
+missing key exits 5). See spec §9.2.
 
 `mr-checks` is what `/devagent:next` reads after ship to print one `CI …:`
 line (`CI PASSED`, `CI PENDING`, `CI FAILED`, `CI NONE`, `CI UNKNOWN`),

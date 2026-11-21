@@ -3539,7 +3539,8 @@ host's `issue-mrs` (§9.2), and the issues' `checklist.md` logs.
 **Grammar and exits.** `--issue <id>` and `--issue=<id>`; the id is one
 token of `[A-Za-z0-9_.-]` led by a letter or digit (the `wbs exclude` rule),
 checked before any path is built. Exit `2` (with `milestones: <why>` and
-the usage line on stderr, before any backend call): an unknown `--` flag,
+the usage line on stderr, before any backend call): an unknown flag
+(`-x` or `--x`),
 an empty `--issue`, a bad token, `--issue` with `--all`, a second
 positional; also `--issue` naming no configured source (by `dir_prefix`,
 `parse_leaf`) and no `<devdoc>/<id>/checklist.md` (no backend call). Exit
@@ -3604,6 +3605,12 @@ carry trailing prose), the run prints
 `milestones: WARNING: <issue-dir>/checklist.md: revision starts logged {…} but ## Revision headings {…}`
 on stderr and still emits the rows.
 
+Two checklist dirs that name one issue (on Jira, `Issue-12` and
+`Issue-PROJ-12`) are not merged: the first in sort order is read, and each
+other prints
+`milestones: WARNING: <dir>/checklist.md: names the same issue as <first>/checklist.md; not read`
+on stderr.
+
 **`tz: assumed`.** Log lines carry no zone; each takes the offset of the
 checklist's first `Created:` line verbatim (`tz: assumed`), or none
 (`tz: unknown`, read as UTC). An assumed time can be wrong two ways: a line
@@ -3617,6 +3624,10 @@ calendar days, `-` when an end is absent: `opened->merged` (to the earliest
 `step_done`); `parked` sums each `parked` → next `resumed` pair in days
 (`%.1fd`), ignoring a `resumed` with no open park and a `parked` while one
 is open, and appends `+open` for a trailing park; with none it is `0.0d`.
+A span is not clamped and can be negative (a checklist written after the
+issue closed, an MR merged before the issue was opened), and
+`opened->merged` takes the earliest merge into any base branch; the rows'
+`base` column says which.
 
 **Output.** Text: `milestones: <project> scope: <default|all|issue>`, one
 `missing: <source>: <detail>` line per missing source, one

@@ -26,9 +26,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/milestones.sh" $ARGUMENTS
 
 For `--issue`, print stdout verbatim. A default or `--all` report is large
 (devagent's default scope gave about 8,000 checklist rows, 750 KB, at #734's
-review): do not page its rows into the conversation. Print the header line,
-any `missing:` lines and the `spans:` block, say where the full output was
-saved (the Bash tool reports the file it keeps a large output in), and offer
+review): run it with stdout redirected to a new temporary file
+(`>"$(mktemp)"`, or a file in your scratch directory), and do not page its
+rows into the conversation. From that file print the header line, any
+`missing:` lines and the `spans:` block, name the file's path, and offer
 `--issue <issue-id>` for one issue's rows. Exit `0`: the report printed; any
 `milestones: WARNING:` line on stderr names a source that failed, whose rows
 are missing (relay it). Exit `2`: a usage error, or `--issue` names no
@@ -106,7 +107,10 @@ The spans line holds whole UTC calendar days from `opened` to the first
 `mr_merged`, from `opened` to `closed` and from the first `step_done` to
 `closed` (`-` when either end is absent), and the time spent parked (each
 `parked` to the next `resumed`, in days with one decimal; `+open` when the
-issue is still parked). With no rows at all, the text form is the header, any
+issue is still parked). A span is not clamped, so it can be negative (a
+checklist written after the issue closed), and `opened->merged` counts the
+earliest merge into any base branch (the rows' `base` column says which).
+With no rows at all, the text form is the header, any
 `missing:` lines and `(no rows)`:
 
 ```
