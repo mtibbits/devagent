@@ -90,7 +90,9 @@ quarantine_guard "park" "$project" "$issue"
         name="$(checklist_step_name "$checklist" "$cur" 2>/dev/null || true)"
         checklist_mark "$checklist" "$cur" "P"
         # #962: the earlier mark is recorded so hold.sh can return the row to it.
-        [[ -z "$was" || -z "$name" ]] || entry+=" (row $cur $name was [$was])"
+        # A re-park's `[P]` is not one: the first park's entry stays the last
+        # that names the row.
+        [[ -z "$was" || -z "$name" || "$was" == P ]] || entry+=" (row $cur $name was [$was])"
       fi
     fi
     [[ -z "$reason" ]] || entry+=": $reason"

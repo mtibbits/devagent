@@ -10,6 +10,13 @@ format, the STUCK it becomes and the exit table are in the spec (§5.3, §7.3,
 A step that needs a decision writes a question file (`## Question`,
 `## Impediment`, `## Options`, `## Evidence`; one option `(recommended)`) and
 runs `bash "${CLAUDE_PLUGIN_ROOT}/scripts/hold.sh" <project> <issue> --step <step> --reason "<one line>" --question-file <path>`.
+Each `## Options` line has the form ``- `<id>` [(recommended)] <text>``: a
+backticked id of lowercase letters, digits and hyphens, for example
+
+    - `a` (recommended) Run round 4.
+    - `b` Stop and prune.
+
+Any other non-blank line there is refused `option`.
 The unattended marker (`DEVAGENT_UNATTENDED`, set only by a launcher) picks
 the mode; `DEVAGENT_CHAIN_ACTIVE` does not.
 
@@ -19,8 +26,8 @@ the mode; `DEVAGENT_CHAIN_ACTIVE` does not.
   and record the reply. The answer command that records it
   (`/devagent:answer`) arrives with #964.
 - **Unattended** (marker set): hold.sh holds — the question STUCK, the step's
-  row `[?]`, the issue parked, one `hold` line in the notifications file — and
-  exits 0. Nothing is asked.
+  row `[?]`, the issue parked, one `hold` line in the notifications file —
+  prints the STUCK's path and exits 0. Nothing is asked.
 
 A script-backed step's ask reaches the session through next.sh, which prints:
 
@@ -59,7 +66,8 @@ line.
 ## After a hold, stop
 
 `/devagent:next` exiting `operator-question`, or a step's `hold.sh` exiting 0,
-means the issue is held. Relay the question path (the STUCK) and stop: never
+means the issue is held. Relay the question path (the STUCK, which both print;
+an `ASK:` record path is gone once the hold has taken it over) and stop: never
 follow a `CHAIN:` line, and do not unstick, resume or re-run the step. The
 issue stays held until the answer is recorded (#964).
 
@@ -76,7 +84,7 @@ an answered question, another step's question) refuses a new hold with exit 2.
 
 ## A stuck lock
 
-hold.sh serialises on `<issue-dir>/questions/.lock` and waits up to 10 s. On
+hold.sh serialises on `<issue-dir>/questions/.lock` and waits about 10 s. On
 `hold: lock busy: <path> (remove it if no devagent command is running)`, check
 that no devagent command is running for the issue, then remove the file. The
 lock is never broken automatically.

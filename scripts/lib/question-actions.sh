@@ -44,6 +44,9 @@ _question_load() {
     line="${line//$'\r'/}"
     if [[ "$line" == "## "* ]]; then
       cur="${line#"## "}"
+      # A bare `## ` is still a heading, and never a valid one: it must not
+      # become an empty array subscript.
+      [[ -n "$cur" ]] || cur="(empty)"
       _QL_ORDER+=("$cur")
       _QL_RAW[$cur]="${_QL_RAW[$cur]-}"
       continue
@@ -299,7 +302,8 @@ question_lock() {
   local lock="$1/questions/.lock" wait="${2:-10}" me="$BASHPID" start="$SECONDS"
   while :; do
     # Made on every try: a holder that finishes removes an empty questions/.
-    mkdir -p "$1/questions" 2>/dev/null || return 1
+    mkdir -p "$1/questions" 2>/dev/null \
+      || { printf 'hold: cannot create %s\n' "$1/questions" >&2; return 1; }
     if ( set -C; printf '%s\n' "$me" > "$lock" ) 2>/dev/null; then
       _QUESTION_LOCK="$lock" _QUESTION_LOCK_PID="$me"
       return 0

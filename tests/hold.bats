@@ -78,6 +78,11 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   grep -qE '^- \[P\]  5\. improve$' "$CK"
   grep -qE '^- [0-9-]+ [0-9:]+  park: issue parked \(row 5 improve was \[~\]\)$' "$CK"
+  # A re-park records no `was [P]`: the first entry keeps the earlier mark.
+  run "$PLUGIN_ROOT/scripts/park.sh" toy Issue-7
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^- [0-9-]+ [0-9:]+  park: issue parked' "$CK")" -eq 2 ]
+  ! grep -qE 'was \[P\]' "$CK"
 }
 
 # ---- hold.sh entry, validation and the ask (Task 5) ----
@@ -124,7 +129,7 @@ _refused() {
   _q "$BATS_TEST_TMPDIR/q.md"
   local before id m n=0
   before="$(_snap)"
-  for id in ./Issue-7 Issue-8/../Issue-7 ..; do
+  for id in ./Issue-7 Issue-8/../Issue-7 .. Issue-7.1; do
     for m in "" 1; do
       DEVAGENT_UNATTENDED="$m" run --separate-stderr "$H" toy "$id" --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
       _refused usage || { echo "id=$id marker=$m" >&2; return 1; }
@@ -132,7 +137,7 @@ _refused() {
       n=$((n + 1))
     done
   done
-  [ "$n" -eq 6 ]
+  [ "$n" -eq 8 ]
 }
 
 @test "hold: an empty, multi-line or 201-byte reason exits 2 and writes nothing" {
@@ -292,6 +297,7 @@ _hold() {
 @test "hold: an unpinned hold writes the question STUCK, marks [?], parks and appends one hold line" {
   _hold
   [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$output" = "$D/STUCK" ]
   [ "$(sed -n 1,4p "$D/STUCK")" = "Kind:        question
 Step:        5 improve
 Reason:      improve: 14 bugs
@@ -445,6 +451,7 @@ _noask() { run --separate-stderr "$H" toy Issue-7 --step "${1:-improve}" --no-as
   question_body "$REC" > "$BATS_TEST_TMPDIR/rec-body"
   _noask
   [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$output" = "$D/STUCK" ]
   question_body "$D/STUCK" > "$BATS_TEST_TMPDIR/stuck-body"
   cmp "$BATS_TEST_TMPDIR/rec-body" "$BATS_TEST_TMPDIR/stuck-body"
   [ "$(question_reason "$D/STUCK")" = "improve: 14 bugs" ]

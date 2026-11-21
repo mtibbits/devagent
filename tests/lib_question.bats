@@ -141,6 +141,7 @@ Other options: b' ]
   sed '/^improve found/d' "$q" > "$f";                         _case section
   { cat "$q"; printf '\n## Answer\n\na\n'; } > "$f";           _case heading
   { printf 'preface\n'; cat "$q"; } > "$f";                    _case heading
+  { cat "$q"; printf '\n## \n\nx\n'; } > "$f";                 _case heading
   sed '/^- `/d' "$q" > "$f";                                   _case option
   sed 's/^- `b` Stop/- b Stop/' "$q" > "$f";                   _case option
   sed 's/^- `b`/- `B`/' "$q" > "$f";                           _case option
@@ -156,7 +157,7 @@ Other options: b' ]
   sed 's/^- `b`/- `b` [nosuchtag: x] /' "$q" > "$f";                       _case option
   sed 's/^- `b`/- `b` [nosuchtag:x]/' "$q" > "$f";                         _case option
   sed 's/^- `b`/- `b` [NoSuch: x]/' "$q" > "$f";                           _case option
-  [ "$n" -eq 21 ]
+  [ "$n" -eq 22 ]
   sed 's/^- `b`/- `b` [probe: ok]/' "$q" > "$f"
   run question_validate "$f"
   [ "$status" -eq 0 ]

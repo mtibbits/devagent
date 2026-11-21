@@ -7,7 +7,8 @@
 # Interactive (no unattended marker, no --no-ask): writes the open record
 # questions/<NN>-<step>.md, prints its path and exits 3 — the session asks.
 # Unattended or --no-ask: holds — writes the question STUCK, marks the step
-# `[?]`, parks the issue and appends one `hold` line to the notifications file.
+# `[?]`, parks the issue, appends one `hold` line to the notifications file and
+# prints the STUCK's path.
 # Spec §5.3, §7.3; the format lives in scripts/lib/question-actions.sh.
 #
 # Exits: 0 held (also a completed re-entry); 3 ask; 2 refused
@@ -50,7 +51,7 @@ declare -A HOLD_RULE=(
   [question-file]='the question file cannot be read'
   [heading]='the only ## headings are Question, Impediment, Options and Evidence, once each, in that order, with nothing before the first'
   [section]='each of the four sections must be present and hold a non-blank line'
-  [option]='every non-blank ## Options line must be an option line, and there must be one'
+  [option]='every non-blank ## Options line must be an option line (- `<id>` [(recommended)] <text>), and there must be one'
   [option-id]='option ids must be unique'
   [recommended]='exactly one option must be (recommended)'
   [tag]='an option tag must be registered'
@@ -128,8 +129,10 @@ done
 project="${_pos[0]}" issue="${_pos[1]}"
 [[ -n "$project" && -n "$issue" && -n "$step" ]] || _refuse usage
 # The tracker id shape (the notifications file's issue rule): no path, so the
-# id the quarantine guard checks is the directory written to.
-[[ "$issue" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || _refuse usage
+# id the quarantine guard checks is the directory written to. No dot either:
+# the state layer refuses one (a dot nests a TOML table), so the park would
+# record a parked entry state_list_parked never lists.
+[[ "$issue" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] && _state_issue_id_ok "$issue" || _refuse usage
 # --reason and --question-file come together; neither is legal only with --no-ask.
 have_r=0 have_q=0
 [[ -z "$reason" ]] || have_r=1
@@ -167,7 +170,7 @@ if (( no_ask )) || devagent_unattended; then hold_mode=1; fi
 if (( hold_mode )); then
   _nn="$(question_next_number "$issue_dir" 2>/dev/null)" || _nn=01
   _rc=0
-  _out="$(notify_check event=hold "project=$project" "issue=$issue" "step=$step"     "question=$issue_dir/STUCK" "detail=operator question $_nn at $step; parked" 2>&1)" || _rc=$?
+  _out="$(notify_check event=hold "project=$project" "issue=$issue" "step=$step" "question=$issue_dir/STUCK" "detail=operator question $_nn at $step; parked" 2>&1)" || _rc=$?
   (( _rc != 2 )) || _refuse notify
   (( _rc == 0 )) || { printf '%s\n' "$_out" >&2; exit 1; }
 fi
@@ -217,6 +220,9 @@ _hold() {
       "question=$issue_dir/STUCK" "detail=operator question $nn at $step; $label" || append_rc=$?
     (( append_rc != 0 )) || log_append "$issue_dir" "$step" "$QUESTION_HOLD_LOGGED $nn"
   fi
+  # The question's path, whatever the exit: the STUCK is in place, and an open
+  # record the session may still hold has been removed.
+  printf '%s\n' "$issue_dir/STUCK"
   if (( park_rc )); then
     (( park_rc != 2 && park_rc != 3 )) || exit 1
     exit "$park_rc"
@@ -258,7 +264,8 @@ fi
 if [[ -n "$record" ]]; then
   nn="${record##*/}"; nn="${nn%%-*}"
 else
-  nn="$(question_next_number "$issue_dir")" || exit 1
+  nn="$(question_next_number "$issue_dir")" \
+    || { echo "hold.sh: no question number is left (9999 used) in $issue_dir" >&2; exit 1; }
 fi
 tmp="$(mktemp "$issue_dir/questions/.tmp.XXXXXX")"
 _render_to "$tmp" "$qfile" "$nn" || { rm -f "$tmp"; exit 1; }

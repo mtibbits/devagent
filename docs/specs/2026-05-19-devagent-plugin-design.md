@@ -829,8 +829,7 @@ issue number. A template that writes `#{{issue}}` produces
 - `[?]` — current step is waiting on external; `next` offers to park
   the issue and surface other projects' actionable work (since most
   workflow steps depend on prior steps, advancing past `[?]` is
-  rarely meaningful)
-  `[?]` also marks a step waiting on an operator question (#962): with a
+  rarely meaningful). `[?]` also marks a step waiting on an operator question (#962): with a
   `Kind: question` STUCK present, `next` exits `operator-question` (§3.8)
   instead, before it reads the row
 - `[!]` — halt until cleared via `/devagent:unstuck`
@@ -1400,7 +1399,7 @@ for any other issue it only tells the operator.
 not parked and may still be the shared active issue). So a `hold` line can
 describe an issue that is not parked. The hold proves its line by a checklist
 log entry, `<step>: hold line written for question <NN>`; a hold that could not
-append (hold.sh exits 1) logs nothing, and the next `hold.sh … --no-ask` for
+append (hold.sh exits 1, or park's code when the park was refused too) logs nothing, and the next `hold.sh … --no-ask` for
 the step, or a pinned `/devagent:next`, writes it. A crash between the append
 and its log entry can give a second line for the same question, which is its
 own event like any other.
