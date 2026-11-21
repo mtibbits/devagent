@@ -152,10 +152,10 @@ def checklist_rows(path: Path, rel: str, project: str, issue: str) -> tuple[list
 
 # --- tracker and MR rows -------------------------------------------------------
 
-def tracker_rows(rec: dict, source: dict, project: str) -> list[dict]:
+def tracker_rows(rec: dict, leaf: str, project: str) -> list[dict]:
     """`opened` (at = created) and, when closed, `closed` (at = closed,
     reason = the issue-list class) for one issue-list record."""
-    base = {"project": project, "issue": trk.leaf_for(source, rec["id"]), "source": rec["url"]}
+    base = {"project": project, "issue": leaf, "source": rec["url"]}
     rows = [{**base, "event": "opened", "at": rec["created"]}]
     if rec["state"] == "closed":
         rows.append({**base, "event": "closed", "at": rec["closed"], "reason": rec["class"]})
@@ -181,9 +181,10 @@ SRC_RANK = {"ORIGIN": 0, "FORK": 1}
 _TAIL_NUM = re.compile(r"([0-9]+)$")
 
 
-def _key(sources, leaf):
+def _hit(sources, leaf):
+    """(src, rid, key) for a leaf; all None when it names no configured source."""
     hit = trk.parse_leaf(sources, leaf)
-    return (hit[0]["S"], hit[1]) if hit else None
+    return (hit[0], hit[1], (hit[0]["S"], hit[1])) if hit else (None, None, None)
 
 
 def scope_issues(mode: str, sources: list[dict], records: list[tuple[dict, dict]],
@@ -211,25 +212,19 @@ def scope_issues(mode: str, sources: list[dict], records: list[tuple[dict, dict]
 
     for src, rec in records:
         leaf = trk.leaf_for(src, rec["id"])
-        key = _key(sources, leaf) or (src["S"], rec["id"])
+        key = _hit(sources, leaf)[2] or (src["S"], rec["id"])
         e = entity(key, src, key[1], leaf)
         e["record"], e["label"] = rec, leaf
     dirs = sorted(p.parent.name for p in devdoc.glob("*/checklist.md")) if devdoc.is_dir() else []
     for name in dirs:
-        hit = trk.parse_leaf(sources, name)
-        key = (hit[0]["S"], hit[1]) if hit else None
-        e = entity(key, hit[0] if hit else None, hit[1] if hit else None, name)
-        e["dir"] = name
+        src, rid, key = _hit(sources, name)
+        entity(key, src, rid, name)["dir"] = name
 
     if mode == "issue":
-        want = _key(sources, issue)
+        src, rid, want = _hit(sources, issue)
         pick = [e for e in out if e["label"] == issue or e["dir"] == issue
                 or (want is not None and by_key.get(want) is e)]
-        if not pick:
-            hit = trk.parse_leaf(sources, issue)
-            pick = [{"label": issue, "src": hit[0] if hit else None,
-                     "rid": hit[1] if hit else None, "record": None, "dir": None}]
-        out = pick[:1]
+        out = pick[:1] or [entity(want, src, rid, issue)]
     elif mode == "default":
         out = [e for e in out if e["dir"] is not None
                or (e["record"] is not None and e["record"]["state"] == "open")]
@@ -264,7 +259,7 @@ def issue_rows(e: dict, devdoc: Path, project: str, mr_details: dict) -> tuple[l
     rows: list[dict] = []
     warnings: list[str] = []
     if e["record"] is not None:
-        rows += [{**r, "issue": e["label"]} for r in tracker_rows(e["record"], e["src"], project)]
+        rows += tracker_rows(e["record"], e["label"], project)
     if e["src"] is not None and (e["src"]["S"], e["rid"]) in mr_details:
         rows += mr_rows(mr_details[(e["src"]["S"], e["rid"])], e["label"], project)
     if e["dir"] is not None:
@@ -402,13 +397,12 @@ LABELS = {"ORIGIN": ("tracker", "mr"), "FORK": ("fork tracker", "fork mr")}
 def sources_from_env(env) -> list[dict]:
     out = []
     for S in ("ORIGIN", "FORK"):
-        f = {k: env.get(f"MS_TRK_{S}_{k}", "") for k in
-             ("BACKEND", "REPO", "PREFIX", "STATUS", "FILE", "DETAIL")}
-        if not (f["BACKEND"] and f["REPO"] and f["PREFIX"]):
+        f = {k: env.get(f"MS_TRK_{S}_{k}", "") for k in ("REPO", "STATUS", "FILE", "DETAIL")}
+        backend, prefix = env.get(f"MS_TRK_{S}_BACKEND", ""), env.get(f"MS_TRK_{S}_PREFIX", "")
+        if not (backend and f["REPO"] and prefix):
             continue
-        out.append({**f, "S": S, "backend": f["BACKEND"], "prefix": f["PREFIX"],
-                    "keyprefix": (trk.jira_keyprefix(env, f["REPO"])
-                                  if f["BACKEND"] == "jira" else "")})
+        out.append({**f, "S": S, "backend": backend, "prefix": prefix,
+                    "keyprefix": trk.jira_keyprefix(env, f["REPO"]) if backend == "jira" else ""})
     return out
 
 

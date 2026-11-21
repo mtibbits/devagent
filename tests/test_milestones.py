@@ -117,19 +117,13 @@ def test_revision_mismatch_warns():
     assert [r["event"] for r in rows] == ["step_done", "step_done"]
 
 
-def test_no_offset_is_tz_unknown(tmp_path):
+@pytest.mark.parametrize("created", ["Created: 2026-01-01T00:00:00\n", ""],
+                         ids=["no-offset", "no-created-line"])
+def test_tz_unknown(tmp_path, created):
     p = tmp_path / "Issue-1" / "checklist.md"
     p.parent.mkdir()
-    p.write_text("Created: 2026-01-01T00:00:00\n## Revision 1\n- [x]  9. implement\n## Log\n"
+    p.write_text(created + "## Revision 1\n- [x]  9. implement\n## Log\n"
                  "- 2026-01-02 10:00  implement: done\n")
-    rows, _ = _rows(p)
-    assert (rows[0]["at"], rows[0]["tz"]) == ("2026-01-02T10:00", "unknown")
-
-
-def test_no_created_line_is_tz_unknown(tmp_path):
-    p = tmp_path / "Issue-1" / "checklist.md"
-    p.parent.mkdir()
-    p.write_text("## Revision 1\n- [x]  9. implement\n## Log\n- 2026-01-02 10:00  implement: done\n")
     rows, _ = _rows(p)
     assert (rows[0]["at"], rows[0]["tz"]) == ("2026-01-02T10:00", "unknown")
 
@@ -202,12 +196,12 @@ def test_mr_row_without_url_uses_ref():
 
 
 def test_tracker_rows_closed_reason():
-    rows = ms.tracker_rows(_rec("6", "closed", "2026-01-13", "2026-02-08", "done"), _src(), "p")
+    rows = ms.tracker_rows(_rec("6", "closed", "2026-01-13", "2026-02-08", "done"), "Issue-6", "p")
     assert [(r["event"], r["at"], r.get("reason")) for r in rows] == [
         ("opened", "2026-01-13", None), ("closed", "2026-02-08", "done")]
     assert {r["source"] for r in rows} == {"https://github.com/acme/testproj/issues/6"}
     assert {r["issue"] for r in rows} == {"Issue-6"}
-    assert [r["event"] for r in ms.tracker_rows(_rec("7"), _src(), "p")] == ["opened"]
+    assert [r["event"] for r in ms.tracker_rows(_rec("7"), "Issue-7", "p")] == ["opened"]
 
 
 def _labels(issues):
