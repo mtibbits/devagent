@@ -8,6 +8,8 @@
 # the merge step (mergemr.sh), and merge_checks_resolve/merge_method_resolve validate
 # that step's two config keys. Both reads keep each check line's name and state, and
 # ci_required_eval (#1097) judges a project's required checks by them.
+# ci_checks_capable (#1097) says beforehand, without a call, whether the backend can
+# report checks at all (preship-deferred.sh).
 #
 # Every ci_* function is a SETTER-GLOBAL: call it bare, never as $(...) (register
 # Issue-282; ci_gate_resolve's die must exit the caller, Issue-120). Expects
@@ -129,6 +131,16 @@ _ci_call() {
   return 0
 }
 
+# _ci_backend <project>: sets _CI_BACKEND to the project's code backend, CR-stripped
+# (empty when it names none), and _CI_SCRIPT to that backend's script. The one place
+# both are worked out, so the read (_ci_fetch) and the answer given beforehand
+# (ci_checks_capable) are about the same file.
+_ci_backend() {
+  _CI_BACKEND="$(config_get_project_field "$1" code_source.backend 2>/dev/null || true)"
+  _CI_BACKEND="${_CI_BACKEND//$'\r'/}"
+  _CI_SCRIPT="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/$_CI_BACKEND.sh"
+}
+
 # _ci_fetch <project> <url> <verb> <knob> <default>: one bounded read of the code
 # backend's <verb> on <url> (_ci_call). Sets _CI_OUT to its stdout and returns 0; on
 # any failure sets CI_RESULT/CI_LINE (notchecked or unknown) and _CI_REASON (the bare
@@ -136,9 +148,8 @@ _ci_call() {
 _ci_fetch() {
   local project="$1" url="$2" verb="$3" knob="$4" def="$5" backend script last
   _CI_OUT=""; _CI_REASON=""
-  backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
-  backend="${backend//$'\r'/}"
-  script="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/$backend.sh"
+  _ci_backend "$project"
+  backend="$_CI_BACKEND" script="$_CI_SCRIPT"
   # #1016: the local code backend has no CI; it is never asked.
   if code_backend_is_local "$backend"; then
     CI_RESULT=notapplicable; CI_LINE="CI not applicable: local code backend"; _CI_REASON="local code backend"
@@ -172,6 +183,57 @@ _ci_fetch() {
       _ci_unknown "$url" "${last:-$backend $verb exited $_CALL_RC}" ;;
   esac
   return 1
+}
+
+# A `case` arm whose pattern list names mr-checks, alone or between `|`: the
+# backend's verb table, as written.
+_CI_CHECKS_ARM_RE='^[[:space:]]*\(?([^()]*\|[[:space:]]*)?mr-checks([[:space:]]*\|[^()]*)?\)'
+# What a not-implemented arm does: exits 78 itself or through backend-common.sh.
+_CI_NOT_IMPL_RE='(^|[^[:alnum:]_])(exit[[:space:]]+78|bc_die_not_implemented)([^[:alnum:]_]|$)'
+
+# ci_checks_capable <project> (#1097): whether the project's code backend can report a
+# PR's checks, decided WITHOUT calling it: it is asked before ship, by a script that
+# must not make a backend call (preship-deferred.sh is not a trust entry point). The
+# answer is _ci_fetch's own class for an mr-checks read, as far as the backend's
+# script shows it beforehand:
+#   no   the local backend (_ci_fetch never asks it: notapplicable); no backend named;
+#        or a script whose verb table has no arm for mr-checks (it answers exit 2, no
+#        such verb) or whose arm is a not-implemented stub (exit 78). These are the
+#        reads _ci_fetch calls notchecked or notapplicable: mergemr's CI NOT CHECKED stop.
+#   yes  the verb table has an arm for mr-checks that is not such a stub.
+# Sets CI_CAPABLE (yes|no) and CI_CAPABLE_BACKEND (the backend's name, `(none)` when
+# the project names none) and returns 0. Returns 1 with CI_CAPABLE empty and
+# CI_CAPABLE_WHY set when the script is not there to read: a broken install, which
+# _ci_fetch reports as unknown, never as notchecked.
+# The verb table is read as text, never run: a `case` arm naming mr-checks
+# (_CI_CHECKS_ARM_RE) up to its `;;`, a stub when a line of it matches
+# _CI_NOT_IMPL_RE. Comment lines are not read. tests/preship-deferred.bats holds the
+# answer equal to each shipped backend's own exit code for `mr-checks` with no URL.
+# A setter-global: call it bare or in a condition.
+# shellcheck disable=SC2034  # CI_CAPABLE* are the return channel — read by preship-deferred.sh
+ci_checks_capable() {
+  local line arm=0 found=0 stub=0
+  CI_CAPABLE=""; CI_CAPABLE_WHY=""
+  _ci_backend "$1"
+  CI_CAPABLE_BACKEND="${_CI_BACKEND:-(none)}"
+  if code_backend_is_local "$_CI_BACKEND" || [ -z "$_CI_BACKEND" ]; then
+    CI_CAPABLE=no
+    return 0
+  fi
+  if [ ! -x "$_CI_SCRIPT" ] || [ ! -r "$_CI_SCRIPT" ]; then
+    CI_CAPABLE_WHY="$_CI_BACKEND.sh not found or not executable"
+    return 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line//$'\r'/}"
+    [[ ! "$line" =~ ^[[:space:]]*# ]] || continue
+    if [ "$arm" -eq 0 ] && [[ "$line" =~ $_CI_CHECKS_ARM_RE ]]; then arm=1; found=1; fi
+    [ "$arm" -eq 1 ] || continue
+    [[ ! "$line" =~ $_CI_NOT_IMPL_RE ]] || stub=1
+    [[ "$line" != *";;"* ]] || arm=0
+  done <"$_CI_SCRIPT"
+  if [ "$found" -eq 1 ] && [ "$stub" -eq 0 ]; then CI_CAPABLE=yes; else CI_CAPABLE=no; fi
+  return 0
 }
 
 # _ci_view_kind <kind> <field> <field2>: stores one mr-view singleton in its MV_*
