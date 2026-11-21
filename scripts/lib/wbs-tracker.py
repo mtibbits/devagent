@@ -159,7 +159,8 @@ def same_issue(
 
 # Step row `- [<glyph>] <num>. <name>`: _checklist_line_re
 # (scripts/lib/checklist.sh); the full rule is in wbs-update.sh's header.
-ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+[A-Za-z][A-Za-z0-9_-]*")
+# Group 1 is the glyph; `name` is the step name (milestones.py, #734).
+ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+(?P<name>[A-Za-z][A-Za-z0-9_-]*)")
 # A done checklist step row: no work left, done or skipped. It agrees on
 # purpose with wbs-parser.py FINISHED_GLYPHS (WBS node glyphs, another
 # grammar) and portfolio.py DONE_GLYPHS; no import ties them, so

@@ -739,7 +739,7 @@ Partly delivered. A requirement here that is not built yet starts with
   store partitioned by host, so its actuals outlive the transcripts' own
   retention. {refines: SR-19}
 - FR-111: devagent reports agent time and operator time per issue, apart from
-  calendar time, and (planned) records each issue's milestones from
+  calendar time, and records each issue's milestones from
   checklists, the tracker and MRs. {refines: SR-19}
 - FR-112: (Planned.) devagent publishes per-issue actuals as a source the portfolio
   document reads. {refines: SR-19}
