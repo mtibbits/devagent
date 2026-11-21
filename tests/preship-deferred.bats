@@ -303,3 +303,343 @@ _capline() { sed -n 2p <<<"$output"; }
     _pd "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
 }
+
+# ---- static: the criterion's half that can be read before ship ---------------------------
+
+FIX="$BATS_TEST_DIRNAME/fixtures/preship-deferred"
+OK_LINE="deferred to CI at merge: $ZETA"
+
+# _fixture <name>...: the fixture files, committed as tests/<name>; that commit pinned.
+_fixture() {
+    local f
+    mkdir -p "$SOURCE_DIR/tests"
+    for f in "$@"; do cp "$FIX/$f" "$SOURCE_DIR/tests/$f"; done
+    _pin
+}
+# _static <test-file> <test-name> [<check>]
+_static() { _pd "$TEST_PROJECT" Issue-1 static "${3:-$ZETA}" "$1" "$2"; }
+# _deferred: the last run passed: exit 0 and the one line, nothing on stderr.
+_deferred() {
+    [ "$status" -eq 0 ] || { echo "rc $status, stdout: $output, stderr: $stderr"; return 1; }
+    [ "$output" = "$OK_LINE" ] || { echo "stdout: $output"; return 1; }
+    [ -z "$stderr" ] || { echo "stderr: $stderr"; return 1; }
+}
+# _failed <reason>: the last run failed the check: exit 1 and the one line.
+_failed() {
+    [ "$status" -eq 1 ] || { echo "rc $status, stdout: $output, stderr: $stderr"; return 1; }
+    [ "$output" = "static check failed: $1" ] || { printf 'stdout: %s\nwant:   static check failed: %s\n' "$output" "$1"; return 1; }
+    [ -z "$stderr" ] || { echo "stderr: $stderr"; return 1; }
+}
+# _lineno <fixture> <text>: the number of the fixture's line that is <text> once its
+# outer blanks are trimmed, or, with a third argument, that holds <text>. One line must.
+_lineno() {
+    local l t i=0 n=""
+    while IFS= read -r l; do
+        i=$((i + 1))
+        t="${l#"${l%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"
+        if [ -n "${3:-}" ]; then [[ "$l" == *"$2"* ]] || continue; else [ "$t" = "$2" ] || continue; fi
+        n+="${n:+ }$i"
+    done < "$FIX/$1"
+    [[ "$n" =~ ^[0-9]+$ ]] || { echo "_lineno: '$2' is on lines '$n' of $1, not on one" >&2; return 1; }
+    printf '%s\n' "$n"
+}
+# _trips <test-name> <guard line>: the named test of guards.bats fails on that line.
+_trips() {
+    local n
+    n="$(_lineno guards.bats "$2")" || return 1
+    _static tests/guards.bats "$1"
+    _failed "tests/guards.bats:$n: Git Bash skip guard in '$1': $2"
+}
+# _passes <test-name>...: each named test of guards.bats is deferred.
+_passes() {
+    local t
+    for t in "$@"; do
+        _static tests/guards.bats "$t"
+        _deferred || { echo "in '$t'"; return 1; }
+    done
+}
+
+@test "#1097 deferred: tag present, check listed, no skip guard" {
+    _req
+    _base
+    _fixture guards.bats
+    _static tests/guards.bats "pass: or-skip"
+    [ "$status" -eq 0 ]
+    [ "${lines[${#lines[@]}-1]}" = "deferred to CI at merge: Zeta check" ]
+    _deferred
+}
+
+@test "#1097 deferred: the tag line absent fails" {
+    _req
+    _base
+    _put tests/plain.bats '#!/usr/bin/env bats' '@test "a" {' '  true' '}'
+    _pin
+    _static tests/plain.bats a
+    [ "$status" -eq 1 ]
+    _failed "tests/plain.bats carries no gitbash tag line at ${PIN:0:7}"
+    # a tag line the job's selector rejects is no tag line: spaced, indented
+    _put tests/plain.bats '#!/usr/bin/env bats' "${TAG/=/ = }" '@test "a" {' '  true' '}'
+    _pin
+    _static tests/plain.bats a
+    _failed "tests/plain.bats carries no gitbash tag line at ${PIN:0:7}"
+    _put tests/plain.bats '#!/usr/bin/env bats' "  $TAG" '@test "a" {' '  true' '}'
+    _pin
+    _static tests/plain.bats a
+    _failed "tests/plain.bats carries no gitbash tag line at ${PIN:0:7}"
+    _put tests/plain.bats '#!/usr/bin/env bats' "$TAG" '@test "a" {' '  true' '}'    # the survivor
+    _pin
+    _static tests/plain.bats a
+    _deferred
+}
+
+@test "#1097 deferred: the named test guarded by is_git_bash && skip fails naming file and line" {
+    _req
+    _base
+    _fixture guards.bats
+    local n
+    n="$(_lineno guards.bats 'is_git_bash && skip "Git Bash: no POSIX folder modes"')"
+    _static tests/guards.bats "trip: and-skip"
+    [ "$status" -eq 1 ]
+    [ "$output" = "static check failed: tests/guards.bats:$n: Git Bash skip guard in 'trip: and-skip': is_git_bash && skip \"Git Bash: no POSIX folder modes\"" ]
+    [ "$(sed -n "${n}p" "$FIX/guards.bats")" = '  is_git_bash && skip "Git Bash: no POSIX folder modes"' ]
+}
+
+@test "#1097 deferred guard table: must trip" {
+    _req
+    _base
+    _fixture guards.bats
+    _trips "trip: and-skip" 'is_git_bash && skip "Git Bash: no POSIX folder modes"'
+    _trips "trip: not-or-skip" '! is_git_bash || skip "POSIX hosts only"'
+    _trips "trip: one-line case arm" 'case "$(uname -s)" in MINGW*|MSYS*) skip "no read-only directories on Windows" ;; esac'
+    _trips "trip: multi-line case arm" 'skip "no symlinks without Developer Mode"'
+    _trips "trip: skipping helper" 'skip_on_git_bash "chmod 000"'
+}
+
+@test "#1097 deferred guard table: must not trip" {
+    _req
+    _base
+    _fixture guards.bats
+    _passes "pass: or-skip" "pass: not-and-skip" "pass: uname equals MINGW or-skip" "pass: OSTYPE equals msys or-skip" \
+        "pass: if-not then skip" "pass: case with an empty Git Bash arm" "pass: reason names Git Bash" "pass: a comment" \
+        "pass: the next test is guarded"
+    # the survivor of the last row: that next test, named, does trip
+    _trips "trip: the guarded neighbour" 'is_git_bash && skip "the neighbour'"'"'s guard"'
+}
+
+@test "#1097 deferred: documented misses stay misses" {
+    _req
+    _base
+    _fixture guards.bats
+    _passes "miss: multi-line if block" "miss: two-level helper"
+    # the inner helper, called by the test itself, is one level: seen
+    grep -q '^_inner_skipper() {$' "$FIX/guards.bats"
+}
+
+@test "#1097 deferred guard forms: more spellings where skip runs on Git Bash trip" {
+    _req
+    _base
+    _fixture guards.bats
+    _trips "trip2: uname equals MINGW and-skip" '[[ "$(uname -s)" == MINGW* ]] && skip "bracket: skipped on Git Bash"'
+    _trips "trip2: OSTYPE differs or-skip" '[ "$OSTYPE" != "msys" ] || skip "differs-or: skipped on Git Bash"'
+    _trips "trip2: one-line if" 'if is_git_bash; then skip "one-line if: skipped on Git Bash"; fi'
+    _trips "trip2: Linux only" '[ "$(uname -s)" = Linux ] || skip "Linux only, so skipped on Git Bash"'
+    _trips "trip2: a variable that only names MSYS" '[ "$MSYSTEM" = "" ] || skip "MSYSTEM is set on Git Bash"'
+    _trips "trip2: second arm is a Git Bash arm" 'case "$(uname -s)" in MINGW*) ;; MSYS*) skip "the MSYS arm skips" ;; esac'
+    _trips "trip2: fall-through to the default arm" 'case "$(uname -s)" in MINGW*|MSYS*) ;;& *) skip "every host falls through to here" ;; esac'
+    _trips "trip2: a second case statement on the line" 'case x in msys) ;; esac; case "$(uname -s)" in Linux) ;; *) skip "the second case skips off Linux" ;; esac'
+    _trips "trip2: second skip on the line" '[ -n "${HOME:-}" ] || skip "no HOME"; is_git_bash && skip "the second skip on its line"'
+    _trips "trip2: brace group" 'is_git_bash && { skip "inside a brace group"; }'
+    _trips "trip2: lower-case arm on its own line" 'skip "lower-case arm: skipped on Git Bash"'
+    _trips "trip2: one-line helper" '_one_line_skipper'
+    _trips "trip2: function keyword helper" 'keyword_skipper'
+    _trips "trip2: a guard after a trailing comment mark inside quotes" 'local hash="#"; is_git_bash && skip "the # above is quoted, not a comment"'
+}
+
+@test "#1097 deferred guard forms: more spellings where skip runs only off Git Bash do not trip" {
+    _req
+    _base
+    _fixture guards.bats
+    # one body holds them all: a form that tripped would be named by its line
+    [ "$(grep -c 'skip' <(sed -n '/^@test "pass2: every form/,/^}$/p' "$FIX/guards.bats"))" -ge 16 ]
+    _passes "pass2: every form in which skip runs only off Git Bash"
+}
+
+@test "#1097 deferred: a named test file in a subdirectory of tests/, or outside tests/, fails as not selected" {
+    _req
+    _base
+    mkdir -p "$SOURCE_DIR/tests/sub" "$SOURCE_DIR/test"
+    cp "$FIX/guards.bats" "$SOURCE_DIR/tests/sub/guards.bats"
+    cp "$FIX/guards.bats" "$SOURCE_DIR/test/guards.bats"
+    cp "$FIX/guards.bats" "$SOURCE_DIR/guards.bats"
+    cp "$FIX/guards.bats" "$SOURCE_DIR/tests/.guards.bats"
+    cp "$FIX/guards.bats" "$SOURCE_DIR/tests/guards.sh"
+    _fixture guards.bats
+    local f
+    for f in tests/sub/guards.bats test/guards.bats guards.bats tests/.guards.bats tests/guards.sh \
+             ./tests/guards.bats "$SOURCE_DIR/tests/guards.bats"; do
+        _static "$f" "pass: or-skip"
+        _failed "$f is not selected by the job: it must be tests/<name>.bats" || { echo "for $f"; return 1; }
+    done
+    _static tests/guards.bats "pass: or-skip"       # the survivor
+    _deferred
+}
+
+@test "#1097 deferred: a test name given in its displayed (unescaped) form matches" {
+    _req
+    _base
+    _fixture names.bats
+    local t
+    # as bats displays it, and as the source spells it
+    for t in 'disk: C:/x and C:\x exit 1 on Linux' 'disk: C:/x and C:\\x exit 1 on Linux' \
+             'says "hi" for $1 and `id`' 'says \"hi\" for \$1 and \`id\`' \
+             'single: quoted with a \\ kept as written' 'trailing blanks' 'indented' '--starts with a dash'; do
+        _static tests/names.bats "$t"
+        _deferred || { echo "for $t"; return 1; }
+    done
+    # single quotes escape nothing: one backslash is another name
+    _static tests/names.bats 'single: quoted with a \ kept as written'
+    _failed "no test named 'single: quoted with a \\ kept as written' in tests/names.bats at ${PIN:0:7}"
+    # a one-line test is not read
+    _static tests/names.bats 'one-liner'
+    _failed "no test named 'one-liner' in tests/names.bats at ${PIN:0:7}"
+    # the test after "trailing blanks" is guarded: its body is its own
+    _static tests/names.bats 'after trailing blanks'
+    [ "$status" -eq 1 ]
+}
+
+@test "#1097 deferred: a name that two tests carry fails as named twice" {
+    _req
+    _base
+    _fixture names.bats
+    _static tests/names.bats dup
+    _failed "test 'dup' in tests/names.bats at ${PIN:0:7} is named twice"
+    # one test displays it, the other spells it
+    _static tests/names.bats 'shown twice: a\b'
+    _failed "test 'shown twice: a\\b' in tests/names.bats at ${PIN:0:7} is named twice"
+}
+
+@test "#1097 deferred: a check outside the list, a missing file and an unknown test each fail" {
+    _req
+    _base
+    mkdir -p "$SOURCE_DIR/tests/dir.bats"
+    cp "$FIX/names.bats" "$SOURCE_DIR/tests/dir.bats/names.bats"
+    _fixture guards.bats
+    _static tests/guards.bats "pass: or-skip" "Eta check"
+    _failed "'Eta check' is not in [project.$TEST_PROJECT] required_checks"
+    _static tests/guards.bats "pass: or-skip" "zeta check"                # byte for byte
+    _failed "'zeta check' is not in [project.$TEST_PROJECT] required_checks"
+    _static tests/absent.bats "pass: or-skip"
+    _failed "tests/absent.bats does not exist at ${PIN:0:7}"
+    _static tests/dir.bats "pass: or-skip"                                # a directory is not a file
+    _failed "tests/dir.bats does not exist at ${PIN:0:7}"
+    _static tests/guards.bats "no such test"
+    _failed "no test named 'no such test' in tests/guards.bats at ${PIN:0:7}"
+    _static tests/guards.bats "pass: or-skip"                             # the survivor
+    _deferred
+}
+
+@test "#1097 deferred: a project with no required checks defers nothing; no pin exits 2" {
+    _base
+    _fixture guards.bats
+    _static tests/guards.bats "pass: or-skip"
+    _failed "'$ZETA' is not in [project.$TEST_PROJECT] required_checks"
+    _req
+    devagent_state_set "$ST" preship_pin_head ""
+    _static tests/guards.bats "pass: or-skip"
+    _cnr "preship-deferred: no pinned head is recorded for Issue-1 (preship_pin_head)"
+}
+
+@test "#1097 deferred: reads the pinned commit, not the working tree" {
+    _req
+    _base
+    _put tests/t.bats '#!/usr/bin/env bats' "$TAG" '@test "t" {' '  true' '}'
+    _pin
+    local clean="$PIN"
+    # HEAD and the working tree gain a guard after the pin: the pin has none
+    _put tests/t.bats '#!/usr/bin/env bats' "$TAG" '@test "t" {' '  is_git_bash && skip "added later"' '  true' '}'
+    _commit later
+    _put tests/t.bats '#!/usr/bin/env bats' '@test "other" {' '  true' '}'       # uncommitted: no tag, no such test
+    _static tests/t.bats t
+    _deferred
+    # the pin moves to the guarded commit; the working tree loses the file
+    devagent_state_set "$ST" preship_pin_head "$AT"
+    rm -f "$SOURCE_DIR/tests/t.bats"
+    _static tests/t.bats t
+    _failed "tests/t.bats:4: Git Bash skip guard in 't': is_git_bash && skip \"added later\""
+    [ "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$AT" ]
+    [ "$AT" != "$clean" ]
+}
+
+@test "#1097 deferred: a CRLF test file reads the same" {
+    _req
+    _base
+    mkdir -p "$SOURCE_DIR/tests"
+    git -C "$SOURCE_DIR" config core.autocrlf false     # the CRs reach the blob on every host
+    sed 's/$/\r/' "$FIX/guards.bats" > "$SOURCE_DIR/tests/guards.bats"
+    sed 's/$/\r/' "$FIX/names.bats" > "$SOURCE_DIR/tests/names.bats"
+    _pin
+    [[ "$(git -C "$SOURCE_DIR" ls-files --eol tests/guards.bats)" == i/crlf* ]]   # the blob itself is CRLF
+    _passes "pass: the next test is guarded" "pass2: every form in which skip runs only off Git Bash"
+    _trips "trip: multi-line case arm" 'skip "no symlinks without Developer Mode"'
+    _trips "trip: skipping helper" 'skip_on_git_bash "chmod 000"'
+    _static tests/names.bats 'disk: C:/x and C:\x exit 1 on Linux'
+    _deferred
+}
+
+@test "#1097 deferred: the guard's text is cut to 120 characters, never inside one" {
+    _req
+    _base
+    _fixture names.bats
+    local n ten="0123456789" nine="abcdefghi" want i
+    want='is_git_bash && skip "'
+    for i in 1 2 3 4 5 6 7 8; do want+="$ten "; done
+    want+="$ten"                                    # 119 bytes; byte 120 would be half of the next character
+    n="$(_lineno names.bats "${ten}ééé and the rest" holds)"
+    _static tests/names.bats "long reason, cut inside a character"
+    # 119 bytes where the C locale counts bytes; 120 characters where it counts characters
+    _failed "tests/names.bats:$n: Git Bash skip guard in 'long reason, cut inside a character': $want" \
+        || _failed "tests/names.bats:$n: Git Bash skip guard in 'long reason, cut inside a character': ${want}é"
+    want='is_git_bash && skip "'
+    for i in 1 2 3 4 5 6 7 8 9; do want+="$nine "; done
+    want+="ABCDEFGHI"
+    [ "${#want}" -eq 120 ]
+    n="$(_lineno names.bats "ABCDEFGHIJ and the rest" holds)"
+    _static tests/names.bats "long reason, cut between characters"
+    _failed "tests/names.bats:$n: Git Bash skip guard in 'long reason, cut between characters': $want"
+}
+
+# _gitshim <subcommand> <rc> [<argv text>]: DEVAGENT_GIT logs every call (its
+# GIT_NO_LAZY_FETCH, GIT_ALLOW_PROTOCOL and argv) to $GITLOG, exits <rc> when the first
+# word that is not an option is <subcommand> (and argv holds <argv text>, when given),
+# else runs git.
+_gitshim() {
+    GITLOG="$DEVAGENT_TMP/git.log"; : > "$GITLOG"
+    local real; real="$(command -v git)"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        "printf 'NLF=%s GAP=%s %s\n' \"\${GIT_NO_LAZY_FETCH-unset}\" \"\${GIT_ALLOW_PROTOCOL-unset}\" \"\$*\" >> '$GITLOG'" \
+        'a=("$@"); i=0' \
+        'while [ "$i" -lt "${#a[@]}" ]; do case "${a[$i]}" in -C) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; *) break ;; esac; done' \
+        "if [ \"\${a[\$i]-}\" = '$1' ]; then case \"\$*\" in *'${3-}'*) exit $2 ;; esac; fi" \
+        "exec '$real' \"\$@\"" > "$DEVAGENT_TMP/gitshim"
+    chmod +x "$DEVAGENT_TMP/gitshim"
+    export DEVAGENT_GIT="$DEVAGENT_TMP/gitshim"
+}
+
+@test "#1097 deferred: a file that cannot be read at the pin exits 2, never as a file that is not there; no read can fetch" {
+    _req
+    _base
+    _fixture guards.bats
+    _gitshim cat-file 128 "cat-file blob"
+    _static tests/guards.bats "pass: or-skip"
+    _cnr "preship-deferred: tests/guards.bats at ${PIN:0:7} cannot be read in $SOURCE_DIR (git cat-file exited 128)"
+    _gitshim ls-tree 128
+    _static tests/guards.bats "pass: or-skip"
+    _cnr "preship-deferred: tests/guards.bats at ${PIN:0:7} cannot be read in $SOURCE_DIR (git ls-tree exited 128)"
+    _gitshim no-such-subcommand 1                   # the survivor: every call passes through
+    _static tests/guards.bats "pass: or-skip"
+    _deferred
+    grep -q ' ls-tree ' "$GITLOG"
+    grep -q ' cat-file blob ' "$GITLOG"
+    run grep -v '^NLF=1 GAP=none ' "$GITLOG"        # every git call of the run is one that cannot fetch
+    [ "$status" -eq 1 ] || { echo "calls that could fetch: $output"; return 1; }
+}
