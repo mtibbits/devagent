@@ -66,7 +66,7 @@ _config() {
 # _rec <id> <open|closed> <created> [closed]: one issue-list record.
 _rec() {
   local closed=null cls=open
-  [ "$2" = closed ] && closed="\"$4\"" cls=done
+  [ "$2" = closed ] && closed="\"$4\"" cls="done"
   printf '{"id":"%s","title":"t","body":"","state":"%s","class":"%s","created":"%s","closed":%s,"milestone":null,"labels":[],"type":null,"parent":null,"blocked_by":[],"url":"https://github.com/acme/testproj/issues/%s"}\n' \
     "$1" "$2" "$cls" "$3" "$closed" "$1"
 }
@@ -98,7 +98,8 @@ _rows() {
 }
 
 # _path_without <cmd>...: PATH minus the shim dir and any dir holding <cmd>
-# (a copy of tests/wbs-mr.bats:118).
+# (a copy of tests/wbs-mr.bats:118; kept whole, though this file passes no <cmd>).
+# shellcheck disable=SC2120
 _path_without() {
   local IFS=: d c out="" skip
   for d in $PATH; do
@@ -158,7 +159,7 @@ _gl_real() {
     $'mr_opened\t2026-06-10T04:11:31Z\thttps://github.com/acme/testproj/pull/21' \
     $'mr_merged\t2026-06-10T04:27:27Z\thttps://github.com/acme/testproj/pull/21' \
     $'mr_opened\t2026-06-11T09:00:00Z\thttps://github.com/acme/testproj/pull/22')" ]
-  [ "$(_rows 'select(.event == "closed") | .reason')" = done ]
+  [ "$(_rows 'select(.event == "closed") | .reason')" = "done" ]
   [ "$(_rows 'select(.event == "mr_merged") | .base')" = chore/shellcheck-scripts-review-followups ]
   [ "$(cat "$TMPROOT/gql/count")" -eq 1 ]
   [ "$stderr" = "" ]
