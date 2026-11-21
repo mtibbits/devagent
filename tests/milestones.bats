@@ -260,13 +260,14 @@ _gl_real() {
 
 @test "usage errors exit 2 before any backend call" {
   local leg
-  for leg in 'issue-empty' 'issue-eq-empty' 'issue-path' 'issue-and-all' 'bogus' 'two-positionals' 'issue-last'; do
+  for leg in 'issue-empty' 'issue-eq-empty' 'issue-path' 'issue-and-all' 'bogus' 'bogus-short' 'two-positionals' 'issue-last'; do
     case "$leg" in
       issue-empty)     _ms testproj --issue ""; want="milestones: --issue needs an issue id" ;;
       issue-eq-empty)  _ms testproj --issue=; want="milestones: --issue needs an issue id" ;;
       issue-path)      _ms testproj --issue ../x/Issue-5; want="milestones: --issue '../x/Issue-5' is not one issue-id token" ;;
       issue-and-all)   _ms testproj --issue Issue-1 --all; want="milestones: --issue and --all cannot be combined" ;;
       bogus)           _ms testproj --bogus; want="milestones: unknown flag '--bogus'" ;;
+      bogus-short)     _ms -x; want="milestones: unknown flag '-x'" ;;
       two-positionals) _ms a b; want="milestones: unexpected argument 'b'" ;;
       issue-last)      _ms testproj --issue; want="milestones: --issue needs an issue id" ;;
     esac

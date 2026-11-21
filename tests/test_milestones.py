@@ -255,6 +255,17 @@ def test_mr_keys_eligibility(tmp_path):
                                             ("ORIGIN", "acme/testproj", "40")]
 
 
+def test_second_dir_for_one_issue_warns_not_read(tmp_path):
+    jira = _src(backend="jira", repo="PROJ", keyprefix="PROJ")
+    _checklist(tmp_path, "Issue-12", ("- 2026-01-15 10:00  implement: done",))
+    _checklist(tmp_path, "Issue-PROJ-12", ("- 2026-01-16 10:00  implement: done",))
+    (e,) = ms.scope_issues("default", [jira], [], tmp_path)
+    rows, warnings = ms.issue_rows(e, tmp_path, "p", {})
+    assert [r["source"] for r in rows] == ["Issue-12/checklist.md:5"]
+    assert warnings == ["Issue-PROJ-12/checklist.md: names the same issue as "
+                        "Issue-12/checklist.md; not read"]
+
+
 def test_jira_dir_and_record_are_one_issue(tmp_path):
     jira = _src(backend="jira", repo="PROJ", keyprefix="PROJ")
     rec = _rec("PROJ-12", "closed", created="2026-01-10", closed="2026-01-25")

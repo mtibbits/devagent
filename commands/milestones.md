@@ -24,7 +24,12 @@ GitHub GraphQL batches at #734's draft), and a pre-empted run prints nothing.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/milestones.sh" $ARGUMENTS
 ```
 
-Print stdout verbatim. Exit `0`: the report printed; any
+For `--issue`, print stdout verbatim. A default or `--all` report is large
+(devagent's default scope gave about 8,000 checklist rows, 750 KB, at #734's
+review): do not page its rows into the conversation. Print the header line,
+any `missing:` lines and the `spans:` block, say where the full output was
+saved (the Bash tool reports the file it keeps a large output in), and offer
+`--issue <issue-id>` for one issue's rows. Exit `0`: the report printed; any
 `milestones: WARNING:` line on stderr names a source that failed, whose rows
 are missing (relay it). Exit `2`: a usage error, or `--issue` names no
 configured source and no checklist dir; print stderr and stop. Exits `6`–`11`:

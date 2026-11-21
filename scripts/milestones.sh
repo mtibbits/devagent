@@ -79,7 +79,7 @@ while (( $# > 0 )); do
       json=1
       shift
       ;;
-    --*)
+    -?*)
       usage_error "unknown flag '$1'"
       ;;
     *)

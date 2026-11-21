@@ -218,7 +218,11 @@ def scope_issues(mode: str, sources: list[dict], records: list[tuple[dict, dict]
     dirs = sorted(p.parent.name for p in devdoc.glob("*/checklist.md")) if devdoc.is_dir() else []
     for name in dirs:
         src, rid, key = _hit(sources, name)
-        entity(key, src, rid, name)["dir"] = name
+        e = entity(key, src, rid, name)
+        if e["dir"] is None:
+            e["dir"] = name
+        else:
+            e.setdefault("unread_dirs", []).append(name)
 
     if mode == "issue":
         src, rid, want = _hit(sources, issue)
@@ -266,6 +270,8 @@ def issue_rows(e: dict, devdoc: Path, project: str, mr_details: dict) -> tuple[l
         crow, warnings = checklist_rows(devdoc / e["dir"] / "checklist.md",
                                         f"{e['dir']}/checklist.md", project, e["label"])
         rows += crow
+    warnings += [f"{d}/checklist.md: names the same issue as {e['dir']}/checklist.md; not read"
+                 for d in e.get("unread_dirs", [])]
     return sort_rows(rows), warnings
 
 
