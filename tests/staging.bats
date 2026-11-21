@@ -34,14 +34,26 @@ setup() {
 
 teardown() { teardown_tmp_devagent_home; }
 
+# _bytes_sub <file> <old> <new>: replace every <old> byte string with <new>, in
+# binary mode (Git Bash's sed treats a CR differently from Linux sed).
+_bytes_sub() {
+  python3 -I -c 'import sys
+p, old, new = sys.argv[1], sys.argv[2].encode(), sys.argv[3].encode()
+b = open(p, "rb").read()
+open(p, "wb").write(b.replace(old, new))' "$@"
+}
+
 # _fetch <body-json> [<comments-json>] [<title-json>]: github.sh fetch of
-# acme/widgets#7 into $RAW.
+# acme/widgets#7 into $RAW. A Windows jq.exe writes text mode, every LF as
+# CRLF; the legs pin LF bytes and make CRLF themselves with _crlf, so on Git
+# Bash the CR jq adds is taken back out (a lone CR in a value stays).
 _fetch() {
   GH_STUB_BODY_JSON="$1" GH_STUB_COMMENTS_JSON="${2:-[]}" GH_STUB_TITLE_JSON="${3:-\"Demo issue title\"}" \
     "$PLUGIN_ROOT/scripts/issue/github.sh" fetch acme/widgets 7 > "$RAW"
+  if is_git_bash; then _bytes_sub "$RAW" $'\r\n' $'\n'; fi
 }
 
-_crlf() { sed -i 's/$/\r/' "$1"; }
+_crlf() { _bytes_sub "$1" $'\n' $'\r\n'; }
 
 # _render: the script on $RAW into $OUT; stdout and stderr to files.
 _render() {
