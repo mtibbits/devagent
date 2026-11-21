@@ -433,8 +433,28 @@ _passes() {
     _base
     _fixture guards.bats
     _passes "miss: multi-line if block" "miss: two-level helper"
-    # the inner helper, called by the test itself, is one level: seen
-    grep -q '^_inner_skipper() {$' "$FIX/guards.bats"
+    # the survivor of the second: its inner helper, called by the test itself, is one level
+    _trips "trip: the inner helper called directly" '_inner_skipper "called by the test itself"'
+}
+
+# scripts/preship-deferred.sh lists what the static check does not see (KNOWN MISSES).
+# Each is a test that is skipped on Git Bash and deferred all the same; this holds every
+# one of them as a miss, so that closing one is a change someone makes on purpose.
+@test "#1097 deferred: every miss the script lists is pinned as a miss" {
+    _req
+    _base
+    _fixture misses.bats misses-word.bats
+    local t n=0
+    for t in "miss: a skip in setup" "miss: a helper from another file" "miss: no line names Git Bash" \
+             "miss: a backslash continuation" "miss: an early return" "miss: a helper that returns early" \
+             "miss: a case over several lines, default arm" "miss: a guard after a heredoc that holds a closing brace"; do
+        _static tests/misses.bats "$t"
+        _deferred || { echo "for '$t'"; return 1; }
+        n=$((n + 1))
+    done
+    [ "$n" -eq "$(grep -c '^@test "miss: ' "$FIX/misses.bats")" ]    # the fixture holds no miss this does not ask about
+    _static tests/misses-word.bats "miss: is_git_bash taken at its word"
+    _deferred
 }
 
 @test "#1097 deferred guard forms: more spellings where skip runs on Git Bash trip" {
@@ -446,7 +466,6 @@ _passes() {
     _trips "trip2: one-line if" 'if is_git_bash; then skip "one-line if: skipped on Git Bash"; fi'
     _trips "trip2: Linux only" '[ "$(uname -s)" = Linux ] || skip "Linux only, so skipped on Git Bash"'
     _trips "trip2: a variable that only names MSYS" '[ "$MSYSTEM" = "" ] || skip "MSYSTEM is set on Git Bash"'
-    _trips "trip2: second arm is a Git Bash arm" 'case "$(uname -s)" in MINGW*) ;; MSYS*) skip "the MSYS arm skips" ;; esac'
     _trips "trip2: fall-through to the default arm" 'case "$(uname -s)" in MINGW*|MSYS*) ;;& *) skip "every host falls through to here" ;; esac'
     _trips "trip2: a second case statement on the line" 'case x in msys) ;; esac; case "$(uname -s)" in Linux) ;; *) skip "the second case skips off Linux" ;; esac'
     _trips "trip2: second skip on the line" '[ -n "${HOME:-}" ] || skip "no HOME"; is_git_bash && skip "the second skip on its line"'
@@ -458,12 +477,48 @@ _passes() {
     _trips "trip2: a guard after a trailing comment mark inside quotes" 'local hash="#"; is_git_bash && skip "the # above is quoted, not a comment"'
 }
 
+# The job's host is what a guard is read against: `uname -s` is MINGW64_NT-..., `uname -o`
+# is Msys, OSTYPE is msys. A test for another flavour, or one that can never be true,
+# leaves its skip running there.
+@test "#1097 deferred guard forms: a guard for another flavour, or one that is never true, trips" {
+    _req
+    _base
+    _fixture guards.bats
+    _trips "trip3: uname equals MSYS or-skip" '[[ "$(uname -s)" == MSYS* ]] || skip "MSYS flavour only, and the job'"'"'s host is MINGW"'
+    _trips "trip3: uname equals CYGWIN or-skip" '[[ "$(uname -s)" == CYGWIN* ]] || skip "Cygwin only, so skipped on the job'"'"'s host"'
+    _trips "trip3: OSTYPE equals cygwin or-skip" '[ "$OSTYPE" = cygwin ] || skip "OSTYPE is msys on the job'"'"'s host"'
+    _trips "trip3: MSYSTEM equals MSYS or-skip" '[ "$MSYSTEM" = MSYS ] || skip "MSYSTEM is not a subject the check reads"'
+    _trips "trip3: case with an empty CYGWIN arm" 'case "$(uname -s)" in CYGWIN*) ;; *) skip "the job'"'"'s host takes the default arm" ;; esac'
+    _trips "trip3: single brackets compare, they do not match" '[ "$(uname -s)" = MINGW* ] || skip "never equal, so skipped on every host"'
+    _trips "trip3: the 32-bit MINGW" '[[ "$(uname -s)" == MINGW32* ]] || skip "the job'"'"'s host is MINGW64"'
+    _trips "trip3: one build's exact name" '[[ "$(uname -s)" == MINGW64_NT-10.0-26100 ]] || skip "true on one Windows build only"'
+    _trips "trip3: a quoted pattern is text" '[[ "$(uname -s)" == "MINGW*" ]] || skip "quoted, the star matches nothing"'
+    _trips "trip3: a pattern kept in a variable" '[[ "$(uname -s)" == $WINDOWS_PATTERN ]] && skip "the pattern is not there to read"'
+    _trips "trip3: a case nested in the host's own arm" 'case "$(uname -s)" in MINGW*) case "${MODE:-}" in fast) ;; *) skip "inside the arm the host takes" ;; esac ;; esac'
+    _trips "trip3: not the first command of the host's arm" 'case "$(uname -s)" in MINGW*) echo "here"; skip "after another command, in the host'"'"'s arm" ;; esac'
+    _trips "trip3: uname kept in a variable" '[[ "$UNAME_S" == MINGW* ]] || skip "a variable is not a subject the check reads"'
+}
+
+@test "#1097 deferred guard forms: an open Git Bash arm stays open through a nested case and a fall-through; more helper shapes are read" {
+    _req
+    _base
+    _fixture guards.bats
+    _trips "trip3: a case inside the Git Bash arm" 'skip "after the inner case, still in the Git Bash arm"'
+    _trips "trip3: the Git Bash arm keeps testing" '*) skip "reached after the Git Bash arm" ;;'
+    _trips "trip3: the Git Bash arm keeps testing past another arm" 'skip "reached through the arms after the Git Bash arm"'
+    _trips "trip3: the Git Bash arm falls through" 'skip "fallen into from the Git Bash arm"'
+    _trips "trip3: helper with its brace on the next line" '_next_line_brace_skipper'
+    _trips "trip3: helper defined with an indent" '_indented_skipper'
+    _trips "trip3: helper that skips after an inner block" '_block_then_skipper'
+    _trips "trip3: a guard after an inner block" 'is_git_bash && skip "after the block'"'"'s closing brace"'
+}
+
 @test "#1097 deferred guard forms: more spellings where skip runs only off Git Bash do not trip" {
     _req
     _base
     _fixture guards.bats
     # one body holds them all: a form that tripped would be named by its line
-    [ "$(sed -n '/^@test "pass2: every form/,/^}$/p' "$FIX/guards.bats" | grep -c 'skip')" -ge 18 ]
+    [ "$(sed -n '/^@test "pass2: every form/,/^}$/p' "$FIX/guards.bats" | grep -c 'skip')" -ge 28 ]
     _passes "pass2: every form in which skip runs only off Git Bash"
 }
 
@@ -506,19 +561,24 @@ _passes() {
     _static tests/names.bats 'one-liner'
     _failed "no test named 'one-liner' in tests/names.bats at ${PIN:0:7}"
     # the test after "trailing blanks" is guarded: its body is its own
+    local n
+    n="$(_lineno names.bats 'is_git_bash && skip "the next test'"'"'s guard"')"
     _static tests/names.bats 'after trailing blanks'
-    [ "$status" -eq 1 ]
+    _failed "tests/names.bats:$n: Git Bash skip guard in 'after trailing blanks': is_git_bash && skip \"the next test's guard\""
 }
 
-@test "#1097 deferred: a name that two tests carry fails as named twice" {
+@test "#1097 deferred: a name that more than one test carries fails as named more than once" {
     _req
     _base
     _fixture names.bats
     _static tests/names.bats dup
-    _failed "test 'dup' in tests/names.bats at ${PIN:0:7} is named twice"
+    _failed "test 'dup' in tests/names.bats at ${PIN:0:7} is named more than once"
     # one test displays it, the other spells it
     _static tests/names.bats 'shown twice: a\b'
-    _failed "test 'shown twice: a\\b' in tests/names.bats at ${PIN:0:7} is named twice"
+    _failed "test 'shown twice: a\\b' in tests/names.bats at ${PIN:0:7} is named more than once"
+    # three tests: the same words
+    _static tests/names.bats 'thrice'
+    _failed "test 'thrice' in tests/names.bats at ${PIN:0:7} is named more than once"
 }
 
 @test "#1097 deferred: a check outside the list, a missing file and an unknown test each fail" {
@@ -766,7 +826,7 @@ _tfailed() {
     _tfailed "evidence/$n line 2 is not a Git Bash uname line (MINGW... or MSYS...): MINGW64_NT-10.0"
     _tx "$n" "$UNAME_LINE" "$PIN"                   # the two lines swapped
     _transcript
-    [ "$status" -eq 1 ]
+    _tfailed "evidence/$n line 1 is not a full commit id: $UNAME_LINE"
 }
 
 @test "#1097 transcript: no pin exits 2" {
@@ -801,12 +861,12 @@ _snap() {
     _static tests/guards.bats "pass: or-skip"
     [ "$status" -eq 0 ]
     _static tests/guards.bats "trip: and-skip"      # fails after the file was copied out
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 1 ]; [[ "$output" == "static check failed: tests/guards.bats:"*": Git Bash skip guard in 'trip: and-skip': "* ]]
     _transcript
     [ "$status" -eq 0 ]
     _gitshim cat-file 128 "cat-file blob"           # could not run, after the temporary directory was made
     _static tests/guards.bats "pass: or-skip"
-    [ "$status" -eq 2 ]
+    _cnr "preship-deferred: tests/guards.bats at ${PIN:0:7} cannot be read in $SOURCE_DIR (git cat-file exited 128)"
     after="$(_snap)"
     [ "$after" = "$before" ] || { printf 'before:\n%s\nafter:\n%s\n' "$before" "$after"; return 1; }
     [ -z "$(ls -A "$TMPDIR")" ] || { echo "left in TMPDIR: $(ls -A "$TMPDIR")"; return 1; }

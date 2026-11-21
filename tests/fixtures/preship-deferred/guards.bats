@@ -32,6 +32,24 @@ _windows_only() {
   is_git_bash || skip "helper: Git Bash only"
 }
 
+_next_line_brace_skipper()
+{
+  is_git_bash && skip "helper with its brace on the next line"
+}
+
+_block_then_skipper() {
+  [ -n "${VERBOSE:-}" ] && {
+    echo "verbose"
+  }
+  is_git_bash && skip "helper: after its inner block"
+}
+
+if true; then
+  _indented_skipper() {
+    is_git_bash && skip "helper defined with an indent"
+  }
+fi
+
 # ---- the brief's table: must trip -------------------------------------------------
 
 @test "trip: and-skip" {
@@ -129,6 +147,11 @@ _windows_only() {
   true
 }
 
+@test "trip: the inner helper called directly" {
+  _inner_skipper "called by the test itself"
+  true
+}
+
 # ---- more forms that must trip -----------------------------------------------------
 
 @test "trip2: uname equals MINGW and-skip" {
@@ -153,11 +176,6 @@ _windows_only() {
 
 @test "trip2: a variable that only names MSYS" {
   [ "$MSYSTEM" = "" ] || skip "MSYSTEM is set on Git Bash"
-  true
-}
-
-@test "trip2: second arm is a Git Bash arm" {
-  case "$(uname -s)" in MINGW*) ;; MSYS*) skip "the MSYS arm skips" ;; esac
   true
 }
 
@@ -210,9 +228,147 @@ _windows_only() {
   true
 }
 
+# ---- the job's host is MINGW64 with OSTYPE msys: a test for anything else skips there --
+
+@test "trip3: uname equals MSYS or-skip" {
+  [[ "$(uname -s)" == MSYS* ]] || skip "MSYS flavour only, and the job's host is MINGW"
+  true
+}
+
+@test "trip3: uname equals CYGWIN or-skip" {
+  [[ "$(uname -s)" == CYGWIN* ]] || skip "Cygwin only, so skipped on the job's host"
+  true
+}
+
+@test "trip3: OSTYPE equals cygwin or-skip" {
+  [ "$OSTYPE" = cygwin ] || skip "OSTYPE is msys on the job's host"
+  true
+}
+
+@test "trip3: MSYSTEM equals MSYS or-skip" {
+  [ "$MSYSTEM" = MSYS ] || skip "MSYSTEM is not a subject the check reads"
+  true
+}
+
+@test "trip3: case with an empty CYGWIN arm" {
+  case "$(uname -s)" in CYGWIN*) ;; *) skip "the job's host takes the default arm" ;; esac
+  true
+}
+
+@test "trip3: single brackets compare, they do not match" {
+  [ "$(uname -s)" = MINGW* ] || skip "never equal, so skipped on every host"
+  true
+}
+
+@test "trip3: the 32-bit MINGW" {
+  [[ "$(uname -s)" == MINGW32* ]] || skip "the job's host is MINGW64"
+  true
+}
+
+@test "trip3: one build's exact name" {
+  [[ "$(uname -s)" == MINGW64_NT-10.0-26100 ]] || skip "true on one Windows build only"
+  true
+}
+
+@test "trip3: a quoted pattern is text" {
+  [[ "$(uname -s)" == "MINGW*" ]] || skip "quoted, the star matches nothing"
+  true
+}
+
+@test "trip3: a pattern kept in a variable" {
+  [[ "$(uname -s)" == $WINDOWS_PATTERN ]] && skip "the pattern is not there to read"
+  true
+}
+
+@test "trip3: a case nested in the host's own arm" {
+  case "$(uname -s)" in MINGW*) case "${MODE:-}" in fast) ;; *) skip "inside the arm the host takes" ;; esac ;; esac
+  true
+}
+
+@test "trip3: not the first command of the host's arm" {
+  case "$(uname -s)" in MINGW*) echo "here"; skip "after another command, in the host's arm" ;; esac
+  true
+}
+
+@test "trip3: uname kept in a variable" {
+  [[ "$UNAME_S" == MINGW* ]] || skip "a variable is not a subject the check reads"
+  true
+}
+
+# ---- an open Git Bash arm stays open ------------------------------------------------
+
+@test "trip3: a case inside the Git Bash arm" {
+  case "$(uname -s)" in
+    MINGW*|MSYS*)
+      case "${MODE:-}" in
+        fast) : ;;
+      esac
+      local closer="esac"
+      skip "after the inner case, still in the Git Bash arm"
+      ;;
+  esac
+  true
+}
+
+@test "trip3: the Git Bash arm keeps testing" {
+  case "$(uname -s)" in
+    MINGW*|MSYS*) ;;&
+    *) skip "reached after the Git Bash arm" ;;
+  esac
+  true
+}
+
+@test "trip3: the Git Bash arm keeps testing past another arm" {
+  case "$(uname -s)" in
+    MINGW*|MSYS*) : ;;&
+    Linux) : ;;
+    *)
+      skip "reached through the arms after the Git Bash arm"
+      ;;
+  esac
+  true
+}
+
+@test "trip3: the Git Bash arm falls through" {
+  case "$(uname -s)" in
+    MINGW*|MSYS*) ;&
+    Linux)
+      skip "fallen into from the Git Bash arm"
+      ;;
+  esac
+  true
+}
+
+# ---- more helper shapes --------------------------------------------------------------
+
+@test "trip3: helper with its brace on the next line" {
+  _next_line_brace_skipper
+  true
+}
+
+@test "trip3: helper defined with an indent" {
+  _indented_skipper
+  true
+}
+
+@test "trip3: helper that skips after an inner block" {
+  _block_then_skipper
+  true
+}
+
+@test "trip3: a guard after an inner block" {
+  [ -n "${VERBOSE:-}" ] && {
+    echo "verbose"
+  }
+  is_git_bash && skip "after the block's closing brace"
+  true
+}
+
 # ---- more forms that must not trip: one body, read in one call -------------------
 
 @test "pass2: every form in which skip runs only off Git Bash" {
+  # a subshell that names msys is no case arm: nothing below stands under it
+  ( cd msys-build 2>/dev/null && : )
   # a quoted value
   [ "$OSTYPE" = "msys" ] || skip "quoted value: Git Bash only"
   # differs, and-skip
@@ -245,5 +401,14 @@ _windows_only() {
   if [[ "$(uname -s)" != MINGW* ]]; then skip "if-differs: Git Bash only"; fi
   # another arm after the empty Git Bash arm
   case "$OSTYPE" in msys*) ;; linux*) skip "Linux arm: skipped on Linux only" ;; esac
+  # a skip for a host that is not the job's: Linux, macOS, the MSYS flavour after MINGW's arm
+  [ "$(uname -s)" = Linux ] && skip "skipped on Linux only"
+  case "$(uname -s)" in Darwin) skip "no flock on macOS" ;; esac
+  case "$(uname -s)" in MINGW*) ;; MSYS*) skip "the MSYS flavour only" ;; esac
+  case "$(uname -s)" in MINGW*) ;; *) echo "elsewhere"; skip "not first in its arm, and not the host's arm" ;; esac
+  # uname -o, an unquoted substitution, the value on the left
+  [ "$(uname -o)" = Msys ] || skip "uname -o: Git Bash only"
+  [[ $(uname) == MINGW* ]] || skip "unquoted: Git Bash only"
+  [ msys = "$OSTYPE" ] || skip "value first: Git Bash only"
   true
 }

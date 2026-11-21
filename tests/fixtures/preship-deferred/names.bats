@@ -24,6 +24,18 @@
   true
 }
 
+@test "thrice" {
+  true
+}
+
+@test 'thrice' {
+  true
+}
+
+@test "thrice" {
+  true
+}
+
 @test "shown twice: a\\b" {
   true
 }

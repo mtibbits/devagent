@@ -53,14 +53,15 @@
 #           must be listed by scripts/ci/gitbash-tagged.sh select, the plugin's copy of
 #           the job's selector. A tag line the selector calls malformed is none.
 #       no test named '<test-name>' in <test-file> at <pin7>
-#       test '<test-name>' in <test-file> at <pin7> is named twice     (or `<n> times`)
+#       test '<test-name>' in <test-file> at <pin7> is named more than once
 #           A test is a line `@test "<n>" {` or `@test '<n>' {`, trailing blanks aside.
 #           <test-name> is <n> as the source spells it or, for a double-quoted <n>, as
 #           bats displays it (`C:\\x` in the source is `C:\x`). Its body runs to the
 #           next line that is exactly `}`. A test written on one line is not read.
 #       <test-file>:<line>: Git Bash skip guard in '<test-name>': <the line, at most 120 characters>
-#           A line of the body skips on Git Bash, or calls a function of the file that
-#           does. The predicate and what it does not see are described at its code.
+#           A line of the body skips on the job's host, or calls a function of the
+#           file that does. The predicate, and the misses it is known to have, are
+#           described at its code.
 #     A CR at a line's end is dropped before any of it is read. In a message a control
 #     character of an argument is shown as `?`.
 #   transcript <test-file>: one line. The fallback where no CI check can stand as
@@ -234,48 +235,82 @@ _show() {
 
 # ---- static: the Git Bash skip-guard predicate ---------------------------------------
 #
-# The question for a `skip` is its direction: does it run when the host IS Git Bash? A
-# line is read as code only: quoted text and comments are masked first (_mask). A
+# The question for a `skip` is its direction: does it run on the job's host? That host
+# is Git Bash on the Windows runner, and a guard is read against what its subject holds
+# there (the HOST_* values below): `uname -s` is MINGW64_NT-..., `uname -o` is Msys,
+# OSTYPE is msys. A test for another flavour (MSYS*, CYGWIN*, cygwin) is false there.
+#
+# A line is read as code only: quoted text and comments are masked first (_mask). A
 # `skip` command word (not part of a longer word, followed by a blank, `;` or the end
 # of the line) TRIPS when
 #   - the code before it on its line names Git Bash (GB_TOKEN_RE, any case), unless
-#     that code is one of the forms below, in which skip runs only off Git Bash; or
-#   - it stands under a case arm whose pattern names a Git Bash value (MINGW*|MSYS*)
-#     that an earlier line opened and no `;;` has closed.
-# Not Git Bash, so no trip (the whole code before the skip must be the form):
-#   <is> || skip        <is not> && skip        (also `|| {` and `&& {`)
-#   if <is not>; then skip
-#   case ... <Git Bash arm>) ;; ... <another arm>) skip      (the Git Bash arm empty
-#                         and closed by `;;`; no `;&`, `;;&` or `esac` before the skip)
-# where, with <v> a literal that starts with a Git Bash value (MINGW*, "msys",
-# ^(MINGW|MSYS)), on either side:
-#   <is>      is_git_bash    [ a = <v> ]    [[ a == <v> ]]    [[ a =~ <v> ]]
-#   <is not>  ! <is>         [ a != <v> ]   [[ a != <v> ]]    [ ! a = <v> ]
+#     that whole code is one of the forms below and the skip does not run on the host; or
+#   - it stands under a case arm whose pattern names a Git Bash value (mingw, msys or
+#     cygwin, any case: every flavour, wider than the forms below on purpose) that an
+#     earlier line opened and that is still open. The arm closes at its own `;;` or
+#     its statement's `esac`: a case nested in it does not close it, and once it ends
+#     in `;&` or `;;&` it stays open to the `esac`.
+# The forms, <T> being a test whose truth on the host is known:
+#   <T> || skip          no trip when <T> is true there    (also `|| {`)
+#   <T> && skip          no trip when <T> is false there   (also `&& {`)
+#   if <T>; then skip    no trip when <T> is false there
+#   case <subject> in <patterns>) ... ;; <patterns>) ... skip
+#                        one case statement, still open, none nested in it, no `;&`
+#                        or `;;&`: no trip when the host's value matches an earlier
+#                        arm, or does not match the arm the skip stands in
+# <T> is `is_git_bash` (true), `[ a = b ]`, `[[ a == b ]]`, `[[ a =~ b ]]`, the same
+# with `!=`, and any of them after `!` or with `!` first inside the brackets. One side
+# must be a subject: "$(uname -s)", "$(uname)", "$(uname -o)" or "$OSTYPE", spelled so.
+# The other must be a literal, and the comparison is made as bash makes it: `[ ]`
+# compares strings (so `[ "$(uname -s)" = MINGW* ]` is never true), `[[ ]]` matches an
+# unquoted pattern or regular expression.
 # Everything else that names Git Bash before a skip trips, whichever way it points: a
-# guard this cannot read fails the check rather than pass it. So `[ "$(uname -s)" =
-# Linux ] || skip` trips (it does skip on Git Bash), and so does a compound test.
-# One level of indirection: a call to a column-0 function of the same file (`name() {`
-# or `function name {`) one of whose own lines trips is a trip too.
-# KNOWN MISSES, by design: a guard spread over lines (`if is_git_bash; then` / `skip`)
-# and a helper that calls a helper (tests/preship-deferred.bats pins those two as
-# misses); a helper from another file, a skip in setup(), and a skip whose test does
-# not name Git Bash at all. The job itself fails a file whose every test skips.
+# guard this cannot read fails the check rather than pass it. So a variable that holds
+# uname, "$MSYSTEM", `test`, a compound test and `if ...; then :; else skip` all trip.
+# One level of indirection: a call to a function of the same file one of whose own
+# lines trips is a trip too. A function is `name() {` or `function name {`, at any
+# indent, its brace on that line or alone on the next, its body on the lines up to a
+# `}` at the same indent, or on its one line.
+#
+# That is all that is read: each line of the named test's body by itself, up to the
+# first `}` at column 0; the Git Bash case arm that may stand open over it; and, where
+# a body line names one, the lines of a function this file defines.
+# KNOWN MISSES follow from that. A test with one of these is skipped on Git Bash and
+# deferred all the same; tests/fixtures/preship-deferred/ holds a test for each, pinned
+# as a miss (misses.bats, misses-word.bats, and the two `miss:` tests of guards.bats).
+#   - a guard spread over lines: `if is_git_bash; then` / `skip`; a line continued
+#     with a backslash; an early return (`is_git_bash || return 0`, then `skip`); a
+#     case over several lines whose skipping arm does not name Git Bash;
+#   - a helper that calls a helper, and a helper kept in another file;
+#   - a skip in setup();
+#   - `is_git_bash` taken at its word: it is read as true on the job's host, whatever
+#     the file, or a file it loads, defines it to be;
+#   - a skip on a line that does not name Git Bash and is under no open Git Bash arm
+#     (`[ -n "${WINDIR:-}" ] && skip`, a bare `skip`);
+#   - a line after the first `}` at column 0 inside the test (a heredoc's): the body
+#     is read up to there.
+# The job itself fails a file whose every test skips, and a skip with no reason.
 
 GB_TOKEN_RE='is_git_bash|uname|ostype|mingw|msys|cygwin'    # read against lower case
-GB_VALUE_RE='mingw|msys|cygwin'
-GB_LITERAL_RE='^[*^(]*(mingw|msys|cygwin)'
 WORD_END_RE='[[:alnum:]_-]$'
+WORD_AFTER_RE='^([^[:alnum:]_-]|$)'
 SKIP_AFTER_RE='^([[:space:];]|$)'
-NOT_RE='^![[:space:]]+(.*)$'
-DBR_RE='^\[\[[[:space:]]+(.*)[[:space:]]+\]\]$'
-SBR_RE='^\[[[:space:]]+(.*)[[:space:]]+\]$'
-CMP_RE='^([^[:space:]]+)[[:space:]]+(=|==|=~|!=)[[:space:]]+([^[:space:]]+)$'
 SAFE_OP_RE='^(.*[^[:space:]])[[:space:]]*(\|\||&&)[[:space:]]*\{?$'
 SAFE_IF_RE='^if[[:space:]]+(.*[^[:space:]])[[:space:]]*;[[:space:]]*then$'
-SAFE_CASE_RE='(mingw|msys|cygwin)[^)]*\)[[:space:]]*;;'
-ARM_RE='^[[:space:]]*\(?[^()]*\)$'
+CASE_HEAD_RE='^case[[:space:]]+([^[:space:]]+)[[:space:]]+in[[:space:]]+(.*)$'
+ARM_RE='^([[:space:]]*\(?)([^()]*)\)(.*)$'
 ARM_OPEN_RE='^[[:space:]]*\(?[^()]*(mingw|msys|cygwin)[^()]*\)'
-ESAC_RE='(^|[^[:alnum:]_])esac([^[:alnum:]_]|$)'
+
+# The job's host. Two builds of the one Windows line: a literal that names a build is
+# true on one and not the other, so it is not read.
+HOST_UNAME_S=('MINGW64_NT-10.0-26100' 'MINGW64_NT-10.0-20348')
+HOST_UNAME_O=(Msys)
+HOST_OSTYPE=(msys)
+# shellcheck disable=SC2016  # regular expressions: nothing here is meant to expand
+SUBJ_UNAME_RE='^"?(\$\(|`)[[:space:]]*uname([[:space:]]+-([so]))?[[:space:]]*(\)|`)"?$'
+SUBJ_OSTYPE_RE='^"?\$\{?OSTYPE\}?"?$'
+# shellcheck disable=SC2016
+EXPANSION_RE='\$[A-Za-z_0-9{(@*#?!$-]|`|[\]'
 
 # _mask <line>: sets MASK and MASKW, each <line> character for character up to an
 # unquoted comment, which both drop.
@@ -326,129 +361,328 @@ _skip_words() {
   done
 }
 
-# _gb_literal <word>: rc 0 when <word> (from MASKW) is a literal starting with a Git
-# Bash value. A variable whose name holds one ("$MSYSTEM") is not a literal.
-_gb_literal() {
-  local v="$1"
-  case "$v" in
-    \"*\") v="${v#\"}"; v="${v%\"}" ;;
-    \'*\') v="${v#\'}"; v="${v%\'}" ;;
-  esac
-  v="${v,,}"
-  [[ "$v" =~ $GB_LITERAL_RE ]]
+# _word_count <text> <word>: sets WORDS to how often <word> stands in <text> as a word.
+_word_count() {
+  local t="$1" w="$2" s="$1" off=0 before
+  WORDS=0
+  while [[ "$s" == *"$w"* ]]; do
+    before="${s%%"$w"*}"
+    off=$((off + ${#before}))
+    s="${s:${#before}+${#w}}"
+    if [[ ! "${t:0:off}" =~ $WORD_END_RE ]] && [[ "$s" =~ $WORD_AFTER_RE ]]; then WORDS=$((WORDS + 1)); fi
+    off=$((off + ${#w}))
+  done
 }
 
-# _gb_polarity <test>: <test> is one test command (from MASKW). Sets POL to `is` (true
-# exactly on Git Bash), `isnot` (true exactly off it) or empty (not one this reads).
-_gb_polarity() {
-  local c="$1" neg=0 inner a b
-  POL=""
-  c="${c#"${c%%[![:space:]]*}"}"
-  c="${c%"${c##*[![:space:]]}"}"
-  if [[ "$c" =~ $NOT_RE ]]; then neg=1; c="${BASH_REMATCH[1]}"; fi
-  if [ "$c" != is_git_bash ]; then
-    [[ "$c" =~ $DBR_RE || "$c" =~ $SBR_RE ]] || return 0
-    inner="${BASH_REMATCH[1]}"
-    if [[ "$inner" =~ $NOT_RE ]]; then neg=$((1 - neg)); inner="${BASH_REMATCH[1]}"; fi
-    [[ "$inner" =~ $CMP_RE ]] || return 0
-    a="${BASH_REMATCH[1]}" b="${BASH_REMATCH[3]}"
-    [ "${BASH_REMATCH[2]}" != '!=' ] || neg=$((1 - neg))
-    _gb_literal "$a" || _gb_literal "$b" || return 0
+# _split <maskw> <raw>: sets WM to the blank-separated words of <maskw> and WR to the
+# same spans of <raw>. The two are character for character, and a quoted word of
+# <maskw> holds no blank, so WR has each word as the source spells it.
+_split() {
+  local m="$1" r="$2" n=${#1} i=0 j
+  WM=(); WR=()
+  while ((i < n)); do
+    while ((i < n)) && [[ "${m:i:1}" == [[:space:]] ]]; do i=$((i + 1)); done
+    ((i < n)) || break
+    j=$i
+    while ((j < n)) && [[ "${m:j:1}" != [[:space:]] ]]; do j=$((j + 1)); done
+    WM+=("${m:i:j-i}"); WR+=("${r:i:j-i}")
+    i=$j
+  done
+}
+
+# _host_models <word>: rc 0 when <word>, as the source spells it, is a subject whose
+# value on the job's host is known. MODELS is then those values.
+_host_models() {
+  MODELS=()
+  if [[ "$1" =~ $SUBJ_UNAME_RE ]]; then
+    if [ "${BASH_REMATCH[3]}" = o ]; then MODELS=("${HOST_UNAME_O[@]}"); else MODELS=("${HOST_UNAME_S[@]}"); fi
+  elif [[ "$1" =~ $SUBJ_OSTYPE_RE ]]; then
+    MODELS=("${HOST_OSTYPE[@]}")
+  else
+    return 1
   fi
-  if [ "$neg" -eq 1 ]; then POL=isnot; else POL=is; fi
 }
 
-# _safe_form <code before a skip, from MASKW>: rc 0 when that code is one of the forms
-# in which the skip runs only off Git Bash.
+# _literal <word>: rc 0 when <word>, as the source spells it, is a literal: no
+# expansion, no backslash, quoted as a whole or not at all. LIT is its text; LITQ is 1
+# when it was quoted, so that a pattern character in it is plain text.
+_literal() {
+  local w="$1"
+  LIT=""; LITQ=0
+  [[ ! "$w" =~ $EXPANSION_RE ]] || return 1
+  case "$w" in
+    \"*\"|\'*\') w="${w:1:${#w}-2}"; LITQ=1 ;;
+  esac
+  [[ "$w" != *[\"\']* ]] || return 1
+  LIT="$w"
+}
+
+# _regex_matches <value> <regular expression>: bash's own answer, 2 for an expression
+# it cannot compile.
+_regex_matches() { [[ "$1" =~ $2 ]] 2>/dev/null; }
+
+# _host_truth <[ or [[> <left> <operator> <right>, the words as the source spells them:
+# sets HT to 1 when the comparison is true on the job's host, 0 when it is false there,
+# and leaves it empty when that cannot be told: neither side is a known subject, the
+# other is not a literal, or the answer differs between the host's builds.
+_host_truth() {
+  local kind="$1" a="$2" op="$3" b="$4" rev=0 v t rc first=""
+  HT=""
+  if _host_models "$a" && _literal "$b"; then :
+  elif [ "$op" != '=~' ] && _host_models "$b" && _literal "$a"; then rev=1
+  else return 0
+  fi
+  for v in "${MODELS[@]}"; do
+    t=0
+    case "$kind$op" in
+      '[='|'[=='|'[!=')
+        [ "$v" != "$LIT" ] || t=1 ;;
+      '[[='|'[[=='|'[[!=')
+        if [ "$LITQ" -eq 1 ] || [ "$rev" -eq 1 ]; then
+          [ "$v" != "$LIT" ] || t=1
+        else
+          # shellcheck disable=SC2053  # the literal is the guard's own pattern
+          [[ "$v" != $LIT ]] || t=1
+        fi ;;
+      '[[=~')
+        [ "$LITQ" -eq 0 ] || return 0
+        rc=0
+        _regex_matches "$v" "$LIT" || rc=$?
+        case "$rc" in 0) t=1 ;; 1) ;; *) return 0 ;; esac ;;       # 2: not a regular expression
+      *) return 0 ;;
+    esac
+    [ -n "$first" ] || first="$t"
+    [ "$t" = "$first" ] || return 0
+  done
+  [ "$op" != '!=' ] || first=$((1 - first))
+  HT="$first"
+}
+
+# _gb_polarity <maskw test> <raw test>: one test command, the code and the same span
+# of the source. Sets POL to `is` (true on the job's host), `isnot` (false there) or
+# empty (not a test this reads).
+_gb_polarity() {
+  local neg=0 kind n
+  POL=""
+  _split "$1" "$2"
+  n=${#WM[@]}
+  ((n > 0)) || return 0
+  if [ "${WM[0]}" = '!' ]; then neg=1; WM=("${WM[@]:1}"); WR=("${WR[@]:1}"); n=$((n - 1)); fi
+  if ((n == 1)) && [ "${WM[0]}" = is_git_bash ]; then
+    HT=1
+  else
+    ((n >= 5)) || return 0
+    case "${WM[0]} ${WM[n-1]}" in
+      '[[ ]]') kind='[[' ;;
+      '[ ]')   kind='[' ;;
+      *) return 0 ;;
+    esac
+    WM=("${WM[@]:1:n-2}"); WR=("${WR[@]:1:n-2}"); n=$((n - 2))
+    if [ "${WM[0]}" = '!' ]; then neg=$((1 - neg)); WM=("${WM[@]:1}"); WR=("${WR[@]:1}"); n=$((n - 1)); fi
+    ((n == 3)) || return 0
+    _host_truth "$kind" "${WR[0]}" "${WM[1]}" "${WR[2]}"
+    [ -n "$HT" ] || return 0
+  fi
+  if [ "$neg" -eq 1 ]; then HT=$((1 - HT)); fi
+  if [ "$HT" -eq 1 ]; then POL=is; else POL=isnot; fi
+}
+
+# _plist_matches <value> <pattern list>: rc 0 when <value> matches one of the `|`
+# alternatives of a case arm's pattern list.
+_plist_matches() {
+  local v="$1" rest="$2" alt
+  while :; do
+    alt="${rest%%|*}"
+    alt="${alt#"${alt%%[![:space:]]*}"}"
+    alt="${alt%"${alt##*[![:space:]]}"}"
+    # shellcheck disable=SC2053  # the alternative is the guard's own pattern
+    [[ "$v" != $alt ]] || return 0
+    [[ "$rest" == *"|"* ]] || return 1
+    rest="${rest#*|}"
+  done
+}
+
+# _safe_case <maskw> <raw>: the code before a skip, trimmed, and the same span of the
+# source. rc 0 when it is one case statement, still open, with no `;&` or `;;&` and no
+# case nested in it, over a subject whose value on the job's host is known, and the
+# host does not run the arm the skip stands in: its value matches an earlier arm, or
+# does not match this one.
+_safe_case() {
+  local p="$1" r="$2" tmp lead subj am ar before plist v i last hit
+  local -a sm=() sr=() pl=()
+  [[ "$p" != *';&'* ]] || return 1
+  _word_count "$p" 'case'
+  [ "$WORDS" -eq 1 ] || return 1
+  _word_count "$p" 'esac'
+  [ "$WORDS" -eq 0 ] || return 1
+  [[ "$p" =~ $CASE_HEAD_RE ]] || return 1
+  subj="${BASH_REMATCH[1]}"; am="${BASH_REMATCH[2]}"
+  tmp="${p#case}"; lead="${tmp%%[![:space:]]*}"
+  _host_models "${r:4+${#lead}:${#subj}}" || return 1
+  ar="${r:${#r}-${#am}}"
+  while [[ "$am" == *';;'* ]]; do
+    before="${am%%;;*}"
+    sm+=("$before"); sr+=("${ar:0:${#before}}")
+    am="${am:${#before}+2}"; ar="${ar:${#before}+2}"
+  done
+  sm+=("$am"); sr+=("$ar")
+  last=$(( ${#sm[@]} - 1 ))
+  for i in "${!sm[@]}"; do
+    [[ "${sm[i]}" =~ $ARM_RE ]] || return 1
+    lead="${BASH_REMATCH[1]}"
+    plist="${sr[i]:${#lead}:${#BASH_REMATCH[2]}}"
+    [[ ! "$plist" =~ $EXPANSION_RE ]] || return 1
+    [[ "$plist" != *[\"\']* ]] || return 1
+    pl+=("$plist")
+  done
+  for v in "${MODELS[@]}"; do
+    hit=-1
+    for i in "${!pl[@]}"; do
+      if _plist_matches "$v" "${pl[i]}"; then hit="$i"; break; fi
+    done
+    [ "$hit" -ne "$last" ] || return 1
+  done
+  return 0
+}
+
+# _safe_form <maskw> <raw>: the code before a skip and the same span of the source.
+# rc 0 when that code is one of the forms this reads and the skip does not run on the
+# job's host.
 _safe_form() {
-  local p="$1" lp tail
-  p="${p#"${p%%[![:space:]]*}"}"
-  p="${p%"${p##*[![:space:]]}"}"
+  local p="$1" r="$2" lead trail cond op tmp
+  lead="${p%%[![:space:]]*}"
+  p="${p:${#lead}}"; r="${r:${#lead}}"
+  trail="${p##*[![:space:]]}"
+  p="${p:0:${#p}-${#trail}}"; r="${r:0:${#p}}"
   if [[ "$p" =~ $SAFE_OP_RE ]]; then
-    tail="${BASH_REMATCH[2]}"
-    _gb_polarity "${BASH_REMATCH[1]}"
-    [[ "$tail" == '||' && "$POL" == is ]] || [[ "$tail" == '&&' && "$POL" == isnot ]]
+    cond="${BASH_REMATCH[1]}"; op="${BASH_REMATCH[2]}"
+    _gb_polarity "$cond" "${r:0:${#cond}}"
+    [[ "$op" == '||' && "$POL" == is ]] || [[ "$op" == '&&' && "$POL" == isnot ]]
     return
   fi
   if [[ "$p" =~ $SAFE_IF_RE ]]; then
-    _gb_polarity "${BASH_REMATCH[1]}"
+    cond="${BASH_REMATCH[1]}"
+    tmp="${p#if}"; lead="${tmp%%[![:space:]]*}"
+    _gb_polarity "$cond" "${r:2+${#lead}:${#cond}}"
     [ "$POL" = isnot ]
     return
   fi
-  # one case statement, still open, with no arm that falls through
-  lp="${p,,}"
-  [[ "$lp" == *';&'* || "$lp" =~ $ESAC_RE ]] && return 1
-  [[ "$lp" =~ $SAFE_CASE_RE ]] || return 1
-  tail="${lp##*;;}"
-  [[ "$tail" =~ $ARM_RE ]] && [[ ! "$tail" =~ $GB_VALUE_RE ]]
+  _safe_case "$p" "$r"
 }
 
-# _line_trips <line>: rc 0 when <line> holds a skip that can run on Git Bash. It
-# follows ARM_GB, whether a Git Bash case arm is open, across the lines of one body:
-# the caller sets ARM_GB=0 before the first.
+# _arm_reset: before the first line of a body.
+_arm_reset() { ARM_GB=0; ARM_STICKY=0; ARM_DEPTH=0; CASE_DEPTH=0; }
+
+# _arm_track <MASK> <MASKW>: a line's two masks, lower case. Follows the case
+# statements of a body. ARM_GB is 1 while a case arm whose pattern names a Git Bash
+# value is open. Only its own statement closes it (CASE_DEPTH against ARM_DEPTH), at
+# `;;` or `esac`; after `;&` or `;;&` (ARM_STICKY) the arms that follow can run on Git
+# Bash too, so only `esac` does. Keywords and terminators are read from MASK, where no
+# quoted text can pass for one; a pattern is read from MASKW, which keeps its text.
+_arm_track() {
+  local rest="$1" restw="$2" seg segw term before
+  while :; do
+    before="${rest%%;[;&]*}"
+    if [ "$before" = "$rest" ]; then
+      seg="$rest"; segw="$restw"; term=""; rest=""
+    else
+      seg="$before"; segw="${restw:0:${#before}}"; term="${rest:${#before}:2}"
+      rest="${rest:${#before}+2}"; restw="${restw:${#before}+2}"
+      if [ "$term" = ';;' ] && [ "${rest:0:1}" = '&' ]; then term=';;&'; rest="${rest:1}"; restw="${restw:1}"; fi
+    fi
+    _word_count "$seg" 'case'
+    CASE_DEPTH=$((CASE_DEPTH + WORDS))
+    if [ "$ARM_GB" -eq 0 ] && [ "$CASE_DEPTH" -gt 0 ] && [[ "$segw" =~ $ARM_OPEN_RE ]]; then
+      ARM_GB=1; ARM_STICKY=0; ARM_DEPTH="$CASE_DEPTH"
+    fi
+    _word_count "$seg" 'esac'
+    while ((WORDS > 0)); do
+      if [ "$CASE_DEPTH" -le "$ARM_DEPTH" ]; then ARM_GB=0; ARM_STICKY=0; fi
+      if ((CASE_DEPTH > 0)); then CASE_DEPTH=$((CASE_DEPTH - 1)); fi
+      WORDS=$((WORDS - 1))
+    done
+    case "$term" in
+      '')   break ;;
+      ';;') if [ "$ARM_STICKY" -eq 0 ] && [ "$CASE_DEPTH" -le "$ARM_DEPTH" ]; then ARM_GB=0; fi ;;
+      *)    if [ "$ARM_GB" -eq 1 ] && [ "$CASE_DEPTH" -le "$ARM_DEPTH" ]; then ARM_STICKY=1; fi ;;
+    esac
+  done
+}
+
+# _line_trips <line>: rc 0 when <line> holds a skip that can run on the job's host. It
+# follows the open Git Bash arm across the lines of one body: _arm_reset comes first.
 _line_trips() {
-  local line="$1" at pre lw tail hit=1
-  [[ "$line" == *skip* || "$line" == *")"* || "$line" == *";;"* || "$line" == *esac* ]] || return 1
+  local line="$1" at pre hit=1
+  [[ "$line" == *skip* || "$line" == *")"* || "$line" == *";;"* || "$line" == *";&"* \
+     || "$line" == *case* || "$line" == *esac* ]] || return 1
   _mask "$line"
   if [[ "$MASK" == *skip* ]]; then
     _skip_words "$MASK"
     for at in ${SKIP_AT[@]+"${SKIP_AT[@]}"}; do
       pre="${MASKW:0:at}"
       if [[ "${pre,,}" =~ $GB_TOKEN_RE ]]; then
-        _safe_form "$pre" || { hit=0; break; }
+        _safe_form "$pre" "${line:0:at}" || { hit=0; break; }
       elif [ "$ARM_GB" -eq 1 ]; then
         hit=0; break
       fi
     done
   fi
-  # the arm this line leaves open: its last one, after the last `;;`
-  lw="${MASKW,,}"
-  tail="${lw##*;;}"
-  if [[ "$tail" =~ $ARM_OPEN_RE ]]; then ARM_GB=1
-  elif [[ "$lw" == *";;"* || "$lw" =~ $ESAC_RE ]]; then ARM_GB=0
-  fi
+  _arm_track "${MASK,,}" "${MASKW,,}"
   return "$hit"
 }
 
-# _body_end <first>: sets BODY_END to the index of the next line of LINES, from
-# <first>, that is exactly `}` (trailing blanks aside), or to the line count.
+# _body_end <first> [<indent>]: sets BODY_END to the index of the next line of LINES,
+# from <first>, that is exactly <indent>`}` (trailing blanks aside), or to the line
+# count.
 _body_end() {
-  local j l
+  local j l want="${2:-}"
+  want+="}"
   for ((j = $1; j < ${#LINES[@]}; j++)); do
     l="${LINES[j]}"
-    [ "${l%"${l##*[![:space:]]}"}" != "}" ] || break
+    [ "${l%"${l##*[![:space:]]}"}" != "$want" ] || break
   done
   BODY_END="$j"
 }
 
-FN_RE='^([A-Za-z_][A-Za-z0-9_]*)[[:blank:]]*\(\)[[:blank:]]*\{(.*)$'
-FN_KW_RE='^function[[:blank:]]+([A-Za-z_][A-Za-z0-9_]*)[[:blank:]]*(\(\))?[[:blank:]]*\{(.*)$'
+FN_RE='^([[:blank:]]*)([A-Za-z_][A-Za-z0-9_]*)[[:blank:]]*\(\)[[:blank:]]*(.*)$'
+FN_KW_RE='^([[:blank:]]*)function[[:blank:]]+([A-Za-z_][A-Za-z0-9_]*)[[:blank:]]*(\(\))?[[:blank:]]*(.*)$'
 
-# _helpers: fills SKIPPERS (name -> 1) with the column-0 functions of LINES one of
-# whose own lines trips. A function is `name() {` or `function name {` with its body on
-# the lines up to the next line that is exactly `}`, or on its one line.
+# _helpers: fills SKIPPERS (name -> 1) with the functions of LINES one of whose own
+# lines trips. A function is `name() {` or `function name {` at any indent, the brace
+# on that line or alone on the next, its body on the lines up to a `}` at the same
+# indent, or on its one line.
 _helpers() {
-  local j=0 k l fn rest
+  local j=0 k l indent fn rest
   SKIPPERS=()
   while ((j < ${#LINES[@]})); do
     l="${LINES[j]}"
     j=$((j + 1))
-    [[ "$l" == [A-Za-z_]*"{"* ]] || continue
+    [[ "$l" == *"()"* || "$l" == *function* ]] || continue
     _mask "$l"
-    if [[ "$MASK" =~ $FN_KW_RE ]]; then fn="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[3]}"
-    elif [[ "$MASK" =~ $FN_RE ]]; then fn="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    if [[ "$MASK" =~ $FN_KW_RE ]]; then indent="${BASH_REMATCH[1]}"; fn="${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[4]}"
+    elif [[ "$MASK" =~ $FN_RE ]]; then indent="${BASH_REMATCH[1]}"; fn="${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[3]}"
     else continue
     fi
+    if [[ ! "$rest" =~ [^[:space:]] ]]; then
+      # the brace alone on the next line
+      ((j < ${#LINES[@]})) || continue
+      l="${LINES[j]}"
+      _mask "$l"
+      rest="${MASK#"${MASK%%[![:space:]]*}"}"
+      [[ "$rest" == "{"* ]] || continue
+      j=$((j + 1))
+    fi
+    [[ "$rest" == "{"* ]] || continue
     rest="${rest%"${rest##*[![:space:]]}"}"
     l="${l#*\{}"                                 # what follows the opening brace
-    ARM_GB=0
-    if [[ "$rest" == *"}" ]]; then
+    _arm_reset
+    if [[ "$rest" == "{"*"}" ]]; then
       # written on one line: its body is the text up to the last `}`
       ! _line_trips "${l%\}*}" || SKIPPERS[$fn]=1
       continue
     fi
     ! _line_trips "$l" || SKIPPERS[$fn]=1
-    _body_end "$j"
+    _body_end "$j" "$indent"
     for ((k = j; k < BODY_END; k++)); do
       ! _line_trips "${LINES[k]}" || SKIPPERS[$fn]=1
     done
@@ -547,8 +781,7 @@ if [ "$sub" = static ]; then
   case "${#hits[@]}" in
     0) _fail "no test named '$N' in $F at ${PIN:0:7}" ;;
     1) ;;
-    2) _fail "test '$N' in $F at ${PIN:0:7} is named twice" ;;
-    *) _fail "test '$N' in $F at ${PIN:0:7} is named ${#hits[@]} times" ;;
+    *) _fail "test '$N' in $F at ${PIN:0:7} is named more than once" ;;
   esac
 
   # 4. no line of its body, and no helper it calls, skips on Git Bash
@@ -556,7 +789,7 @@ if [ "$sub" = static ]; then
   _helpers
   first=$((hits[0] + 1))
   _body_end "$first"
-  ARM_GB=0
+  _arm_reset
   for ((i = first; i < BODY_END; i++)); do
     if _line_trips "${LINES[i]}" || _calls_skipper "${LINES[i]}"; then
       _show "${LINES[i]}"
