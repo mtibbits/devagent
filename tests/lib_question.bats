@@ -293,7 +293,9 @@ Other options: b' ]
   ( rc=0; bash -c "$(_libs); question_lock '$D' 5" 2>/dev/null || rc=$?; echo "$rc" > "$rcf" ) &
   sleep 0.5
   question_unlock
-  rmdir "$D/questions"
+  # As hold.sh's EXIT trap: the waiter may take the lock between the unlock and
+  # the rmdir (under load it does), so a non-empty questions/ is not a failure.
+  rmdir "$D/questions" 2>/dev/null || true
   wait
   [ "$(cat "$rcf")" = 0 ]
 }
