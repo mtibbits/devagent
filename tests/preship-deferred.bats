@@ -513,6 +513,39 @@ _passes() {
     _trips "trip3: a guard after an inner block" 'is_git_bash && skip "after the block'"'"'s closing brace"'
 }
 
+# _trips_in <fixture> <test-name> <guard line>: the named test of that fixture fails on
+# that line.
+_trips_in() {
+    local n
+    n="$(_lineno "$1" "$3")" || return 1
+    _static "tests/$1" "$2"
+    _failed "tests/$1:$n: Git Bash skip guard in '$2': $3"
+}
+
+# Every line of the file is read for a definition. A function whose end is not where
+# the check looks for it (a closing brace with a redirection, a command or a comment
+# after it), a function that holds another, a heredoc with half a definition and a
+# test's local stub each once hid the helper defined after them.
+@test "#1097 deferred: a skipping helper is found wherever it is defined" {
+    _req
+    _base
+    _fixture helpers.bats
+    _trips_in helpers.bats "trip: a helper defined after a test's local stub" 'skip_on_git_bash "chmod 000"'
+    _trips_in helpers.bats "trip: a helper defined after a redirected closing brace" '_after_noisy_skipper'
+    _trips_in helpers.bats "trip: a helper defined after three more closing braces" '_after_those_skipper'
+    _trips_in helpers.bats "trip: a helper defined inside a function" '_nested_skipper'
+    _trips_in helpers.bats "trip: a helper defined after a heredoc's half definition" '_after_heredoc_skipper'
+    _trips_in helpers.bats "trip: a helper whose first statement shares the brace's line" '_first_statement_skipper "chmod 000"'
+    _trips_in helpers.bats "trip: a helper whose guard shares the brace's line" '_guard_on_the_brace_line'
+    # a function is read to its own closing brace, whatever follows the brace: the
+    # helpers that do not skip are not taken for ones that do
+    local t
+    for t in "pass: a local stub with a redirected closing brace" "pass: helpers whose closing brace carries more"; do
+        _static tests/helpers.bats "$t"
+        _deferred || { echo "for '$t'"; return 1; }
+    done
+}
+
 @test "#1097 deferred guard forms: more spellings where skip runs only off Git Bash do not trip" {
     _req
     _base

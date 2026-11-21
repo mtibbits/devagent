@@ -269,8 +269,11 @@ _show() {
 # uname, "$MSYSTEM", `test`, a compound test and `if ...; then :; else skip` all trip.
 # One level of indirection: a call to a function of the same file one of whose own
 # lines trips is a trip too. A function is `name() {` or `function name {`, at any
-# indent, its brace on that line or alone on the next, its body on the lines up to a
-# `}` at the same indent, or on its one line.
+# indent, its brace on that line or alone on the next, its body on the lines up to its
+# closing brace at the same indent (alone, or with a redirection, `;`, `|`, `&` or a
+# comment after it), or on its one line. Every line of the file is read for a
+# definition, inside another function's body too; a body whose closing brace is not
+# found is read to the end of the file.
 #
 # That is all that is read: each line of the named test's body by itself, up to the
 # first `}` at column 0; the Git Bash case arm that may stand open over it; and, where
@@ -631,62 +634,83 @@ _line_trips() {
   return "$hit"
 }
 
-# _body_end <first> [<indent>]: sets BODY_END to the index of the next line of LINES,
-# from <first>, that is exactly <indent>`}` (trailing blanks aside), or to the line
-# count.
+# _body_end <first>: sets BODY_END to the index of the next line of LINES, from
+# <first>, that is exactly `}` (trailing blanks aside), or to the line count. A test's
+# body ends there.
 _body_end() {
-  local j l want="${2:-}"
-  want+="}"
+  local j l
   for ((j = $1; j < ${#LINES[@]}; j++)); do
     l="${LINES[j]}"
-    [ "${l%"${l##*[![:space:]]}"}" != "$want" ] || break
+    [ "${l%"${l##*[![:space:]]}"}" != "}" ] || break
   done
   BODY_END="$j"
 }
 
 FN_RE='^([[:blank:]]*)([A-Za-z_][A-Za-z0-9_]*)[[:blank:]]*\(\)[[:blank:]]*(.*)$'
 FN_KW_RE='^([[:blank:]]*)function[[:blank:]]+([A-Za-z_][A-Za-z0-9_]*)[[:blank:]]*(\(\))?[[:blank:]]*(.*)$'
+# What may follow a function's closing brace on its line: nothing, `;`, a redirection,
+# `|`, `&` or `)`. (A comment is gone before this is asked: the line is masked.)
+CLOSER_RE='^\}[[:blank:]]*($|[;><|&)]|[0-9]+[<>])'
+
+# _helper_end <first> <indent>: sets BODY_END to the index of the next line of LINES,
+# from <first>, that closes a function defined at <indent>: <indent>`}`, alone or with
+# what CLOSER_RE allows after it. The line count when there is none: the body is then
+# read to the end of the file, which can only add trips.
+_helper_end() {
+  local j l indent="$2"
+  for ((j = $1; j < ${#LINES[@]}; j++)); do
+    l="${LINES[j]}"
+    [[ "$l" == "$indent}"* ]] || continue
+    _mask "$l"
+    [[ ! "${MASK:${#indent}}" =~ $CLOSER_RE ]] || break
+  done
+  BODY_END="$j"
+}
 
 # _helpers: fills SKIPPERS (name -> 1) with the functions of LINES one of whose own
 # lines trips. A function is `name() {` or `function name {` at any indent, the brace
-# on that line or alone on the next, its body on the lines up to a `}` at the same
-# indent, or on its one line.
+# on that line or alone on the next, its body on the lines up to its closing brace at
+# the same indent (_helper_end), or on its one line: the braces of that line balance
+# and what follows the last one is what may follow a closing brace.
+# EVERY line is read for a definition, the lines of another function's body too: a
+# function defined inside a function is found, and a body whose end is not where
+# _helper_end looks hides no definition after it.
 _helpers() {
-  local j=0 k l indent fn rest
+  local j k line indent fn rest first open close opens closes
   SKIPPERS=()
-  while ((j < ${#LINES[@]})); do
-    l="${LINES[j]}"
-    j=$((j + 1))
-    [[ "$l" == *"()"* || "$l" == *function* ]] || continue
-    _mask "$l"
+  for ((j = 0; j < ${#LINES[@]}; j++)); do
+    line="${LINES[j]}"
+    [[ "$line" == *"()"* || "$line" == *function* ]] || continue
+    _mask "$line"
     if [[ "$MASK" =~ $FN_KW_RE ]]; then indent="${BASH_REMATCH[1]}"; fn="${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[4]}"
     elif [[ "$MASK" =~ $FN_RE ]]; then indent="${BASH_REMATCH[1]}"; fn="${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[3]}"
     else continue
     fi
+    first=$((j + 1))
     if [[ ! "$rest" =~ [^[:space:]] ]]; then
       # the brace alone on the next line
-      ((j < ${#LINES[@]})) || continue
-      l="${LINES[j]}"
-      _mask "$l"
+      ((first < ${#LINES[@]})) || continue
+      line="${LINES[first]}"
+      _mask "$line"
       rest="${MASK#"${MASK%%[![:space:]]*}"}"
-      [[ "$rest" == "{"* ]] || continue
-      j=$((j + 1))
+      first=$((first + 1))
     fi
     [[ "$rest" == "{"* ]] || continue
-    rest="${rest%"${rest##*[![:space:]]}"}"
-    l="${l#*\{}"                                 # what follows the opening brace
+    [ -z "${SKIPPERS[$fn]:-}" ] || continue      # a second definition of a known skipper
     _arm_reset
-    if [[ "$rest" == "{"*"}" ]]; then
-      # written on one line: its body is the text up to the last `}`
-      ! _line_trips "${l%\}*}" || SKIPPERS[$fn]=1
+    open="${MASK%%\{*}"                          # the code up to the opening brace
+    opens="${rest//[^\{]/}"; closes="${rest//[^\}]/}"
+    if [ "${#opens}" -eq "${#closes}" ] && [[ "}${MASK##*\}}" =~ $CLOSER_RE ]]; then
+      # written on one line: its body is the text between that brace and the last `}`
+      close="${MASK%\}*}"
+      ! _line_trips "${line:${#open}+1:${#close}-${#open}-1}" || SKIPPERS[$fn]=1
       continue
     fi
-    ! _line_trips "$l" || SKIPPERS[$fn]=1
-    _body_end "$j" "$indent"
-    for ((k = j; k < BODY_END; k++)); do
-      ! _line_trips "${LINES[k]}" || SKIPPERS[$fn]=1
+    if _line_trips "${line:${#open}+1}"; then SKIPPERS[$fn]=1; continue; fi
+    _helper_end "$first" "$indent"
+    for ((k = first; k < BODY_END; k++)); do
+      if _line_trips "${LINES[k]}"; then SKIPPERS[$fn]=1; break; fi
     done
-    j=$((BODY_END + 1))
   done
 }
 
