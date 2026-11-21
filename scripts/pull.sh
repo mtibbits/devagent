@@ -34,8 +34,52 @@ source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/issue-source.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/staging.sh"
 
 PULL_USAGE="usage: pull.sh <project> <issue-num> [--origin|--fork]"
+
+# _pull_staged <project> <issue_id> <issue_dir> <devdoc> <backend> <repo> <num>
+# — the fetch under a trust policy in scope (#715; spec §9.3; the flow is
+# scripts/lib/staging.sh's). No ticket byte is printed here: the backend's
+# stderr is discarded, and every exit but PASS and QUARANTINE dies with a fixed
+# message and nothing written. `trap staging_discard EXIT` is pull's only EXIT
+# trap. Each status is captured with `|| rc=$?`, so `set -euo pipefail` cannot
+# exit before the fixed message (Issue-589).
+# SETTER-GLOBAL (via staging_render): STAGE_TRAILERS. Call it bare.
+_pull_staged() {
+  local project="$1" issue_id="$2" issue_dir="$3" devdoc="$4" backend="$5" repo="$6" num="$7"
+  local backend_script="$PLUGIN_ROOT/scripts/issue/${backend}.sh" verdict rc
+  [[ -x "$backend_script" ]] || die "backend script not executable: $backend_script"
+  rc=0
+  staging_open "$project" "$issue_id" "$devdoc" || rc=$?
+  [[ "$rc" -eq 0 ]] || die "could not create the staging dir for ${repo}#${num} (exit $rc); nothing was written"
+  trap staging_discard EXIT
+  rc=0
+  "$backend_script" fetch "$repo" "$num" > "$STAGE_RAW" 2>/dev/null || rc=$?
+  [[ "$rc" -eq 0 ]] \
+    || die "${backend}.sh fetch failed for ${repo}#${num} (exit $rc); its stderr is not shown under a trust policy: the operator can re-run '${backend_script} fetch ${repo} ${num} >/dev/null' by hand to see it"
+  rc=0
+  staging_render "$repo" "$num" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    [[ -z "$STAGE_REASON" ]] \
+      || die "the fetched text of ${repo}#${num} is not in the fetch layout (${STAGE_REASON}); nothing was written"
+    die "the fetched text of ${repo}#${num} could not be rendered (exit $rc); nothing was written"
+  fi
+  rc=0
+  verdict="$(quarantine_verdict "$project" "$issue_dir" "$STAGE_MD")" || rc=$?
+  case "$rc:$verdict" in
+    "0:QUARANTINE "*)
+      staging_discard
+      quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "${verdict#QUARANTINE }" ;;
+    0:PASS) ;;
+    *) die "no quarantine verdict for ${repo}#${num} (exit $rc); nothing was written" ;;
+  esac
+  # #719's claim write and verify go here, between the verdict and the promote.
+  rc=0
+  staging_promote "$issue_dir" || rc=$?
+  [[ "$rc" -eq 0 ]] || die "could not write issue.md for ${repo}#${num} (exit $rc); nothing was written"
+}
 
 main() {
   local project="${1:-}"
@@ -93,23 +137,30 @@ main() {
   local issue_dir="${devdoc%/}/${issue_id}"
 trust_entry_check "pull" "$project" "$source"
 quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
-  mkdir -p "$issue_dir"
+  STAGE_TRAILERS=""
+  if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
+    # #715: staged, rendered and checked before anything reads or prints it;
+    # issue.md is written only on PASS (or this exits 6, or dies).
+    _pull_staged "$project" "$issue_id" "$issue_dir" "$devdoc" "$backend" "$repo" "$num"
+  else
+    mkdir -p "$issue_dir"
 
-  # Fetch issue body
-  local backend_script="$PLUGIN_ROOT/scripts/issue/${backend}.sh"
-  [[ -x "$backend_script" ]] || die "backend script not executable: $backend_script"
-  if ! "$backend_script" fetch "$repo" "$num" > "$issue_dir/issue.md.tmp"; then
-    rm -f "$issue_dir/issue.md.tmp"
-    die "${backend}.sh fetch failed for ${repo}#${num}"
-  fi
-  mv "$issue_dir/issue.md.tmp" "$issue_dir/issue.md"
+    # Fetch issue body
+    local backend_script="$PLUGIN_ROOT/scripts/issue/${backend}.sh"
+    [[ -x "$backend_script" ]] || die "backend script not executable: $backend_script"
+    if ! "$backend_script" fetch "$repo" "$num" > "$issue_dir/issue.md.tmp"; then
+      rm -f "$issue_dir/issue.md.tmp"
+      die "${backend}.sh fetch failed for ${repo}#${num}"
+    fi
+    mv "$issue_dir/issue.md.tmp" "$issue_dir/issue.md"
 
-  # #714: the quarantine verdict on the fetched ticket, before anything reads
-  # it. QUARANTINE exits 6 (pre-work: only the marker stays on disk).
-  local verdict
-  verdict="$(quarantine_verdict "$project" "$issue_dir")"
-  if [[ "$verdict" == "QUARANTINE "* ]]; then
-    quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "${verdict#QUARANTINE }"
+    # #714: the quarantine verdict on the fetched ticket, before anything reads
+    # it. Out of scope it is always PASS.
+    local verdict
+    verdict="$(quarantine_verdict "$project" "$issue_dir")"
+    if [[ "$verdict" == "QUARANTINE "* ]]; then
+      quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "${verdict#QUARANTINE }"
+    fi
   fi
 
   # #582: block-level flags diagnostics (the roster lives in flags_validate's
@@ -203,8 +254,9 @@ quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
     # the issue.md this run just wrote from the backend's stdout — read once,
     # header segment only, never the body and never a comment. There is no JSON
     # payload to parse here: the §9.1 backend contract defines `fetch` as
-    # markdown-to-stdout (spec §9.1) and pull.sh writes it verbatim (§9.3), so the
-    # markdown IS the payload at this point.
+    # markdown-to-stdout (spec §9.1) and, with no policy in scope, pull.sh writes
+    # it verbatim (§9.3; under trust it writes the trust render, whose header is
+    # the fetch's, control bytes escaped), so the markdown IS the payload here.
     #
     # The loop is fed by process substitution, NOT a pipe: the body must run in
     # THIS shell so `die` below actually exits the script instead of a subshell
@@ -326,6 +378,13 @@ quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
     trust_rec="$(trust_run_record "$backend" "$repo" "$num")"
     log_append "$issue_dir" "pull" "$trust_rec"
     info "$trust_rec"
+    # #715: a second trailer-shaped heading (a body or comment imitating the
+    # fetch layout) means the body was cut at the first one (spec §9.3).
+    if [[ "${STAGE_TRAILERS:-0}" =~ ^[0-9]+$ ]] && (( 10#$STAGE_TRAILERS > 1 )); then
+      local trailers_note="trust: the fetched text holds ${STAGE_TRAILERS} comments headings; the body was read up to the first (spec §9.3)"
+      log_append "$issue_dir" "pull" "$trailers_note"
+      info "$trailers_note"
+    fi
   fi
 
   # Promote to active issue. If this displaces a different in-flight issue,

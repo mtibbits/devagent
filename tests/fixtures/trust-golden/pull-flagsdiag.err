@@ -1,0 +1,7 @@
+captured-at 1b24202
+flags.sh: warn: inline <!-- on ## Workflow flags key 'spike' — the key is IGNORED; put the comment outside the block
+flags.sh: warn: ## Workflow flags block closed at a non-key line: 'Tier: oneshot, a mis-cased key that closes this block' — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)
+flags.sh: warn: ## Workflow flags block closed by a code fence — any keys below the fenced example are IGNORED; move the example outside the block
+pull.sh: pulled gnuradio/volk#676 into <TMP>/devDoc/volk/Issue-676
+
+Would you like to continue on to /devagent:draft?

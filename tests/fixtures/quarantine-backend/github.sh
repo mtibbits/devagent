@@ -13,6 +13,8 @@
 #   transition.silent   if present, transition writes no record (a read-back miss)
 # QB_WHOAMI is the account id (default 1001); QB_LABEL the label name
 # `transition … quarantine` writes (default devagent:quarantine).
+# QB_PROBE_DIR (#715): if set, `transition` first writes `ls -A "$QB_PROBE_DIR"`
+# to $QB_DIR/probe — what the directory held when the label write began.
 set -u
 d="${QB_DIR:?QB_DIR unset}"
 printf '%s\n' "$*" >> "$d/calls"
@@ -28,6 +30,7 @@ case "${1:-}" in
     fi
     [ ! -f "$d/events.tsv" ] || cat "$d/events.tsv" ;;
   transition)
+    if [ -n "${QB_PROBE_DIR:-}" ]; then ls -A "$QB_PROBE_DIR" > "$d/probe" 2>&1; fi
     rc="$(_rc transition.rc)"
     if [ "$rc" != 0 ]; then
       [ ! -f "$d/transition.err" ] || cat "$d/transition.err" >&2
