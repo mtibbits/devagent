@@ -15,7 +15,8 @@
 # WHAT IT READS. Config, the issue's state and commits of the issue tree
 # (active_tree_resolve): the pinned head `preship_pin_head`, the commit the verifier
 # was handed, and `baseline_sha`. Never the working tree, the index or HEAD: a file
-# is read from the pinned commit's tree. It makes no network call and runs no backend:
+# is read from the pinned commit's tree. `transcript` reads one file of
+# <issue-dir>/evidence/ and no commit. It makes no network call and runs no backend:
 # git reads go through _selfcert_git (lib/selfcert.sh), so in a partial clone a
 # missing object is a failed read, never a fetch. It writes nothing but a temporary
 # directory, which it removes.
@@ -62,6 +63,23 @@
 #           does. The predicate and what it does not see are described at its code.
 #     A CR at a line's end is dropped before any of it is read. In a message a control
 #     character of an argument is shown as `?`.
+#   transcript <test-file>: one line. The fallback where no CI check can stand as
+#   the evidence: a Git Bash run recorded by hand, at the pinned head.
+#     transcript accepted: evidence/<name> is at the pinned head <pin40>      exit 0
+#     transcript check failed: <reason>        exit 1. <reason> is the first of:
+#       no evidence/<YYYY-MM-DD>-gitbash-<stem>-<sha>.txt is in the issue directory for the pinned head <pin7>
+#       evidence/<name> is named for another head, not the pinned head <pin7>
+#       evidence/<name> line 1 is not a full commit id: <the line>
+#       evidence/<name> line 1 records head <sha7>, not the pinned head <pin7>
+#       evidence/<name> line 2 is not a Git Bash uname line (MINGW... or MSYS...): <the line>
+#           The transcript is a regular file <issue-dir>/evidence/<name>, <name> being
+#           <YYYY-MM-DD>-gitbash-<stem>-<sha>.txt: <stem> the test file's basename
+#           without .bats, compared as text; <sha> 7 to 40 lower-case hex digits that
+#           begin the pinned head. Of several, the lexicographically last name is the
+#           one read, and named, whatever the others hold. Its line 1 is the head the
+#           run was at, 40 hex digits, alone or after `sha: `; its line 2 is that
+#           host's `uname -a`, alone or after `uname: `, starting MINGW or MSYS. CRs
+#           are dropped from both. Nothing else of the file is read.
 #
 # EXITS
 #   0   the lines above; or the check passed
@@ -549,4 +567,55 @@ if [ "$sub" = static ]; then
   _exit 0
 fi
 
-_cnr "$sub is not implemented yet"
+# ---- transcript: the fallback hand transcript -------------------------------------------
+
+TX_SHA_RE='^(sha: )?([0-9a-f]{40})$'
+TX_UNAME_RE='^(uname: )?(MINGW|MSYS)[^[:space:]]*[[:space:]].+'
+
+# transcript <test-file>
+testfile="$4"
+stem="${testfile##*/}"
+stem="${stem%.bats}"
+[ -n "$stem" ] || _cnr "transcript: '${testfile//[[:cntrl:]]/?}' names no test file"
+STEM="${stem//[[:cntrl:]]/?}"
+_need_pin
+
+# The candidates: <issue-dir>/evidence/<YYYY-MM-DD>-gitbash-<stem>-<sha>.txt, <stem>
+# compared as text. `named` fit the form; `at_pin` also name the pinned head. The glob
+# is sorted in the C locale, so the last entry is the lexicographically last name.
+named=() at_pin=()
+shopt -s nullglob
+for p in "$issue_dir"/evidence/*; do
+  n="${p##*/}"
+  [ -f "$p" ] || continue
+  [[ "${n:0:10}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || continue
+  [ "${n:10:${#stem}+10}" = "-gitbash-$stem-" ] || continue
+  sha="${n:${#stem}+20}"
+  [[ "$sha" =~ ^([0-9a-f]{7,40})\.txt$ ]] || continue
+  named+=("$n")
+  [[ "$PIN" != "${BASH_REMATCH[1]}"* ]] || at_pin+=("$n")
+done
+shopt -u nullglob
+if [ "${#at_pin[@]}" -eq 0 ]; then
+  [ "${#named[@]}" -eq 0 ] \
+    || _fail "evidence/${named[${#named[@]}-1]//[[:cntrl:]]/?} is named for another head, not the pinned head ${PIN:0:7}"
+  _fail "no evidence/<YYYY-MM-DD>-gitbash-$STEM-<sha>.txt is in the issue directory for the pinned head ${PIN:0:7}"
+fi
+tx="${at_pin[${#at_pin[@]}-1]}"
+TX="evidence/${tx//[[:cntrl:]]/?}"
+
+l1="" l2=""
+{ IFS= read -r l1 || true; IFS= read -r l2 || true; } <"$issue_dir/evidence/$tx"
+l1="${l1//$'\r'/}" l2="${l2//$'\r'/}"
+if [[ ! "$l1" =~ $TX_SHA_RE ]]; then
+  _show "$l1"
+  _fail "$TX line 1 is not a full commit id: ${SHOWN:-(empty)}"
+fi
+sha="${BASH_REMATCH[2]}"
+[ "$sha" = "$PIN" ] || _fail "$TX line 1 records head ${sha:0:7}, not the pinned head ${PIN:0:7}"
+if [[ ! "$l2" =~ $TX_UNAME_RE ]]; then
+  _show "$l2"
+  _fail "$TX line 2 is not a Git Bash uname line (MINGW... or MSYS...): ${SHOWN:-(empty)}"
+fi
+printf 'transcript accepted: %s is at the pinned head %s\n' "$TX" "$PIN"
+_exit 0

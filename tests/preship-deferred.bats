@@ -646,3 +646,132 @@ _gitshim() {
     run grep -v '^NLF=1 GAP=none ' "$GITLOG"        # every git call of the run is one that cannot fetch
     [ "$status" -eq 1 ] || { echo "calls that could fetch: $output"; return 1; }
 }
+
+# ---- transcript: the fallback hand transcript ----------------------------------------------
+
+UNAME_LINE='MINGW64_NT-10.0-26100 runner 3.5.4-1e8cf1df.x86_64 2024-09-19 18:03 UTC x86_64 Msys'
+OTHER=2222222222222222222222222222222222222222
+
+# _tx <name> <line>...: write <issue-dir>/evidence/<name>, one argument per line.
+_tx() {
+    local n="$1"; shift
+    mkdir -p "$ISSUE_DIR/evidence"
+    printf '%s\n' "$@" > "$ISSUE_DIR/evidence/$n"
+}
+# _transcript [<test-file>]
+_transcript() { _pd "$TEST_PROJECT" Issue-1 transcript "${1:-tests/guards.bats}"; }
+# _accepted <name>: exit 0 and the one line, naming that file and the full pinned head.
+_accepted() {
+    [ "$status" -eq 0 ] || { echo "rc $status, stdout: $output, stderr: $stderr"; return 1; }
+    [ "$output" = "transcript accepted: evidence/$1 is at the pinned head $PIN" ] || { echo "stdout: $output"; return 1; }
+    [ -z "$stderr" ] || { echo "stderr: $stderr"; return 1; }
+}
+# _tfailed <reason>: exit 1 and the one line.
+_tfailed() {
+    [ "$status" -eq 1 ] || { echo "rc $status, stdout: $output, stderr: $stderr"; return 1; }
+    [ "$output" = "transcript check failed: $1" ] || { printf 'stdout: %s\nwant:   transcript check failed: %s\n' "$output" "$1"; return 1; }
+    [ -z "$stderr" ] || { echo "stderr: $stderr"; return 1; }
+}
+
+@test "#1097 transcript: accepted at the pinned head" {
+    _base
+    _pin
+    local n="2026-11-20-gitbash-guards-$PIN.txt"
+    _tx "$n" "$PIN" "$UNAME_LINE" '1..1' 'ok 1 a test'
+    _transcript
+    _accepted "$n"
+    _tx "$n" "sha: $PIN" "uname: MSYS_NT-10.0-26100 runner 3.5.4 x86_64 Msys" '1..1'      # the labelled header
+    _transcript
+    _accepted "$n"
+    _transcript guards.bats                         # the file is named by its basename
+    _accepted "$n"
+    # no project key is needed, and a quarantined issue is still refused
+    printf 'devagent-quarantine 1\nkey github:github.com/acme/testproj#1\nreason screen\nevent ? ?\n' > "$ISSUE_DIR/QUARANTINE"
+    _transcript
+    [ "$status" -eq 11 ]
+}
+
+@test "#1097 transcript: a CRLF transcript, and a 12-hex short SHA in the name, are accepted; two matching files, the last name wins" {
+    _base
+    _pin
+    local short="2026-11-20-gitbash-guards-${PIN:0:12}.txt" early="2026-11-19-gitbash-guards-${PIN:0:7}.txt"
+    mkdir -p "$ISSUE_DIR/evidence"
+    printf '%s\r\n' "$PIN" "$UNAME_LINE" 'ok 1 a test' > "$ISSUE_DIR/evidence/$short"
+    _transcript
+    _accepted "$short"
+    # the earlier name is sound, the last is not: the last is the one read, and named
+    _tx "$early" "$PIN" "$UNAME_LINE"
+    _tx "$short" "$PIN" "Linux runner 6.8.0-149-generic x86_64 GNU/Linux"
+    _transcript
+    _tfailed "evidence/$short line 2 is not a Git Bash uname line (MINGW... or MSYS...): Linux runner 6.8.0-149-generic x86_64 GNU/Linux"
+    # the other way round: the last name wins again
+    _tx "$early" "$PIN" "Linux runner 6.8.0-149-generic x86_64 GNU/Linux"
+    _tx "$short" "$PIN" "$UNAME_LINE"
+    _transcript
+    _accepted "$short"
+}
+
+@test "#1097 transcript: a header SHA that is not the pin, a file named for another head and a Linux uname each fail" {
+    _base
+    _pin
+    local n="2026-11-20-gitbash-guards-${PIN:0:12}.txt"
+    _tx "$n" "$OTHER" "$UNAME_LINE"
+    _transcript
+    _tfailed "evidence/$n line 1 records head ${OTHER:0:7}, not the pinned head ${PIN:0:7}"
+    _tx "$n" "$PIN" "Linux runner 6.8.0-149-generic x86_64 GNU/Linux"
+    _transcript
+    _tfailed "evidence/$n line 2 is not a Git Bash uname line (MINGW... or MSYS...): Linux runner 6.8.0-149-generic x86_64 GNU/Linux"
+    rm -f "$ISSUE_DIR/evidence/$n"
+    _tx "2026-11-20-gitbash-guards-${OTHER:0:12}.txt" "$OTHER" "$UNAME_LINE"
+    _transcript
+    _tfailed "evidence/2026-11-20-gitbash-guards-${OTHER:0:12}.txt is named for another head, not the pinned head ${PIN:0:7}"
+    _tx "$n" "$PIN" "$UNAME_LINE"                   # the survivor, beside the other head's file
+    _transcript
+    _accepted "$n"
+}
+
+@test "#1097 transcript: no file, a file for another test file, a name that is not the form, and a header that is not the form each fail" {
+    _base
+    _pin
+    local want="no evidence/<YYYY-MM-DD>-gitbash-guards-<sha>.txt is in the issue directory for the pinned head ${PIN:0:7}"
+    _transcript                                     # no evidence directory
+    _tfailed "$want"
+    _tx "2026-11-20-gitbash-guards-extra-${PIN:0:12}.txt" "$PIN" "$UNAME_LINE"      # another test file's
+    _tx "2026-11-20-gitbash-guard-${PIN:0:12}.txt" "$PIN" "$UNAME_LINE"
+    _tx "2026-11-20-gitbash-guards-${PIN:0:6}.txt" "$PIN" "$UNAME_LINE"             # six digits name no head
+    _tx "2026-11-2x-gitbash-guards-${PIN:0:12}.txt" "$PIN" "$UNAME_LINE"            # not a date
+    _tx "2026-11-20-gitbash-guards-${PIN:0:12}.log" "$PIN" "$UNAME_LINE"
+    # upper case names no head; the F keeps one such digit in the name whatever the pin's are
+    _tx "2026-11-20-gitbash-guards-$(tr 'a-f' 'A-F' <<<"${PIN:0:12}")F.txt" "$PIN" "$UNAME_LINE"
+    mkdir -p "$ISSUE_DIR/evidence/2026-11-21-gitbash-guards-${PIN:0:12}.txt"        # a directory is no transcript
+    _transcript
+    _tfailed "$want"
+    _transcript tests/guards-extra.bats             # the survivor: that one is guards-extra's
+    _accepted "2026-11-20-gitbash-guards-extra-${PIN:0:12}.txt"
+    local n="2026-11-20-gitbash-guards-${PIN:0:12}.txt"
+    _tx "$n" "${PIN:0:12}" "$UNAME_LINE"            # a short id in the header
+    _transcript
+    _tfailed "evidence/$n line 1 is not a full commit id: ${PIN:0:12}"
+    _tx "$n" "head $PIN" "$UNAME_LINE"
+    _transcript
+    _tfailed "evidence/$n line 1 is not a full commit id: head $PIN"
+    : > "$ISSUE_DIR/evidence/$n"                    # zero bytes
+    _transcript
+    _tfailed "evidence/$n line 1 is not a full commit id: (empty)"
+    _tx "$n" "$PIN"                                 # no second line
+    _transcript
+    _tfailed "evidence/$n line 2 is not a Git Bash uname line (MINGW... or MSYS...): (empty)"
+    _tx "$n" "$PIN" "MINGW64_NT-10.0"               # the kernel name alone is not a uname -a line
+    _transcript
+    _tfailed "evidence/$n line 2 is not a Git Bash uname line (MINGW... or MSYS...): MINGW64_NT-10.0"
+    _tx "$n" "$UNAME_LINE" "$PIN"                   # the two lines swapped
+    _transcript
+    [ "$status" -eq 1 ]
+}
+
+@test "#1097 transcript: no pin exits 2" {
+    _base
+    _tx "2026-11-20-gitbash-guards-${OTHER:0:12}.txt" "$OTHER" "$UNAME_LINE"
+    _transcript
+    _cnr "preship-deferred: no pinned head is recorded for Issue-1 (preship_pin_head)"
+}
