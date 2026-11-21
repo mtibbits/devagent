@@ -116,21 +116,23 @@ _exit() {
 # _cnr <why>: could not run. Nothing was printed yet: every line is printed at the end.
 _cnr() { printf 'preship-deferred: %s\n' "$1" >&2; _exit 2; }
 # Any other exit (a library's die, an errexit) is "could not run" too: a library dies
-# with 1, which here would read as a failed check.
+# with 1, which here would read as a failed check. The one exit that passes through is
+# the quarantine marker's own 11.
+GUARDING=0
 # shellcheck disable=SC2317  # invoked by the EXIT trap
 _on_exit() {
   local rc=$?
+  if [ "$GUARDING" -eq 1 ] && [ "$rc" -eq 11 ]; then _exit 11; fi
   printf 'preship-deferred: could not run (exited %s before the check was complete)\n' "$rc" >&2
   _exit 2
 }
 trap _on_exit EXIT
 
 config_load
-config_is_project "$project" || _cnr "unknown project '$project'"
-# The marker check exits 11 by itself; the trap must not turn that into 2.
-trap - EXIT
+config_is_project "$project" || _cnr "unknown project '${project//[[:cntrl:]]/?}'"
+GUARDING=1
 quarantine_guard_marker "preship-deferred" "$project" "$issue"
-trap _on_exit EXIT
+GUARDING=0
 
 active_resolve_issue_src "$project" "$issue"    # setter-globals; dies on a malformed id
 issue_dir="$(issue_context_dir "$project" "$issue")" \
@@ -226,7 +228,7 @@ _show() {
 #   <is> || skip        <is not> && skip        (also `|| {` and `&& {`)
 #   if <is not>; then skip
 #   case ... <Git Bash arm>) ;; ... <another arm>) skip      (the Git Bash arm empty
-#                                       and closed by `;;`; no `;&` or `;;&` before)
+#                         and closed by `;;`; no `;&`, `;;&` or `esac` before the skip)
 # where, with <v> a literal that starts with a Git Bash value (MINGW*, "msys",
 # ^(MINGW|MSYS)), on either side:
 #   <is>      is_git_bash    [ a = <v> ]    [[ a == <v> ]]    [[ a =~ <v> ]]
@@ -236,9 +238,10 @@ _show() {
 # Linux ] || skip` trips (it does skip on Git Bash), and so does a compound test.
 # One level of indirection: a call to a column-0 function of the same file (`name() {`
 # or `function name {`) one of whose own lines trips is a trip too.
-# KNOWN MISSES, by design (tests/preship-deferred.bats pins them): a guard spread over
-# lines (`if is_git_bash; then` / `skip`), a helper that calls a helper, a helper from
-# another file, a skip in setup(), and a test that does not name Git Bash at all.
+# KNOWN MISSES, by design: a guard spread over lines (`if is_git_bash; then` / `skip`)
+# and a helper that calls a helper (tests/preship-deferred.bats pins those two as
+# misses); a helper from another file, a skip in setup(), and a skip whose test does
+# not name Git Bash at all. The job itself fails a file whose every test skips.
 
 GB_TOKEN_RE='is_git_bash|uname|ostype|mingw|msys|cygwin'    # read against lower case
 GB_VALUE_RE='mingw|msys|cygwin'

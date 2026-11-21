@@ -254,11 +254,13 @@ _capline() { sed -n 2p <<<"$output"; }
         '  *) exit 2 ;;' 'esac' > "$d/has.sh"
     printf '%s\n' '#!/usr/bin/env bash' "echo ran >> '$ran'" 'case "$1" in' '  mr-state) echo open ;;' \
         '  merge-mr|mr-checks|mr-view)' '    echo "$1: not implemented" >&2' '    exit 78' '    ;;' '  *) exit 2 ;;' 'esac' > "$d/stub.sh"
-    printf '%s\n' '#!/usr/bin/env bash' "echo ran >> '$ran'" '# mr-checks) is only named in this comment' 'case "$1" in' \
+    printf '%s\n' '#!/usr/bin/env bash' "echo ran >> '$ran'" '#   mr-state|mr-checks)   an arm that is commented out' 'case "$1" in' \
         '  mr-state) echo "usage: mr-checks) <url>" ;;' '  *) exit 2 ;;' 'esac' > "$d/none.sh"
+    # the local backend is never asked, whatever its script holds (lib/ci.sh: not applicable)
+    cp "$d/has.sh" "$d/local.sh"
     chmod +x "$d"/*.sh
     local b want
-    for b in has:yes stub:no none:no; do
+    for b in has:yes stub:no none:no local:no; do
         want="${b#*:}"; b="${b%%:*}"
         _backend "$b"
         _pd "$TEST_PROJECT" Issue-1
@@ -448,6 +450,7 @@ _passes() {
     _trips "trip2: fall-through to the default arm" 'case "$(uname -s)" in MINGW*|MSYS*) ;;& *) skip "every host falls through to here" ;; esac'
     _trips "trip2: a second case statement on the line" 'case x in msys) ;; esac; case "$(uname -s)" in Linux) ;; *) skip "the second case skips off Linux" ;; esac'
     _trips "trip2: second skip on the line" '[ -n "${HOME:-}" ] || skip "no HOME"; is_git_bash && skip "the second skip on its line"'
+    _trips "trip2: a safe skip, then one that is not" 'is_git_bash || skip "the first is Git Bash only"; skip "the second runs on every host"'
     _trips "trip2: brace group" 'is_git_bash && { skip "inside a brace group"; }'
     _trips "trip2: lower-case arm on its own line" 'skip "lower-case arm: skipped on Git Bash"'
     _trips "trip2: one-line helper" '_one_line_skipper'
@@ -460,7 +463,7 @@ _passes() {
     _base
     _fixture guards.bats
     # one body holds them all: a form that tripped would be named by its line
-    [ "$(grep -c 'skip' <(sed -n '/^@test "pass2: every form/,/^}$/p' "$FIX/guards.bats"))" -ge 16 ]
+    [ "$(sed -n '/^@test "pass2: every form/,/^}$/p' "$FIX/guards.bats" | grep -c 'skip')" -ge 18 ]
     _passes "pass2: every form in which skip runs only off Git Bash"
 }
 

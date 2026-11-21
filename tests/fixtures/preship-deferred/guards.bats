@@ -176,6 +176,11 @@ _windows_only() {
   true
 }
 
+@test "trip2: a safe skip, then one that is not" {
+  is_git_bash || skip "the first is Git Bash only"; skip "the second runs on every host"
+  true
+}
+
 @test "trip2: brace group" {
   is_git_bash && { skip "inside a brace group"; }
   true
@@ -220,7 +225,9 @@ _windows_only() {
   # the reason says skip; skip is quoted text; skip is part of a longer word
   is_git_bash || skip "Git Bash only; we skip elsewhere"
   echo "uname says skip it" >/dev/null
+  echo "an escaped quote \" then is_git_bash && skip \" is still text" >/dev/null
   is_git_bash && skip_nothing_here=1
+  is_git_bash && git rebase --skip 2>/dev/null
   # a trailing comment
   true   # is_git_bash && skip "a trailing comment is not code"
   # a case over several lines whose default arm skips
