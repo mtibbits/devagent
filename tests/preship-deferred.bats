@@ -775,3 +775,39 @@ _tfailed() {
     _transcript
     _cnr "preship-deferred: no pinned head is recorded for Issue-1 (preship_pin_head)"
 }
+
+# ---- every call only reads -----------------------------------------------------------------
+
+# _snap: the state and config files, the issue directory and the tree's refs and status.
+_snap() {
+    find "$HOME/.claude/devagent" "$ISSUE_DIR" -type f -exec sha256sum {} + | sort
+    git -C "$SOURCE_DIR" for-each-ref
+    git -C "$SOURCE_DIR" rev-parse HEAD
+    git -C "$SOURCE_DIR" status --porcelain
+}
+
+@test "#1097 deferred: no call writes to the state, the issue directory or the tree, and none leaves a temporary file" {
+    _req
+    _base
+    _put "$WF" 'name: ci'
+    _fixture guards.bats
+    _tx "2026-11-20-gitbash-guards-$PIN.txt" "$PIN" "$UNAME_LINE"
+    export TMPDIR="$DEVAGENT_TMP/scratch"
+    mkdir -p "$TMPDIR"
+    local before after
+    before="$(_snap)"
+    _pd "$TEST_PROJECT" Issue-1                     # the three lines, with a warning
+    [ "$status" -eq 0 ]; [[ "$output" == *"self-certification warning: $WF changed"* ]]
+    _static tests/guards.bats "pass: or-skip"
+    [ "$status" -eq 0 ]
+    _static tests/guards.bats "trip: and-skip"      # fails after the file was copied out
+    [ "$status" -eq 1 ]
+    _transcript
+    [ "$status" -eq 0 ]
+    _gitshim cat-file 128 "cat-file blob"           # could not run, after the temporary directory was made
+    _static tests/guards.bats "pass: or-skip"
+    [ "$status" -eq 2 ]
+    after="$(_snap)"
+    [ "$after" = "$before" ] || { printf 'before:\n%s\nafter:\n%s\n' "$before" "$after"; return 1; }
+    [ -z "$(ls -A "$TMPDIR")" ] || { echo "left in TMPDIR: $(ls -A "$TMPDIR")"; return 1; }
+}
