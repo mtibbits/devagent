@@ -166,9 +166,9 @@ def test_bash_grant_is_the_canonical_pair(path):
 
 def test_canonical_pair_canary_is_not_vacuous():
     # The canary above returns early on grant-less files; prove the subject
-    # set is the full 69 Bash-grant carriers (56 commands, mergemr #885 and
-    # portfolio #726 included, + 3 user-invocable skills + the 10 call-bearing
-    # core-* skills, #584), so a glob/layout
+    # set is the full 71 Bash-grant carriers (56 commands, mergemr #885 and
+    # portfolio #726 included, + 3 user-invocable skills + the 12 call-bearing
+    # core-* skills, #584; core-capture and core-scaffold #1097), so a glob/layout
     # change cannot silently empty it (#439). DELIBERATE EQUALITY PIN, not a
     # floor — update the count when adding/removing a grant carrier.
     n = 0
@@ -180,8 +180,8 @@ def test_canonical_pair_canary_is_not_vacuous():
         fm = yaml.safe_load(text.split("---", 2)[1]) or {}
         if "Bash" in str(fm.get("allowed-tools") or ""):
             n += 1
-    assert n == 69, (
-        f"expected 69 Bash-grant carriers, found {n} — deliberate pin: if you "
+    assert n == 71, (
+        f"expected 71 Bash-grant carriers, found {n} — deliberate pin: if you "
         f"added/removed a grant-carrying command or skill on purpose, update "
         f"this count (see #548)"
     )
@@ -272,9 +272,11 @@ def test_core_skill_operative_call_subject_set_is_pinned():
         for p in _CORE_SKILL_FILES if _has_operative_call(p)
     )
     expected = [
+        "core-capture",            # #1097: required-checks.sh
         "core-document-actual-work", "core-draft-mr", "core-impact",
         "core-improve", "core-lessons-learned", "core-preship",
-        "core-prune", "core-redmr", "core-scope", "core-tighten",
+        "core-prune", "core-redmr", "core-scaffold",  # core-scaffold: #1097
+        "core-scope", "core-tighten",
     ]
     assert have == expected, (
         f"core-* skills emitting an operative call changed: {have} — if a skill "
