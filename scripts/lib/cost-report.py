@@ -216,12 +216,20 @@ def _open(path: Path):
     return open(path, encoding="utf-8", errors="replace")
 
 
-def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
+def _warn(skipped: list | None, path: Path, message: str):
+    """Print a skip warning; with skipped (#735), also record (path, message)."""
+    print(f"cost-report: {message}", file=sys.stderr)
+    if skipped is not None:
+        skipped.append((str(path), message))
+
+
+def load(path: Path, markers: tuple = MARKERS, skipped: list | None = None) -> Iterator[dict]:
     """Yield a transcript's records one at a time.
 
     A line is parsed only if it holds one of markers; a line that does not
     parse, or parses to anything but an object, is skipped. A .gz whose tail
-    is torn (a crash mid-append) yields the records before the tear and warns.
+    is torn (a crash mid-append) yields the records before the tear and warns
+    (and, with skipped, records the file).
     """
     with _open(path) as f:
         try:
@@ -235,7 +243,7 @@ def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
                 if isinstance(d, dict):
                     yield d
         except (EOFError, zlib.error, gzip.BadGzipFile) as e:
-            print(f"cost-report: truncated {path} ({e})", file=sys.stderr)
+            _warn(skipped, path, f"truncated {path} ({e})")
 
 
 def _project_tables() -> dict[str, dict]:
@@ -693,8 +701,8 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
     return tape
 
 
-def _skipped(path: Path, e: OSError):
-    print(f"cost-report: skipped {path} ({e})", file=sys.stderr)
+def _skipped(path: Path, e: OSError, skipped: list | None = None):
+    _warn(skipped, path, f"skipped {path} ({e})")
 
 
 def _mtime(path: Path) -> float:
@@ -709,7 +717,7 @@ def _transcripts(paths: Iterable[Path]) -> list[Path]:
     return sorted(p for p in paths if p.name.endswith((".jsonl", ".jsonl.gz")))
 
 
-def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Tape:
+def scan_session(path: Path, seen: set[str], timing: Timing | None = None, skipped: list | None = None) -> Tape:
     """scan() one session file, then sum each of its subagent files (last usage per message id wins).
 
     Subagent files are every agent-*.jsonl[.gz] under <dir>/<session>/subagents/,
@@ -718,7 +726,7 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
     With timing, each subagent file also runs its own Clock (no operator events).
     """
     key = session_key(path)
-    tape = scan(load(path, MARKERS + TIME_MARKERS if timing else MARKERS), seen, timing)
+    tape = scan(load(path, MARKERS + TIME_MARKERS if timing else MARKERS, skipped), seen, timing)
     tape.session = tape.session or key
     base = path.parent / key / "subagents"
     for sub in _transcripts(base.rglob("agent-*.jsonl*")):
@@ -732,7 +740,7 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
         added: set = set()
         clock, acc = (timing.clock(main=False, added=added), TimeAcc()) if timing else (None, None)
         try:
-            for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS):
+            for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS, skipped):
                 msg = d.get("message") or {}
                 if sub_cwd is None and isinstance(d.get("cwd"), str):
                     sub_cwd = d["cwd"]
@@ -743,7 +751,7 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
                     if t is not None:
                         clock.tick(d, t, acc)
         except OSError as e:
-            _skipped(sub, e)
+            _skipped(sub, e, skipped)
             continue
         tool_use_id = meta.get("toolUseId") if isinstance(meta, dict) else None
         if tool_use_id is None and sub.parent.parent.name == "workflows":
@@ -907,7 +915,7 @@ def _place(hint: str | None, cwd: str | None, dirs: list[tuple[str, str]], cache
 def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None, *,
             hosts: dict | None = None, sources: dict | None = None,
             timing: TimeRules | None = None, times: dict | None = None,
-            overhead: dict | None = None):
+            overhead: dict | None = None, skipped: list | None = None):
     """Return ({(project, issue): {step: Row}}, {(project, issue): {sessionId}}), each filter an exact match.
 
     Every session is scanned before any is replayed: a typed command names a
@@ -920,6 +928,8 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     spans every file, as message ids do. A dict passed as overhead is filled
     {("project", P) | ("unassigned", cwd): Overhead} with the (no project)/(no issue)
     calls, charged at the same sites and from the same Rows, so it sums to that pair.
+    A list passed as skipped (#735) receives (path, message) for every file skipped
+    or truncated, the message being the warning's text after "cost-report: ".
     """
     hosts = hosts or {}
     sources = {} if sources is None else sources
@@ -931,9 +941,9 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     seen: set[str] = set()
     for p, d in files:
         try:
-            tapes.append((scan_session(p, seen, clocks), (hosts.get(d, "local"), d.name)))
+            tapes.append((scan_session(p, seen, clocks, skipped), (hosts.get(d, "local"), d.name)))
         except OSError as e:
-            _skipped(p, e)
+            _skipped(p, e, skipped)
     tables = _project_tables()
     known = set(tables).union(*(t.dispatched for t, _ in tapes))
     pdirs, cache = (project_dirs(tables), {}) if overhead is not None else ([], {})

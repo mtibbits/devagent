@@ -1464,9 +1464,9 @@ def test_time_subagent_copy_torn_mid_read_does_not_hide_a_good_copy(tmp_path, mo
     alone = _times([y])[(NP, NI)]
     real = cr.load
 
-    def torn(path, markers=cr.MARKERS):
+    def torn(path, markers=cr.MARKERS, skipped=None):
         """x's subagent file fails after two records (an I/O error mid-read)."""
-        for i, d in enumerate(real(path, markers)):
+        for i, d in enumerate(real(path, markers, skipped)):
             if i == 2 and path.name.startswith("agent-") and path.parent.parent.parent.name == "x":
                 raise OSError("torn")
             yield d
@@ -2435,3 +2435,21 @@ def test_overhead_json_raw_sums_to_start_pair(tmp_path):
     (pair,) = [json.loads(ln) for ln in _lines(_cli("--transcripts", d, "--json").stdout)]
     assert pair["raw"] == [_raw("claude-a", inp=1, read=10), _raw("claude-b", w5=4, out=2)]
     assert _weighted(pair["raw"]) == pair["total"] == 17.0
+
+
+def test_collect_fills_skipped(tmp_path, capsys):
+    """#735: collect(skipped=) receives (path, message) for each skipped or truncated file; stderr unchanged."""
+    d = tmp_path / "d"
+    _write(d / "A.jsonl", [*_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"), _call("c1", _usage(inp=1))])
+    (d / "broken.jsonl").mkdir(parents=True)
+    (d / "A" / "subagents" / "agent-bad.jsonl").mkdir(parents=True)
+    t = d / "T.jsonl.gz"
+    t.write_bytes(gzip.compress(b'{"usage": 1}\n' * 40)[:-12])
+    got: list = []
+    rows, _ = cr.collect([d], None, skipped=got)
+    assert sum(r.calls for r in rows[("alpha", "Issue-4")].values()) == 1
+    err = [ln[len("cost-report: "):] for ln in capsys.readouterr().err.splitlines()]
+    assert sorted(m for _, m in got) == sorted(err)
+    assert sorted(p for p, _ in got) == sorted(str(x) for x in (d / "A" / "subagents" / "agent-bad.jsonl",
+                                                               d / "broken.jsonl", t))
+    assert {m.split(" ", 1)[0] for _, m in got} == {"skipped", "truncated"}

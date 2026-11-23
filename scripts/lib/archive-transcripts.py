@@ -133,8 +133,16 @@ def default_host_id(hostname: str, osrelease: str) -> str:
     return hostname + "-wsl" if wsl else hostname
 
 
-def _git_check(resolved: str):
-    """Refuse unless git says the nearest existing ancestor is outside every repository (Issue-243: fail closed)."""
+ARCHIVE_IN_REPO = ("[archive].transcripts_dir", "transcripts hold everything a session read, so the archive "
+                   "belongs on private storage outside any repository")
+
+
+def _git_check(resolved: str, label: tuple[str, str] = ARCHIVE_IN_REPO):
+    """Refuse unless git says the nearest existing ancestor is outside every repository (Issue-243: fail closed).
+
+    label is (what the path is, why it must stay out of a repository): the refusal reads
+    "<what> is inside a git work tree (<path>); <why>" (#735 passes its --out).
+    """
     anc = resolved
     while not os.path.exists(anc):
         parent = os.path.dirname(anc)
@@ -160,8 +168,7 @@ def _git_check(resolved: str):
     except OSError as e:
         raise Refusal(f"cannot tell whether {resolved} is inside a git work tree ({e}); refusing")
     if r.returncode == 0:   # "true" in a work tree, "false" inside a .git dir: a repository either way
-        raise Refusal(f"[archive].transcripts_dir is inside a git work tree ({resolved}); transcripts hold "
-                      "everything a session read, so the archive belongs on private storage outside any repository")
+        raise Refusal(f"{label[0]} is inside a git work tree ({resolved}); {label[1]}")
     if r.returncode == 128 and "not a git repository" in r.stderr:
         return
     why = next((ln.strip() for ln in r.stderr.splitlines() if ln.strip()), f"rc {r.returncode}")
