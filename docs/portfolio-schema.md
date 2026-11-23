@@ -534,6 +534,7 @@ they do not know. A project's status is not repeated in the report.
 | `directive_warning` | line | A malformed `wbs-exclude` or `wbs-scope` directive line. |
 | `checklist_unreadable` | null | An issue dir or its `checklist.md` cannot be read, `checklist.md` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), it holds a step number beyond the interpreter's integer-string limit, it has no step rows in its active revision block, or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`checklist` reads `absent`). |
 | `stuck_unreadable` | null | An issue dir or its `STUCK` cannot be read, `STUCK` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`stuck` has all-null fields). |
+| `actuals_unavailable` | null | One per project when `<devagent_home>/actuals.json` (#735) does not exist, cannot be read, is not a usable actuals document (the first reason), or was generated more than 7 days before the document; every `actuals` slot, project field and the top-level `actuals` are then null. |
 <!-- report-kinds:end -->
 
 ## Deferred

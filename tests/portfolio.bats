@@ -190,7 +190,7 @@ _hashes() {
   _strip "$T/two.json" "$T/two.s"
   cmp "$T/one.s" "$T/two.s"
   # control: generated_at is the only field dropped, and it is present.
-  [ "$(_q "$T/one.json" 'sorted(d)')" = "['generated_at', 'parse_report', 'projects', 'schema', 'schema_version']" ]
+  [ "$(_q "$T/one.json" 'sorted(d)')" = "['actuals', 'generated_at', 'parse_report', 'projects', 'schema', 'schema_version']" ]
 }
 
 @test "portfolio: output file is 600 and its new dirs 700" {
@@ -487,4 +487,45 @@ _model_value() {
     count=$((count + 1))
   done
   [ "$count" -eq 7 ]
+}
+
+# --- #735: actuals.json ------------------------------------------------------------
+
+@test "portfolio: a missing actuals.json still writes, exit 0, one actuals_unavailable per project" {
+  run bash "$PORTFOLIO" --out "$T/p.json"
+  [ "$status" -eq 0 ]
+  [ "$(_q "$T/p.json" 'sum(1 for r in d["parse_report"] if r["kind"] == "actuals_unavailable")')" -eq 9 ]
+  [ "$(_q "$T/p.json" '[r["project"] for r in d["parse_report"] if r["kind"] == "actuals_unavailable"]')" = "['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota']" ]
+  [ "$(_q "$T/p.json" 'd["actuals"]')" = None ]
+  [ "$(_q "$T/p.json" 'set(e["actuals"] for p in d["projects"] for e in p["issues"]) | set(p["actuals"] for p in d["projects"])')" = "{None}" ]
+}
+
+@test "portfolio: carries actuals built by actuals.sh" {
+  export CLAUDE_CONFIG_DIR="$T/claude"
+  mkdir -p "$CLAUDE_CONFIG_DIR/projects"
+  python3 - "$T/A" <<'PY'
+import gzip, json, sys
+from pathlib import Path
+p = Path(sys.argv[1]) / "h1" / "-w-alpha" / "S1.jsonl.gz"
+p.parent.mkdir(parents=True)
+recs = [{"type": "assistant", "message": {"id": "d1", "content": [{"type": "tool_use", "id": "n1", "name": "Bash",
+         "input": {"command": 'bash "x/scripts/next.sh" alpha --auto'}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "n1",
+         "content": "dispatch: alpha/Issue-1 \u2014 step 9 (implement), skill-backed"}]}},
+        {"type": "assistant", "message": {"id": "m1", "model": "claude-a", "content": [],
+         "usage": {"input_tokens": 7, "output_tokens": 1}}}]
+p.write_bytes(gzip.compress("".join(json.dumps(r) + "\n" for r in recs).encode(), mtime=0))
+PY
+  run bash "$PLUGIN_ROOT/scripts/actuals.sh" --archive "$T/A"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"actuals: wrote $DA_HOME/actuals.json ("* ]]
+  run bash "$PORTFOLIO" --out "$T/p.json"
+  [ "$status" -eq 0 ]
+  local slot row
+  slot="$(_q "$T/p.json" 'json.dumps(next(e for p in d["projects"] if p["project"] == "alpha" for e in p["issues"] if e["issue"] == "Issue-1")["actuals"], sort_keys=True)')"
+  row="$(_q "$DA_HOME/actuals.json" 'json.dumps(next(r for r in d["issues"] if (r["project"], r["issue"]) == ("alpha", "Issue-1"))["actuals"], sort_keys=True)')"
+  [ "$slot" = "$row" ]
+  [[ "$slot" == *'"total": 12.0'* ]]
+  [ "$(_q "$T/p.json" 'sum(1 for r in d["parse_report"] if r["kind"] == "actuals_unavailable")')" -eq 0 ]
+  [ "$(_q "$T/p.json" 'd["actuals"]["actuals_version"]')" = "1.0" ]
 }

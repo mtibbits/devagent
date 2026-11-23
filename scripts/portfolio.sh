@@ -3,8 +3,9 @@
 # docs/portfolio-schema.md) over every configured project's WBS.md.
 # Usage: portfolio.sh [--out PATH | --ready]
 #
-# --ready (#727) builds the same document in memory and prints one TSV line
-# per ready leaf (project, issue, est, text) instead of writing it.
+# --ready (#727) builds the same document in memory, without actuals, and
+# prints one TSV line per ready leaf (project, issue, est, text) instead of
+# writing it.
 #
 # Read-only over every devdoc: it writes the one document and nothing else (no
 # WBS.md, no state, no devdoc file); under --ready it writes nothing at all.
@@ -83,6 +84,9 @@ done
 config_load
 # The manifest is this script's alone: an inherited PORTFOLIO_* var would fill a gap.
 unset "${!PORTFOLIO_@}"
+# #735: build copies <devagent_home>/actuals.json (scripts/actuals.sh) into the
+# actuals slots; it only reads the file.
+export PORTFOLIO_ACTUALS="$(devagent_home)/actuals.json"
 list="$(config_list_projects)" || die "cannot list the projects in $(config_path)"
 if [[ -n "$ready" ]]; then
   args=(ready)

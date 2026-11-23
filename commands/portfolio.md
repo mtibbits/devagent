@@ -28,6 +28,15 @@ writes nothing and prints every project's ready leaves instead (#727; see
 - **Each issue dir.** For an issue id on a node, `<devdoc>/<issue>/checklist.md`
   gives `checklist`, `next_step` and `next_step_number` (the rule `next.sh`
   uses), and `<devdoc>/<issue>/STUCK` gives `stuck`.
+- **Actuals** (#735). `<devagent_home>/actuals.json`, built by
+  `/devagent:actuals` (and by cleanup when it is stale), is read, never run:
+  each issue's row fills its `actuals` slot, each project's row its `actuals`
+  field, and the file's `actuals_version`, `generated_at` and `unassigned` the
+  document's top-level `actuals`. A row whose issue is on no node is ignored.
+  When the file is missing, unreadable, not a usable actuals document, or
+  generated more than 7 days before the document, every one of them is null
+  and each project gets one `actuals_unavailable` entry saying why; the run
+  still writes and exits 0.
 
 ## Output
 
@@ -58,13 +67,15 @@ with its project, `WBS.md` line and kind: issue-less leaves, unresolved
 rows (`dep_skipped`), dependency cycles (`dep_cycle`), parents marked done
 with pending leaves under them (`parent_done_leaf_pending`), duplicate issues,
 unparseable estimates, unknown or unreadable metadata, lines shaped like nodes
-that are not nodes, and parser warnings. The kinds are listed in the schema
-doc's "Report kinds" table.
+that are not nodes, parser warnings, and an actuals file that could not be
+used (`actuals_unavailable`, one per project). The kinds are listed in the
+schema doc's "Report kinds" table.
 
 ## Ready leaves (`--ready`)
 
 `--ready` lists the leaves you could start now, across every project, instead
-of writing the document. It builds the same document in memory and fills its
+of writing the document. It builds the same document in memory, without
+actuals, and fills its
 readiness fields by the rule below; the document itself carries them too.
 
 <!-- editor: tests/test_portfolio.py::test_command_doc_defines_ready requires
