@@ -296,7 +296,7 @@ _n_of() { local n; n="$(grep -nE -m1 -- "$1" "$PRESHIP" | cut -d: -f1)"; [ -n "$
 @test "#1097 rule 1a reads the accepted transcript for the named test's ok line" {
   local t
   t="$(awk '/\*\*1a\./{f=1} /^2\. \*\*Findings/{f=0} f' "$BATS_TEST_DIRNAME/../agents/preship-verifier.md" | tr '\n' ' ' | tr -s ' ')"
-  [[ "$t" == *'transcript accepted'*'read the transcript'* ]] || { echo "no read of the accepted transcript"; return 1; }
+  [[ "$t" == *"transcript '<test file>'"*'On exit 0, read the transcript the printed line names'* ]] || { echo "no read of the accepted transcript"; return 1; }
   [[ "$t" == *'`ok` line'* ]] || { echo "no ok line quoted"; return 1; }
   [[ "$t" == *'`not ok`'*'`# skip`'*'FAIL'* ]] || { echo "not ok / skip / absent is not FAIL"; return 1; }
 }
