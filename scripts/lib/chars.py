@@ -105,7 +105,7 @@ def _need_tables():
         raise RuntimeError("chars tables could not load")
 
 
-class _Ranges(object):
+class _Ranges:
     """Membership or value lookup over sorted inclusive ranges, memoised."""
 
     def __init__(self, ranges, valued, default):
@@ -205,9 +205,8 @@ def _line_verdicts(s, allowlist):
 
 def _scan_line(line, allowlist):
     """Tokens of the hits on one line's bytes."""
-    if line.isascii():
-        if _ASCII_HIT is None or _ASCII_HIT.search(line) is None:
-            return []
+    if line.isascii() and (_ASCII_HIT is None or _ASCII_HIT.search(line) is None):
+        return []
     s, bad = _decode(line)
     if s is None:
         return ["0x%02X" % bad]

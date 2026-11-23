@@ -6,7 +6,14 @@ This file stays ASCII: every character is built with chr(0xXXXX) or written
 as bytes with \\x escapes, never typed.
 """
 import hashlib
+import importlib.util
+import random
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 LIB = REPO / "scripts" / "lib"
@@ -51,10 +58,6 @@ def test_ucd_licence():
 
 # ---- Task 3: the generator and the table ------------------------------------
 
-import importlib.util  # noqa: E402
-import shutil  # noqa: E402
-import subprocess  # noqa: E402
-import sys  # noqa: E402
 
 GEN = LIB / "chars_gen.py"
 TABLE = LIB / "chars_table.py"
@@ -193,7 +196,7 @@ def test_table_version_and_sources():
 
 def _gen(*args):
     return subprocess.run([sys.executable, "-I", "-X", "utf8", str(GEN)] + list(args),
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                          capture_output=True, check=False)
 
 
 def test_generator_check(tmp_path):
@@ -226,10 +229,6 @@ def test_generator_check(tmp_path):
 
 # ---- Task 4: chars.py ---------------------------------------------------------
 
-import json  # noqa: E402
-import random  # noqa: E402
-
-import pytest  # noqa: E402
 
 CHARS = LIB / "chars.py"
 LAYOUT = LIB / "staging_layout.py"
@@ -359,7 +358,7 @@ def test_modules_load_acyclic():
                 "s=importlib.util.spec_from_file_location('m', %r)\n"
                 "m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
                 "print('loaded')\n") % str(path)
-        r = subprocess.run([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, check=False)
         assert r.returncode == 0, r.stderr
         assert r.stdout == b"loaded\n"
         assert b"RecursionError" not in r.stderr
@@ -378,7 +377,7 @@ def test_no_unicodedata():
             "m=importlib.util.module_from_spec(g); g.loader.exec_module(m)\n"
             "assert m.main(['check']) == 0\n"
             "print('no-unicodedata-ok')\n") % (str(CHARS), str(GEN))
-    r = subprocess.run([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, check=False)
     assert r.returncode == 0, r.stderr
     assert r.stdout == b"no-unicodedata-ok\n"
 

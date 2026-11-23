@@ -5,7 +5,7 @@
 
 load 'lib/bats-helpers'
 load 'lib/trust-fixture'
-load 'lib/changelog-text'
+. "$(dirname "$BATS_TEST_FILENAME")/lib/changelog-text.bash"
 
 SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
 
