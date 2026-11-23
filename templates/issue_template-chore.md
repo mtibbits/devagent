@@ -9,6 +9,7 @@
 ## Acceptance criteria
 - [ ] <verifiable change>
 - [ ] No user-visible behavior change
+<!-- required-checks: capture fills this in when the project declares required CI checks -->
 
 <!-- Optional per-issue `## Workflow flags` (spec §6.3). To use, add an
      UNCOMMENTED block before this section: a "## Workflow flags" heading line

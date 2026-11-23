@@ -79,6 +79,44 @@ _capture_exit_if_same_body() {   # $1 = existing draft, $2 = its slug, $3 = body
   fi
 }
 
+# #1097: print DEVAGENT_PROJECT's required_checks, one per line, for the template's
+# required-check marker. Nothing when there is no DEVAGENT_PROJECT, no config or no
+# such project (the block is then left out), or when the project requires none.
+# Capture is not a gate: a value it cannot read (or one that would end the HTML
+# comment early) is a warning and no block, never a failed capture. The resolver
+# runs in a subshell, since lib/config.sh's die exits.
+_capture_required_checks_names() {
+  local p="${DEVAGENT_PROJECT:-}" out rc=0 err n
+  [[ -n "${p}" ]] || return 0
+  err="$(mktemp)" || { echo "warn: no required-check criterion: mktemp failed" >&2; return 0; }
+  out="$(
+    set -euo pipefail
+    root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+    . "${root}/scripts/lib/paths.sh"
+    . "${root}/scripts/lib/io.sh"
+    . "${root}/scripts/lib/config.sh"
+    [[ -f "$(config_path)" ]] || exit 3
+    config_load
+    config_is_project "${p}" || exit 3
+    required_checks_resolve "${p}"
+    (( ${#REQUIRED_CHECKS[@]} == 0 )) || printf '%s\n' "${REQUIRED_CHECKS[@]}"
+  )" 2>"${err}" || rc=$?
+  case "${rc}" in
+    0) ;;
+    3) out="" ;;
+    *) echo "warn: the required checks of project '${p}' could not be read, so the draft has no required-check criterion: $(tr '\n' ' ' < "${err}")" >&2
+       out="" ;;
+  esac
+  rm -f "${err}"
+  while IFS= read -r n; do
+    if [[ "${n}" == *--* ]]; then
+      echo "warn: required check '${n}' contains '--', which would end the criterion's HTML comment; the draft has no required-check criterion" >&2
+      return 0
+    fi
+  done <<< "${out}"
+  printf '%s' "${out}"
+}
+
 TYPE=""; SUBTYPE="bug"; TITLE=""; SOURCE=""; FORCE=0; SLUG_SUFFIX=""
 BODY_FILE=""; ON_COLLISION="fail"
 while [[ $# -gt 0 ]]; do
@@ -202,15 +240,32 @@ if [[ -n "${BODY_FILE}" ]]; then
   cat "${BODY_FILE}" >"${draft}"
 else
   template_path="$(devagent_resolve_template "${template_name}")"
+  rc_names="$(_capture_required_checks_names)"
 
-  python3 - "${template_path}" "${draft}" "${TITLE}" "${DEVAGENT_PROJECT:-}" "${SOURCE:-}" <<'PY'
+  python3 - "${template_path}" "${draft}" "${TITLE}" "${DEVAGENT_PROJECT:-}" "${SOURCE:-}" "${rc_names}" <<'PY'
 import sys, pathlib
-src, dst, title, project, source = sys.argv[1:6]
+src, dst, title, project, source, rc_names = sys.argv[1:7]
 text = pathlib.Path(src).read_text()
 text = text.replace("{{title}}", title)
 text = text.replace("{{project}}", project)
 text = text.replace("{{source}}", source if source else "(none)")
-pathlib.Path(dst).write_text(text)
+# #1097: the marker line becomes the required-check criterion, or goes. Last, so a
+# title cannot inject the placeholder.
+MARKER = "<!-- required-checks: capture fills this in when the project declares required CI checks -->"
+BLOCK = """<!-- Required-check criterion (#1097): this project requires the CI check(s) {{required_checks}}.
+     If the behaviour differs under Git Bash (drive-letter paths, MSYS path rewriting, a native
+     Windows python3, CRLF line endings, no POSIX file modes), add this criterion, naming the
+     check that runs the gitbash-tagged files; the draft step's plan names the tagged test file and the test:
+     - [ ] `tests/<file>.bats` carries the `gitbash` tag, `<test name>` has no Git Bash skip, and `<check name>` is green at the merged head -->"""
+names = [n for n in rc_names.split("\n") if n]
+out = []
+for line in text.split("\n"):
+    if line == MARKER:
+        if names:
+            out.append(BLOCK.replace("{{required_checks}}", ", ".join(f"`{n}`" for n in names)))
+        continue
+    out.append(line)
+pathlib.Path(dst).write_text("\n".join(out))
 PY
 fi
 

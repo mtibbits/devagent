@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
 load 'helpers'
+bats_require_minimum_version 1.5.0
 
 setup() {
   setup_tmp_devdoc
@@ -463,4 +464,93 @@ _597_fence() {   # the first bash fence under crrf.md's "## 2. Capture" heading
   [ "$status" -eq 0 ]
   [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]
   cmp "${CHILD}" "${TMP_DEVDOC}/Captures/${output}/draft.md"
+}
+
+# ---- #1097: the required-check criterion ---------------------------------------------
+
+RC_MARKER='<!-- required-checks: capture fills this in when the project declares required CI checks -->'
+
+# _rc_config [<required_checks TOML value>]: a config naming project `fake`, with the
+# key when a value is given.
+_rc_config() {
+  mkdir -p "${HOME}/.claude/devagent"
+  {
+    printf '[defaults]\nchecklist_template = "standard"\n\n[project.fake]\n'
+    printf 'source_dir = "%s"\ndevdoc_dir = "%s"\n' "${TMP_HOME}" "${TMP_DEVDOC}"
+    [[ -z "${1:-}" ]] || printf 'required_checks = %s\n' "$1"
+  } > "${HOME}/.claude/devagent/config.toml"
+}
+# _rc_capture <title>: capture a bug issue; DRAFT is its draft.md.
+_rc_capture() {
+  run --separate-stderr "${REPO_ROOT}/scripts/capture/capture.sh" --type issue --subtype bug --title "$1"
+  DRAFT="${TMP_DEVDOC}/Captures/$(printf '%s' "$output" | tail -1)/draft.md"
+}
+
+# shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr`
+@test "#1097 capture: a project with required_checks renders the criterion comment naming its checks" {
+  _rc_config '["Zeta check", "Eta"]'
+  _rc_capture "Zeta render"
+  [ "$status" -eq 0 ] || { echo "rc $status: $stderr"; return 1; }
+  [ -z "$stderr" ] || { echo "stderr: $stderr"; return 1; }
+  grep -qF '<!-- Required-check criterion (#1097): this project requires the CI check(s) `Zeta check`, `Eta`.' "${DRAFT}"
+  grep -qF 'no POSIX file modes), add this criterion, naming the' "${DRAFT}"
+  grep -qF -- '- [ ] `tests/<file>.bats` carries the `gitbash` tag, `<test name>` has no Git Bash skip, and `<check name>` is green at the merged head -->' "${DRAFT}"
+  ! grep -qF '{{' "${DRAFT}"
+  ! grep -qF "${RC_MARKER}" "${DRAFT}"
+  # it sits under the acceptance criteria, before the next section
+  awk '/^## Acceptance criteria$/{a=1} a && /Required-check criterion/{print "ok"; exit} a && /^## / && !/Acceptance/{exit 1}' "${DRAFT}" | grep -qx ok
+}
+
+@test "#1097 capture: no key, no DEVAGENT_PROJECT and an unknown project each render no block" {
+  _rc_config
+  _rc_capture "No key"
+  [ "$status" -eq 0 ]
+  run grep -c 'required-check' "${DRAFT}"; [ "$status" -eq 1 ]
+  _rc_config '["Zeta check"]'
+  DEVAGENT_PROJECT="" _rc_capture "No project"
+  [ "$status" -eq 0 ]
+  run grep -ic 'required-check' "${DRAFT}"; [ "$status" -eq 1 ]
+  DEVAGENT_PROJECT="ghost" _rc_capture "Unknown project"
+  [ "$status" -eq 0 ]
+  run grep -ic 'required-check' "${DRAFT}"; [ "$status" -eq 1 ]
+  # no config file at all
+  rm -f "${HOME}/.claude/devagent/config.toml"
+  _rc_capture "No config"
+  [ "$status" -eq 0 ]
+  run grep -ic 'required-check' "${DRAFT}"; [ "$status" -eq 1 ]
+}
+
+# shellcheck disable=SC2154
+@test "#1097 capture: a bad required_checks warns and renders no block" {
+  _rc_config '["Zeta check", " padded"]'
+  _rc_capture "Bad value"
+  [ "$status" -eq 0 ] || { echo "rc $status: $stderr"; return 1; }
+  [[ "$stderr" == *"warn: "*"required check"* ]] || { echo "stderr: $stderr"; return 1; }
+  [ -f "${DRAFT}" ]
+  run grep -ic 'required-check' "${DRAFT}"; [ "$status" -eq 1 ]
+}
+
+@test "#1097 capture: each of the five issue templates carries the marker line once, and no template contains gitbash or .bats" {
+  local s n
+  for s in bug chore docs feature perf; do
+    n="$(grep -cxF -- "${RC_MARKER}" "${REPO_ROOT}/templates/issue_template-${s}.md")" || true
+    [ "$n" = 1 ] || { echo "issue_template-${s}.md: marker $n times"; return 1; }
+    ! grep -qiE 'gitbash|\.bats' "${REPO_ROOT}/templates/issue_template-${s}.md" \
+      || { echo "issue_template-${s}.md names gitbash or .bats"; return 1; }
+  done
+}
+
+@test "#1097 no template and neither skill hard-codes a check name" {
+  run grep -l 'Git Bash tagged files' "${REPO_ROOT}"/templates/issue_template-{bug,chore,docs,feature,perf}.md \
+    "${REPO_ROOT}/skills/core-capture/SKILL.md" "${REPO_ROOT}/skills/core-scaffold/SKILL.md"
+  [ "$status" -eq 1 ] || { echo "names a check: $output"; return 1; }
+}
+
+# shellcheck disable=SC2154
+@test "#1097 capture: a check name holding -- warns and renders no block (it would end the comment)" {
+  _rc_config '["Zeta --> check"]'
+  _rc_capture "Dash name"
+  [ "$status" -eq 0 ] || { echo "rc $status: $stderr"; return 1; }
+  [[ "$stderr" == *"warn: required check 'Zeta --> check' contains '--'"* ]] || { echo "stderr: $stderr"; return 1; }
+  run grep -ic 'required-check' "${DRAFT}"; [ "$status" -eq 1 ]
 }

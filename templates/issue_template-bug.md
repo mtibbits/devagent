@@ -22,6 +22,7 @@ Actual:   <what happens>
 ## Acceptance criteria
 - [ ] <observable test that proves the fix>
 - [ ] Regression test added
+<!-- required-checks: capture fills this in when the project declares required CI checks -->
 
 <!-- Optional per-issue `## Workflow flags` (spec §6.3). To use, add an
      UNCOMMENTED block before this section: a "## Workflow flags" heading line

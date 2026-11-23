@@ -35,6 +35,14 @@ Args: `<capture-slug>`
    (`## Summary` for bug, `## Motivation` for feature, `## Affected docs` for
    docs, `## Hot path` for perf, `## Scope` for chore). That is where the
    per-child summary lands (the skill forbids authoring the rest of the body).
+   The template's `<!-- required-checks: … -->` marker line follows the
+   rule `capture.sh` applies (#1097): run
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" "$DEVAGENT_PROJECT"`;
+   when it prints one or more checks, replace the marker line with the
+   required-check criterion comment `capture.sh` writes, naming them; when it
+   prints nothing, or there is no `DEVAGENT_PROJECT`, delete the marker line.
+   On a non-zero exit, report its stderr as a warning and delete the marker
+   (scaffolding is not a gate).
 
 4. Print the list of created child paths.
 
