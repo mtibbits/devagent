@@ -77,6 +77,11 @@ suite_jobs       = 1                           # bats test files run N at a time
                                                # (tests/suite-platform.bats runs the example
                                                # line as written.)
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
+# required_checks = ["Git Bash tagged files"]  # optional (#1097): CI checks step 20
+                                               # merges only on success; see "Required
+                                               # CI checks" below
+# required_checks_paths = ["scripts/ci/"]      # optional: more paths that decide what
+                                               # they measure
 
 [project.myproj.permissions]   # pre-grants: true = proceed unprompted,
                                # false = stop and ask (autonomous paths
@@ -162,6 +167,87 @@ checking = "opus"
                                # declared secret is not quoted into an MR body.
 MYPROJ_DATA_ROOT = "~/src/myprojData"
 ```
+
+## Required CI checks
+
+`required_checks` and `required_checks_paths` (#1097) let an issue whose behaviour
+differs on another platform, such as Git Bash, use a named CI check as its evidence
+instead of a hand-run transcript. Both are `[project.<name>]` keys, beside
+`merge_checks`, with **no `[defaults]` layer**: they describe one repository, so an
+inherited list would stop every other project on a check it never reports. Either key
+under `[defaults]` stops step 20 naming the key, and so does `required_checks_paths`
+without `required_checks`.
+
+```toml
+[project.devagent]
+required_checks = ["Git Bash tagged files"]  # check-run names, compared byte for byte
+required_checks_paths = ["scripts/ci/"]      # repo-relative files or directories
+```
+
+- **`required_checks`**: the CI checks a merge needs. Every check of that name on the
+  PR counts. A name is a non-empty single line, at most 200 characters, with no
+  leading or trailing blank.
+- **`required_checks_paths`**: paths that decide what a required check measures; one
+  trailing `/` marks a directory. `.github/workflows/` is always watched and needs no
+  entry. An entry is the path as git stores it: no glob, no pathspec magic.
+
+Config is per host: **every host** that runs step 20 for the project needs both keys,
+or that host merges without them.
+
+**What step 20 (mergemr) does.** It merges only when each required check is
+`success` (passed with the conclusion `SUCCESS`) at the verified head. A pending check
+waits `[?]`; a check not reported waits inside the grace and stops `[!]` after it;
+`skipped`, `neutral`, `cancelled`, `failure` and `no conclusion` stop `[!]` (rule 15).
+A passing `/devagent:preship` clears a rule 15 stop, as it clears red CI. While a
+required check is not `success`, or a self-certifying diff is not acknowledged, the
+step turns the forge's auto-merge off rather than leaving the PR to it (rule 12); a PR
+in a merge queue stops `[!]`. With `merge_mr = false` the step never merges; its `[?]`
+line names each required check's state and the self-certification result. Two stops
+apply whatever `merge_mr` says, and no preship clears them:
+
+- **Rule 20, `CI NOT CHECKED`**: the code backend cannot report checks (no
+  `mr-checks`), so nothing can say the check succeeded. Check it by hand, merge the PR
+  by hand, then run `/devagent:unstuck`.
+- **Rule 21, a self-certifying diff**: the PR changes a file under
+  `.github/workflows/`, a `required_checks_paths` path, or a `gitbash` tag line a test
+  file had at the baseline (adding a tag line does not count). Such a PR could change
+  what its own required check measures. It is cleared by the operator only (reviewed
+  workflow change only): line 1 of `<issue-dir>/.devagent-selfcert-ack` is
+  `<verified_head> <reason>`, all 40 hex digits of the verified head and a reason that
+  is not blank, then `/devagent:unstuck`. It covers that head only. An agent never
+  writes it.
+
+`commands/mergemr.md` has every rule's exact text.
+
+**Make the check required on the forge too.** Where the forge plan offers it, make the
+check a required status check in branch protection: a person's merge and a forge
+auto-merge bypass step 20.
+
+**A required check must be a job that runs on every PR.** A `paths:` filter or a
+job-level `if:` that skips it reads as missing or skipped, and step 20 stops.
+
+**What preship verifies (step 17).** A criterion such as "`tests/<file>.bats` carries
+the `gitbash` tag, `<test name>` has no Git Bash skip, and `<check name>` is green at
+the merged head" cannot be run before ship. The verifier runs
+`scripts/preship-deferred.sh`, which checks at the pinned head that the name is listed
+in `required_checks`, that the job's selector picks the file, and that the named test
+has no Git Bash skip guard; it records `deferred to CI at merge: <check name>`, and
+step 20 enforces the rest. It also prints a `self-certification warning:` line when the
+diff would stop at rule 21. A listed name proves only that the project requires the
+check, not that the check runs the tagged files. The skip guard is read against a
+fixed model of the job's host (MINGW64, `uname -o` `Msys`, `OSTYPE` `msys`); a guard
+it cannot read fails the check rather than pass it.
+
+**Fallback transcript.** Only where `issue.md` says why the job cannot exercise the
+behaviour, or the code backend has no `mr-checks`, a hand-run Git Bash transcript at
+`<issue-dir>/evidence/<YYYY-MM-DD>-gitbash-<stem>-<sha>.txt` (line 1 the pinned head,
+line 2 the `uname` line) stands in its place.
+
+**Known residual.** The job proves that the tagged file ran and that no test skipped
+without a reason, not that one particular test ran. The static check reads a guard in
+the named test and in one level of helper it calls; a conditional skip deeper in the
+test (a guard spread over several lines, a multi-line `if` block, a nested helper) is
+not covered. `scripts/preship-deferred.sh` lists its known misses at its code.
 
 ## Capacity
 
@@ -486,7 +572,7 @@ and `mr-view`:
 | `mr-comments` | `<mr-url>` | markdown to stdout |
 | `merge-mr` | `<mr-url> [--method squash\|merge\|rebase] [--match-head-commit <sha>] [--subject <s>] [--body <b>]`, or `<mr-url> --disable-auto` | exit 0 |
 | `issue-mrs` | `<repo> <id>...` | `issue` and `mr` lines per issue (optional) |
-| `mr-checks` | `<mr-url>` | `state`, `head` and one line per CI check (optional) |
+| `mr-checks` | `<mr-url>` | `state`, `head` and one line per CI check; `pass <name> <link> <CONCLUSION>` carries the conclusion (optional) |
 | `mr-view` | `<mr-url>` | the `mr-checks` lines plus draft, base, mergeability, auto-merge, queue, title, closing issues, trailers and commit counts (optional) |
 
 `issue-mrs` is what `wbs update` reads to show linked-MR state on open

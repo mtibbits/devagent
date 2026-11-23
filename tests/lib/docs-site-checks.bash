@@ -1290,3 +1290,22 @@ check_merge_forward_docs() {
   [ -n "$first" ] && [ -n "$mf" ] || { echo "$skel: no [project.{{PROJECT}}.merge_forward] block" >&2; return 1; }
   [ "$mf" -gt "$first" ] || { echo "$skel: the merge_forward block precedes [project.{{PROJECT}}]" >&2; return 1; }
 }
+
+# check_required_checks_docs <skel> <config-page> <spec> — #1097: the required-checks
+# keys are documented where an operator sets them, with the facts a reader must not
+# miss (config per host, branch protection, the operator-only ack, a job that runs on
+# every PR, the residual the static check leaves), and the spec carries the
+# four-field `pass` line and names the keys in row 20.
+check_required_checks_docs() {
+  local skel="$1" page="$2" spec="$3" t
+  _need "$skel" "$page" "$spec" || return 2
+  _has "$skel" '# required_checks = [' 'no commented required_checks sample' || return 1
+  _has "$skel" '# required_checks_paths = [' 'no commented required_checks_paths sample' || return 1
+  for t in 'required_checks_paths' 'every host' 'branch protection' '.devagent-selfcert-ack' \
+           'operator only' 'every PR' 'not covered'; do
+    _has "$page" "$t" "the required checks section lacks '$t'" || return 1
+  done
+  _has "$spec" $'pass     <name>  <link>  <CONCLUSION>' 'no four-field pass line' || return 1
+  grep -E '^\| 20 \| `/devagent:mergemr`' "$spec" | grep -qF 'required_checks' \
+    || { echo "$spec: row 20 does not name required_checks" >&2; return 1; }
+}

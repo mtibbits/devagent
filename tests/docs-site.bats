@@ -1354,3 +1354,33 @@ rr_fixture() {
   d="$(rr_fixture)"; edit "$d/README.md" '## Versioning & releases' '## Releases'
   breaks 'Versioning & releases' check_release_recheck "$d/README.md" "$d/policy.md"
 }
+
+# ---- #1097: required checks -------------------------------------------------------------
+
+RC_SKEL="$PLUGIN_ROOT/templates/config.toml.skel"
+RC_SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+
+@test "#1097 required checks docs hold" {
+  holds check_required_checks_docs "$RC_SKEL" "$CONFIG_DOC" "$RC_SPEC"
+}
+
+@test "#1097 mutation: required checks docs" {
+  local d="$BATS_TEST_TMPDIR/rc" t
+  mkdir -p "$d"
+  _rc_copy() { cp "$RC_SKEL" "$d/skel"; cp "$CONFIG_DOC" "$d/page"; cp "$RC_SPEC" "$d/spec"; }
+  _rc_copy; holds check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  edit "$d/skel" '# required_checks = [' '# requiredchecks = ['
+  breaks 'required_checks sample' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  _rc_copy; edit "$d/skel" '# required_checks_paths = [' '# requiredchecks_paths = ['
+  breaks 'required_checks_paths sample' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  for t in 'required_checks_paths' 'every host' 'branch protection' '.devagent-selfcert-ack' \
+           'operator only' 'every PR' 'not covered'; do
+    _rc_copy; edit "$d/page" "$t" 'XXXX'
+    breaks "lacks '$t'" check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  done
+  _rc_copy; edit "$d/spec" $'pass     <name>  <link>  <CONCLUSION>' $'pass     <name>  <link>'
+  breaks 'four-field pass line' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  _rc_copy
+  sed -i '/^| 20 | `\/devagent:mergemr`/s/required_checks/requiredchecks/g' "$d/spec"
+  breaks 'row 20' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+}
