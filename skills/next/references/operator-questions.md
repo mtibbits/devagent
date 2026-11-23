@@ -7,6 +7,10 @@ format, the STUCK it becomes and the exit table are in the spec (§5.3, §7.3,
 
 ## Two modes
 
+No step may call `hold.sh` until #963 and #964 have both landed: before then a
+hold could not be answered, or could be undone. Until then an `ASK:` line comes
+only from a question record already on disk.
+
 A step that needs a decision writes a question file (`## Question`,
 `## Impediment`, `## Options`, `## Evidence`; one option `(recommended)`) and
 runs `bash "${CLAUDE_PLUGIN_ROOT}/scripts/hold.sh" <project> <issue> --step <step> --reason "<one line>" --question-file <path>`.

@@ -146,7 +146,10 @@ declare -gA EARLY_READ=(
     DEVAGENT_UNATTENDED="$m" run --separate-stderr "$S/hold.sh" wid Issue-7 --step draft --reason r --question-file "$q"
     [ "$status" -eq 11 ] || { echo "marker=$m rc=$status err=$stderr" >&2; return 1; }
     [ "$stderr" = "$want" ]
-    [ ! -e "$D/STUCK" ] || ! grep -q '^Kind:' "$D/STUCK"
+    if [ -e "$D/STUCK" ]; then
+      run grep -q '^Kind:' "$D/STUCK"
+      [ "$status" -ne 0 ]
+    fi
     [ ! -e "$D/questions" ]
   done
   [ "$(_sha "$STATE")" = "$st" ]

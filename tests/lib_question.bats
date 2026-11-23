@@ -274,7 +274,8 @@ Other options: b' ]
 @test "question: the next number skips numbers named in the log" {
   printf '%s\n' '- [~]  5. improve' '' '## Log' \
     '- 2026-11-20 10:31  improve: hold line written for question 04' > "$D/checklist.md"
-  [ ! -e "$D/questions" ] && [ ! -e "$D/STUCK" ]
+  [ ! -e "$D/questions" ]
+  [ ! -e "$D/STUCK" ]
   [ "$(question_next_number "$D")" = 05 ]
 }
 
@@ -336,6 +337,7 @@ Other options: b' ]
     [ "$(ls "$BATS_TEST_TMPDIR/race"/win"$i".* | wc -l)" -eq 1 ]
     w="$(cat "$BATS_TEST_TMPDIR/race"/win"$i".*)"
     [ "$(cat "$BATS_TEST_TMPDIR/race/T$i")" = "$w" ]
-    [ ! -e "$BATS_TEST_TMPDIR/race/$i.x" ] && [ ! -e "$BATS_TEST_TMPDIR/race/$i.y" ]
+    [ ! -e "$BATS_TEST_TMPDIR/race/$i.x" ]
+    [ ! -e "$BATS_TEST_TMPDIR/race/$i.y" ]
   done
 }

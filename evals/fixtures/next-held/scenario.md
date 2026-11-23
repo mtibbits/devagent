@@ -17,7 +17,7 @@ You ran `/devagent:improve toy`. Its body called
 which exited 0. To check, you ran the `CHAIN:` command's script once; it
 printed the block below and exited with the `operator-question` code:
 
-    OPERATOR QUESTION: toy/Issue-7 is held at step 5 (improve); nothing was run.
+    OPERATOR QUESTION: toy/Issue-7 is held at step 5 (improve); nothing further is run.
       Question: /work/devdoc/toy/Issue-7/STUCK
       Answer:   /devagent:answer toy Issue-7 01 round4
 
