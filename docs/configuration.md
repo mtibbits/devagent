@@ -209,7 +209,9 @@ these two stops:
 
 - **Rule 20, `CI NOT CHECKED`**, whatever `merge_mr` says: the code backend cannot
   report checks (no `mr-checks`), so nothing can say the check succeeded. Check it by
-  hand, merge the PR by hand, then run `/devagent:unstuck`.
+  hand, merge the PR by hand, then run `/devagent:unstuck`. Where the step cannot read
+  the PR's state either (no `mr-view` on github, no `mr-state` elsewhere), no later run
+  can see the merge: also mark the step `[x]` with `/devagent:checklist-mark`.
 - **Rule 21, a self-certifying diff**, with `merge_mr = true` (under `false` it is
   reported only): the PR changes a file under
   `.github/workflows/`, a `required_checks_paths` path, or a `gitbash` tag line a test
@@ -238,8 +240,9 @@ has no Git Bash skip guard; it records `deferred to CI at merge: <check name>`, 
 step 20 enforces the rest. It also prints a `self-certification warning:` line when the
 diff would stop at rule 21. A listed name proves only that the project requires the
 check, not that the check runs the tagged files. The skip guard is read against a
-fixed model of the job's host (MINGW64, `uname -o` `Msys`, `OSTYPE` `msys`); a guard
-it cannot read fails the check rather than pass it.
+fixed model of the job's host (MINGW64, `uname -o` `Msys`, `OSTYPE` `msys`). A
+single-line guard it cannot read fails the check rather than pass it; the shapes it
+does not see at all (below) pass.
 
 **Fallback transcript.** Only where `issue.md` says why the job cannot exercise the
 behaviour, or the code backend has no `mr-checks`, a hand-run Git Bash transcript at
@@ -256,7 +259,9 @@ needs the line too, or its drafts get no criterion.
 without a reason, not that one particular test ran. The static check reads a guard in
 the named test and in one level of helper it calls; a conditional skip deeper in the
 test (a guard spread over several lines, a multi-line `if` block, a nested helper) is
-not covered. `scripts/preship-deferred.sh` lists its known misses at its code.
+not covered, nor are some helper shapes (a subshell body, a hyphenated name, a body
+ended early by a redirected or heredoc `}`). `scripts/preship-deferred.sh` lists every
+known miss at its code, and a fixture pins each one.
 
 ## Capacity
 

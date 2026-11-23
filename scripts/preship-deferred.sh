@@ -285,6 +285,13 @@ _show() {
 #     with a backslash; an early return (`is_git_bash || return 0`, then `skip`); a
 #     case over several lines whose skipping arm does not name Git Bash;
 #   - a helper that calls a helper, and a helper kept in another file;
+#   - a helper this does not register: a subshell body `name() (`, a hyphenated name,
+#     a blank line between `name()` and its `{`, a definition that does not start its
+#     line (`_a() { :; }; name() {`);
+#   - a helper whose body ends early: a line at its indent that closes a brace group
+#     with a redirection (`} >&2`), or a heredoc line `}`, before its guard;
+#   - a Git Bash arm this does not open: an extglob pattern (`@(MINGW|MSYS)*)`) on its
+#     own line;
 #   - a skip in setup();
 #   - `is_git_bash` taken at its word: it is read as true on the job's host, whatever
 #     the file, or a file it loads, defines it to be;

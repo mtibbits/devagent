@@ -41,8 +41,9 @@ Args: `<capture-slug>`
    when it prints one or more checks, replace the marker line with the
    required-check criterion comment `capture.sh` writes, naming them; when it
    prints nothing, or there is no `DEVAGENT_PROJECT`, delete the marker line.
-   On a non-zero exit, report its stderr as a warning and delete the marker
-   (scaffolding is not a gate).
+   On a non-zero exit, stop and report its stderr, as `core-scaffold` does: a
+   list that cannot be read is never "none" (devagent Issue-713). (`capture.sh`,
+   which also runs without an agent, warns and drops the block instead.)
 
 4. Print the list of created child paths.
 

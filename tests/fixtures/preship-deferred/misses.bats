@@ -19,6 +19,38 @@ _returns_early_then_skips() {
   skip "the helper returned early on every other host"
 }
 
+# Helper shapes the reader does not register, or whose body it ends early.
+_skip_gb_subshell() (
+  is_git_bash && skip "a subshell body (bats cannot skip from one; the shape is the miss)"
+)
+
+skip-gb-hyphen() {
+  is_git_bash && skip "a hyphenated name"
+}
+
+_skip_gb_blank()
+
+{
+  is_git_bash && skip "a blank line before the brace"
+}
+
+_noop() { :; }; _skip_gb_second() {
+  is_git_bash && skip "a definition that does not start its line"
+}
+
+_skip_gb_closer() {
+  { echo "a brace group"
+} >&2
+  is_git_bash && skip "after a closing brace with a redirection at the function's indent"
+}
+
+_skip_gb_heredoc() {
+  cat >/dev/null <<'SH'
+}
+SH
+  is_git_bash && skip "after a heredoc line holding a closing brace"
+}
+
 @test "miss: a skip in setup" {
   true
 }
@@ -57,6 +89,44 @@ _returns_early_then_skips() {
     *)
       skip "POSIX hosts only"
       ;;
+  esac
+  true
+}
+
+@test "miss: a helper with a subshell body" {
+  _skip_gb_subshell
+  true
+}
+
+@test "miss: a helper with a hyphenated name" {
+  skip-gb-hyphen
+  true
+}
+
+@test "miss: a helper whose brace follows a blank line" {
+  _skip_gb_blank
+  true
+}
+
+@test "miss: a helper defined after another on its line" {
+  _skip_gb_second
+  true
+}
+
+@test "miss: a helper with a redirected closing brace before its guard" {
+  _skip_gb_closer
+  true
+}
+
+@test "miss: a helper with a heredoc brace before its guard" {
+  _skip_gb_heredoc
+  true
+}
+
+@test "miss: an extglob Git Bash arm on its own line" {
+  case "$(uname -s)" in
+    @(MINGW|MSYS)*)
+      skip "an extglob arm" ;;
   esac
   true
 }

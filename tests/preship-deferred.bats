@@ -447,7 +447,11 @@ _passes() {
     local t n=0
     for t in "miss: a skip in setup" "miss: a helper from another file" "miss: no line names Git Bash" \
              "miss: a backslash continuation" "miss: an early return" "miss: a helper that returns early" \
-             "miss: a case over several lines, default arm" "miss: a guard after a heredoc that holds a closing brace"; do
+             "miss: a case over several lines, default arm" "miss: a guard after a heredoc that holds a closing brace" \
+             "miss: a helper with a subshell body" "miss: a helper with a hyphenated name" \
+             "miss: a helper whose brace follows a blank line" "miss: a helper defined after another on its line" \
+             "miss: a helper with a redirected closing brace before its guard" \
+             "miss: a helper with a heredoc brace before its guard" "miss: an extglob Git Bash arm on its own line"; do
         _static tests/misses.bats "$t"
         _deferred || { echo "for '$t'"; return 1; }
         n=$((n + 1))

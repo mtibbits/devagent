@@ -92,8 +92,9 @@ verification passed; FAIL otherwise).
    reason), or the `code backend:` line says `mr-checks: no`. Then add
    `transcript '<test file>'` instead; exit 1 is FAIL with the printed line. On
    exit 0, read the transcript the printed line names and quote the named test's
-   `ok` line: PASS. A `not ok` line, a `# skip` on it, or no line for that test: FAIL. A criterion that an issue already open words as a hand
-   transcript is verified as worded.
+   `ok` line: PASS. A `not ok` line, a `# skip` on it, or no line for that test:
+   FAIL. A criterion that an issue already open words as a hand transcript is
+   verified as worded.
 
    Any other exit of a call above: FAIL, could not run (quote stderr).
 2. **Findings applied and committed.** Every BLOCKING/MAJOR (or
