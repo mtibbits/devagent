@@ -120,7 +120,7 @@ _class_assign() {
   # the bash script (run-suite.sh / born-red.sh). Grep shipped source only — NOT
   # tests/, which necessarily names the forbidden strings here.
   run grep -rnE '/devagent:(run-suite|born-red)' \
-      "$REPO/scripts" "$REPO/commands" "$REPO/skills" "$REPO/templates"
+      "$REPO/scripts" "$REPO/libexec" "$REPO/commands" "$REPO/skills" "$REPO/templates"
   # rc-precise (#337): rc 1 = clean no-match; rc 2 = grep error must not false-pass.
   [ "$status" -eq 1 ] || { echo "phantom invocation (or grep error):" >&2; echo "$output" >&2; return 1; }
 }

@@ -91,10 +91,12 @@ merged_closeout() {
     "$(checklist_active_step_state_by_name "$1" ship 2>/dev/null || true)" == - ]]
 }
 
-# dispatch_wrap_line <project> — #932: in an unattended session, the one line
-# after the dispatch header that tells the session how to run a long command so
-# that its output counts as progress (libexec/long-run.sh). Prints nothing in an
-# attended session.
+# dispatch_wrap_line <project> — #932: in an unattended session whose launcher
+# also opted in with DEVAGENT_WATCHDOG_WRAP (it grants the wrapper's rule), the
+# one line after the dispatch header that tells the session how to run a long
+# command so that its output counts as progress (libexec/long-run.sh). Prints
+# nothing otherwise: without the launcher's rule the wrapped form is denied, and
+# models stop there rather than run the command unwrapped.
 # The sentence has this ONE home. This wording passed the wrapping-line eval
 # (Issue-932 Task 6, 2026-11-20, Claude Code 2.1.329: haiku 14/15 and opus 15/15
 # long commands wrapped, no service wrapped, --silent passed 3/3, none through
@@ -109,6 +111,7 @@ merged_closeout() {
 # skills' `scripts/*` grants must not reach a run-any-command wrapper.
 dispatch_wrap_line() {
   devagent_unattended || return 0
+  [[ -n "${DEVAGENT_WATCHDOG_WRAP:-}" ]] || return 0
   local rc=0 secs shown="$PLUGIN_ROOT" converted wrapper
   watchdog_limit watchdog_telemetry_secs "$1" || rc=$?
   secs="${WATCHDOG_LIMIT:-}"

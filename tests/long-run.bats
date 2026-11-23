@@ -475,6 +475,24 @@ sys.stdout.buffer.write(bytes(range(256)) * 50 + b"a\r\nb\rc\n\x00tail")' > "$TM
   [ "$(cd "$DA_HOME/state" && find . -type f | grep -vc '^\./watchdog/')" -eq 0 ]
 }
 
+@test "logs are private to the user" {
+  run --separate-stderr unatt bash "$L" -- bash -c 'echo out; echo err >&2'
+  [ "$status" -eq 0 ]
+  run --separate-stderr unatt bash "$L" --merge echo merged
+  [ "$status" -eq 0 ]
+  # Git Bash has no POSIX file modes (stat reports what the ACL maps to), so
+  # there the run only has to leave its three logs; the modes are checked
+  # where they are real.
+  local f n=0 modes=1
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) modes=0 ;; esac
+  (( ! modes )) || [ "$(stat -c %a "$LOGS")" = 700 ] || { echo "dir mode $(stat -c %a "$LOGS")" >&2; return 1; }
+  for f in "$LOGS"/*.log; do
+    (( ! modes )) || [ "$(stat -c %a "$f")" = 600 ] || { echo "$f: $(stat -c %a "$f")" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 3 ]
+}
+
 @test "each run's log starts with its start line and ends with its end line" {
   run --separate-stderr unatt bash "$L" --merge -- bash -c 'echo body; exit 4'
   [ "$status" -eq 4 ]
@@ -861,7 +879,7 @@ shim_path() {
   done
 }
 
-@test "the wrapper is outside scripts/, where no skill grant reaches it, and the CI gates still read it" {
+@test "the wrapper is outside scripts/, past the skills' grant prefix, and the CI gates still read it" {
   [ ! -e "$PLUGIN_ROOT/scripts/long-run.sh" ]
   # the two grant shapes every command and skill carries end at scripts/
   run grep -rhoE 'Bash\(bash "\$\{CLAUDE_PLUGIN_ROOT\}/[a-z]+/' "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/agents"
@@ -870,4 +888,18 @@ shim_path() {
   # the shellcheck gate and the step-number census name libexec
   grep -q 'find scripts libexec -name "\*\.sh"' "$PLUGIN_ROOT/.github/workflows/shellcheck-scripts.yml"
   grep -q "'libexec'" "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py"
+}
+
+@test "a path through scripts/.. or with a . segment is refused before the command runs (the grant matches it as text)" {
+  local p
+  for p in "$PLUGIN_ROOT/scripts/../libexec/long-run.sh" "$PLUGIN_ROOT/libexec/./long-run.sh"; do
+    run --separate-stderr bash "$p" echo SHOULD-NOT-RUN
+    [ "$status" -eq 2 ] || { echo "$p: rc=$status out=$output err=$stderr" >&2; return 1; }
+    [ -z "$output" ]
+    [[ "$stderr" == *"long-run: refused: run this wrapper by its own path"* ]]
+  done
+  # control: the canonical path runs the command
+  run --separate-stderr bash "$PLUGIN_ROOT/libexec/long-run.sh" echo RAN
+  [ "$status" -eq 0 ]
+  [ "$output" = RAN ]
 }

@@ -218,10 +218,12 @@ bash scripts/watchdog.sh check <project> <issue> --transcript <path> --since <la
 
 prints `ok` (exit 0) or one `stalled no-progress …` line (exit 3); exit 1 means
 it could not tell, and exit 2 a wrong call. It kills nothing and writes
-nothing. In an unattended session `next` tells the session to run long commands
-under `libexec/long-run.sh`, so that their output counts as progress. Granting
-that wrapper a permission rule is the same as allowing every command, which is
-why no devagent command or skill grants it. The limits are four optional config
+nothing. In an unattended session whose launcher also sets
+`DEVAGENT_WATCHDOG_WRAP`, `next` tells the session to run long commands under
+`libexec/long-run.sh`, so that their output counts as progress. Granting that
+wrapper a permission rule is the same as allowing every command, which is why
+no devagent command or skill grants it, and a launcher sets
+`DEVAGENT_WATCHDOG_WRAP` only once it has granted it. The limits are four optional config
 keys (`docs/configuration.md`, "Watchdog limits"); the progress sources, the
 transcript recipe, the state layout and the permission rule are in spec §7.3,
 "The no-progress watchdog".
@@ -689,8 +691,8 @@ passes no `--filter-tags`.
 Every test file must be hermetic: one stray `export DEVAGENT_ACTIVE_ISSUE=…` in a
 developer's shell must not change a verdict. `tests/lib/hermetic-env.bash` is the
 single home for that — it unsets the #240 session pins, a launcher's
-`DEVAGENT_UNATTENDED` marker, and the watchdog's `CLAUDE_CODE_SESSION_ID` and
-`DEVAGENT_WATCHDOG_TRANSCRIPT`, and neutralizes a hostile global gitconfig, `TZ`, and
+`DEVAGENT_UNATTENDED` marker, and the watchdog's `CLAUDE_CODE_SESSION_ID`,
+`DEVAGENT_WATCHDOG_TRANSCRIPT` and `DEVAGENT_WATCHDOG_WRAP`, and neutralizes a hostile global gitconfig, `TZ`, and
 locale. How a file gets it depends on its shape:
 
 - A file that `load`s a setup layer (`load 'lib/bats-helpers'`, `load 'helpers/fixtures'`)

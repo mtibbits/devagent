@@ -85,9 +85,20 @@
 # It lives outside scripts/ on purpose: every command and skill grants
 # `bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *`, and a wrapper that runs any
 # command must not ride that grant. A launcher that wants it auto-approved
-# grants it by name, which is the same as allowing every command.
+# grants it by name, which is the same as allowing every command. Claude Code
+# matches Bash rules on the text without resolving `..` (measured 2026-11-23,
+# 2.1.330: `bash "<root>/scripts/../libexec/long-run.sh" …` ran under the
+# skills' grant alone), so a path to this file with a `.` or `..` segment is
+# refused before anything runs.
 
 set -u
+
+_lr_self="${BASH_SOURCE[0]//\\//}"
+case "$_lr_self" in
+  */../*|*/./*)
+    echo "long-run: refused: run this wrapper by its own path, without '.' or '..' segments (got ${BASH_SOURCE[0]})" >&2
+    exit 2 ;;
+esac
 
 _DEVAGENT_NO_ENTRY_BEAT=1
 
@@ -271,7 +282,11 @@ if (( watched )); then
   heartbeat_touch "wrap.${run}"
 fi
 
-if [[ -n "$log_dir" && ! -d "$log_dir" ]] && ! mkdir -p "$log_dir" 2>/dev/null; then
+# A log holds the command's whole output, so the directory is 0700 and each
+# log 0600 (the pump creates a rotated log 0600 too). Only logs/ itself needs
+# the mode: its parents hold no output.
+# shellcheck disable=SC2174
+if [[ -n "$log_dir" && ! -d "$log_dir" ]] && ! mkdir -p -m 700 "$log_dir" 2>/dev/null; then
   lr_warn "cannot create $log_dir; this run keeps no log"
   log_dir="" pump_log_dir=""
 fi
@@ -299,7 +314,11 @@ lr_note() {
   local f
   (( ${#logs[@]} )) || return 0
   for f in "${logs[@]}"; do
-    { printf '%s\n' "$1" >> "$f"; } 2>/dev/null || true
+    if [[ -e "$f" ]]; then
+      { printf '%s\n' "$1" >> "$f"; } 2>/dev/null || true
+    else
+      ( umask 077; printf '%s\n' "$1" >> "$f" ) 2>/dev/null || true
+    fi
   done
 }
 

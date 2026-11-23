@@ -2,8 +2,9 @@
 # bats file_tags=gitbash
 # tests/watchdog-dispatch.bats — #932: what next.sh's dispatch does for the
 # watchdog. In an unattended session it records the step in the session's
-# heartbeat directory and prints one wrapping line after the `dispatch:` header;
-# in an attended one it does neither.
+# heartbeat directory, and prints one wrapping line after the `dispatch:` header
+# when the launcher also sets DEVAGENT_WATCHDOG_WRAP; in an attended one it does
+# neither.
 # Method (tests/next-backing.bats): the REAL next.sh runs from a copied tree in
 # which the one script-backed step used here is a stub, so no real commit runs.
 # The wrapping line's sentence is the one the wrapping-line eval passed (see
@@ -58,7 +59,8 @@ row() {
 
 # nxt [<env assignment>...] — the staged next.sh for project p.
 nxt()      { run --separate-stderr env "$@" bash "$root/scripts/next.sh" p; }
-watched()  { nxt DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID"; }
+watched()  { nxt DEVAGENT_UNATTENDED=1 DEVAGENT_WATCHDOG_WRAP=1 "CLAUDE_CODE_SESSION_ID=$ID"; }
+marked()   { nxt DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID"; }
 attended() { nxt "CLAUDE_CODE_SESSION_ID=$ID"; }
 
 # wrap_lines — the stdout lines that start "long-run: ".
@@ -190,10 +192,27 @@ header_then_wrap() {
 
   # marked, but no usable session id: the line (the session is still watched
   # through its transcript), and nothing written
-  nxt DEVAGENT_UNATTENDED=1
+  nxt DEVAGENT_UNATTENDED=1 DEVAGENT_WATCHDOG_WRAP=1
   [ "$status" -eq 0 ]
   [ "$(wrap_lines)" -eq 1 ]
   [ ! -e "$WD" ]
+}
+
+@test "marked but not opted in: the dispatch is recorded and no wrapping line" {
+  row 2 draft
+  watched
+  [ "$status" -eq 0 ]
+  [ "$(wrap_lines)" -eq 1 ]
+  local watched_out="$output"
+  rm -rf "$WD"
+
+  # DEVAGENT_UNATTENDED without DEVAGENT_WATCHDOG_WRAP: the launcher has not
+  # granted the wrapper's rule, so the line would steer to a denied command
+  marked
+  [ "$status" -eq 0 ]
+  [ "$(wrap_lines)" -eq 0 ] || { echo "out=$output" >&2; return 1; }
+  [ -f "$WD/$ID/dispatch" ]
+  [ "$output" = "$(grep -v '^long-run: ' <<<"$watched_out")" ]
 }
 
 @test "a failed heartbeat write leaves next's exit and stdout unchanged" {

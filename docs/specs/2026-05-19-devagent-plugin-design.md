@@ -1615,6 +1615,8 @@ the transcript's name before the session starts:
 id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 DEVAGENT_UNATTENDED=1 claude -p "/devagent:next <project> --auto" --session-id "$id" &
+# add DEVAGENT_WATCHDOG_WRAP=1 only once the launcher grants the wrapper's rule
+# (see "The permission rule a launcher needs" below)
 
 # each poll:
 transcript="$(ls ~/.claude/projects/*/"$id".jsonl 2>/dev/null)"
@@ -1758,8 +1760,8 @@ test names are in `tests/long-run.bats` too.
   stderr and starts `long-run: `.
 - Logs. One writer per file, because Windows emulates `O_APPEND` as a seek and
   a write and two appenders to one file overwrite each other (2 of 100
-  two-stream runs lost log lines on Git Bash before the split; devDoc
-  `Issue-932/spike.md`, R2-U1). So a `--merge` run writes `<id>.<run>.log`, a
+  two-stream runs lost log lines on Git Bash before the split, measured
+  2026-11-20). So a `--merge` run writes `<id>.<run>.log`, a
   two-stream run writes `.out.log` and `.err.log`, and two runs of one session
   never share a file (`concurrent runs of one session write separate logs`).
   Each log reads alone: first line `start`, then that stream's bytes with a
@@ -1779,6 +1781,10 @@ test names are in `tests/long-run.bats` too.
   file open on Windows) it is emptied in place instead (`the log and .log.1
   each stay within the cap`, `a failed rotation keeps the log within the cap`,
   `the pump leaves room under the cap for the wrapper's end line`).
+  A log holds the command's complete output, including output the caller
+  discards (a leg sent to `/dev/null` is still logged), so the log directory is
+  created `0700` and each log `0600` (`logs are private to the user`, checked
+  where file modes are real).
 - The `quiet` line. `<threshold>` is the project's `watchdog_telemetry_secs`,
   or the declared window when that is larger; the project is `--project`, else
   `DEVAGENT_ACTIVE_PROJECT`, else `[defaults]` (`the interval's project is
@@ -1794,11 +1800,18 @@ test names are in `tests/long-run.bats` too.
   (`no marker: no state/watchdog/<id>/ directory, identical bytes and exit
   code, the log exists`, `no valid id: the log is no-session.<run>.log`).
 
-**The wrapping line.** In a marked session `next.sh` prints one line straight
-after its `dispatch:` header, and nothing in an attended one
+**The wrapping line.** In a marked session whose launcher also sets
+`DEVAGENT_WATCHDOG_WRAP` (any non-empty value), `next.sh` prints one line
+straight after its `dispatch:` header; in any other session it prints nothing
 (`tests/watchdog-dispatch.bats`: `the wrapping line follows the header and
 names the wrapper path and the project's interval`, `no marker: no wrapping
-line and no state/watchdog directory`). `<interval>` is the project's
+line and no state/watchdog directory`, `marked but not opted in: the dispatch
+is recorded and no wrapping line`). The opt-in is separate from the marker
+because the line asks for a command form that only the launcher's own rule
+lets through (below): a launcher that sets the marker under a narrow
+allowlist, and has not granted that rule, would otherwise have its sessions'
+long commands denied, and the eval saw models stop there rather than run the
+command unwrapped. `<interval>` is the project's
 `watchdog_telemetry_secs`; a value that cannot be read prints the shipped 180
 and one warning, and the dispatch goes on (`a malformed interval prints the
 line with 180 s and one warning, and next exits as before`):
@@ -1814,8 +1827,7 @@ measured on Claude Code 2.1.329, 2026-11-20, through `claude -p
 "/devagent:next <project>"` with both the Bash and PowerShell tools offered:
 long commands wrapped in 14 of 15 runs (haiku) and 15 of 15 (opus), no service
 wrapped in 3 of 3, `--silent` passed for a declared command in 3 of 3, and no
-wrap issued through PowerShell (devDoc
-`Issue-932/analysis/2026-11-20-t6-wrapline-eval-run.txt`). A rewording needs
+wrap issued through PowerShell (42 sessions in all). A rewording needs
 that eval again. In those runs the models put most wrapped commands in the
 background and wrote every chain, pipeline and `VAR=1` command as `bash -c
 '<the whole line>'`.
@@ -1831,11 +1843,16 @@ permission rule written from the line matches the command the model issues
 `Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`, and in a Bash rule `*`
 matches any text, `/` included, so a wrapper anywhere under `scripts/` would
 turn those grants into "run any command" (Claude Code's permission
-documentation, read 2026-11-20; devDoc
-`Issue-932/analysis/2026-11-20-t6-s1-matcher.md`). No grant in the plugin
-reaches `libexec/` (`tests/long-run.bats`: `the wrapper is outside scripts/,
-where no skill grant reaches it, and the CI gates still read it`). A launcher
-that wants its sessions to wrap without a prompt adds one rule of its own:
+documentation, read 2026-11-20). The match is also on the text alone: `..` is
+not resolved. Measured on 2.1.330, 2026-11-23, with only those two grants
+allowed: `bash "<plugin_root>/scripts/../libexec/long-run.sh" echo …` ran with
+no prompt, while `bash "<plugin_root>/libexec/long-run.sh" echo …` was denied.
+So the wrapper refuses, exit 2 before the command runs, when the path it was
+started by has a `.` or `..` segment (`tests/long-run.bats`: `a path through
+scripts/.. or with a . segment is refused before the command runs (the grant
+matches it as text)`): the grants can reach it only in a spelling it will not
+run. A launcher that wants its sessions to wrap without a prompt adds one rule
+of its own:
 
 ```
 Bash(bash "<plugin_root>/libexec/long-run.sh" *)
@@ -1843,7 +1860,8 @@ Bash(bash "<plugin_root>/libexec/long-run.sh" *)
 
 with `<plugin_root>` spelled exactly as the wrapping line prints it. **Granting
 this rule is the same as allowing every command**: the wrapper runs `bash -c
-'<anything>'`. A launcher grants it only where it would grant `Bash(*)`.
+'<anything>'`. A launcher grants it only where it would grant `Bash(*)`, and
+sets `DEVAGENT_WATCHDOG_WRAP` only once it has.
 Measured on 2.1.329, 2026-11-20, with the rule as the only one that could match
 the wrapper: wrapped calls ran (2 of 2); with it removed Claude Code answered
 `This command requires approval` (2 of 2). Also measured, with the rule
@@ -1940,8 +1958,7 @@ value that cannot be read warns once and the derived window stands in
 (`tests/analyze-sanitizers.bats`: `a malformed analyze_silent_secs warns once
 and the legs take the derived window (#932)`).
 
-How those commands write, measured 2026-11-20 (devDoc `Issue-932/spike.md`, U5
-and R2-U2): `bats --tap` writes one line per finished test and `pytest -q` one
+How those commands write, measured 2026-11-20: `bats --tap` writes one line per finished test and `pytest -q` one
 byte, so the longest gap is the longest single test; `cmake` configure, a
 Makefile build and `ctest` flush per line into a pipe, so a leg's longest
 silence is its longest single compile or test (6.0 s for a test that sleeps 6 s

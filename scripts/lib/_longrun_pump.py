@@ -86,7 +86,7 @@ class Log(object):
         if not self.path:
             return
         flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
-        fd = os.open(self.path, flags, 0o644)
+        fd = os.open(self.path, flags, 0o600)
         try:
             size = os.fstat(fd).st_size
             if size > 0 and size + len(data) > self.limit:
@@ -97,7 +97,7 @@ class Log(object):
                     os.replace(self.path, self.path + ".1")
                 except OSError:
                     extra = os.O_TRUNC
-                fd = os.open(self.path, flags | extra, 0o644)
+                fd = os.open(self.path, flags | extra, 0o600)
             write_all(fd, data)
         finally:
             if fd >= 0:

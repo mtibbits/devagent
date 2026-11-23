@@ -29,7 +29,7 @@ FLAG_RE='templates/[^"]*\.md"'
 ALLOWLIST_RE='/(template_resolve|potholes|artifact|checklist)\.sh:'   # potholes.sh (#611) is resolver code beside template_resolve.sh
 
 @test "no templates/<key>.md concatenation outside the resolver/fallback allowlist (#425)" {
-  run grep -rnE "$FLAG_RE" "$REPO/scripts"
+  run grep -rnE "$FLAG_RE" "$REPO/scripts" "$REPO/libexec"   # #932: libexec is a code root too
   # rc 0 = matches (the allowlisted concatenations), rc 1 = none, rc 2 = grep error
   # (dir unreadable) which a bare `-ne 0` would false-pass.
   [ "$status" -ne 2 ] || { echo "grep error over scripts/:" >&2; echo "$output" >&2; return 1; }
