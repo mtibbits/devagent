@@ -86,7 +86,8 @@ config_load
 unset "${!PORTFOLIO_@}"
 # #735: build copies <devagent_home>/actuals.json (scripts/actuals.sh) into the
 # actuals slots; it only reads the file.
-export PORTFOLIO_ACTUALS="$(devagent_home)/actuals.json"
+PORTFOLIO_ACTUALS="$(devagent_home)/actuals.json"
+export PORTFOLIO_ACTUALS
 list="$(config_list_projects)" || die "cannot list the projects in $(config_path)"
 if [[ -n "$ready" ]]; then
   args=(ready)
