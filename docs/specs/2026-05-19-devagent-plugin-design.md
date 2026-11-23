@@ -3612,6 +3612,9 @@ cross-field invariants I1–I17; the checker's exit 0 alone is not correctness.
 Since schema 1.2 (#890) the document also publishes each leaf's planned
 `models`, from its `thinking`/`checking` keys, else the project's
 `step_models`; it records the plan, not the model a step ran on.
+Since schema 1.3 (#735) it also carries actuals: each IssueEntry's `actuals`
+slot, an optional project `actuals` field and a top-level `actuals`, copied
+from `<devagent_home>/actuals.json` (§13.6).
 
 #727 fills the readiness fields (`ready`, `ready_via_parent_row`,
 `depends_on[].resolved`) by the rule in `commands/portfolio.md`, and
@@ -3758,6 +3761,35 @@ calls plus one per further page of a truncated timeline, on GitLab N calls.
 devagent's default scope was about 700 ids (≈ 15 GraphQL batches) at #734's
 draft; the command doc gives the Bash call the longest tool timeout
 (600000 ms).
+
+### 13.6 Actuals (#735)
+
+`/devagent:actuals [--archive DIR] [--project P] [--out PATH | --stdout] [--if-stale]`
+(`scripts/actuals.sh`, core `scripts/lib/actuals.py`) builds one versioned JSON
+document, `<devagent_home>/actuals.json`, that joins per `(project, issue)` what
+`cost-report.sh` charges (tokens in input-token equivalents with raw per-model
+counts beside them, agent and operator time, the sessions they came from) with
+the rows `milestones.sh --all --json` reports (§13.5). It reuses both producers'
+machine output: one cost-report `collect()` pass, serialised through
+cost-report's own JSON, and one milestones run per project (up to 6 at once).
+It writes no devdoc, state or tracker; the document goes owner-only under
+`devagent_home`, and an `--out` under a project's dirs or inside a git work tree
+is refused. Every source consulted is a `sources` row, `ok` or `missing`; a
+missing source never fails the build, and a project whose milestones source is
+missing has null (not empty) milestones. Output is sorted and byte-identical
+over unchanged inputs apart from `generated_at`. The file carries its own
+`actuals_version` (MAJOR.MINOR, the portfolio's version rules); a new minor
+ships with a portfolio schema minor.
+
+The portfolio (§13.4) only reads the file: it never runs a build. It copies
+each row's object unchanged into the matching slot and field, and when the
+file is missing, unreadable, unusable or more than 7 days older than the
+document it leaves them null with one `actuals_unavailable` entry per project.
+Cleanup refreshes the file inside its `[archive]` gate: an age check against
+`[archive].actuals_max_age_hours` (default 24, at most 168), and when stale a
+detached `actuals.sh --if-stale` it does not wait for. Estimates (#736) and
+forecasts (#742) read the same file. The command doc is `commands/actuals.md`;
+the slot shapes are `docs/portfolio-schema.md`, "Actuals".
 
 ## 14. Status reports
 
