@@ -67,10 +67,9 @@ LIB = Path(__file__).resolve().parent
 # Read at call time (a module global, so a test points it at a fixture file).
 OSRELEASE = "/proc/sys/kernel/osrelease"
 KEYS = ("transcripts_dir", "host_id", "exclude", "actuals_max_age_hours")
-# #735: the actuals rebuild age. The cap is the portfolio's 7-day stale line:
-# a larger age would guarantee a stale portfolio.
+# #735: the actuals rebuild age. Its cap (max_age_hours) is the portfolio's
+# stale line: a larger age would guarantee a stale portfolio.
 ACTUALS_MAX_AGE_DEFAULT = 24.0
-ACTUALS_MAX_AGE_CAP = 168.0
 HOST_ID = re.compile(r"(?!\.$)(?!.*\.\.)[A-Za-z0-9._-]+")
 STALE_DAYS = 7
 GIT_TIMEOUT = 30   # an unreachable mount must not hang a close
@@ -176,18 +175,20 @@ def _git_check(resolved: str, label: tuple[str, str] = ARCHIVE_IN_REPO):
 
 
 def max_age_hours(table: dict) -> float:
-    """[archive].actuals_max_age_hours as a float, the default when absent; Refusal unless a finite number 0 < x <= 168."""
+    """[archive].actuals_max_age_hours as a float, the default when absent; Refusal unless a finite
+    number 0 < x <= the portfolio's stale line in hours (168)."""
     if "actuals_max_age_hours" not in table:
         return ACTUALS_MAX_AGE_DEFAULT
     raw = table["actuals_max_age_hours"]
+    cap = 24.0 * _lib("_archive_portfolio", "portfolio.py").pc.ACTUALS_STALE_DAYS
     try:
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             raise ValueError
         hours = float(raw)   # an int too large for a float raises OverflowError
-        if not (math.isfinite(hours) and 0 < hours <= ACTUALS_MAX_AGE_CAP):
+        if not (math.isfinite(hours) and 0 < hours <= cap):
             raise ValueError
     except (ValueError, OverflowError):
-        raise Refusal(f"[archive].actuals_max_age_hours must be a number of hours, 0 < x <= 168: {raw}") from None
+        raise Refusal(f"[archive].actuals_max_age_hours must be a number of hours, 0 < x <= {cap:g}: {raw}") from None
     return hours
 
 

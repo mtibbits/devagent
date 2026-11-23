@@ -1126,13 +1126,10 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
 
 # --- actuals (#735) ---------------------------------------------------------------
 
-# A file this much older than the document is stale: its rows are not copied.
-ACTUALS_STALE_DAYS = 7
-ACTUALS_STAMP = "%Y-%m-%dT%H:%M:%SZ"
 ACTUALS_MISSING = "{path} does not exist; actuals are empty; run /devagent:actuals"
 ACTUALS_UNREADABLE = "{path} could not be read: {detail}; actuals are empty"
 ACTUALS_UNUSABLE = "{path} is not a usable actuals document: {detail}; actuals are empty; run /devagent:actuals"
-ACTUALS_STALE = ("{path} was generated at {at}, more than 7 days before this document; "
+ACTUALS_STALE = ("{path} was generated at {at}, more than {days} days before this document; "
                  "actuals are empty; run /devagent:actuals")
 
 
@@ -1157,9 +1154,10 @@ def read_actuals(path: str, generated_at: str) -> tuple[dict | None, str | None]
     if why is not None:
         return None, ACTUALS_UNUSABLE.format(path=path, detail=_one_line(why))
     at = doc["generated_at"]
-    age = (datetime.strptime(generated_at, ACTUALS_STAMP) - datetime.strptime(at, ACTUALS_STAMP))
-    if age > timedelta(days=ACTUALS_STALE_DAYS):
-        return None, ACTUALS_STALE.format(path=path, at=at)
+    age = (datetime.strptime(generated_at, pc.ACTUALS_STAMP_FORMAT)
+           - datetime.strptime(at, pc.ACTUALS_STAMP_FORMAT))
+    if age > timedelta(days=pc.ACTUALS_STALE_DAYS):
+        return None, ACTUALS_STALE.format(path=path, at=at, days=pc.ACTUALS_STALE_DAYS)
     return doc, None
 
 
@@ -1307,9 +1305,9 @@ def rail(projects: list[ProjectInput], out) -> str | None:
     return None
 
 
-def dumps(doc: dict) -> bytes:
+def dumps(doc: dict, sort_keys: bool = False) -> bytes:
     """The document as UTF-8 with LF line ends; NaN and Infinity refused."""
-    text = json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    text = json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False, sort_keys=sort_keys) + "\n"
     return text.encode("utf-8")
 
 

@@ -169,11 +169,16 @@ def raw_counts(u: dict) -> tuple:
     )
 
 
-def call_cost(u: dict) -> float:
+def weighted(counts) -> float:
+    """The weighted cost of five raw counts in RAW_CLASSES order."""
     total = 0.0
-    for k, n in zip(RAW_CLASSES, raw_counts(u)):
+    for k, n in zip(RAW_CLASSES, counts):
         total += WEIGHTS[k] * n
     return total
+
+
+def call_cost(u: dict) -> float:
+    return weighted(raw_counts(u))
 
 
 def call_model(msg: dict) -> str:
@@ -579,6 +584,10 @@ class Row:
         if raw:
             merge_raw(self.raw, raw)
 
+    def add_sub(self, cost: float, raw: dict):
+        self.sub += cost
+        merge_raw(self.raw, raw)
+
 
 class Tape:
     """One session reduced to the events that move the pair or the step, with the calls between them bucketed.
@@ -695,9 +704,9 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
                 if mid not in seen:
                     seen.add(mid)
                     # raw is added only here and at the subagent fresh list, beside cost (#735).
-                    raw: dict = {}
-                    add_raw(raw, call_model(msg), raw_counts(usage))
-                    row.add(1, context_size(usage), call_cost(usage), raw)
+                    counts = raw_counts(usage)
+                    row.add(1, context_size(usage), weighted(counts))
+                    add_raw(row.raw, call_model(msg), counts)
     return tape
 
 
@@ -763,9 +772,12 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None, skipp
             fresh = [um for mid, um in last.items() if mid not in seen]
             seen.update(last)
             raw: dict = {}
+            cost = 0
             for u, model in fresh:
-                add_raw(raw, model, raw_counts(u))
-            tape.subs.append((tool_use_id, sum(call_cost(u) for u, _ in fresh), bool(fresh), sub_cwd, raw))
+                counts = raw_counts(u)
+                cost += weighted(counts)
+                add_raw(raw, model, counts)
+            tape.subs.append((tool_use_id, cost, bool(fresh), sub_cwd, raw))
     return tape
 
 
@@ -976,15 +988,11 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
         for tool_use_id, cost, fresh, sub_cwd, sub_raw in tape.subs:
             pair, step = launches.get(tool_use_id, START)
             if fresh:
-                r = rows[pair].setdefault(step, Row())
-                r.sub += cost
-                merge_raw(r.raw, sub_raw)
+                rows[pair].setdefault(step, Row()).add_sub(cost, sub_raw)
                 if overhead is not None and pair == START[0]:
                     hint, cwd = places.get(tool_use_id, (None, None))
                     place, _ = _place(hint, cwd or sub_cwd, pdirs, cache)
-                    r = _charge_overhead(overhead, place, step, tape.session, origin)[1]
-                    r.sub += cost
-                    merge_raw(r.raw, sub_raw)
+                    _charge_overhead(overhead, place, step, tape.session, origin)[1].add_sub(cost, sub_raw)
             sources.setdefault(pair, set()).add(origin)
         for pair, a in timed:
             charge(pair, a, launches)
@@ -1102,12 +1110,12 @@ def report_overhead(ov: dict, source: str, summary: bool) -> str:
     return "\n".join(out)
 
 
-def report_overhead_json(ov: dict) -> str:
-    """One JSON object per --overhead line, keys sorted, figures rounded to 2 decimals."""
+def overhead_objects(ov: dict) -> list[dict]:
+    """One object per --overhead line, figures rounded to 2 decimals."""
     out = []
     for (kind, name), o in _overhead_order(ov):
         calls, peak, main, sub = _figures(o.steps)
-        out.append(json.dumps({
+        out.append({
             "calls": calls,
             "cwd": None if kind == "project" else name,
             "main": round(main, 2),
@@ -1119,12 +1127,17 @@ def report_overhead_json(ov: dict) -> str:
             "sources": _sources_json(o.sources),
             "subagents": round(sub, 2),
             "total": round(main + sub, 2),
-        }, sort_keys=True))
-    return "\n".join(out)
+        })
+    return out
 
 
-def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeRules | None = None) -> str:
-    """One JSON object per pair, in report() order, keys sorted, figures rounded to 2 decimals.
+def report_overhead_json(ov: dict) -> str:
+    """One JSON object per --overhead line, keys sorted."""
+    return "\n".join(json.dumps(o, sort_keys=True) for o in overhead_objects(ov))
+
+
+def pair_objects(rows, sessions, sources, times: dict | None = None, rules: TimeRules | None = None) -> list[dict]:
+    """One object per pair, in report() order, figures rounded to 2 decimals.
 
     With rules (--time), each object also carries the pair's time figures (seconds) and the rules as time_rule.
     """
@@ -1143,7 +1156,7 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
                 "returns_after_absence": a.returns,
                 "time_rule": rules.as_json(),
             }
-        out.append(json.dumps({
+        out.append({
             **extra,
             "calls": calls,
             "issue": pair[1],
@@ -1155,8 +1168,13 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
             "sources": _sources_json(sources.get(pair, ())),
             "subagents": round(sub, 2),
             "total": round(main + sub, 2),
-        }, sort_keys=True))
-    return "\n".join(out)
+        })
+    return out
+
+
+def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeRules | None = None) -> str:
+    """One JSON object per pair (pair_objects), keys sorted."""
+    return "\n".join(json.dumps(o, sort_keys=True) for o in pair_objects(rows, sessions, sources, times, rules))
 
 
 def archive_dirs(archive: Path) -> list[Path]:

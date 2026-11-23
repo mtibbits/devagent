@@ -60,6 +60,9 @@ MSG_NOT_PORTFOLIO = 'not a devagent portfolio document (schema is {value!r})'
 ACTUALS_READER = "1.0"
 ACTUALS_STAMP_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 ACTUALS_STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+# A file this much older than the portfolio document is stale: its rows are not
+# copied. It also caps [archive].actuals_max_age_hours.
+ACTUALS_STALE_DAYS = 7
 
 COMPAT_BACKWARDS = 'version went backwards: {old} -> {new}'
 COMPAT_REMOVED = 'removed or renamed without a major bump: {path}'
@@ -443,9 +446,17 @@ def check_at(value, path, schema=None) -> list:
     rooted at `$`. It checks at the schema's own minor, so an unknown field is
     an error. An unknown path raises SchemaError."""
     schema = load_schema() if schema is None else schema
+    return _check_node(value, _node_at(path, schema), schema)
+
+
+def _node_at(path, schema):
     node = next((n for p, n, _ in _walk(schema) if p == path), None)
     if node is None:
         raise SchemaError(f"no schema path {path!r}")
+    return node
+
+
+def _check_node(value, node, schema) -> list:
     ctx = {"defs": schema.get("$defs", {}), "errors": [], "reader": schema["version"],
            "newer": False}
     _validate(value, node, "$", ctx)
@@ -458,11 +469,11 @@ def _rooted(errors, prefix):
 
 
 # Each actuals.json list: its key fields (all strings, unique together), and
-# the schema path of the object check_at validates (`.` = the row itself).
+# the schema path of the object check_at validates (None = the row itself).
 _ACTUALS_LISTS = (
     ("issues", ("project", "issue"), "actuals", "projects[].issues[].actuals"),
     ("projects", ("project",), "actuals", "projects[].actuals"),
-    ("unassigned", ("cwd",), ".", "actuals.unassigned[]"),
+    ("unassigned", ("cwd",), None, "actuals.unassigned[]"),
 )
 
 
@@ -501,6 +512,7 @@ def actuals_usable(doc, schema=None) -> str | None:
         return f"inputs.project is {inputs['project']!r}: a one-project document"
     schema = load_schema() if schema is None else schema
     for name, keys, field, path in _ACTUALS_LISTS:
+        node = _node_at(path, schema)
         rows = doc.get(name)
         if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
             return f"{name} is not a list of objects"
@@ -513,12 +525,12 @@ def actuals_usable(doc, schema=None) -> str | None:
             if key in seen:
                 return f"{at_row}: {'/'.join(key)} appears twice"
             seen.add(key)
-            if field == ".":
-                bad = _rooted(check_at(row, path, schema), at_row)
+            if field is None:
+                bad = _rooted(_check_node(row, node, schema), at_row)
             elif field not in row:
                 return f"{at_row}: missing {field}"
             else:
-                bad = _rooted(check_at(row[field], path, schema), f"{at_row}.{field}")
+                bad = _rooted(_check_node(row[field], node, schema), f"{at_row}.{field}")
             if bad:
                 return bad
     try:

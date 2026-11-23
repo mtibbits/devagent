@@ -33,7 +33,6 @@ are the portfolio schema's (docs/portfolio-schema.md, "Actuals").
 from __future__ import annotations
 
 import argparse
-import functools
 import importlib.util
 import json
 import os
@@ -44,7 +43,6 @@ from pathlib import Path
 
 LIB = Path(__file__).resolve().parent
 PROG = "actuals"
-STAMP = "%Y-%m-%dT%H:%M:%SZ"
 EXIT_GO, EXIT_CONFIG, EXIT_REFUSED, EXIT_FRESH = 0, 1, 2, 3
 OUT_IN_REPO = ("--out", "the document lists project names, session ids and cwd paths")
 NO_PAIR = ("(no project)", "(no issue)")
@@ -53,19 +51,20 @@ TIME_KEYS = ("agent_busy_s", "agent_wall_s", "operator_s", "operator_events", "r
 TOKEN_KEYS = ("main", "subagents", "total", "raw")
 
 
-@functools.cache
-def _lib(name: str, file: str):
-    spec = importlib.util.spec_from_file_location(name, LIB / file)
+def _load_archive():
+    spec = importlib.util.spec_from_file_location("_actuals_archive", LIB / "archive-transcripts.py")
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module   # dataclasses look their module up here
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-cr = _lib("_actuals_cost_report", "cost-report.py")
-pc = _lib("_actuals_portfolio_check", "portfolio-check.py")
-at = _lib("_actuals_archive", "archive-transcripts.py")
-pf = _lib("_actuals_portfolio", "portfolio.py")
+# One instance of each sibling: archive-transcripts' own loader, under its names.
+at = _load_archive()
+cr = at._cost_report()
+pf = at._lib("_archive_portfolio", "portfolio.py")
+pc = pf.pc
+STAMP = pc.ACTUALS_STAMP_FORMAT
 
 ACTUALS_VERSION = pc.ACTUALS_READER
 
@@ -274,11 +273,11 @@ def milestones(env: Mapping, project: str | None, src: Sources):
             continue
         rc = env.get(f"ACTUALS_MS_{i}_RC") or "?"
         err = [ln.rstrip("\r") for ln in _read(env.get(f"ACTUALS_MS_{i}_ERR")).splitlines() if ln.strip()]
-        parsed = _jsonl(_read(env.get(f"ACTUALS_MS_{i}_OUT"))) if rc == "0" else None
         if rc != "0":
             src.add("milestones", "missing", f"exit {rc}: {err[-1]}" if err else f"exit {rc}", p)
             failed.add(p)
             continue
+        parsed = _jsonl(_read(env.get(f"ACTUALS_MS_{i}_OUT")))
         if parsed is None:
             src.add("milestones", "missing", "exit 0: output is not whole JSON Lines", p)
             failed.add(p)
@@ -314,8 +313,8 @@ def build_document(archive: Path | None, project: str | None, env: Mapping) -> d
     pair_sources: dict = {}
     rows, sessions = cr.collect(live + adirs, None, hosts=hosts, sources=pair_sources, timing=rules,
                                 times=times, overhead=ov, skipped=skipped)
-    pairs = [json.loads(ln) for ln in cr.report_json(rows, sessions, pair_sources, times, rules).splitlines()]
-    lines = [json.loads(ln) for ln in cr.report_overhead_json(ov).splitlines()]
+    pairs = cr.pair_objects(rows, sessions, pair_sources, times, rules)
+    lines = cr.overhead_objects(ov)
     for path, message in skipped:
         src.add("transcript", "missing", message)
     events, failed = milestones(env, project, src)
@@ -325,10 +324,9 @@ def build_document(archive: Path | None, project: str | None, env: Mapping) -> d
         key = (o["project"], o["issue"])
         if key == NO_PAIR:
             continue   # its calls are the overhead and unassigned rows
-        issues[key] = {"milestones": None, "sessions": o["sources"],
-                       "time": {k: o[k] for k in TIME_KEYS}, "tokens": _tokens(o)}
+        issues[key] = {"sessions": o["sources"], "time": {k: o[k] for k in TIME_KEYS}, "tokens": _tokens(o)}
     for key in events:
-        issues.setdefault(key, {"milestones": None, "sessions": [], "time": None, "tokens": None})
+        issues.setdefault(key, {"sessions": [], "time": None, "tokens": None})
     for key, a in issues.items():
         a["milestones"] = events.get(key) or (None if key[0] in failed else [])
     if project is not None:
@@ -358,8 +356,8 @@ def build_document(archive: Path | None, project: str | None, env: Mapping) -> d
 
 
 def render(doc: dict) -> bytes:
-    """Sorted keys, 2-space indent, UTF-8, LF; NaN and Infinity refused."""
-    return (json.dumps(doc, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    """The portfolio's encoding (2-space indent, UTF-8, LF; NaN and Infinity refused), keys sorted."""
+    return pf.dumps(doc, sort_keys=True)
 
 
 def build(opts, env: Mapping) -> int:

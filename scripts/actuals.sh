@@ -45,15 +45,16 @@ usage_error() {
   exit 2
 }
 
-archive="" project="" out="" have_archive=0 have_project=0 have_out=0 to_stdout=0 if_stale=0
-# _take <flag> <value>: store a flag's value, refusing an empty one. No $(…):
+archive="" project="" out="" to_stdout=0 if_stale=0
+# _take <flag> <value>: store a flag's value, refusing an empty one (so a set
+# flag is a non-empty variable). No $(…):
 # usage_error must exit this shell, not a subshell.
 _take() {
   [[ -n "$2" ]] || usage_error "$1 needs a value"
   case "$1" in
-    --archive) archive="$2" have_archive=1 ;;
-    --project) project="$2" have_project=1 ;;
-    --out)     out="$2" have_out=1 ;;
+    --archive) archive="$2" ;;
+    --project) project="$2" ;;
+    --out)     out="$2" ;;
   esac
 }
 while (( $# > 0 )); do
@@ -76,27 +77,24 @@ while (( $# > 0 )); do
     *)          usage_error "unexpected argument '$1'" ;;
   esac
 done
-(( have_out && to_stdout )) && usage_error "--out and --stdout cannot be combined"
+[[ -n "$out" ]] && (( to_stdout )) && usage_error "--out and --stdout cannot be combined"
 if (( if_stale )); then
-  (( have_out || to_stdout || have_project )) \
+  [[ -n "$out$project" ]] || (( to_stdout )) \
     && usage_error "--if-stale rebuilds the default file only; it takes no --out, --stdout or --project"
 fi
-if (( have_project && ! have_out && ! to_stdout )); then
-  echo "actuals: --project builds a one-project document; pass --out PATH or --stdout" >&2
-  echo "$USAGE" >&2
-  exit 2
-fi
+[[ -n "$project" && -z "$out" ]] && (( ! to_stdout )) \
+  && usage_error "--project builds a one-project document; pass --out PATH or --stdout"
 
 config_load
-if (( have_project )) && ! config_is_project "$project"; then
+if [[ -n "$project" ]] && ! config_is_project "$project"; then
   echo "actuals: unknown project '$project'" >&2
   exit 1
 fi
 
 args=()
-(( have_archive )) && args+=(--archive "$archive")
-(( have_project )) && args+=(--project "$project")
-(( have_out )) && args+=(--out "$out")
+[[ -n "$archive" ]] && args+=(--archive "$archive")
+[[ -n "$project" ]] && args+=(--project "$project")
+[[ -n "$out" ]] && args+=(--out "$out")
 (( to_stdout )) && args+=(--stdout)
 lib="$PLUGIN_ROOT/scripts/lib/actuals.py"
 
@@ -115,7 +113,7 @@ esac
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-if (( have_project )); then
+if [[ -n "$project" ]]; then
   projects=("$project")
 else
   mapfile -t projects < <(config_list_projects)
