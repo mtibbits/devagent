@@ -21,7 +21,7 @@ HISTORY = REPO / "tests" / "fixtures" / "portfolio" / "schema-history"
 EXAMPLE = REPO / "tests" / "fixtures" / "portfolio" / "example-1.0.json"
 # The reader's own version: the live schema's. A "1.0" elsewhere names a
 # document or a snapshot, not the reader.
-READER = "1.2"
+READER = "1.3"
 
 
 def _load(name, path):
@@ -53,7 +53,7 @@ def test_schema_loads_and_is_reader_version():
     schema = pc.load_schema()
     assert "schema_version" in schema["properties"]
     assert schema["version"] == READER
-    assert pc.parse_version(schema["version"]) == (1, 2)
+    assert pc.parse_version(schema["version"]) == (1, 3)
 
 
 def test_ready_via_parent_row_is_optional_boolean_or_null():
@@ -141,7 +141,6 @@ def test_inventory_pins_reserved_slots():
         "forecast": "#742",
         "projects[].lanes": "#748",
         "projects[].forecast": "#742",
-        "projects[].issues[].actuals": "#729",
         "projects[].issues[].estimates": "#736",
     }
     lanes = inv["projects[].lanes"]
@@ -158,8 +157,12 @@ def test_inventory_pins_reserved_slots():
 # dep 5, issue entry 8 + `issues[]` + `nodes[]`, stuck 3, rollup 2
 # (`by_state`, `remaining`) + 7 states x (1 + 4 counts) + remaining 7
 # + `non_time{}`, report entry 4 + `parse_report[]`, models 7 (`models`,
-# 2 classes x (the class + `value` + `source`); #890).
-INVENTORY_SIZE = 6 + 10 + 23 + 8 + 5 + 10 + 3 + 2 + 35 + 8 + 5 + 7
+# 2 classes x (the class + `value` + `source`); #890). #735, schema 1.3: the
+# defined issue slot's children 29 (milestones 5, sessions 5, time 7, tokens
+# 12), the project field 22 (itself, overhead, rules 3, sessions 5, tokens 12)
+# and the top-level object 23 (itself, actuals_version, generated_at,
+# unassigned + `unassigned[]`, cwd, sessions 5, tokens 12).
+INVENTORY_SIZE = 6 + 10 + 23 + 8 + 5 + 10 + 3 + 2 + 35 + 8 + 5 + 7 + 29 + 22 + 23
 
 
 def test_inventory_path_count():
@@ -434,7 +437,7 @@ def test_reserved_slot_must_be_null():
     doc["projects"][0]["lanes"] = {}
     assert pc.check(doc) == [
         f"$.projects[0].lanes: reserved slot must be null in schema {READER}"]
-    doc = _minimal_doc("1.3")
+    doc = _minimal_doc("1.4")
     doc["projects"][0]["lanes"] = {}
     assert pc.check(doc) == []
     doc = _minimal_doc()
@@ -522,6 +525,7 @@ HISTORY_SHA256 = {
     "1.0": "782fe9fab59ab9b01f41518a683e9eb0f0c97aa8ecba288d6789b3c20d11c9a0",
     "1.1": "ef429e036cfb62e218e62a8e37d1a50a7297f40edf6c93c0c9958660ce58e30d",
     "1.2": "e5cf0848e8973acbe7fb99d2a95c3046a9066ec5ce73104b805d7a0bdb6fdb0a",
+    "1.3": "84adf12e86b81e6c1bc9e360063c04d5c2e3eb28c9fec635f1a0ece7024692ae",
 }
 
 
@@ -790,3 +794,177 @@ def test_spec_13_points_at_schema_doc():
     spec = SPEC.read_text(encoding="utf-8")
     section = spec[spec.index("\n## 13."):spec.index("\n## 14.")]
     assert "docs/portfolio-schema.md" in section
+
+
+# --- #735: the actuals slot, the project field and the top-level object (1.3)
+
+SLOT = "projects[].issues[].actuals"
+PFIELD = "projects[].actuals"
+
+
+def _tokens(total=12.5):
+    return {"main": 10.0, "subagents": 2.5, "total": total,
+            "raw": [{"model": "claude-a", "input": 10, "cache_read": 0, "cache_write_5m": 2,
+                     "cache_write_1h": 0, "output": 0}]}
+
+
+def _session(sid="S1"):
+    return {"host": "h1", "cwd_slug": "-work-alpha", "session": sid}
+
+
+def _filled_slot():
+    return {
+        "milestones": [{"at": "2026-11-01T10:00:00Z", "event": "opened", "source": "tracker"}],
+        "sessions": [_session()],
+        "time": {"agent_busy_s": 60.0, "agent_wall_s": 50.0, "operator_s": 5.0,
+                 "operator_events": 1, "returns_after_absence": 0, "fallback_events": 0},
+        "tokens": _tokens(),
+    }
+
+
+def _filled_project_field():
+    return {"overhead": {"rules": {"cwd": 2, "hint": 1}, "sessions": [_session("S2")], "tokens": _tokens()}}
+
+
+def _filled_top():
+    return {"actuals_version": "1.0", "generated_at": "2026-11-23T06:20:00Z",
+            "unassigned": [{"cwd": "/home/op", "sessions": [_session("S3")], "tokens": _tokens()}]}
+
+
+def _filled_doc(version=READER):
+    doc = _minimal_doc(version)
+    doc["projects"][0]["issues"][0]["actuals"] = _filled_slot()
+    doc["projects"][0]["actuals"] = _filled_project_field()
+    doc["actuals"] = _filled_top()
+    return doc
+
+
+def test_actuals_slot_is_defined():
+    inv = pc.inventory(pc.load_schema())
+    for path in (SLOT, PFIELD, "actuals"):
+        spec = inv[path]
+        assert spec.reserved is None, path
+        assert spec.types == frozenset({"object", "null"}), path
+        assert spec.required is False, path
+        assert spec.additional is False, path
+    objects = [p for p, sp in inv.items()
+               if p.startswith((SLOT, PFIELD, "actuals")) and "object" in sp.types]
+    assert all(inv[p].additional is False for p in objects), objects
+    # slot: itself, milestones[], sessions[], time, tokens, tokens.raw[];
+    # project: itself, overhead, rules, sessions[], tokens, raw[];
+    # top: itself, unassigned[], its sessions[], tokens, raw[].
+    assert len(objects) == 17
+    assert inv[f"{SLOT}.milestones"].types == frozenset({"array", "null"})
+    assert inv[f"{SLOT}.tokens.raw[].input"].types == frozenset({"integer"})
+    assert inv[f"{SLOT}.tokens.raw[].input"].minimum == 0
+    assert inv[f"{SLOT}.tokens.total"].types == frozenset({"number"})
+    assert inv[f"{SLOT}.milestones[].event"].enum is None
+
+
+def test_actuals_slot_shapes():
+    assert pc.check(_filled_doc()) == []
+    null_form = _minimal_doc(READER)
+    null_form["projects"][0]["issues"][0]["actuals"] = {
+        "milestones": None, "sessions": [], "time": None, "tokens": None}
+    null_form["projects"][0]["actuals"] = {"overhead": None}
+    null_form["actuals"] = None
+    assert pc.check(null_form) == []
+    at = "$.projects[0].issues[0].actuals"
+    cases = [
+        (lambda a: a["tokens"].update(total="12.5"), f"{at}.tokens.total: expected number, got string"),
+        (lambda a: a["tokens"]["raw"][0].update(input=1.0), f"{at}.tokens.raw[0].input: expected integer, got number"),
+        (lambda a: a["time"].update(operator_events=-1), f"{at}.time.operator_events: -1 is outside 0.."),
+        (lambda a: a.update(extra=1), f"{at}.extra: unknown field"),
+        (lambda a: a.pop("time"), f"{at}: missing required field time"),
+    ]
+    for edit, message in cases:
+        doc = _filled_doc()
+        edit(doc["projects"][0]["issues"][0]["actuals"])
+        assert pc.check(doc) == [message]
+
+
+def test_compat_actuals_both_directions():
+    old = pc.load_schema(HISTORY / "1.2.json")
+    new_doc = _filled_doc()
+    # The 1.2 reader reads a 1.3 document: a defined slot and new fields at a newer minor.
+    assert pc.check(new_doc, old) == []
+    # The live reader reads an old one.
+    assert pc.check(_example()) == []
+    mislabelled = _filled_doc("1.2")
+    errors = pc.check(mislabelled, old)
+    assert len(errors) == 3
+    assert all(e.endswith(("reserved slot must be null in schema 1.2", ": unknown field")) for e in errors), errors
+
+
+def test_check_at():
+    assert pc.check_at(_filled_slot(), SLOT) == []
+    assert pc.check_at(_filled_project_field(), PFIELD) == []
+    assert pc.check_at(None, SLOT) == []
+    row = _filled_top()["unassigned"][0]
+    assert pc.check_at(row, "actuals.unassigned[]") == []
+    bad = _filled_slot()
+    bad["sessions"][0]["host"] = 1
+    assert pc.check_at(bad, SLOT) == ["$.sessions[0].host: expected string, got integer"]
+    assert pc.check_at({"x": 1}, PFIELD) == ["$: missing required field overhead", "$.x: unknown field"]
+    with pytest.raises(pc.SchemaError):
+        pc.check_at({}, "projects[].nope")
+
+
+def _actuals_doc():
+    return {
+        "actuals_version": "1.0", "generated_at": "2026-11-23T06:20:00Z",
+        "inputs": {"archive": None, "hosts": ["local"], "project": None},
+        "issues": [{"project": "alpha", "issue": "Issue-1", "actuals": _filled_slot()}],
+        "projects": [{"project": "alpha", "actuals": _filled_project_field()}],
+        "unassigned": [_filled_top()["unassigned"][0]],
+        "sources": [], "time_rule": {"attention_cap_s": 900.0, "idle_gap_s": 300.0, "tool_gap_s": 3600.0},
+    }
+
+
+def test_actuals_usable():
+    assert pc.ACTUALS_READER == "1.0"
+    assert pc.actuals_usable(_actuals_doc()) is None
+    assert pc.actuals_usable(None) == "not a JSON object"
+    assert pc.actuals_usable([]) == "not a JSON object"
+    cases = [
+        (lambda d: d.update(actuals_version="1"), "actuals_version '1' is not MAJOR.MINOR"),
+        (lambda d: d.update(actuals_version="2.0"), "actuals_version 2.0 is not major 1"),
+        (lambda d: d.update(actuals_version="1.1"), "actuals_version 1.1 is newer than this reader (1.0)"),
+        (lambda d: d.update(generated_at="2026-11-23 06:20:00"),
+         "generated_at '2026-11-23 06:20:00' is not YYYY-MM-DDTHH:MM:SSZ"),
+        (lambda d: d["inputs"].update(project="alpha"), "inputs.project is 'alpha': a one-project document"),
+        (lambda d: d.update(inputs=[]), "inputs is not an object"),
+        (lambda d: d.update(issues={}), "issues is not a list of objects"),
+        (lambda d: d["projects"].append(3), "projects is not a list of objects"),
+        (lambda d: d["issues"][0].update(issue=4), "issues[0]: project and issue must be strings"),
+        (lambda d: d["issues"].append(d["issues"][0]), "issues[1]: alpha/Issue-1 appears twice"),
+        (lambda d: d["projects"].append(d["projects"][0]), "projects[1]: alpha appears twice"),
+        (lambda d: d["unassigned"][0].update(cwd=None), "unassigned[0]: cwd must be a string"),
+        (lambda d: d["issues"][0].pop("actuals"), "issues[0]: missing actuals"),
+        (lambda d: d["issues"][0]["actuals"]["tokens"].update(total="x"),
+         "issues[0].actuals.tokens.total: expected number, got string"),
+        (lambda d: d["projects"][0]["actuals"].pop("overhead"),
+         "projects[0].actuals: missing required field overhead"),
+        (lambda d: d["unassigned"][0].update(extra=1), "unassigned[0].extra: unknown field"),
+    ]
+    for edit, detail in cases:
+        doc = _actuals_doc()
+        edit(doc)
+        assert pc.actuals_usable(doc) == detail, detail
+
+
+def _example_block():
+    text = _doc_text()
+    start, end = "<!-- actuals-example:start -->", "<!-- actuals-example:end -->"
+    assert text.count(start) == 1 and text.count(end) == 1
+    return text[text.index(start):text.index(end)]
+
+
+def test_doc_actuals_example_validates():
+    blocks = re.findall(r"```json\n(.*?)```", _example_block(), re.S)
+    assert len(blocks) == 2
+    filled, null_form = (json.loads(b) for b in blocks)
+    assert filled["tokens"] is not None and filled["milestones"]
+    assert null_form == {"milestones": None, "sessions": [], "time": None, "tokens": None}
+    for slot in (filled, null_form):
+        assert pc.check_at(slot, SLOT) == []

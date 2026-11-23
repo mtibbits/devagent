@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.2,
+# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.3,
 # docs/portfolio-schema.md) over every configured project's WBS.md.
 # Usage: portfolio.sh [--out PATH | --ready]
 #

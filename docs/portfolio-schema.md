@@ -1,4 +1,4 @@
-# Portfolio document schema (v1.2)
+# Portfolio document schema (v1.3)
 
 The portfolio document is one generated JSON file that describes every
 configured project: its WBS nodes, the issues those nodes name, and a
@@ -105,6 +105,8 @@ declaring its properties.
 - `1.0` (#725): initial.
 - `1.1` (#727): adds optional `projects[].nodes[].ready_via_parent_row`.
 - `1.2` (#890): adds optional `projects[].nodes[].models`.
+- `1.3` (#735): defines the `projects[].issues[].actuals` slot and adds the
+  optional `projects[].actuals` and top-level `actuals` objects.
 
 ## Field reference
 
@@ -128,6 +130,7 @@ present with `null`.
 | `projects` | array of Project | req | One per configured project, in config order. |
 | `parse_report` | array of ReportEntry | req | `[]` when clean. |
 | `forecast` | slot (#742) | opt | Reserved. |
+| `actuals` | object\|null | opt | The actuals file this document read (see "Actuals" below). Added in 1.3 (#735). |
 
 ### Project — `projects[]`
 
@@ -142,6 +145,7 @@ present with `null`.
 | `projects[].rollup` | Rollup\|null | req | Null unless `read`. |
 | `projects[].lanes` | slot (#748) | opt | Reserved. |
 | `projects[].forecast` | slot (#742) | opt | Reserved. |
+| `projects[].actuals` | object\|null | opt | The project's overhead from the actuals file (see "Actuals" below). Added in 1.3 (#735). |
 
 ### Node — `projects[].nodes[]`
 
@@ -219,7 +223,7 @@ carried as written and never summed.
 | `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, no `checklist.md`, the issue dir is not read (`issue_not_id`), or `checklist.md` cannot be read (`checklist_unreadable`). `open`: a step is still to do. `complete`: every step is done or skipped. |
 | `projects[].issues[].next_step` | string\|null | req | The name of the first step not `[x]`/`[-]` in the **active revision block** (the rule `next.sh` uses, `checklist_current_step` in `scripts/lib/checklist.sh`). Null unless `open`. |
 | `projects[].issues[].next_step_number` | integer\|null | req | That step's number. Null unless `open`. |
-| `projects[].issues[].actuals` | slot (#729) | opt | Reserved. |
+| `projects[].issues[].actuals` | object\|null | opt | The issue's actuals (see "Actuals" below). A slot reserved for #729, defined in 1.3 (#735). |
 | `projects[].issues[].estimates` | slot (#736) | opt | Reserved: derived estimates. |
 
 ### Stuck — `projects[].issues[].stuck`
@@ -271,6 +275,101 @@ Each `by_state` entry is a Counts object with four required integers:
 
 With the split carried per state and for `remaining`, a consumer can derive
 both "pending" and "remaining" views without guessing.
+
+### Actuals (#735)
+
+Three optional fields carry `<devagent_home>/actuals.json`, the per-issue
+actuals document `scripts/actuals.sh` builds (`commands/actuals.md`). The
+producer copies the file's objects unchanged and never computes a figure. Each
+is null when the file is missing, unreadable, not a usable actuals document, or
+more than 7 days older than this document; an `actuals_unavailable` report
+entry per project then says which. All three are absent when the producer was
+not given the file (`portfolio.sh ready` builds without it). A slot whose
+issue the file has no row for is null too.
+
+The file has its own `actuals_version` (MAJOR.MINOR, under the version rules
+above). This reader takes minors up to its own (`1.0`); a newer minor is an
+unusable file, not one read with fields ignored. An `actuals_version` minor
+ships with a portfolio schema minor.
+
+Shared shapes, at each place they appear (`<P>` is the path of the holder):
+- **Tokens** (`<P>.tokens`, object\|null): `main`, `subagents` and `total`
+  (number ≥ 0, input-token equivalents weighted as cost-report weights them;
+  `total` = `main` + `subagents`, the headline) and `raw`, one object per
+  `message.model` sorted by model, with integer ≥ 0 counts `input`,
+  `cache_read`, `cache_write_5m`, `cache_write_1h` and `output` (`(unknown)`
+  when a call named no model). Null when no call was charged.
+- **Session** (`<P>.sessions[]`): `host` (the archive partition, `local` for a
+  live dir), `cwd_slug` (the transcript dir name) and `session`, all strings.
+
+| Path | Type | Req | Meaning |
+|---|---|---|---|
+| `projects[].issues[].actuals.milestones` | array\|null | req | Dated events in the milestones report's order. Null when that project's milestones source was missing: not the same as `[]`, no events. |
+| `projects[].issues[].actuals.milestones[]` | object | — | One event. |
+| `projects[].issues[].actuals.milestones[].at` | string | req | The event time as its source wrote it. |
+| `projects[].issues[].actuals.milestones[].event` | string | req | The milestones vocabulary (`opened`, `step_done`, `mr_merged`, ...). A plain string: the vocabulary can grow. |
+| `projects[].issues[].actuals.milestones[].source` | string | req | Where it was read: `tracker`, `mr`, `checklist`, ... |
+| `projects[].issues[].actuals.sessions` | array | req | The sessions the figures came from; `[]` when none. |
+| `projects[].issues[].actuals.time` | object\|null | req | Seconds under the file's `time_rule`: `agent_busy_s`, `agent_wall_s` (the headline), `operator_s` (numbers ≥ 0), and the integer counts `operator_events`, `returns_after_absence`, `fallback_events`. Null when the issue has no transcript calls. |
+| `projects[].issues[].actuals.tokens` | Tokens | req | The issue's token cost. |
+| `projects[].actuals.overhead` | object\|null | req | Calls with no issue that the cost report placed on this project; null when none. |
+| `projects[].actuals.overhead.rules` | object | req | Calls placed per rule: `projects[].actuals.overhead.rules.hint` (a session hint naming the project) and `projects[].actuals.overhead.rules.cwd` (the call's working directory under one of its dirs), integers ≥ 0. |
+| `projects[].actuals.overhead.sessions` | array | req | Sessions. |
+| `projects[].actuals.overhead.tokens` | Tokens | req | The overhead's token cost. |
+| `actuals.actuals_version` | string | req | The file's version. |
+| `actuals.generated_at` | string | req | When the file was built, `YYYY-MM-DDTHH:MM:SSZ`. |
+| `actuals.unassigned` | array | req | Overhead no project claims, one row per working directory. |
+| `actuals.unassigned[]` | object | — | One row. |
+| `actuals.unassigned[].cwd` | string | req | The normalised working directory; `(no cwd)` when none was recorded. |
+| `actuals.unassigned[].sessions` | array | req | Sessions. |
+| `actuals.unassigned[].tokens` | Tokens | req | The row's token cost. |
+
+| Shape | Paths |
+|---|---|
+| issue time | `projects[].issues[].actuals.time.agent_busy_s`, `projects[].issues[].actuals.time.agent_wall_s`, `projects[].issues[].actuals.time.operator_s`, `projects[].issues[].actuals.time.operator_events`, `projects[].issues[].actuals.time.returns_after_absence`, `projects[].issues[].actuals.time.fallback_events` |
+| issue sessions | `projects[].issues[].actuals.sessions[]`, `projects[].issues[].actuals.sessions[].host`, `projects[].issues[].actuals.sessions[].cwd_slug`, `projects[].issues[].actuals.sessions[].session` |
+| issue tokens | `projects[].issues[].actuals.tokens.main`, `projects[].issues[].actuals.tokens.subagents`, `projects[].issues[].actuals.tokens.total`, `projects[].issues[].actuals.tokens.raw`, `projects[].issues[].actuals.tokens.raw[]`, `projects[].issues[].actuals.tokens.raw[].model`, `projects[].issues[].actuals.tokens.raw[].input`, `projects[].issues[].actuals.tokens.raw[].cache_read`, `projects[].issues[].actuals.tokens.raw[].cache_write_5m`, `projects[].issues[].actuals.tokens.raw[].cache_write_1h`, `projects[].issues[].actuals.tokens.raw[].output` |
+| overhead sessions | `projects[].actuals.overhead.sessions[]`, `projects[].actuals.overhead.sessions[].host`, `projects[].actuals.overhead.sessions[].cwd_slug`, `projects[].actuals.overhead.sessions[].session` |
+| overhead tokens | `projects[].actuals.overhead.tokens.main`, `projects[].actuals.overhead.tokens.subagents`, `projects[].actuals.overhead.tokens.total`, `projects[].actuals.overhead.tokens.raw`, `projects[].actuals.overhead.tokens.raw[]`, `projects[].actuals.overhead.tokens.raw[].model`, `projects[].actuals.overhead.tokens.raw[].input`, `projects[].actuals.overhead.tokens.raw[].cache_read`, `projects[].actuals.overhead.tokens.raw[].cache_write_5m`, `projects[].actuals.overhead.tokens.raw[].cache_write_1h`, `projects[].actuals.overhead.tokens.raw[].output` |
+| unassigned sessions | `actuals.unassigned[].sessions[]`, `actuals.unassigned[].sessions[].host`, `actuals.unassigned[].sessions[].cwd_slug`, `actuals.unassigned[].sessions[].session` |
+| unassigned tokens | `actuals.unassigned[].tokens.main`, `actuals.unassigned[].tokens.subagents`, `actuals.unassigned[].tokens.total`, `actuals.unassigned[].tokens.raw`, `actuals.unassigned[].tokens.raw[]`, `actuals.unassigned[].tokens.raw[].model`, `actuals.unassigned[].tokens.raw[].input`, `actuals.unassigned[].tokens.raw[].cache_read`, `actuals.unassigned[].tokens.raw[].cache_write_5m`, `actuals.unassigned[].tokens.raw[].cache_write_1h`, `actuals.unassigned[].tokens.raw[].output` |
+
+A filled `projects[].issues[].actuals`, then its empty form: an issue whose
+milestones source was missing and that no transcript call was charged to.
+
+<!-- editor: tests/test_portfolio_schema.py::test_doc_actuals_example_validates
+     runs each json block between these markers through check_at. -->
+<!-- actuals-example:start -->
+```json
+{
+  "milestones": [
+    {"at": "2026-11-01T14:02:11Z", "event": "opened", "source": "tracker"},
+    {"at": "2026-11-02 09:15", "event": "step_done", "source": "checklist"},
+    {"at": "2026-11-03T18:40:00Z", "event": "mr_merged", "source": "mr"}
+  ],
+  "sessions": [
+    {"cwd_slug": "-work-alpha", "host": "h1", "session": "0b7c2f1e-5d1a-4c55-9a43-3f1d2e8b9c10"}
+  ],
+  "time": {
+    "agent_busy_s": 5400.0, "agent_wall_s": 4980.5, "fallback_events": 0,
+    "operator_events": 12, "operator_s": 610.0, "returns_after_absence": 2
+  },
+  "tokens": {
+    "main": 1700000.0, "subagents": 329120.0, "total": 2029120.0,
+    "raw": [
+      {"cache_read": 15800000, "cache_write_1h": 120000, "cache_write_5m": 0,
+       "input": 3120, "model": "claude-opus-5-5", "output": 41200}
+    ]
+  }
+}
+```
+
+```json
+{"milestones": null, "sessions": [], "time": null, "tokens": null}
+```
+<!-- actuals-example:end -->
+
+Its `raw` weighs back to `total`: 3120 + 0.1 × 15800000 + 2 × 120000 + 5 × 41200 = 2029120.
 
 ### ReportEntry — `parse_report[]`
 
@@ -342,7 +441,8 @@ dispatch is read.
 | `stuck` | #726, from the issue dir's `STUCK` file |
 | `checklist`, `next_step`, `next_step_number` | #726, from the issue dir's `checklist.md` |
 | `parse_report[].kind` | #726 (open vocabulary) |
-| `lanes`, `forecast`, `actuals`, `estimates` slots | #748, #742, #729, #736 — null until each defines its slot |
+| `projects[].issues[].actuals`, `projects[].actuals`, top-level `actuals` | #735, copied from `<devagent_home>/actuals.json` (`scripts/actuals.sh`) |
+| `lanes`, `forecast`, `estimates` slots | #748, #742, #736 — null until each defines its slot |
 
 ## The checker
 
@@ -362,7 +462,7 @@ one per line, prefixed `portfolio-check: `. stdout stays silent.
 | `0` | Valid. At a newer minor, also prints "document is schema X, newer than this reader's Y; fields this reader does not know are ignored". |
 | `1` | Invalid: not a JSON object, not a portfolio document, a malformed `schema_version`, or structural errors. |
 | `2` | Could not run: a usage error, an unreadable file, input that is not strict JSON, or a schema load error. |
-| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.2)`. |
+| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.3)`. |
 
 Structural errors name a JSONPath-like location, such as
 `$.projects[0].nodes[2].est.class: 'quantity' is not one of ...`,

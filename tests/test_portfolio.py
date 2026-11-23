@@ -306,7 +306,7 @@ def _example():
 
 
 def test_schema_version_matches_live_schema():
-    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.2"
+    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.3"
 
 
 def test_compat_both_directions():
@@ -1571,7 +1571,7 @@ def test_main_schema_major_mismatch_exits_3(tmp_path, monkeypatch, capsys):
     lines = capsys.readouterr().err.splitlines()
     assert len(lines) == 1
     assert lines[0].startswith(
-        'portfolio: self-check: schema: unsupported portfolio schema_version "1.2"')
+        'portfolio: self-check: schema: unsupported portfolio schema_version "1.3"')
 
 
 def test_main_writes_and_reports(tmp_path, monkeypatch, capsys):

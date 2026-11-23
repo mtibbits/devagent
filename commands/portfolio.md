@@ -9,7 +9,7 @@ argument-hint: "[--out PATH | --ready]"
 **Usage:** `/devagent:portfolio [--out PATH | --ready]`
 
 Writes one document that describes every configured project's `WBS.md`
-(#726). The document conforms to the portfolio schema v1.2; its contract is
+(#726). The document conforms to the portfolio schema v1.3; its contract is
 [`docs/portfolio-schema.md`](../docs/portfolio-schema.md), and spec §13.4
 introduces it. The command is read-only. It writes the one document and
 nothing else: no `WBS.md`, no state, and no devdoc file. With `--ready` it
