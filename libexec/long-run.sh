@@ -283,10 +283,10 @@ if (( watched )); then
 fi
 
 # A log holds the command's whole output, so the directory is 0700 and each
-# log 0600 (the pump creates a rotated log 0600 too). Only logs/ itself needs
-# the mode: its parents hold no output.
-# shellcheck disable=SC2174
-if [[ -n "$log_dir" && ! -d "$log_dir" ]] && ! mkdir -p -m 700 "$log_dir" 2>/dev/null; then
+# log 0600 (the pump creates a rotated log 0600 too). The mode comes from a
+# umask, not `mkdir -m`: Git Bash creates the directory and then fails -m's
+# chmod.
+if [[ -n "$log_dir" && ! -d "$log_dir" ]] && ! ( umask 077; mkdir -p "$log_dir" ) 2>/dev/null; then
   lr_warn "cannot create $log_dir; this run keeps no log"
   log_dir="" pump_log_dir=""
 fi
