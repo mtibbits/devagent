@@ -325,7 +325,7 @@ PY
   [ "$STAGE_REASON" = "" ]
   [ -s "$STAGE_MD" ]
   [ ! -e "$STAGE_RAW" ]
-  [ -z "$(find "$STAGE_DIR" -mindepth 1 ! -name issue.md)" ]
+  [ "$(cd "$STAGE_DIR" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" = "./issue.md ./issue.md.mixed.json " ]
   # A layout defect: the fixed reason is kept.
   printf 'not a fetch\n' > "$STAGE_RAW"
   rc=0
@@ -397,4 +397,163 @@ PY
   [ "$rc" -ne 0 ]
   [ ! -e "$DEVDOC/Issue-9" ]
   chmod 600 "$STAGE_MD"
+}
+
+# --- #923: the chars escape and the mixed-script record
+
+CHARS_PY="$PLUGIN_ROOT/scripts/lib/chars.py"
+
+# _allowf <json>: an allow file holding <json>, at $ALLOW.
+_allowf() { ALLOW="$BATS_TEST_TMPDIR/allow.json"; printf '%s' "$1" > "$ALLOW"; }
+
+# _render5: the script with an allow file.
+_render5() { run --separate-stderr python3 -I -X utf8 "$RENDER" "$RAW" "$OUT" acme/widgets 7 "$ALLOW"; }
+
+# _count <file> <printf-bytes>: occurrences of the bytes, counted on bytes.
+_count() { LC_ALL=C grep -o -F -- "$(printf '%b' "$2")" "$1" | wc -l | tr -d ' '; }
+
+@test "render: an allowlisted U+200F is escaped in the title, a label and the body" {
+  _allowf '["\u200f"]'
+  GH_STUB_LABELS_JSON='[{"name": "bug"}, {"name": "x\u200fy"}]' \
+    _fetch '"Body a\u200fb."' '[]' '"T\u200fT"'
+  _render5
+  [ "$status" -eq 0 ] || { echo "rc=$status $stderr" >&2; return 1; }
+  [ "$(head -n 1 "$OUT")" = '# acme/widgets#7 '$'\xe2\x80\x94'' T<U+200F>T' ]
+  grep -qx -- '- Labels: bug, x<U+200F>y' "$OUT"
+  grep -qx 'Body a<U+200F>b.' "$OUT"
+  [ "$(_count "$OUT" '\xe2\x80\x8f')" -eq 0 ]
+}
+
+@test "render: three allowlisted in a row stay raw" {
+  _allowf '["\u200f"]'
+  _fetch '"a\u200f\u200f\u200fb"'
+  _render5
+  [ "$status" -eq 0 ]
+  [ "$(_count "$OUT" 'a\xe2\x80\x8f\xe2\x80\x8f\xe2\x80\x8fb')" -eq 1 ]
+  [ "$(_count "$OUT" '<U+200F>')" -eq 0 ]
+}
+
+@test "render: [] escapes nothing" {
+  _allowf '[]'
+  GH_STUB_LABELS_JSON='[{"name": "x\u200fy"}]' _fetch '"a\u200fb \u202e c"' '[]' '"T\u200b"'
+  _render5
+  [ "$status" -eq 0 ]
+  cp "$OUT" "$BATS_TEST_TMPDIR/five"
+  [ "$(_count "$OUT" '\xe2\x80\x8f')" -eq 2 ]
+  [ "$(_count "$OUT" '\xe2\x80\xae')" -eq 1 ]
+  [ "$(_count "$OUT" '\xe2\x80\x8b')" -eq 1 ]
+  [ "$(_count "$OUT" '<U+')" -eq 0 ]
+  _render
+  [ "$status" -eq 0 ]
+  cmp "$OUT" "$BATS_TEST_TMPDIR/five"
+}
+
+@test "render: the chars escape comes before the control-byte escape" {
+  _allowf '["\u200f"]'
+  GH_STUB_LABELS_JSON='[{"name": "a\u200f\tb"}]' _fetch '"Body."' '[]' '"x\u0007y"'
+  _render5
+  [ "$status" -eq 0 ]
+  grep -qx -- '- Labels: a<U+200F><U+0009>b' "$OUT"
+  [[ "$(head -n 1 "$OUT")" == *' x<U+0007>y' ]]
+  _allowf '["\u200f", "\u0007"]'
+  _render5
+  [ "$status" -eq 0 ]
+  [[ "$(head -n 1 "$OUT")" == *' x<U+0007>y' ]]
+}
+
+# bats test_tags=gitbash
+@test "render then scan: CRLF body" {
+  _allowf '[]'
+  _fetch '"one\ntwo\nthree \u202e"'
+  _crlf "$RAW"
+  # A Windows jq.exe's CR before the CRLF made here: CR CR LF in the body.
+  _bytes_sub "$RAW" $'one\r\n' $'one\r\r\n'
+  _render5
+  [ "$status" -eq 0 ]
+  run --separate-stderr python3 -I -X utf8 "$CHARS_PY" scan --candidate "$OUT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "hits 1
+body line 3 U+202E" ]
+}
+
+@test "render then scan" {
+  _allowf '["\u200f"]'
+  GH_STUB_LABELS_JSON='[{"name": "x\u200f"}]' _fetch '"a\u200fb \u200f\u200fc"' '[]' '"T\u200f"'
+  _render5
+  [ "$status" -eq 0 ]
+  run --separate-stderr python3 -I -X utf8 "$CHARS_PY" scan --candidate "$OUT"
+  [ "$output" = "hits 0" ]
+  _fetch '"a\u200f\u200f\u200fb"'
+  _render5
+  run --separate-stderr python3 -I -X utf8 "$CHARS_PY" scan --candidate "$OUT"
+  [ "${lines[0]}" = "hits 3" ]
+  [ "${lines[1]}" = "body line 1 U+200F" ]
+}
+
+@test "render: the record" {
+  _allowf '[]'
+  _fetch '"Plain body."' '[]' '"p\u0430ypal"'
+  _render5
+  [ "$status" -eq 0 ]
+  [ "$(cat "$OUT.mixed.json")" = '[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]}]' ]
+  [ "$(LC_ALL=C grep -c $'\r' "$OUT.mixed.json")" = 0 ]
+  [ "$(wc -l < "$OUT.mixed.json" | tr -d ' ')" = 1 ]
+  _fetch '"Plain body."'
+  _render5
+  [ "$(cat "$OUT.mixed.json")" = '[]' ]
+}
+
+@test "render: a malformed allow file is exit 4 and writes nothing" {
+  _fetch '"Body."'
+  local a
+  for a in 'null' '["ab"]'; do
+    rm -f "$OUT" "$OUT.mixed.json"
+    _allowf "$a"
+    _render5
+    [ "$status" -eq 4 ] || { echo "allow '$a': rc $status" >&2; return 1; }
+    [ "$output" = "" ]
+    [ "$stderr" = "" ]
+    [ ! -e "$OUT" ]
+    [ ! -e "$OUT.mixed.json" ]
+  done
+}
+
+@test "staging: render passes TRUST_VAL[allowed_chars]" {
+  _fetch '"a\u200fb"'
+  local leg
+  for leg in with-key without-key undeclared; do
+    run --separate-stderr bash -c '
+      set -euo pipefail
+      source "$PLUGIN_ROOT/scripts/lib/paths.sh"; source "$PLUGIN_ROOT/scripts/lib/io.sh"
+      source "$PLUGIN_ROOT/scripts/lib/staging.sh"
+      case "$1" in
+        with-key) declare -gA TRUST_VAL=([allowed_chars]="[\"$(printf "\xe2\x80\x8f")\"]") ;;
+        without-key) declare -gA TRUST_VAL=([size_cap]=1) ;;
+      esac
+      staging_open wid Issue-7 "$2"
+      cp "$3" "$STAGE_RAW"
+      staging_render acme/widgets 7
+      cat "$STAGE_MD"
+      [ ! -e "$STAGE_DIR/allow.json" ]
+      staging_discard' _ "$leg" "$DEVDOC" "$RAW"
+    [ "$status" -eq 0 ] || { echo "$leg: rc $status $stderr" >&2; return 1; }
+    if [ "$leg" = with-key ]; then
+      [[ "$output" == *'a<U+200F>b'* ]] || { echo "$leg: not escaped" >&2; return 1; }
+    else
+      [[ "$output" != *'<U+200F>'* ]] || { echo "$leg: escaped" >&2; return 1; }
+    fi
+  done
+}
+
+@test "staging: a missing record after exit 0 returns 3" {
+  local lib="$BATS_TEST_TMPDIR/lib"
+  cp -r "$PLUGIN_ROOT/scripts/lib" "$lib"
+  printf 'import sys\nsys.stdout.write("trailers 1\\n")\nopen(sys.argv[2], "w").close()\n' > "$lib/staging_render.py"
+  # shellcheck source=/dev/null
+  source "$lib/staging.sh"
+  staging_open wid Issue-7 "$DEVDOC"
+  printf 'x\n' > "$STAGE_RAW"
+  local rc=0
+  staging_render acme/widgets 7 || rc=$?
+  [ "$rc" -eq 3 ]
 }
