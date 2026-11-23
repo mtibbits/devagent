@@ -15,6 +15,8 @@
 # the caveat (swept by the #529 test below).
 
 load 'lib/bats-helpers'
+load 'helpers/common'
+bats_require_minimum_version 1.5.0
 
 REPO="${BATS_TEST_DIRNAME}/.."
 PRESHIP="$REPO/agents/preship-verifier.md"
@@ -27,6 +29,8 @@ setup() {
     FM_REDTEAM="$(skill_frontmatter "$REDTEAM")"
     FM_IMPROVE="$(skill_frontmatter "$IMPROVE")"
 }
+# Only a test that built a project fixture (devagent_test_setup) has one to remove.
+teardown() { [ -z "${DEVAGENT_TMP:-}" ] || devagent_test_teardown; }
 
 @test "all three checker agents exist at the plugin's auto-discovered agents/ root (#458/#527)" {
   # agents/ is scanned by default; plugin.json must NOT gain an "agents" key —
@@ -161,4 +165,130 @@ setup() {
   [ "$status" -eq 1 ]
   grep -qi 'checking with less' "$IMPROVE"
   grep -qi 'once per layer' "$IMPROVE"
+}
+
+# ---- #1097: rule 1a, an acceptance criterion that a required CI check meets -----------
+# agents/preship-verifier.md is a doc an agent EXECUTES (register Issue-461/583). The
+# first test pins the tokens the rule turns on, each in the script's own spelling; the
+# second runs every call the rule publishes and holds those tokens to what the script
+# prints. Both read rule 1a's own text, so a call or a token that leaves the rule fails.
+
+PD_BARE='bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-deferred.sh" <project> <Issue-N>'
+
+# _rule_1a - rule 1a as the file's lines: from its title to verification 2's.
+_rule_1a() { awk '/^ +[*][*]1a[.] /{f=1} /^2[.] [*][*]/{f=0} f' "$PRESHIP"; }
+# _rule_1a_flat - the same, whitespace-normalised: the prose wraps mid-phrase.
+_rule_1a_flat() { _rule_1a | tr -s '[:space:]' ' '; }
+# _n_of <ERE> - the number of the first line of the verifier prompt matching it.
+_n_of() { local n; n="$(grep -nE -m1 -- "$1" "$PRESHIP" | cut -d: -f1)"; [ -n "$n" ] || { echo "no line matches: $1" >&2; return 1; }; echo "$n"; }
+
+@test "#1097 preship-verifier carries rule 1a" {
+  local t p v1 at v2
+  t="$(_rule_1a_flat)"
+  [ -n "$t" ] || { echo "no rule 1a in $PRESHIP" >&2; return 1; }
+  # under verification 1: after its title and before verification 2's
+  v1="$(_n_of '^1[.] [*][*]Acceptance criteria executed')"
+  at="$(_n_of '^ +[*][*]1a[.] ')"
+  v2="$(_n_of '^2[.] [*][*]Findings applied')"
+  [ "$v1" -lt "$at" ]
+  [ "$at" -lt "$v2" ]
+  for p in 'scripts/preship-deferred.sh' \
+           '`deferred to CI at merge: <check>`' \
+           '`self-certification warning:`' \
+           '`required checks: (none)`' \
+           '`code backend:`' '`mr-checks: no`' \
+           "\`transcript '<test file>'\`" \
+           '`issue.md`' '`imPlan.md`' \
+           'not N/A' 'could not run' 'verified as worded'; do
+    [[ "$t" == *"$p"* ]] || { echo "rule 1a lacks: $p" >&2; return 1; }
+  done
+  # the exits the script has, each with its verdict (devagent Issue-713: a new exit code)
+  [[ "$t" == *'Exit 0: PASS'* ]]
+  [[ "$t" == *'Exit 1: FAIL'* ]]
+  [[ "$t" == *'Any other exit'*'FAIL'* ]]
+  # still five verifications: 1a is a rule of the first, not a sixth
+  run grep -cE '^[0-9]+[.] [*][*]' <(awk '/^## The five verifications$/{f=1} /^## Return contract$/{f=0} f' "$PRESHIP")
+  [ "$output" -eq 5 ]
+}
+
+@test "#1097 every preship-deferred.sh call in the agent prompt runs with its placeholders filled" {
+  # Register Issue-106: running a VARIANT of a published command is not running it. Each
+  # call is read from the rule, its placeholders filled, and run as one line.
+  local t line span cmd sub cfg st base pin tx i
+  local -a calls=()
+  t="$(_rule_1a_flat)"
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    [ "$line" = "$PD_BARE" ] || { echo "not the one-line form the tool grant covers: $line" >&2; return 1; }
+    calls+=("$line")
+  done < <(_rule_1a | grep -F 'preship-deferred.sh')
+  [ "${#calls[@]}" -eq 1 ] || { echo "rule 1a publishes ${#calls[@]} preship-deferred.sh lines, not 1" >&2; return 1; }
+  [ "$(grep -cF 'preship-deferred.sh' "$PRESHIP")" -eq 1 ]             # and the prompt none elsewhere
+  # a subcommand form is a code span of the rule; it is added to the bare call
+  while IFS= read -r span; do
+    calls+=("$PD_BARE $span")
+  done < <(grep -oE '`(static|transcript) [^`]+`' <<<"$t" | tr -d '`')
+  for sub in static transcript; do                                      # every form of the script's usage
+    grep -qF "$sub <" <(grep -m1 '^usage=' "$REPO/scripts/preship-deferred.sh")
+    [[ " ${calls[*]} " == *"<Issue-N> $sub '"* ]] || { echo "rule 1a publishes no $sub call" >&2; return 1; }
+  done
+
+  # the fixture: a project that requires "Zeta check"; the branch adds a tagged test
+  # file and a workflow file; that commit is the pinned head; a transcript is at it
+  devagent_test_setup
+  cfg="$HOME/.claude/devagent/config.toml"; st="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+  awk -v h="[project.$TEST_PROJECT]" '{print} $0 == h {print "required_checks = [\"Zeta check\"]"}' "$cfg" > "$cfg.new"
+  mv "$cfg.new" "$cfg"
+  run bash "$REPO/scripts/required-checks.sh" "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "Zeta check" ]                                          # the key took (register Issue-106)
+  base="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+  mkdir -p "$SOURCE_DIR/tests" "$SOURCE_DIR/.github/workflows"
+  cp "$REPO/tests/fixtures/preship-deferred/guards.bats" "$SOURCE_DIR/tests/guards.bats"
+  echo 'name: ci' > "$SOURCE_DIR/.github/workflows/ci.yml"
+  git -C "$SOURCE_DIR" add -A
+  git -C "$SOURCE_DIR" commit -q -m head
+  pin="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+  devagent_state_set "$st" baseline_sha "$base"
+  devagent_state_set "$st" preship_pin_head "$pin"
+  tx="2026-11-20-gitbash-guards-${pin:0:7}.txt"
+  mkdir -p "$DEVDOC_DIR/Issue-1/evidence"
+  printf '%s\n' "$pin" 'MINGW64_NT-10.0-26100 runner 3.5.4 x86_64 Msys' > "$DEVDOC_DIR/Issue-1/evidence/$tx"
+
+  cd "$SOURCE_DIR"
+  export CLAUDE_PLUGIN_ROOT="$REPO"
+  for i in "${!calls[@]}"; do
+    cmd="${calls[$i]}"
+    cmd="${cmd//<project>/$TEST_PROJECT}"; cmd="${cmd//<Issue-N>/Issue-1}"
+    cmd="${cmd//<check>/Zeta check}"; cmd="${cmd//<test file>/tests/guards.bats}"; cmd="${cmd//<test name>/pass: or-skip}"
+    [[ "$cmd" != *'<'*'>'* ]] || { echo "a placeholder this test cannot fill: $cmd" >&2; return 1; }
+    run --separate-stderr bash -c "$cmd"
+    # shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr`
+    [ "$status" -eq 0 ] || { echo "rc $status from: $cmd"; echo "stdout: $output"; echo "stderr: $stderr"; return 1; }
+    # one `&&` chain per arm: inside `case ... ||` only an arm's last status counts
+    case "$cmd" in
+      *" static "*)     [ "$output" = "deferred to CI at merge: Zeta check" ] ;;
+      *" transcript "*) [ "$output" = "transcript accepted: evidence/$tx is at the pinned head $pin" ] ;;
+      *)                [ "${#lines[@]}" -eq 3 ] \
+                          && [ "${lines[0]}" = "required checks: Zeta check" ] \
+                          && [ "${lines[1]}" = "code backend: github (mr-checks: yes)" ] \
+                          && [[ "${lines[2]}" == "self-certification warning: .github/workflows/ci.yml changed in ${base:0:7}..${pin:0:7}; "* ]] ;;
+    esac || { echo "unexpected output from: $cmd"; echo "stdout: $output"; return 1; }
+  done
+
+  # a check that fails is exit 1 with its one line, never the usage exit 2
+  rm -f "$DEVDOC_DIR/Issue-1/evidence/$tx"
+  for cmd in "${calls[@]}"; do
+    [[ "$cmd" == *" transcript "* ]] || continue
+    cmd="${cmd//<project>/$TEST_PROJECT}"; cmd="${cmd//<Issue-N>/Issue-1}"; cmd="${cmd//<test file>/tests/guards.bats}"
+    run --separate-stderr bash -c "$cmd"
+    [ "$status" -eq 1 ] || { echo "rc $status from: $cmd"; return 1; }
+    [[ "$output" == "transcript check failed: no evidence/"* ]]
+  done
+  # and the capability line the rule's transcript gate reads is the script's own spelling
+  devagent_config_set "$cfg" "project.$TEST_PROJECT.code_source.backend" local
+  run --separate-stderr bash -c "${PD_BARE/<project> <Issue-N>/$TEST_PROJECT Issue-1}"
+  [ "$status" -eq 0 ]
+  [ "${lines[1]}" = "code backend: local (mr-checks: no)" ]
+  [[ "$t" == *'`mr-checks: no`'* ]]
 }

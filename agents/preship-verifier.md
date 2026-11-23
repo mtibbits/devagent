@@ -70,6 +70,31 @@ verification passed; FAIL otherwise).
 1. **Acceptance criteria executed.** Each criterion from `issue.md` is RUN
    against the branch — command plus output per criterion, pass/fail. A criterion
    that cannot be executed is N/A **with the reason**, not PASS.
+
+   **1a. A criterion a required CI check meets (#1097).** Always run this
+   (arguments as in verification 4) and quote its output:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-deferred.sh" <project> <Issue-N>
+   ```
+
+   Copy a `self-certification warning:` line verbatim, on a line of its own; it
+   fails nothing. `required checks: (none)`: nothing more. Otherwise a criterion
+   saying a listed check is green at the merged head cannot be run before ship,
+   and is not N/A. Run the command again, adding
+   `static '<check>' '<test file>' '<test name>'` (each shell-quoted; names from
+   `issue.md`, else `imPlan.md`). Exit 0: PASS; record the line it prints, on a
+   line of its own and unchanged: `deferred to CI at merge: <check>`. Exit 1:
+   FAIL with the printed reason.
+
+   A hand-recorded Git Bash transcript is accepted in the check's place only
+   when `issue.md` says why the job cannot exercise the behaviour (quote its
+   reason), or the `code backend:` line says `mr-checks: no`. Then add
+   `transcript '<test file>'` instead: exit 0 PASS, exit 1 FAIL, each with the
+   printed line. A criterion that an issue already open words as a hand
+   transcript is verified as worded.
+
+   Any other exit of a call above: FAIL, could not run (quote stderr).
 2. **Findings applied and committed.** Every BLOCKING/MAJOR (or
    request-changes-class) finding from the latest-dated review and redmr
    artifacts is located in the COMMITTED diff (`git diff <baseline>..HEAD`),
