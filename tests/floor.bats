@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # bats file_tags=gitbash
 # tests/floor.bats — #715: pull's deterministic floor (scripts/lib/floor.sh),
-# the `steering` and `size` checks on the candidate issue.md, driven directly:
+# its `steering`, `size` and `chars` (#923) checks on the candidate issue.md, driven directly:
 # each test sources the libraries and sets TRUST_VAL by hand. The end-to-end
 # legs through the real pull.sh are tests/floor-pull.bats.
 # shellcheck disable=SC2154,SC2034  # $stderr is set by `run --separate-stderr`; TRUST_VAL is read by floor.sh

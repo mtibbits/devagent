@@ -461,6 +461,38 @@ _count() { LC_ALL=C grep -o -F -- "$(printf '%b' "$2")" "$1" | wc -l | tr -d ' '
   [[ "$(head -n 1 "$OUT")" == *' x<U+0007>y' ]]
 }
 
+@test "render: a control byte inside an allowlisted run keeps the run raw (chars escape first)" {
+  # Escaped first, BEL would split the run into two passable singles.
+  _allowf '["\u200f"]'
+  GH_STUB_LABELS_JSON='[{"name": "a\u200f\u0007\u200fb"}]' _fetch '"Body."'
+  _render5
+  [ "$status" -eq 0 ]
+  [ "$(_count "$OUT" 'a\xe2\x80\x8f<U+0007>\xe2\x80\x8fb')" -eq 1 ]
+  run --separate-stderr python3 -I -X utf8 "$CHARS_PY" scan --candidate "$OUT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "hits 2
+label line 1 U+200F
+label line 1 U+200F" ]
+}
+
+@test "render: an allowlisted U+200F is escaped in State and Author" {
+  _allowf '["\u200f"]'
+  _fetch '"Body."'
+  # The gh stub cannot set either value: put U+200F into the fetched lines.
+  python3 -I -c 'import sys
+p = sys.argv[1]
+b = open(p, "rb").read()
+for k in (b"- State: open", b"- Author: @alice"):
+    b = b.replace(k, k[:-2] + "\u200f".encode() + k[-2:])
+open(p, "wb").write(b)' "$RAW"
+  [ "$(_count "$RAW" '\xe2\x80\x8f')" -eq 2 ]
+  _render5
+  [ "$status" -eq 0 ]
+  grep -qx -- '- State: op<U+200F>en' "$OUT"
+  grep -qx -- '- Author: @ali<U+200F>ce' "$OUT"
+  [ "$(_count "$OUT" '\xe2\x80\x8f')" -eq 0 ]
+}
+
 # bats test_tags=gitbash
 @test "render then scan: CRLF body" {
   _allowf '[]'
@@ -501,6 +533,18 @@ body line 3 U+202E" ]
   _fetch '"Plain body."'
   _render5
   [ "$(cat "$OUT.mixed.json")" = '[]' ]
+}
+
+@test "render: the record covers the body, after the title" {
+  _allowf '[]'
+  _fetch '"one\np\u0430ypal"'
+  _render5
+  [ "$status" -eq 0 ]
+  [ "$(cat "$OUT.mixed.json")" = '[{"field":"body","line":2,"word_scripts":["Cyrillic","Latin"]}]' ]
+  _fetch '"one\np\u0430ypal"' '[]' '"p\u0430ypal"'
+  _render5
+  [ "$status" -eq 0 ]
+  [ "$(cat "$OUT.mixed.json")" = '[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]},{"field":"body","line":2,"word_scripts":["Cyrillic","Latin"]}]' ]
 }
 
 @test "render: a malformed allow file is exit 4 and writes nothing" {

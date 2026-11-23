@@ -112,5 +112,20 @@ _cand() {
   [ "$status" -eq 0 ]
   [ "$output" = '[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]}]' ]
   run --separate-stderr _chars mixed body "$T/clean"
+  [ "$status" -eq 0 ]
   [ "$output" = '[]' ]
+}
+
+@test "cli: a table that cannot load is exit 3, and the render's exit 4" {
+  local lib="$T/lib"
+  cp -r "$PLUGIN_ROOT/scripts/lib" "$lib"
+  rm "$lib/chars_table.py"
+  printf '# acme/widgets#7 \xe2\x80\x94 T\n' > "$T/raw"
+  run --separate-stderr python3 -I -X utf8 "$lib/chars.py" scan body "$T/clean"
+  [ "$status" -eq 3 ]
+  [ -z "$output" ]
+  run --separate-stderr python3 -I -X utf8 "$lib/staging_render.py" "$T/raw" "$T/out" acme/widgets 7
+  [ "$status" -eq 4 ]
+  [ ! -e "$T/out" ]
+  [ ! -e "$T/out.mixed.json" ]
 }

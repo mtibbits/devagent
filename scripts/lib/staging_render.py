@@ -104,7 +104,6 @@ def _escape(b: bytes) -> bytes:
     return CONTROL.sub(lambda m: b"<U+%04X>" % m.group(0)[0], b)
 
 
-
 def render(data: bytes, repo: bytes, num: bytes, allow=frozenset()) -> tuple:
     """(candidate bytes, trailer count, mixed-script record entries)."""
     lines = _layout._split(data)
