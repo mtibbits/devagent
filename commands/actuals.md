@@ -108,8 +108,11 @@ unchanged inputs differ only in `generated_at`. UTF-8, LF, 2-space indent.
 Empty forms. An issue with milestones but no transcript calls has
 `"sessions": [], "time": null, "tokens": null`. An issue with calls but no
 milestones has `"milestones": []`. **`"milestones": null` means the project's
-milestones source was missing** (its run failed or printed no whole JSON
-Lines): not known, which is not the same as no events. A project with no
+milestones run failed outright** (it exited non-zero or printed no whole JSON
+Lines): not known, which is not the same as no events. A run that completed
+with one of its own sources missing (a tracker outage: a header `missing`
+entry) still gives arrays of the events it did read, checklist rows only for
+example; the `sources` rows say which source was missing. A project with no
 overhead has `"overhead": null`. With no transcript and no milestones at all,
 the document still writes, with empty lists and `missing` source rows.
 

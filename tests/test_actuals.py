@@ -340,6 +340,38 @@ def test_default_skips_own_host_partition_duplicating_live(tmp_path, monkeypatch
     assert _issue(doc, "beta", "Issue-7")["tokens"]["total"] == 4.0
 
 
+def test_own_host_partition_with_an_archive_only_subagent_file_is_read(tmp_path, monkeypatch):
+    """A live session whose subagent file survives only in the archive: the archive dir is read."""
+    store = tmp_path / "store"
+    recs = _sid([*_dispatch("n1", "alpha", "Issue-4", 9, "implement", "d1"), _m("m1", _usage(inp=10), "claude-a")],
+                "S")
+    _live(tmp_path, "-work-alpha", "S.jsonl", recs)
+    _gz(store / "h1" / "-work-alpha" / "S.jsonl.gz", recs)
+    _gz(store / "h1" / "-work-alpha" / "S" / "subagents" / "agent-a.jsonl.gz",
+        [_m("sub1", _usage(inp=1000), "claude-b")])
+    _config(tmp_path, archive=store)
+    opened = []
+    real = ac.cr.scan_session
+
+    def spy(path, *a, **k):
+        opened.append(str(path))
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(ac.cr, "scan_session", spy)
+    doc = _build(tmp_path)
+    assert str(store / "h1" / "-work-alpha" / "S.jsonl.gz") in opened
+    models = {m["model"] for r in doc["unassigned"] + [p["actuals"]["overhead"] for p in doc["projects"]
+                                                       if p["actuals"]["overhead"]] + [i["actuals"] for i in doc["issues"]]
+              if r and r.get("tokens") for m in r["tokens"]["raw"]}
+    assert "claude-b" in models   # the archive-only subagent call is counted
+    # with the subagent file live too, the archive dir is a pure copy again: skipped
+    _write(Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / "-work-alpha" / "S" / "subagents" / "agent-a.jsonl",
+           [_m("sub1", _usage(inp=1000), "claude-b")])
+    opened.clear()
+    _build(tmp_path)
+    assert str(store / "h1" / "-work-alpha" / "S.jsonl.gz") not in opened
+
+
 def _sources(doc, source=None):
     return [s for s in doc["sources"] if source is None or s["source"] == source]
 

@@ -159,13 +159,23 @@ def _subdirs(path: Path) -> list[Path]:
 
 
 def _archived_copy_of_live(slug_dir: Path, live_root: Path) -> bool:
-    """Every file of an archive cwd dir is a copy of a live file of the same cwd (its name minus .gz)."""
+    """Every file under an archive cwd dir, the sessions and everything under each <session>/
+    (subagent files included), is a copy of the live file at the same relative path (minus .gz).
+
+    Any other archive file means the dir holds something live does not: it is read
+    (the shared message-id set keeps the double read correct).
+    """
     live = live_root / slug_dir.name
     try:
-        names = {p.name[:-3] for p in slug_dir.glob("*.jsonl.gz")}
-        if any(p.name.endswith(".jsonl") for p in slug_dir.glob("*.jsonl")):
+        if not live.is_dir() or any(slug_dir.glob("*.jsonl")):
             return False
-        return live.is_dir() and names <= {p.name for p in live.glob("*.jsonl")}
+        for f in slug_dir.rglob("*"):
+            if f.is_dir():
+                continue
+            rel = f.relative_to(slug_dir).as_posix()
+            if not (live / rel.removesuffix(".gz")).is_file():
+                return False
+        return True
     except OSError:
         return False
 

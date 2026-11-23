@@ -365,7 +365,7 @@
           "additionalProperties": false,
           "properties": {
             "milestones": {
-              "description": "Dated events in the milestones report's order; null when that project's milestones source was missing (not the same as no events).",
+              "description": "Dated events in the milestones report's order; null when that project's milestones run failed outright (not the same as no events). A run that completed with one of its own sources missing (a tracker outage) still gives an array, of the events it read: the file's sources rows say which source was missing.",
               "type": ["array", "null"],
               "items": {
                 "type": "object",
@@ -506,7 +506,7 @@
       }
     },
     "ActualsTime": {
-      "description": "Agent and operator time in seconds under the file's time_rule; null when no transcript call was charged to the issue (zeros when calls were charged but none was timed).",
+      "description": "Agent and operator time in seconds under actuals.json's time_rule (not copied into the portfolio); null when no transcript call was charged to the issue (zeros when calls were charged but none was timed).",
       "type": ["object", "null"],
       "required": ["agent_busy_s", "agent_wall_s", "operator_s", "operator_events", "returns_after_absence", "fallback_events"],
       "additionalProperties": false,

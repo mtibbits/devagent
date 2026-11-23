@@ -304,13 +304,13 @@ Shared shapes, at each place they appear (`<P>` is the path of the holder):
 
 | Path | Type | Req | Meaning |
 |---|---|---|---|
-| `projects[].issues[].actuals.milestones` | array\|null | req | Dated events in the milestones report's order. Null when that project's milestones source was missing: not the same as `[]`, no events. |
+| `projects[].issues[].actuals.milestones` | array\|null | req | Dated events in the milestones report's order. Null when that project's milestones run failed outright: not the same as `[]`, no events. A run that completed with one of its own sources missing (a tracker outage) still gives an array of the events it read; `actuals.json`'s `sources` rows name the missing source. |
 | `projects[].issues[].actuals.milestones[]` | object | — | One event. |
 | `projects[].issues[].actuals.milestones[].at` | string | req | The event time as its source wrote it. |
 | `projects[].issues[].actuals.milestones[].event` | string | req | The milestones vocabulary (`opened`, `step_done`, `mr_merged`, ...). A plain string: the vocabulary can grow. |
 | `projects[].issues[].actuals.milestones[].source` | string | req | Where it was read, as milestones.sh reports it: the issue's tracker URL, the MR's URL (its ref when the backend gives none), or the checklist line as `<issue-dir>/checklist.md:<line>`. |
 | `projects[].issues[].actuals.sessions` | array | req | The sessions the figures came from; `[]` when none. |
-| `projects[].issues[].actuals.time` | object\|null | req | Seconds under the file's `time_rule`: `agent_busy_s`, `agent_wall_s` (the headline), `operator_s` (numbers ≥ 0), and the integer counts `operator_events`, `returns_after_absence`, `fallback_events`. Null when the issue has no transcript calls. |
+| `projects[].issues[].actuals.time` | object\|null | req | Seconds under `actuals.json`'s `time_rule` (read it there; the portfolio does not copy it): `agent_busy_s`, `agent_wall_s` (the headline), `operator_s` (numbers ≥ 0), and the integer counts `operator_events`, `returns_after_absence`, `fallback_events`. Null when the issue has no transcript calls. |
 | `projects[].issues[].actuals.tokens` | Tokens | req | The issue's token cost. |
 | `projects[].actuals.overhead` | object\|null | req | Calls with no issue that the cost report placed on this project; null when none. |
 | `projects[].actuals.overhead.rules` | object | req | Calls placed per rule: `projects[].actuals.overhead.rules.hint` (a session hint naming the project) and `projects[].actuals.overhead.rules.cwd` (the call's working directory under one of its dirs), integers ≥ 0. |

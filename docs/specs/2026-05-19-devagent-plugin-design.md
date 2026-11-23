@@ -173,7 +173,9 @@ potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pot
 [archive]                                # #731: GLOBAL top-level table — the durable transcript archive; absent = off
 transcripts_dir = "~/private/claude-transcripts"   # absolute after ~ expansion; required; refused inside a git work tree or inside <CLAUDE_CONFIG_DIR>/projects
 host_id         = "laptop"               # partition name [A-Za-z0-9._-]+, no "..", not "."; default hostname (+ "-wsl" under WSL)
-exclude         = ["*scratch*"]          # cwd-slug globs never archived; any other key is refused
+exclude         = ["*scratch*"]          # cwd-slug globs never archived
+actuals_max_age_hours = 24               # #735: cleanup rebuilds <devagent_home>/actuals.json when it is older; 0 < x <= 168; default 24
+# any other [archive] key is refused (so is a refused actuals_max_age_hours: the archiver stops until it is fixed)
 
 # #743: operator capacity, GLOBAL top-level table; absent = forecasting off (planned, #744).
 # devagent does not know the subscription's limits: every value here is an example.
@@ -3789,7 +3791,10 @@ document it leaves them null with one `actuals_unavailable` entry per project.
 Cleanup refreshes the file inside its `[archive]` gate: an age check against
 `[archive].actuals_max_age_hours` (default 24, at most 168), and when stale a
 detached `actuals.sh --if-stale` it does not wait for; the next stale close
-warns once when that run failed or timed out. Estimates (#736) and
+warns once when that run failed or timed out. The rebuild's files sit beside
+the document in `devagent_home`: `actuals-rebuild.log` (its output; a failed
+run's log is kept as `actuals-rebuild.log.1`), `actuals-rebuild.pid` and
+`actuals-rebuild.status` (its exit status). Estimates (#736) and
 forecasts (#742) read the same file. The command doc is `commands/actuals.md`;
 the slot shapes are `docs/portfolio-schema.md`, "Actuals".
 
