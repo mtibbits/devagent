@@ -10,7 +10,8 @@
 # --archive alone reads only the archive; --all-dirs, --project, --overhead or
 # --transcripts add the live dirs. One API call is counted once across every
 # file read.
-# --json prints one JSON object per (project, issue) with its transcript sources.
+# --json prints one JSON object per (project, issue) with its transcript sources
+# and, under "raw", its unweighted token counts per model and class (#735).
 # --time adds a time line per pair: agent wall time (the headline: the union of
 # busy intervals), agent busy time (their sum over parallel transcripts) and
 # operator time with its event counts. A tool wait counts up to --tool-gap
