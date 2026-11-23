@@ -2370,3 +2370,21 @@ def test_manifest_requires_actuals_path(tmp_path, monkeypatch, capsys, value):
     assert "PORTFOLIO_ACTUALS is not set" in capsys.readouterr().err
     assert not out.exists()
     assert pf.main(["ready"]) == pf.EXIT_OK   # ready builds without actuals
+
+
+def test_actuals_with_a_lone_surrogate_is_unusable_not_a_crash(tmp_path, monkeypatch, capsys):
+    """Final review I1: json accepts "\\ud800", UTF-8 cannot encode it; the file is unusable, exit 0."""
+    root, _ = _multi(tmp_path)
+    path = tmp_path / "a" / "actuals.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_actuals(unassigned=[{"cwd": "\ud800", "sessions": [], "tokens": None}])),
+                    encoding="utf-8")
+    _manifest(monkeypatch, [("alpha", str(root / "alpha"))], actuals=str(path))
+    out = tmp_path / "out" / "p.json"
+    assert pf.main(["build", "--out", str(out)]) == pf.EXIT_OK
+    capsys.readouterr()
+    doc = json.loads(out.read_bytes().decode("utf-8"))
+    assert _unavailable(doc) == [("alpha", None, f"{path} is not a usable actuals document: a string is not "
+                                                 "valid UTF-8 (a lone surrogate); actuals are empty; run "
+                                                 "/devagent:actuals")]
+    assert doc["actuals"] is None

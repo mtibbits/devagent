@@ -1349,3 +1349,33 @@ _stamp() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gene
     [ ! -e "$HOME/.claude/devagent/actuals.json" ]
     [ ! -e "$HOME/.claude/devagent/actuals-rebuild.pid" ]
 }
+
+
+@test "cleanup.sh ignores a pid file older than the rebuild bound, even when its pid is alive (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg
+    sleep 30 &
+    local pid=$!
+    echo "$pid" > "$HOME/.claude/devagent/actuals-rebuild.pid"
+    touch -d '20 minutes ago' "$HOME/.claude/devagent/actuals-rebuild.pid"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    kill "$pid" 2>/dev/null || true
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"already running"* ]]
+    [ "$(grep -c '^cleanup.sh: rebuilding actuals.json in the background (log: ' <<<"$output")" -eq 1 ]
+}
+
+@test "cleanup.sh stays silent on a fresh actuals.json even while a rebuild pid is alive (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg
+    _actuals_file 1
+    sleep 30 &
+    local pid=$!
+    echo "$pid" > "$HOME/.claude/devagent/actuals-rebuild.pid"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    kill "$pid" 2>/dev/null || true
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"actuals"* ]]
+}

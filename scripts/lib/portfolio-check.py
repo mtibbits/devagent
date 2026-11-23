@@ -521,6 +521,12 @@ def actuals_usable(doc, schema=None) -> str | None:
                 bad = _rooted(check_at(row[field], path, schema), f"{at_row}.{field}")
             if bad:
                 return bad
+    try:
+        # json accepts an escaped lone surrogate ("\ud800"); UTF-8 cannot encode it,
+        # so a document carrying one could never be written back out.
+        json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return "a string is not valid UTF-8 (a lone surrogate)"
     return None
 
 

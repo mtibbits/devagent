@@ -377,7 +377,9 @@ fi
 # preflight --if-stale: one interpreter, no network): fresh is silent. Stale
 # starts `actuals.sh --if-stale` in its own session (setsid where present),
 # bounded by `timeout` where present, its output in actuals-rebuild.log and its
-# pid in actuals-rebuild.pid; a live pid there means one is already running.
+# pid in actuals-rebuild.pid. A stale close whose pid file is younger than that
+# bound and names a live process starts no second rebuild; an older pid file
+# cannot be a running rebuild (its pid may have been reused), so it is ignored.
 # Every failure warns and the close completes. Called inside the [archive]
 # gate, after the archive run, so an unconfigured close still spawns nothing.
 ACTUALS_REBUILD_TIMEOUT_S=900
@@ -385,17 +387,17 @@ _actuals_rebuild() {
     local home rc=0 pid log pidf
     home="$(devagent_home)"
     log="$home/actuals-rebuild.log" pidf="$home/actuals-rebuild.pid"
-    if [ -f "$pidf" ] && pid="$(cat "$pidf" 2>/dev/null)" && [[ "$pid" =~ ^[0-9]+$ ]] \
-            && kill -0 "$pid" 2>/dev/null; then
-        info "an actuals rebuild is already running (pid $pid); not starting another"
-        return 0
-    fi
     DA_HOME="$home" python3 "$DEVAGENT_ROOT/scripts/lib/actuals.py" preflight --if-stale || rc=$?
     case "$rc" in
         3) return 0 ;;   # fresh
         0) ;;
         *) warn "cleanup: actuals rebuild failed (non-fatal)"; return 0 ;;
     esac
+    if [ -n "$(find "$pidf" -mmin "-$(( ACTUALS_REBUILD_TIMEOUT_S / 60 + 1 ))" 2>/dev/null)" ] \
+            && pid="$(cat "$pidf" 2>/dev/null)" && [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+        info "an actuals rebuild is already running (pid $pid); not starting another"
+        return 0
+    fi
     local cmd=(bash "$DEVAGENT_ROOT/scripts/actuals.sh" --if-stale)
     command -v timeout >/dev/null 2>&1 && cmd=(timeout "$ACTUALS_REBUILD_TIMEOUT_S" "${cmd[@]}")
     command -v setsid >/dev/null 2>&1 && cmd=(setsid "${cmd[@]}")

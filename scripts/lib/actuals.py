@@ -114,8 +114,11 @@ def gate() -> int:
         hours = at.max_age_hours(table or {})
     except at.Refusal as e:
         raise Refused(str(e)) from None
+    path = default_out()
+    if pf._regular_file(path)[0] != "regular":
+        return EXIT_GO   # absent, or not a file this gate may open (a FIFO would block a close)
     try:
-        doc = pc.read_document(default_out())
+        doc = pc.read_document(path)
     except pc.DocumentError:
         return EXIT_GO
     if pc.actuals_usable(doc) is not None:

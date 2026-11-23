@@ -143,9 +143,10 @@ def _issue(doc, project, issue):
     return row["actuals"]
 
 
-def _cli(*args, env=None):
+def _cli(*args, env=None, timeout=None):
     full = {**os.environ, **(env or {})}
-    return subprocess.run([sys.executable, str(BUILDER), *map(str, args)], capture_output=True, env=full)
+    return subprocess.run([sys.executable, str(BUILDER), *map(str, args)], capture_output=True, env=full,
+                          timeout=timeout)
 
 
 def _weighted(raw):
@@ -518,12 +519,14 @@ def _good(tmp_path, hours_ago, project=None):
 
 @pytest.mark.parametrize("case, expected", [
     ("missing", 0), ("25h", 0), ("key-1-2h", 0), ("torn", 0), ("future", 0), ("not-actuals", 0),
-    ("one-project", 0), ("1h", 3), ("refused-key", 2),
+    ("one-project", 0), ("1h", 3), ("refused-key", 2), ("fifo", 0),
 ])
 def test_gate(tmp_path, case, expected):
     """--if-stale: 0 go (rebuild), 3 fresh (skip), 2 a refused actuals_max_age_hours."""
     extra = {"key-1-2h": "actuals_max_age_hours = 1\n", "refused-key": "actuals_max_age_hours = 0\n"}.get(case, "")
-    if case != "missing":
+    if case == "fifo":   # final review: the foreground gate must never open a FIFO
+        os.mkfifo(Path(os.environ["DA_HOME"]) / "actuals.json")
+    elif case != "missing":
         body = {"25h": _good(tmp_path, 25), "key-1-2h": _good(tmp_path, 2), "torn": '{"actuals_version": "1.0", ',
                 "future": _good(tmp_path, -1), "not-actuals": {"x": 1}, "one-project": _good(tmp_path, 1, "alpha"),
                 "1h": _good(tmp_path, 1), "refused-key": _good(tmp_path, 1)}[case]
@@ -531,7 +534,7 @@ def test_gate(tmp_path, case, expected):
     store = tmp_path / "store"
     store.mkdir()
     _config(tmp_path, archive=store, extra_archive=extra)
-    run = _cli("preflight", "--if-stale")
+    run = _cli("preflight", "--if-stale", timeout=20)
     assert run.returncode == expected, run.stderr
     if case == "refused-key":
         assert run.stderr.decode().splitlines() == [
