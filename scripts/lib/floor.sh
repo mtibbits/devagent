@@ -4,7 +4,7 @@
 # reads or prints it, as the first source of quarantine_verdict
 # (scripts/lib/quarantine.sh).
 #
-# FLOOR_CHECKS run in order; #923 appends `chars`. Every check runs, each
+# FLOOR_CHECKS run in order. Every check runs, each
 # failure prints its diagnostic on stderr, and floor_run prints the FIRST
 # failing check's token (a QUARANTINE_REASONS token) on stdout. A failing check
 # wins over one that could not run, so a hostile ticket always quarantines;
@@ -18,10 +18,22 @@
 #             only with body-shaped entries, labels only with label-shaped
 #             ones, by string equality (never as a pattern or a subscript).
 #   size      the candidate's byte length must not exceed size_cap.
+#   chars     (#923) the title, body, Labels, State and Author values must hold
+#             no character of the pinned-Unicode invisible set (chars.py,
+#             chars_table.py: Bidi_Control, Default_Ignorable_Code_Point, gc
+#             Cf, Cn, Cs, and Cc other than TAB, LF and CR) and no invalid
+#             UTF-8. The render (staging_render.py) has already written each
+#             allowlisted character as `<U+XXXX>` and each C0 byte or DEL of the
+#             title and header values as #715's `<U+00HH>`, so the floor scans
+#             with the empty allowlist: a raw set character left is a hit.
+#             When `chars` is the token, floor_run's stdout gains a second line,
+#             `detail: <first hit>[ (+N more)]` (refusals.sh's
+#             QUARANTINE_DETAIL_RE), which quarantine_verdict carries to the
+#             marker.
 #
 # Diagnostics name a key of flags_known_keys, a body line number, a label's
-# index, or a count — never a ticket byte. Each ends with remedy lines
-# addressed to the operator, never to the worker session.
+# index, a field, line and code point, or a count — never a ticket byte. Each
+# ends with remedy lines addressed to the operator, never to the worker session.
 #
 # Reads only the candidate it is handed and TRUST_VAL; reads no config, writes
 # nothing, never dies. Source-only file: do not execute directly.
@@ -36,8 +48,11 @@ _FLOOR_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 declare -F _trust_list >/dev/null || source "$_FLOOR_LIB_DIR/trust.sh"
 # shellcheck source=/dev/null
 declare -F info >/dev/null || source "$_FLOOR_LIB_DIR/io.sh"
+# Issue-1050: chars needs the detail grammar; trust.sh is not relied on for it.
+# shellcheck source=/dev/null
+[ -n "${QUARANTINE_DETAIL_RE:-}" ] || source "$_FLOOR_LIB_DIR/refusals.sh"
 
-FLOOR_CHECKS=(steering size)
+FLOOR_CHECKS=(steering size chars)
 
 # A check prints at most FLOOR_SAY_MAX diagnostics, then `<check>: <n> more not
 # shown`: the ticket's author must not set how much the worker session reads.
@@ -62,7 +77,7 @@ floor_run() { _floor_run "$1" 3>&2; }
 # speaks only through _floor_say and reports a failed read by its status.
 _floor_run() {
   local cand="$1" check rc more token="" cannot=0
-  _FLOOR_CLASS_LISTABLE=0 _FLOOR_CLASS_UNLISTABLE=0 _FLOOR_CLASS_SIZE=0
+  _FLOOR_CLASS_LISTABLE=0 _FLOOR_CLASS_UNLISTABLE=0 _FLOOR_CLASS_SIZE=0 _FLOOR_CLASS_CHARS=0 _FLOOR_DETAIL=""
   for check in "${FLOOR_CHECKS[@]}"; do
     rc=0 _FLOOR_SAID=0
     "_floor_$check" "$cand" 2>/dev/null || rc=$?
@@ -87,8 +102,17 @@ _floor_run() {
     if [ "$_FLOOR_CLASS_SIZE" = 1 ]; then
       _floor_say "for the operator: shorten the ticket, or raise size_cap in the trust policy; a trusted approver then releases the quarantine"
     fi
-    _floor_say "for the operator: a release without one of these fixes quarantines again on the next pull (until #953)"
+    # #953's human PASS can lift these classes; it never overrides chars, which
+    # has its own last line.
+    if [ "$_FLOOR_CLASS_LISTABLE" = 1 ] || [ "$_FLOOR_CLASS_UNLISTABLE" = 1 ] || [ "$_FLOOR_CLASS_SIZE" = 1 ]; then
+      _floor_say "for the operator: a release without one of these fixes quarantines again on the next pull (until #953)"
+    fi
+    if [ "$_FLOOR_CLASS_CHARS" = 1 ]; then
+      _floor_say "for the operator: edit the text, remove the label that holds the character, or add the character to the trust policy's allowed_chars (a run longer than two, or invalid UTF-8, can only be edited out); a trusted approver then releases the quarantine"
+      _floor_say "for the operator: a chars quarantine released without one of these fixes quarantines again on every pull"
+    fi
     printf '%s\n' "$token"
+    if [ "$token" = chars ]; then printf 'detail: %s\n' "$_FLOOR_DETAIL"; fi
     return 0
   fi
   [ "$cannot" = 0 ] || return 3
@@ -196,4 +220,37 @@ _floor_size() {
     return 1
   fi
   return 0
+}
+
+# _floor_chars <candidate>: 0 pass, 1 fail, 3 could not run. chars.py scans the
+# candidate's five fields with the empty allowlist (the render already escaped
+# the allowlisted characters) and prints `hits <total>` and the first
+# min(total, FLOOR_SAY_MAX) hits. Its output is ASCII by contract and is
+# accepted only whole: exit 0, a bounded count, exactly that many lines, each
+# in refusals.sh's grammar pieces — anything else is could-not-run, never a
+# pass and never a hit. SETTER-GLOBAL _FLOOR_DETAIL, _FLOOR_CLASS_CHARS.
+_floor_chars() {
+  local cand="$1" out rc=0 total want i re LC_ALL=C
+  local -a rows=()
+  [ -n "${QUARANTINE_DETAIL_RE:-}" ] && [ -n "${QUARANTINE_DETAIL_FIELD_RE:-}" ] || return 3
+  [ -f "$cand" ] && [ -r "$cand" ] || return 3
+  out="$(python3 -I -X utf8 "$_FLOOR_LIB_DIR/chars.py" scan --candidate "$cand" --max "$FLOOR_SAY_MAX")" || rc=$?
+  [ "$rc" -eq 0 ] || return 3
+  mapfile -t rows <<<"$out"
+  [[ "${rows[0]:-}" =~ ^hits\ ([0-9]{1,9})$ ]] || return 3
+  total=$((10#${BASH_REMATCH[1]}))
+  want="$total"
+  [ "$want" -le "$FLOOR_SAY_MAX" ] || want="$FLOOR_SAY_MAX"
+  [ "${#rows[@]}" -eq $((want + 1)) ] || return 3
+  re="^${QUARANTINE_DETAIL_FIELD_RE} line ${QUARANTINE_DETAIL_LINE_RE} ${QUARANTINE_DETAIL_POINT_RE}\$"
+  for ((i = 1; i <= want; i++)); do
+    [[ "${rows[i]}" =~ $re ]] || return 3
+  done
+  [ "$total" -gt 0 ] || return 0
+  for ((i = 1; i <= want; i++)); do _floor_say "chars: ${rows[i]}"; done
+  _FLOOR_SAID="$total"
+  _FLOOR_DETAIL="${rows[1]}"
+  [ "$total" -eq 1 ] || _FLOOR_DETAIL+=" (+$((total - 1)) more)"
+  _FLOOR_CLASS_CHARS=1
+  return 1
 }

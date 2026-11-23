@@ -30,7 +30,7 @@ _cand() {
   [ "$output" = "hits 0" ]
   _chars scan body "$T/hit" > "$T/out"
   [ "$(cat "$T/out")" = "$(printf 'hits 2\nbody line 1 U+202E\nbody line 2 U+200B')" ]
-  ! LC_ALL=C grep -q $'\r' "$T/out"
+  [ "$(LC_ALL=C grep -c $'\r' "$T/out")" = 0 ]
   [ -z "$stderr" ]
 }
 
