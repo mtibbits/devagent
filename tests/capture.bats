@@ -495,8 +495,8 @@ _rc_capture() {
   grep -qF '<!-- Required-check criterion (#1097): this project requires the CI check(s) `Zeta check`, `Eta`.' "${DRAFT}"
   grep -qF 'no POSIX file modes), add this criterion, naming the' "${DRAFT}"
   grep -qF -- '- [ ] `tests/<file>.bats` carries the `gitbash` tag, `<test name>` has no Git Bash skip, and `<check name>` is green at the merged head -->' "${DRAFT}"
-  ! grep -qF '{{' "${DRAFT}"
-  ! grep -qF "${RC_MARKER}" "${DRAFT}"
+  run ! grep -qF '{{' "${DRAFT}"
+  run ! grep -qF "${RC_MARKER}" "${DRAFT}"
   # it sits under the acceptance criteria, before the next section
   awk '/^## Acceptance criteria$/{a=1} a && /Required-check criterion/{print "ok"; exit} a && /^## / && !/Acceptance/{exit 1}' "${DRAFT}" | grep -qx ok
 }
