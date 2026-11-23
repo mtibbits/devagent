@@ -67,6 +67,7 @@ ship_as_draft = false
 # transcripts_dir = "/home/me/private/claude-transcripts"   # absolute (~ expands); required
 # host_id = "laptop"            # [A-Za-z0-9._-]+, no "..", not "."; default the hostname (+ "-wsl" under WSL)
 # exclude = ["*scratch*"]       # cwd-slug globs never archived (case-insensitive)
+# actuals_max_age_hours = 24   # cleanup rebuilds <devagent_home>/actuals.json when it is older; 0 < x <= 168
 
 # Operator capacity (#743): what you can give devagent each week, in one shared
 # table plus an optional table per project. scripts/capacity.sh reads it and a
