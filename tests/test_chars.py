@@ -399,3 +399,22 @@ def test_load_allowlist(tmp_path):
         f.write_bytes(bad)
         with pytest.raises(ValueError):
             c.load_allowlist(str(f))
+
+
+def test_lone_cr_runs_are_linear():
+    # Final review I1: the line splitter backtracked over every run of lone
+    # CRs (quadratic). 100,000 lone CRs then a letter: 100,001 lines, no hit,
+    # under the U4 gate of 1 s per MB in-process.
+    c = _chars()
+    raw = b"\r" * 100000 + b"x" + _u(0x202E)
+    t = __import__("time").perf_counter()
+    hits = c.chars_scan("body", raw, frozenset())
+    c.mixed_record_bytes("body", raw)
+    c.chars_escape_bytes(raw, frozenset())
+    dt = __import__("time").perf_counter() - t
+    assert hits == [("body", 100001, "U+202E")]
+    assert c.chars_escape_bytes(b"a\r\rb\r\r\nc\r", frozenset()) == b"a\r\rb\r\r\nc\r"
+    assert c.chars_scan("body", b"\r\r" + _u(0x202E), frozenset()) == [("body", 3, "U+202E")]
+    assert c.mixed_record("body", "\r\r\np" + chr(0x430) + "y") == [
+        {"field": "body", "line": 2, "word_scripts": ["Cyrillic", "Latin"]}]
+    assert dt < 1.0, dt

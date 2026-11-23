@@ -87,8 +87,10 @@ except Exception as _e:  # noqa: BLE001 - any load failure is "could not run"
 
 FIELDS = ("title", "body", "label", "state", "author")
 _ID_OK = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-")
-_EOL_B = re.compile(rb"\r*\n|\r")
-_EOL_S = re.compile("\r*\n|\r")
+# One match per CR run (with its LF, if one follows) or bare LF: no backtracking,
+# so a run of lone CRs splits in linear time (final review I1).
+_EOL_B = re.compile(rb"\r+\n?|\n")
+_EOL_S = re.compile("\r+\n?|\n")
 _TITLE_SEP = b" \xe2\x80\x94 "
 _IGNORED = frozenset(("Common", "Inherited"))
 _AUGMENT = {
@@ -149,28 +151,32 @@ def _field(field):
     raise ValueError("unknown field")
 
 
+def _split_lines(data, eol, lf, cr, empty):
+    """[(content, ending)] by B's rule: a match ending in LF is one ending; a
+    run of k CRs with no LF after it is k lone-CR endings."""
+    out = []
+    pos = 0
+    for m in eol.finditer(data):
+        end = m.group(0)
+        if end.endswith(lf):
+            out.append((data[pos:m.start()], end))
+        else:
+            out.append((data[pos:m.start()], cr))
+            out.extend([(empty, cr)] * (len(end) - 1))
+        pos = m.end()
+    if pos < len(data):
+        out.append((data[pos:], empty))
+    return out
+
+
 def _lines_b(raw):
     """[(content, ending)] by B's rule; ending is b"" for a last line with no
     end. An empty input is no line."""
-    out = []
-    pos = 0
-    for m in _EOL_B.finditer(raw):
-        out.append((raw[pos:m.start()], m.group(0)))
-        pos = m.end()
-    if pos < len(raw):
-        out.append((raw[pos:], b""))
-    return out
+    return _split_lines(raw, _EOL_B, b"\n", b"\r", b"")
 
 
 def _lines_s(text):
-    out = []
-    pos = 0
-    for m in _EOL_S.finditer(text):
-        out.append((text[pos:m.start()], m.group(0)))
-        pos = m.end()
-    if pos < len(text):
-        out.append((text[pos:], ""))
-    return out
+    return _split_lines(text, _EOL_S, "\n", "\r", "")
 
 
 def _decode(line):
