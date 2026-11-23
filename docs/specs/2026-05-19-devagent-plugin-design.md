@@ -84,10 +84,10 @@ devAgent/
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
 │                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
-├── commands/                # one .md file per command-form slash command (58)
+├── commands/                # one .md file per command-form slash command (59)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 58 + 3 = the 61 slash commands
+│                            #   (SKILL.md + references/, #452) — 59 + 3 = the 62 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -128,7 +128,8 @@ devAgent/
 │   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
 │   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
-│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans, ...
+│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans,
+│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -1151,6 +1152,7 @@ omits.
 | `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:milestones [project] [--issue <issue-id> \| --all] [--json]` | Prints each issue's dated milestones (tracker opened/closed, linked MRs opened/merged, checklist steps, parks, revisions) and spans; read-only (see §13.5) |
+| `/devagent:actuals [--archive DIR] [--project P] [--out PATH \| --stdout] [--if-stale]` | Builds `<devagent_home>/actuals.json`, the per-issue actuals (tokens, time, sessions, dated milestones) the portfolio reads (see §13.6) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 **The devDoc not-pushed line (#1148).** After the project blocks (`--all`: after
