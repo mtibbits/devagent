@@ -61,7 +61,7 @@ wd_warn()  { echo "watchdog: warning: $*" >&2; }
 
 WD_SYNOPSIS_CHECK='watchdog.sh check <project> <issue> [--transcript <path>] [--since <ISO time>] [--now <epoch>]'
 WD_SYNOPSIS_BEAT='watchdog.sh heartbeat [--silent <window>]'
-WD_NAME_RE='^[A-Za-z0-9_-]+$'
+WD_NAME_RE="$WATCHDOG_NAME_RE"
 WD_NOW_RE='^[0-9]{1,12}$'
 WD_FUTURE_SLACK=60
 # The tie order: on equal times the earlier source is named.
@@ -220,10 +220,10 @@ cmd_check() {
   local sub="${transcript%.jsonl}" t newest=""
   if [[ -d "$sub" ]]; then
     while IFS= read -r t; do
-      t="${t//$'\r'/}"
+      t="${t//$'\r'/}" t="${t%%.*}"
       [[ "$t" =~ ^[0-9]+$ ]] || continue
       if [[ -z "$newest" ]] || (( t > newest )); then newest="$t"; fi
-    done < <(find "$sub" -type f -exec stat -c %Y -- {} + 2>/dev/null || true)
+    done < <(find "$sub" -type f -printf '%T@\n' 2>/dev/null || true)
     [[ -z "$newest" ]] || wd_add "$newest" "$limit" subagent-transcript
   fi
 
@@ -243,9 +243,8 @@ cmd_check() {
       [[ "$t" =~ ^[0-9]+$ ]] || continue
       name="${f##*/}"
       case "$name" in
-        wrap.*) wd_window "$f" "$limit" "$max"; wd_add "$t" "$WD_ALLOWANCE" wrap "$WD_WINDOWED" ;;
-        beat)   wd_window "$f" "$limit" "$max"; wd_add "$t" "$WD_ALLOWANCE" beat "$WD_WINDOWED" ;;
-        *)      wd_add "$t" "$limit" "$name" ;;
+        wrap.*|beat) wd_window "$f" "$limit" "$max"; wd_add "$t" "$WD_ALLOWANCE" "${name%%.*}" "$WD_WINDOWED" ;;
+        *)           wd_add "$t" "$limit" "$name" ;;
       esac
     done < <(stat -c '%Y %n' -- "${files[@]}" 2>/dev/null || true)
   fi
@@ -292,14 +291,9 @@ cmd_heartbeat() {
 
   # The window is judged before anything is written, marker or not.
   if (( have_silent )); then
-    watchdog_window "$silent" || rc=$?
-    if (( rc == 3 )); then
-      # The grammar holds but the maximum could not be read. A heartbeat never
-      # fails a run over the config: warn, and judge by the shipped maximum.
-      wd_warn "${WATCHDOG_WINDOW_ERR}; judging --silent by the shipped maximum of ${WATCHDOG_DEFAULT_SILENT_MAX_SECS} s"
-      rc=0
-      watchdog_window "$silent" "" "$WATCHDOG_DEFAULT_SILENT_MAX_SECS" || rc=$?
-    fi
+    # A heartbeat never fails a run over the config.
+    watchdog_window_or_shipped "$silent" || rc=$?
+    [[ -z "$WATCHDOG_WINDOW_NOTE" ]] || wd_warn "$WATCHDOG_WINDOW_NOTE"
     (( rc == 0 )) || wd_usage "$WATCHDOG_WINDOW_ERR"
     # The window first: a check between the two writes sees an old beat with a
     # window, never a fresh beat the window has not reached.

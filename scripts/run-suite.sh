@@ -104,6 +104,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=lib/config.sh
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=lib/watchdog-limits.sh
+. "$DEVAGENT_ROOT/scripts/lib/watchdog-limits.sh"
 # shellcheck source=/dev/null
 . "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=lib/state.sh
@@ -298,11 +300,8 @@ fi
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
 
 # #932: the wrapper both suite captures run under (see the bats capture).
-# --project goes in only for a name the wrapper's grammar takes; any other
-# project runs without it, on the [defaults] interval.
-long_run=(bash "$DEVAGENT_ROOT/libexec/long-run.sh" --merge)
-[[ ! "$project" =~ ^[A-Za-z0-9_-]+$ ]] || long_run+=(--project "$project")
-long_run+=(--)
+watchdog_long_run_argv "$project" --merge
+long_run=("${WATCHDOG_LONG_RUN[@]}" --)
 
 bats_line="bats: (none)"
 bats_jobs_line="bats_jobs: (none)"

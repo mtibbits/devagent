@@ -107,7 +107,7 @@ lr_warn()  { echo "long-run: warning: $*" >&2; }
 LR_SYNOPSIS='long-run.sh [--silent <window>] [--merge] [--project <name>] [--every <secs>] [--log-cap <bytes>] [--] <command> [<arg>...]'
 LR_EVERY_RE='^[0-9]{1,4}$'
 LR_CAP_RE='^[1-9][0-9]{6,9}$'
-LR_NAME_RE='^[A-Za-z0-9_-]+$'
+LR_NAME_RE="$WATCHDOG_NAME_RE"
 LR_ASSIGN_RE='^[A-Za-z_][A-Za-z0-9_]*='
 LR_KEEP_DAYS=14
 
@@ -199,14 +199,8 @@ window=""
 if [[ -n "$silent" ]]; then
   rc=0
   if (( python )); then
-    watchdog_window "$silent" "$project" || rc=$?
-    if (( rc == 3 )); then
-      # The grammar holds but the maximum could not be read: judge by the
-      # shipped one rather than fail the run over the config.
-      lr_warn "${WATCHDOG_WINDOW_ERR}; judging --silent by the shipped maximum of ${WATCHDOG_DEFAULT_SILENT_MAX_SECS} s"
-      rc=0
-      watchdog_window "$silent" "" "$WATCHDOG_DEFAULT_SILENT_MAX_SECS" || rc=$?
-    fi
+    watchdog_window_or_shipped "$silent" "$project" || rc=$?
+    [[ -z "$WATCHDOG_WINDOW_NOTE" ]] || lr_warn "$WATCHDOG_WINDOW_NOTE"
   else
     # No config reader: the shipped maximum, under the warning above.
     watchdog_window "$silent" "" "$WATCHDOG_DEFAULT_SILENT_MAX_SECS" || rc=$?

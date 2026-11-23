@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/lib/watchdog-limits.sh — #932: the watchdog's limits, the --silent
 # window grammar and the --since time, each with this one home.
-# Requires paths.sh and config.sh sourced first (config_path, _config_toml).
+# Requires paths.sh and config.sh sourced first (config_get and its kin).
 #
 # Config keys are integer seconds, 1..604800, resolved project -> [defaults] ->
 # constant. Nothing here dies or prints: every function reports through setter
@@ -25,6 +25,7 @@ WATCHDOG_DEFAULT_ANALYZE_TIMEOUT=1800    # the analyze legs' own default budget
 WATCHDOG_SECS_RE='^[1-9][0-9]{0,5}$'     # matched before any arithmetic
 WATCHDOG_SECS_MAX=604800                 # 7 days
 WATCHDOG_KEYS="watchdog_no_progress_secs watchdog_telemetry_secs watchdog_silent_max_secs"
+WATCHDOG_NAME_RE='^[A-Za-z0-9_-]+$'      # a project or issue name the scripts take
 WATCHDOG_SINCE_RE='^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
 
 # watchdog_secs_ok <text> — 0 iff <text> is integer seconds in 1..604800.
@@ -42,7 +43,7 @@ watchdog_secs_ok() {
 watchdog_read() {
   local _wl_out _wl_rc=0
   WATCHDOG_RAW=""
-  _wl_out="$(_config_toml get "$(config_path 2>/dev/null)" "${1:-}" 2>&1)" || _wl_rc=$?
+  _wl_out="$(config_get "${1:-}" 2>&1)" || _wl_rc=$?
   _wl_out="${_wl_out//$'\r'/}"
   case "$_wl_rc" in
     0) WATCHDOG_RAW="$_wl_out"
@@ -100,7 +101,7 @@ watchdog_limit() {
   if (( _wl_r != 0 )); then WATCHDOG_LIMIT=""; return "$_wl_r"; fi
   _wl_max="$WATCHDOG_LIMIT"
   if [[ -z "$_wl_timeout" && -n "$_wl_project" ]]; then
-    _wl_timeout="$(_config_toml get "$(config_path 2>/dev/null)" "project.${_wl_project}.analyze_timeout" 2>/dev/null)" || _wl_timeout=""
+    _wl_timeout="$(config_get_project_field "$_wl_project" analyze_timeout 2>/dev/null)" || _wl_timeout=""
     _wl_timeout="${_wl_timeout//$'\r'/}"
   fi
   [[ -n "$_wl_timeout" ]] || _wl_timeout="$WATCHDOG_DEFAULT_ANALYZE_TIMEOUT"
@@ -112,7 +113,9 @@ watchdog_limit() {
 }
 
 # watchdog_analyze_window <project> <analyze timeout> — the silent window every
-# analyze leg declares, resolved once before any leg runs. Sets
+# analyze leg declares, resolved once before any leg runs: analyze_silent_secs,
+# or min(<analyze timeout>, watchdog_silent_max_secs) when that key is unset, so
+# a leg the budget allows is never read as stalled at the shipped limits. Sets
 # WATCHDOG_ANALYZE_SECS and WATCHDOG_ANALYZE_NOTE. Returns
 #   0  WATCHDOG_ANALYZE_SECS holds seconds within the maximum. The note is
 #      empty, or a warning for the caller to print: analyze_silent_secs (or the
@@ -193,6 +196,30 @@ watchdog_window() {
     return 2
   fi
   return 0
+}
+
+# watchdog_window_or_shipped <text> [<project>] — watchdog_window for a caller
+# that must never fail a run over the config: when the maximum cannot be read,
+# the window is judged by the shipped maximum and WATCHDOG_WINDOW_NOTE holds the
+# warning for the caller to print. Returns 0 or 2, as watchdog_window.
+watchdog_window_or_shipped() {
+  local _wo_r=0
+  WATCHDOG_WINDOW_NOTE=""
+  watchdog_window "${1:-}" "${2:-}" || _wo_r=$?
+  (( _wo_r == 3 )) || return "$_wo_r"
+  WATCHDOG_WINDOW_NOTE="${WATCHDOG_WINDOW_ERR}; judging --silent by the shipped maximum of ${WATCHDOG_DEFAULT_SILENT_MAX_SECS} s"
+  watchdog_window "${1:-}" "" "$WATCHDOG_DEFAULT_SILENT_MAX_SECS"
+}
+
+# watchdog_long_run_argv <project> [<wrapper option>...] — sets the array
+# WATCHDOG_LONG_RUN to the argv that runs a command under libexec/long-run.sh
+# with those options (DEVAGENT_ROOT names the plugin root). Attended runs take
+# the same path: the wrapper then writes its log and nothing else. --project
+# goes in only for a name the wrapper's grammar takes; any other project runs
+# without it, on the [defaults] limits.
+watchdog_long_run_argv() {
+  WATCHDOG_LONG_RUN=(bash "$DEVAGENT_ROOT/libexec/long-run.sh" "${@:2}")
+  [[ ! "${1:-}" =~ $WATCHDOG_NAME_RE ]] || WATCHDOG_LONG_RUN+=(--project "$1")
 }
 
 # watchdog_parse_since <ISO time> — sets WATCHDOG_SINCE_EPOCH (whole seconds; a

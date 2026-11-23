@@ -53,19 +53,15 @@ timeout_budget="${DEVAGENT_ANALYZE_TIMEOUT:-$(config_get_project_field "$project
 
 # #932: every leg below runs under libexec/long-run.sh, so that its output is the
 # session's progress, and declares one silent window, resolved here, ONCE, before
-# any leg: analyze_silent_secs, or min(the budget above, watchdog_silent_max_secs)
-# when that key is unset (a leg the budget allows is then never read as stalled
-# at the shipped limits). A window set above the maximum fails the step before
-# anything runs (doctor fails the same config); one that cannot be read warns
-# once and the derived window stands in. Attended runs take the same path: the
-# wrapper then writes its log and nothing else. --project goes in only for a
-# name the wrapper's grammar takes; any other project runs without it.
+# any leg. A window set above the maximum fails the step before anything runs
+# (doctor fails the same config); one that cannot be read warns once and the
+# derived window stands in.
 _silent_rc=0
 watchdog_analyze_window "$project" "$timeout_budget" || _silent_rc=$?
 [ "$_silent_rc" -eq 0 ] || die "analyze-static: $WATCHDOG_ANALYZE_NOTE. No leg was run."
 [ -z "$WATCHDOG_ANALYZE_NOTE" ] || warn "analyze-static: $WATCHDOG_ANALYZE_NOTE"
-long_run=(bash "$DEVAGENT_ROOT/libexec/long-run.sh" --silent "${WATCHDOG_ANALYZE_SECS}s")
-[[ ! "$project" =~ ^[A-Za-z0-9_-]+$ ]] || long_run+=(--project "$project")
+watchdog_long_run_argv "$project" --silent "${WATCHDOG_ANALYZE_SECS}s"
+long_run=("${WATCHDOG_LONG_RUN[@]}")
 
 # #275: ensure the analyze build dir carries a test-inclusive compile database so
 # the static analyzers actually see test-only TUs. Reconfigure in place (idempotent,
