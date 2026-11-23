@@ -76,10 +76,10 @@ floor_run() { _floor_run "$1" 3>&2; }
 # non-UTF-8 byte under a UTF-8 locale) is never printed before PASS; a check
 # speaks only through _floor_say and reports a failed read by its status.
 _floor_run() {
-  local cand="$1" check rc more token="" cannot=0
-  _FLOOR_CLASS_LISTABLE=0 _FLOOR_CLASS_UNLISTABLE=0 _FLOOR_CLASS_SIZE=0 _FLOOR_CLASS_CHARS=0 _FLOOR_DETAIL=""
+  local cand="$1" check rc more token="" detail="" cannot=0
+  _FLOOR_CLASS_LISTABLE=0 _FLOOR_CLASS_UNLISTABLE=0 _FLOOR_CLASS_SIZE=0 _FLOOR_CLASS_CHARS=0
   for check in "${FLOOR_CHECKS[@]}"; do
-    rc=0 _FLOOR_SAID=0
+    rc=0 _FLOOR_SAID=0 _FLOOR_DETAIL=""
     "_floor_$check" "$cand" 2>/dev/null || rc=$?
     if [ "$_FLOOR_SAID" -gt "$FLOOR_SAY_MAX" ]; then
       more=$((_FLOOR_SAID - FLOOR_SAY_MAX)) _FLOOR_SAID=0
@@ -87,7 +87,7 @@ _floor_run() {
     fi
     case "$rc" in
       0) ;;
-      1) [ -n "$token" ] || token="$check" ;;
+      1) [ -n "$token" ] || token="$check" detail="$_FLOOR_DETAIL" ;;
       *) cannot=1 ;;
     esac
   done
@@ -112,7 +112,7 @@ _floor_run() {
       _floor_say "for the operator: a chars quarantine released without one of these fixes quarantines again on every pull"
     fi
     printf '%s\n' "$token"
-    if [ "$token" = chars ]; then printf 'detail: %s\n' "$_FLOOR_DETAIL"; fi
+    if [ -n "$detail" ]; then printf 'detail: %s\n' "$detail"; fi
     return 0
   fi
   [ "$cannot" = 0 ] || return 3

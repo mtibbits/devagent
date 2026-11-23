@@ -77,13 +77,7 @@ def _data_lines(text):
 
 def _merge(points):
     """Sorted inclusive ranges covering the code point set."""
-    ranges = []
-    for cp in sorted(points):
-        if ranges and ranges[-1][1] == cp - 1:
-            ranges[-1][1] = cp
-        else:
-            ranges.append([cp, cp])
-    return [tuple(r) for r in ranges]
+    return [r[:2] for r in _merge_valued(dict.fromkeys(points, True))]
 
 
 def _merge_valued(mapping):

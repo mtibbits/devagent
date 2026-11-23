@@ -89,36 +89,33 @@ def _sibling(name: str):
     return mod
 
 
-_layout = _sibling("staging_layout")
 try:
     _chars = _sibling("chars")
 except Exception:  # noqa: BLE001 - main() reports exit 4
     _chars = None
-HEADER_LINE = _layout.HEADER_LINE
-HEADING = _layout.HEADING
-Layout = _layout.Layout
-_split = _layout._split
+# The layout chars.py loaded, so both read one module (main() exits 4 first
+# when it is missing).
+_layout = _chars._L if _chars is not None else None
 CONTROL = re.compile(rb"[\x00-\x1f\x7f]")
+CHARS_KEYS = (b"State", b"Author", b"Labels")
 
 
 def _escape(b: bytes) -> bytes:
     return CONTROL.sub(lambda m: b"<U+%04X>" % m.group(0)[0], b)
 
 
-CHARS_KEYS = (b"State", b"Author", b"Labels")
-
 
 def render(data: bytes, repo: bytes, num: bytes, allow=frozenset()) -> tuple:
     """(candidate bytes, trailer count, mixed-script record entries)."""
-    lines = _split(data)
+    lines = _layout._split(data)
     prefix = b"# " + repo + b"#" + num + " — ".encode()
     if not lines or not lines[0][0].startswith(prefix):
-        raise Layout("line 1")
+        raise _layout.Layout("line 1")
     body, first, count = _layout.layout(lines)
     title = lines[0][0][len(prefix):]
     out = [prefix + _escape(_chars.chars_escape_bytes(title, allow)) + lines[0][1], lines[1][0] + lines[1][1]]
     for c, e in lines[2:body - 3]:
-        m = HEADER_LINE.match(c)
+        m = _layout.HEADER_LINE.match(c)
         head, value = m.group(0), c[len(m.group(0)):]
         if m.group(1) in CHARS_KEYS:
             value = _chars.chars_escape_bytes(value, allow)
@@ -128,7 +125,7 @@ def render(data: bytes, repo: bytes, num: bytes, allow=frozenset()) -> tuple:
     out.append(_chars.chars_escape_bytes(text, allow))
     out += [c + e for c, e in lines[first - 3:first + 1]]
     record = _chars.mixed_record_bytes("title", title) + _chars.mixed_record_bytes("body", text)
-    n = int(HEADING.fullmatch(lines[first][0]).group(1))
+    n = int(_layout.HEADING.fullmatch(lines[first][0]).group(1))
     if n > 0:
         eol = lines[first][1] or b"\n"
         if not lines[first][1]:
@@ -152,7 +149,7 @@ def main(argv: list) -> int:
         data = fh.read()
     try:
         text, count, record = render(data, os.fsencode(repo), os.fsencode(num), allow)
-    except Layout as e:
+    except _layout.Layout as e:
         sys.stderr.buffer.write(str(e).encode("ascii") + b"\n")
         return 3
     with open(out, "wb") as fh:

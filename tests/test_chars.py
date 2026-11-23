@@ -200,8 +200,7 @@ def _gen(*args):
 
 
 def test_generator_check(tmp_path):
-    r = _gen("check")
-    assert r.returncode == 0, r.stderr
+    # The default paths are checked by test_no_unicodedata.
     ucd = tmp_path / "ucd"
     shutil.copytree(str(UCD), str(ucd))
     table = tmp_path / "chars_table.py"

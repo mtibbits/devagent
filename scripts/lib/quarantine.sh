@@ -75,6 +75,16 @@ _quarantine_detail_ok() {
   [[ "$1" =~ $QUARANTINE_DETAIL_RE ]]
 }
 
+# _quarantine_detail_line <line>: SETTER-GLOBAL QD — the detail of a
+# `detail: <detail>` line. Returns 1 (QD empty) unless the prefix is there and
+# the rest passes _quarantine_detail_ok. The one parser of every detail
+# carrier: a source's second line, a verdict's, and marker line 5.
+_quarantine_detail_line() {
+  QD=""
+  [ "$1" != "${1#detail: }" ] && _quarantine_detail_ok "${1#detail: }" || return 1
+  QD="${1#detail: }"
+}
+
 # quarantine_marked <issue_dir>: 0 iff the marker exists, a dangling or
 # unreadable one included.
 quarantine_marked() {
@@ -125,7 +135,7 @@ quarantine_marker_read() {
   QM_KEY="?" QM_REASON="?" QM_TIME="?" QM_SEQ="?" QM_DETAIL=""
   [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || return 0
   { IFS= read -r l1; IFS= read -r l2; IFS= read -r l3; IFS= read -r l4; IFS= read -r l5; } \
-    < <(head -n 5 "$f" 2>/dev/null) || true
+    < "$f" 2>/dev/null || true
   [ "$l1" = "devagent-quarantine 1" ] || return 0
   v="${l2#key }"
   [ "$l2" != "$v" ] && [[ "$v" =~ ^[A-Za-z0-9:._/#-]{1,200}$ ]] && QM_KEY="$v"
@@ -139,8 +149,7 @@ quarantine_marker_read() {
     [[ "$t" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z|\?)$ ]] && QM_TIME="$t"
     [[ "$s" =~ ^([0-9]{1,20}|\?)$ ]] && QM_SEQ="$s"
   fi
-  v="${l5#detail: }"
-  if [ "$l5" != "$v" ] && _quarantine_detail_ok "$v"; then QM_DETAIL="$v"; fi
+  if _quarantine_detail_line "$l5"; then QM_DETAIL="$QD"; fi
   return 0
 }
 
@@ -330,7 +339,7 @@ QUARANTINE_RELEASED=""
 # shellcheck disable=SC2034  # QUARANTINE_RELEASED is read by pull.sh
 _quarantine_decide() {
   local dir="$1" project="$2" id="$3" mode="$4" code=11 marked=0 label
-  local reason tt="?" ts="?" apply=0 confirmed=0 detail
+  local reason tt="?" ts="?" apply=0 confirmed=0 detail=""
   [ "$mode" = pull ] && code=7
   QUARANTINE_RELEASED=""
   quarantine_marked "$dir" && marked=1
@@ -387,7 +396,6 @@ _quarantine_decide() {
     if [ "$apply" = 0 ] && [ "$tt" = "?" ]; then tt="$QM_TIME" ts="$QM_SEQ"; fi
   fi
   # #923: a rewrite that keeps the marker's reason keeps its detail.
-  detail=""
   if [ "$marked" = 1 ] && [ "$QM_REASON" = "$reason" ]; then detail="${QM_DETAIL:-}"; fi
   if [ "$marked" = 0 ] || [ "$QM_KEY" != "$QK_KEY" ] || [ "$QM_REASON" != "$reason" ] \
      || [ "$QM_TIME" != "$tt" ] || [ "$QM_SEQ" != "$ts" ]; then
@@ -522,9 +530,8 @@ quarantine_verdict() {
     tok="$out" detail=""
     if [[ "$out" == *$'\n'* ]]; then
       tok="${out%%$'\n'*}" detail="${out#*$'\n'}"
-      [[ "$detail" != *$'\n'* ]] && [ "$detail" != "${detail#detail: }" ] || return 3
-      detail="${detail#detail: }"
-      _quarantine_detail_ok "$detail" || return 3
+      [[ "$detail" != *$'\n'* ]] && _quarantine_detail_line "$detail" || return 3
+      detail="$QD"
     fi
     for r in "${QUARANTINE_REASONS[@]}"; do
       if [ "$r" = "$tok" ]; then
@@ -544,13 +551,9 @@ quarantine_verdict() {
 # use. A detail that does not match QUARANTINE_DETAIL_RE reads empty.
 # shellcheck disable=SC2034  # setter-globals, read by pull.sh
 quarantine_verdict_split() {
-  local v="${1#QUARANTINE }" d=""
+  local v="${1#QUARANTINE }"
   QV_TOKEN="${v%%$'\n'*}" QV_DETAIL=""
-  if [[ "$v" == *$'\n'* ]]; then
-    d="${v#*$'\n'}"
-    d="${d#detail: }"
-    if _quarantine_detail_ok "$d"; then QV_DETAIL="$d"; fi
-  fi
+  if [[ "$v" == *$'\n'* ]] && _quarantine_detail_line "${v#*$'\n'}"; then QV_DETAIL="$QD"; fi
   return 0
 }
 

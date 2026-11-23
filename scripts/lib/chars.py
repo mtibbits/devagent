@@ -61,6 +61,7 @@ on purpose: that is a traceback's code.
 """
 
 import bisect
+import functools
 import importlib.util
 import json
 import os
@@ -189,10 +190,9 @@ def _decode(line):
 
 def _line_verdicts(s, allowlist):
     """[(index, passable)] for every set code point of the decoded line s."""
-    members = [ch for ch in set(s) if _SET.get(ord(ch))]
+    members = frozenset(ch for ch in set(s) if _SET.get(ord(ch)))
     if not members:
         return []
-    members = frozenset(members)
     out = []
     i, n = 0, len(s)
     while i < n:
@@ -209,9 +209,14 @@ def _line_verdicts(s, allowlist):
     return out
 
 
+def _ascii_clean(line):
+    """True when line's bytes are ASCII with no set member: nothing to do."""
+    return line.isascii() and (_ASCII_HIT is None or _ASCII_HIT.search(line) is None)
+
+
 def _scan_line(line, allowlist):
     """Tokens of the hits on one line's bytes."""
-    if line.isascii() and (_ASCII_HIT is None or _ASCII_HIT.search(line) is None):
+    if _ascii_clean(line):
         return []
     s, bad = _decode(line)
     if s is None:
@@ -252,7 +257,7 @@ def chars_escape_bytes(raw_bytes, allowlist):
     _need_tables()
     out = []
     for line, end in _lines_b(raw_bytes):
-        if line.isascii() and (_ASCII_HIT is None or _ASCII_HIT.search(line) is None):
+        if _ascii_clean(line):
             out.append(line + end)
             continue
         s, _bad = _decode(line)
@@ -263,16 +268,14 @@ def chars_escape_bytes(raw_bytes, allowlist):
     return b"".join(out)
 
 
+@functools.lru_cache(maxsize=None)
 def _char_sets(cp):
-    """(augmented script-extension set, or None when ignored)."""
+    """(augmented script-extension frozenset, or None when ignored)."""
     scx = _SCX.get(cp)
     names = scx if scx is not None else (_SC.get(cp),)
     if all(nm in _IGNORED for nm in names):
         return None
-    out = set(names)
-    for nm in names:
-        out.update(_AUGMENT.get(nm, ()))
-    return out
+    return frozenset(names).union(*(_AUGMENT.get(nm, ()) for nm in names))
 
 
 if _T is not None:
@@ -292,17 +295,15 @@ def _mixed_line(s):
             continue
         j = i
         common = None
-        seen = False
         scripts = set()
         while j < n and _LM.get(ord(s[j])):
             cp = ord(s[j])
             scripts.add(_SC.get(cp))
             sets = _char_sets(cp)
             if sets is not None:
-                seen = True
-                common = set(sets) if common is None else common & sets
+                common = sets if common is None else common & sets
             j += 1
-        if seen and not common:
+        if common is not None and not common:
             out.append(sorted(scripts))
         i = j
     return out
@@ -330,7 +331,9 @@ def mixed_record(field, text):
 def mixed_record_bytes(field, raw_bytes):
     """mixed_record on bytes; a line that does not decode is skipped."""
     _need_tables()
-    return _mixed(field, [(n, _decode(c)[0]) for n, (c, _e) in enumerate(_lines_b(raw_bytes), 1)])
+    # An ASCII line is skipped undecoded where _mixed would skip it decoded.
+    return _mixed(field, [(n, None if _ASCII_UNMIXED and c.isascii() else _decode(c)[0])
+                          for n, (c, _e) in enumerate(_lines_b(raw_bytes), 1)])
 
 
 def record_json(entries):
