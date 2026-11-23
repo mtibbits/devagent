@@ -90,7 +90,7 @@ line in the body or in a tracker comment never steers. Scaffold-only, like
 existing marker is never stomped, and the post-scaffold path is hand-editing it
 (`--retier` stays template-only).
 
-## Under a trust policy (#715)
+## Under a trust policy (#715, #923)
 
 With a trust policy in scope (spec §3.8), pull checks the ticket before it
 writes or prints any of it:
@@ -103,19 +103,37 @@ writes or prints any of it:
    the next trusted pull's 60-minute sweep.
 2. **The render.** It writes the candidate `issue.md` there in the fetch
    layout: title, header and body as fetched, and the comments reduced to one
-   line, `Comments not rendered under trust: N`. A control byte in the title or
-   a header value becomes `<U+00HH>`. A body that itself holds the comments
+   line, `Comments not rendered under trust: N`. An invisible character the
+   policy's `allowed_chars` lists (see `chars` below) becomes `<U+XXXX>` (four
+   to six upper-case hex digits) in the title, the `State`, `Author` and
+   `Labels` values and the body, when its run of such characters is at most
+   two long. Then a control byte (0x00-0x1F, 0x7F) left in the title or a
+   header value becomes #715's `<U+00HH>`, so a C0 control or DEL in a header
+   is made visible and does not quarantine; in the body it is a `chars` hit.
+   The render also writes the mixed-script record beside the candidate,
+   `issue.md.mixed.json`, removed with it. A body that itself holds the comments
    trailer (blank, `---`, blank, `## Comments (n)`) is cut there, so the
    workflow reads less than the tracker shows, never more (until #953).
-3. **The floor.** Two checks run on the candidate, before anything reads it:
+3. **The floor.** Three checks run on the candidate, before anything reads it:
    - `steering`: every key line of a body `## Workflow flags` block (fenced and
      commented blocks do not count) and every `tier:*` label must be listed in
      the policy's `allowed_steering`. An unknown key, an empty value or an
      unrecognised `tier:*` label can never be listed.
    - `size`: the candidate's length in bytes must not exceed `size_cap`
-     (default 65536, at most 2147483647). Title, header and body all count.
+     (default 65536, at most 2147483647). Title, header and body all count,
+     each `<U+XXXX>` escape at its escaped length.
+   - `chars` (#923): the title, the body and the `Labels`, `State` and
+     `Author` values must hold no character of the invisible set, pinned to
+     Unicode 16.0.0 (`scripts/lib/ucd/`): Bidi_Control,
+     Default_Ignorable_Code_Point, and general category Cf, Cn (unassigned) and
+     Cs, and Cc other than TAB, LF and CR. Private-use characters (Co) are
+     outside it. Invalid UTF-8 is a hit too. The render has already escaped
+     what `allowed_chars` lets through, so any raw set character left is a
+     hit. `- URL:` and `- Created:` are tracker-generated and not checked.
 4. **The verdict.** A failing check quarantines the ticket (exit 6, the first
-   failing check's token in the marker). The staging dir is removed first, so
+   failing check's token in the marker). A `chars` quarantine also writes the
+   marker line `detail: <field> line <n> <U+XXXX|0xHH>[ (+N more)]` naming
+   the first hit, which `quarantine_print` shows after `Reason:`. The staging dir is removed first, so
    a first pull leaves only the `QUARANTINE` marker, and a re-pull of an issue
    in work leaves its old `issue.md` byte-identical. On PASS the candidate
    becomes `issue.md`, the pull's first devdoc write, and the scaffold reads
@@ -144,16 +162,51 @@ allowed_steering = [
   "tier:impl-fable",
 ]
 size_cap = 65536
+allowed_chars = ["\u200f", "\u200d", "\ufe0f"]
 ```
+
+`allowed_chars` lists single characters, written as TOML escapes. A listed
+character passes only in a run of at most two set characters, so an emoji
+sequence such as U+1F3F3 U+FE0F U+200D U+1F308 passes with U+FE0F and U+200D
+listed, but a run of three (ZWNJ ZWJ ZWNJ) never does. A
+subdivision-flag emoji always quarantines: its Tags characters
+(U+E0020-U+E007F) form a run longer than two, which only editing it out can
+fix.
+
+**The `chars` diagnostics.** Each hit is named as `chars: <field> line <n>
+<U+XXXX|0xHH>`, never by its bytes. Lines are counted from 1 within each
+field, and `chars` ends a line at an LF together with any CRs before it, or
+at a lone CR; U+000C, U+0085, U+2028 and U+2029 never end a line. (`steering`
+counts body lines by LF only.) A line that is not valid UTF-8 is one hit,
+`0xHH`, its first invalid byte, and its other characters are not checked.
+`(+N more)` counts characters, not places: every character of a run longer
+than two is a hit. A diagnostic that names a character `allowed_chars` lists
+means its run was longer than two.
+
+The three fixes for a `chars` quarantine: edit the text, remove the label
+that holds the character, or add the character to `allowed_chars` (a run
+longer than two, or invalid UTF-8, can only be edited out). A trusted
+approver then releases the quarantine. A `chars` quarantine released without
+one of those fixes quarantines again on every pull: #953's approved text
+does not lift it.
+
+**The mixed-script record.** `issue.md.mixed.json` beside the candidate holds
+one entry per mixed-script word of the title and body, for the screen (#717):
+`[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]}]`, or `[]`.
+A word is a run of letters and marks; it is mixed when its characters share
+no script (UTS #39 section 5.1, Common and Inherited ignored), so a Latin word
+holding one Cyrillic letter is recorded and a Greek formula or a Japanese word
+mixing Han and Katakana is not. It is a record, never a quarantine.
 
 **Quiet before PASS.** Until the floor passes, pull prints no ticket byte:
 the floor's diagnostics name a known key, a body line number, a label's
 position or a byte count, and end with what the operator can do. Each check
 prints at most 20 of them, then `<check>: <n> more not shown`. The remedy
 for `steering` is to drop the flag or label from the ticket, or to list the
-entry; for `size`, to shorten the ticket or raise `size_cap`. Either way a
-trusted approver then releases the quarantine. A release without one of those
-fixes quarantines again on the next pull, until #953 records the approved text.
+entry; for `size`, to shorten the ticket or raise `size_cap`; for `chars`,
+the three fixes above. Either way a trusted approver then releases the
+quarantine. A `steering` or `size` release without one of those fixes
+quarantines again on the next pull, until #953 records the approved text.
 
 ## Exit codes
 

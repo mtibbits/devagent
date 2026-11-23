@@ -5,6 +5,7 @@
 
 load 'lib/bats-helpers'
 load 'lib/trust-fixture'
+load 'lib/changelog-text'
 
 SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
 
@@ -105,4 +106,29 @@ _key_rows() {
 @test "docs: pull.md gives a consumer action for exit 1 under trust (#715)" {
   grep -Eq '^- `1` under a trust policy, with nothing written' "$PLUGIN_ROOT/commands/pull.md"
   grep -q 'do not retry in a loop' "$PLUGIN_ROOT/commands/pull.md"
+}
+
+# --- #923: the chars check
+
+@test "docs: pull.md, §9.3 and §3.3 cover chars (#923)" {
+  local sec s33 s93 want
+  sec="$(awk '/^## Under a trust policy/ { on = 1; next } /^## / { on = 0 } on' "$PLUGIN_ROOT/commands/pull.md")"
+  for want in '`chars`' allowed_chars '<U+XXXX>' 'detail:' 'remove the label' 'edit the text' 'subdivision-flag emoji'; do
+    [[ "$sec" == *"$want"* ]] || { echo "pull.md's trust section lacks: $want" >&2; return 1; }
+  done
+  s33="$(awk '/^### 3\.3 / { on = 1 } /^### 3\.4 / { on = 0 } on' "$SPEC")"
+  s93="$(awk '/^### 9\.3 / { on = 1 } /^### 9\.3\.1 / { on = 0 } on' "$SPEC")"
+  [[ "$s33" == *".mixed.json"* ]]
+  for want in '`chars`' '.mixed.json' 'Unicode 16.0.0'; do
+    [[ "$s93" == *"$want"* ]] || { echo "spec 9.3 lacks: $want" >&2; return 1; }
+  done
+}
+
+@test "docs: the changelog names the pinned Unicode version (#923)" {
+  local v
+  v="$(python3 -I -c 'import importlib.util, sys
+s = importlib.util.spec_from_file_location("t", sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+print(m.UNICODE_VERSION)' "$PLUGIN_ROOT/scripts/lib/chars_table.py")"
+  [ "$v" = 16.0.0 ]
+  [[ "$(changelog_text "$PLUGIN_ROOT")" == *"Unicode $v"* ]]
 }

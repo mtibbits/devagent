@@ -108,7 +108,11 @@ devAgent/
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
 │   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
 │   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker,
-│   │                        #   notify.sh + _notify.py — #961 launcher notifications appender)
+│   │                        #   notify.sh + _notify.py — #961 launcher notifications appender,
+│   │                        #   chars.py — #923 the pulled-text character check, escape and mixed-script record (one CLI),
+│   │                        #   chars_gen.py + chars_table.py — #923 the table generated from ucd/, and its drift check,
+│   │                        #   staging_layout.py — #923 fetch's issue.md layout, shared by the render and chars.py,
+│   │                        #   ucd/ — #923 the vendored Unicode 16.0.0 UCD files, LICENSE and SHA256SUMS)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh;
 │   │                        #   local.sh — #1016 git only, no forge (§9.2)
@@ -514,8 +518,11 @@ Adjacent state files:
 `~/.claude/devagent/state/staging/` (#715) holds a fetched ticket under a
 trust policy until pull's floor passes (§9.3): one
 `<project>.<issue_id>.XXXXXX/` dir per pull (mode 0700; the root too), with
-`fetch.raw` (deleted by the render, so comment text is on disk only while it
-runs) and the candidate `issue.md`. It is outside git and must
+`fetch.raw` and `allow.json` (the policy's `allowed_chars`, #923; both deleted
+by the render, so comment text is on disk only while it runs), the candidate
+`issue.md`, and `issue.md.mixed.json`, the mixed-script record (#923) that a
+later verdict source (#717's screen) reads as `<candidate>.mixed.json`; the
+record is never promoted and goes with the dir. It is outside git and must
 not resolve inside the project's `devdoc_dir` (pull dies before creating
 anything if it does). Every exit removes the dir:
 
@@ -753,6 +760,13 @@ today). Any other entry refuses (exit 3 from the loader, so exit 9 at every
 entry point); the default `[]` allows nothing. `size_cap` is in bytes of the
 staged `issue.md`, default 65536, at most 2147483647.
 
+**`allowed_chars` (#923).** Single characters of the floor's `chars` set
+(§9.3) a ticket may carry, written as TOML escapes (`["\u200f"]`). The render
+writes each listed character as `<U+XXXX>` when its run of set characters is
+at most two long; a longer run, an unlisted character and invalid UTF-8 still
+quarantine. The default (absent) is the empty list: nothing passes. Its type,
+validation and default are #713's; the render reads it from `TRUST_VAL`.
+
 **Digest.** `sha256:` of the normalised policy (defaults applied, lists sorted
 and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
 and explicit defaults leave it unchanged and the location does not enter it.
@@ -985,7 +999,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
-| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate, and writes `issue.md` only on PASS (§9.3, #715) |
+| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate (`steering`, `size`, `chars`), and writes `issue.md` only on PASS (§9.3, #715, #923) |
 | 1 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 2. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
 | 2 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
 | 3 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 2 and 4. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. `scripts/spike.sh` is a helper the command calls, not this row's entry point, so `next.sh` dispatches the row skill-backed (#812). |
@@ -2789,7 +2803,7 @@ has an `origin`, a local ship never pushes, so a suite artifact's
 With no trust policy in scope, `pull.sh` writes this verbatim to
 `<issue-dir>/issue.md`.
 
-#### Under a trust policy: the trust render and the floor (#715)
+#### Under a trust policy: the trust render and the floor (#715, #923)
 
 In scope, pull fetches into `state/staging/` (§3.3), and `issue.md` is the
 trust render of the fetch (`scripts/lib/staging_render.py`), written only after
@@ -2803,7 +2817,7 @@ the floor passes. The render keeps the fetch layout, so `flags_get`,
 
 ---
 
-<body, byte for byte>
+<body, byte for byte, except #923's <U+XXXX> escape>
 
 ---
 
@@ -2824,8 +2838,24 @@ Comments not rendered under trust: N
   `## Comments (<digits>)` after blank, `---`, blank, searched from the first
   body line (the header's own rule never counts). Comment text never enters
   the file.
-- Each byte 0x00-0x1F or 0x7F in the title or a header value becomes
-  `<U+00HH>` (uppercase hex). Nothing else is rewritten.
+- #923: in the title, the `State`, `Author` and `Labels` values and the body,
+  each character of the `chars` set that `allowed_chars` lists, in a run of at
+  most two set characters, becomes `<U+XXXX>` (four to six upper-case hex
+  digits). `URL`, `Created` and the layout lines are not touched.
+- Then each byte 0x00-0x1F or 0x7F in the title or a header value becomes
+  `<U+00HH>` (uppercase hex; #715). Nothing else is rewritten. So a C0 control
+  or DEL in a header is visible and never a `chars` hit; in the body it is.
+- The render writes `<candidate>.mixed.json` (§3.3) from the unescaped title
+  and body: one entry per mixed-script word,
+  `[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]}]`, or `[]`
+  (compact JSON, ASCII, sorted keys, LF). A word is a maximal run of general
+  category L* or M* on one line; each character contributes its
+  Script_Extensions (its Script when it has none), a set of only Common or
+  Inherited is ignored, and UTS #39 section 5.1's augmentation applies (Han
+  adds Hanb, Jpan, Kore; Hiragana and Katakana add Jpan; Hangul adds Kore;
+  Bopomofo adds Hanb). The word is mixed when a character is not ignored and
+  the intersection is empty; `word_scripts` lists the sorted distinct Script
+  values of its characters, Common and Inherited included.
 - Header values are measured, not truncated: `size_cap` counts every byte of
   the candidate, and cutting the `- Labels:` line could hide a `tier:*` label
   from the steering check.
@@ -2841,14 +2871,52 @@ trailer (any commenter could then hold any ticket), and a second
 that #953 removes).
 
 The floor (`scripts/lib/floor.sh`, the first source of `quarantine_verdict`)
-runs `steering` then `size` on the candidate; every check runs, and the first
-failing token quarantines (exit 6). `steering` reads the body's live
+runs `steering`, `size` then `chars` on the candidate; every check runs, and
+the first failing token quarantines (exit 6). `steering` reads the body's live
 `## Workflow flags` key lines with `flags_enumerate` (the validate machine's
 quiet mode) and the `tier:*` labels with `issue_labels`, and requires each to be
 listed in `allowed_steering` (§3.8); `size` compares the candidate's bytes
 with `size_cap`. Until PASS pull prints no ticket byte, and each check prints
 at most 20 diagnostic lines, then a count of the rest (`FLOOR_SAY_MAX`), so a
 ticket's author cannot set how much the worker session reads.
+
+**`chars` (#923).** The set is Bidi_Control (PropList.txt) and
+Default_Ignorable_Code_Point (DerivedCoreProperties.txt), with general category
+Cf, Cn and Cs, and Cc other than U+0009, U+000A and U+000D
+(DerivedGeneralCategory.txt), at Unicode 16.0.0: 822,080 code points. Co
+(private use) is outside it. `scripts/lib/chars.py` scans the title, body and
+the `Labels`, `State` and `Author` values of the candidate with the empty
+allowlist, since the render already escaped what `allowed_chars` lets through.
+- Lines: a field's bytes end a line at an LF together with every CR directly
+  before it, or else at a lone CR; U+000C, U+0085, U+2028 and U+2029 never end
+  a line. Each line is decoded strictly as UTF-8; one that does not decode is
+  one hit, `0xHH` (its first invalid byte), and its other characters are not
+  scanned.
+- Hits: a run is a maximal sequence of set code points on one line; a set code
+  point is passable when it is allowlisted and its run is at most two long;
+  every other set code point is a hit, `U+XXXX`. Scanning the escape with the
+  empty allowlist gives the hits of scanning the text with the allowlist.
+- The detail: the first hit in field order title, body, label, state, author
+  (comments, by id, last: #953), then ` (+N more)`, N counting every further
+  hit in every field. It matches `QUARANTINE_DETAIL_RE` (`scripts/lib/refusals.sh`),
+  `<field> line <n> <U+XXXX|0xHH>[ (+N more)]`, the one grammar of its three
+  carriers: `floor_run`'s second stdout line `detail: <detail>`, which
+  `quarantine_verdict` repeats after `QUARANTINE chars`; the marker's optional
+  line 5; and `quarantine_print`, after `Reason:`. Any other second line is no
+  verdict; an unset or empty regex accepts no detail.
+- `chars` prints its own remedy lines (edit the text, remove the label, or list
+  the character; a release without a fix quarantines again on every pull) and
+  never the "until #953" line: #953's human PASS does not override it.
+- Residual: `- URL:` and `- Created:` are not scanned or escaped; both are
+  tracker-generated on every in-scope backend.
+- The data pin: the six UCD files (`scripts/lib/ucd/`, with the Unicode
+  licence and `SHA256SUMS`) generate `scripts/lib/chars_table.py`
+  (`chars_gen.py write`); the runtime reads only the table and never
+  `unicodedata`, so the answer does not move with the Python that runs it.
+  `chars_gen.py check`, under the suite, holds the table equal to the files
+  and the files to their sums. A version bump replaces the files and the sums
+  together, regenerates, re-pins the counts in `tests/test_chars.py` from an
+  independent derivation, and names the version in the changelog.
 
 #### `mr-comments` output (code backends, #592)
 

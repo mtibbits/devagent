@@ -695,7 +695,7 @@ Partly delivered. A requirement here that is not built yet starts with
   session that holds no tools; (planned) missing history counts as unknown and
   quarantines. {refines: SR-13}
 - FR-99: The deterministic floor quarantines a ticket that is over the size
-  limit, (planned) holds invisible or bidirectional control characters, or
+  limit, holds invisible or bidirectional control characters, or
   carries a steering key or label outside the policy's allowlist; (planned)
   the model screen can add a quarantine but never remove one. {refines: SR-13}
 - FR-100: devagent marks a quarantined ticket with a tracker label; pull
