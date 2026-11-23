@@ -232,3 +232,27 @@ PY
   [ "$status" -eq 0 ]
   [ -z "$(ls -A "$TMPDIR")" ]
 }
+
+@test "milestones runs overlap across projects; stderr stays in project order" {
+  # A github backend whose issue-list waits (up to 5 s) to see the other
+  # project's issue-list start: only overlapping runs both see each other.
+  cat > "$DEVAGENT_ISSUE_BACKEND_DIR/github.sh" <<'SH'
+#!/usr/bin/env bash
+[ "$1" = issue-list ] || exit 78
+me="${2//\//_}"
+: > "$TMPROOT/started.$me"
+other=acme_beta; [ "$me" = acme_beta ] && other=acme_alpha
+for _ in $(seq 50); do
+  [ -e "$TMPROOT/started.$other" ] && { : > "$TMPROOT/saw.$me"; break; }
+  sleep 0.1
+done
+echo "backend $me failed" >&2
+exit 1
+SH
+  chmod +x "$DEVAGENT_ISSUE_BACKEND_DIR/github.sh"
+  _act --archive "$TMPROOT/A" --stdout
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ -e "$TMPROOT/saw.acme_alpha" ]
+  [ -e "$TMPROOT/saw.acme_beta" ]
+  [ "$(grep '^actuals: milestones ' <<<"$stderr" | cut -d' ' -f3 | uniq | tr '\n' ' ')" = "alpha: beta: " ]
+}

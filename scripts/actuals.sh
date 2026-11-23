@@ -17,7 +17,7 @@
 #                  and younger than [archive].actuals_max_age_hours (default 24)
 #
 # Runs `milestones.sh <p> --all --json` once per project (P alone with
-# --project); each run's exit, stdout and stderr reach scripts/lib/actuals.py
+# --project), up to 6 at once; each run's exit, stdout and stderr reach scripts/lib/actuals.py
 # in an ACTUALS_* manifest, which does everything else. A failed source is a
 # `sources` row in the document and, for a failed milestones run, one
 # `actuals: WARNING:` line here; never a failure.
@@ -120,10 +120,29 @@ if (( have_project )); then
 else
   mapfile -t projects < <(config_list_projects)
 fi
+# The milestones runs are network-bound and independent, so they overlap, at
+# most MAX_JOBS at once (well under GitHub's secondary rate limits). Each run's
+# exit, stdout and stderr go to files; the report below reads them in project
+# order, so stderr and the manifest do not depend on which run finished first.
+MAX_JOBS=6
+_milestones() {
+  local rc=0
+  bash "$SCRIPT_DIR/milestones.sh" "$2" --all --json >"$tmp/$1.out" 2>"$tmp/$1.err" || rc=$?
+  echo "$rc" > "$tmp/$1.rc"
+}
 i=0
 for p in "${projects[@]}"; do
-  rc=0
-  bash "$SCRIPT_DIR/milestones.sh" "$p" --all --json >"$tmp/$i.out" 2>"$tmp/$i.err" || rc=$?
+  while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do
+    wait -n || true
+  done
+  _milestones "$i" "$p" &
+  i=$((i + 1))
+done
+wait
+
+i=0
+for p in "${projects[@]}"; do
+  rc="$(cat "$tmp/$i.rc" 2>/dev/null || echo 1)"
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "${line//[[:space:]]/}" ]] && echo "actuals: milestones $p: ${line%$'\r'}" >&2
   done < "$tmp/$i.err"
