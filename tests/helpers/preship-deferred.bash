@@ -10,6 +10,9 @@
 # (scripts/ci/gitbash-tagged.sh calls any comment line other than line 2 that holds both
 # the tag key and the tag value malformed).
 
+# #338: every loaded setup layer sources the hermetic-env guard (pins / git config / TZ / locale).
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
+
 TAG='# bats file_tags=gitbash'
 
 setup() {
