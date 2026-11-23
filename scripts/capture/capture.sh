@@ -90,6 +90,7 @@ _capture_required_checks_names() {
   [[ -n "${p}" ]] || return 0
   err="$(mktemp)" || { echo "warn: no required-check criterion: mktemp failed" >&2; return 0; }
   out="$(
+    exec 2>"${err}"     # the subshell's own stderr: a redirect on the assignment would not catch it
     set -euo pipefail
     root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
     . "${root}/scripts/lib/paths.sh"
@@ -100,7 +101,7 @@ _capture_required_checks_names() {
     config_is_project "${p}" || exit 3
     required_checks_resolve "${p}"
     (( ${#REQUIRED_CHECKS[@]} == 0 )) || printf '%s\n' "${REQUIRED_CHECKS[@]}"
-  )" 2>"${err}" || rc=$?
+  )" || rc=$?
   case "${rc}" in
     0) ;;
     3) out="" ;;

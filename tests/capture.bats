@@ -525,7 +525,9 @@ _rc_capture() {
   _rc_config '["Zeta check", " padded"]'
   _rc_capture "Bad value"
   [ "$status" -eq 0 ] || { echo "rc $status: $stderr"; return 1; }
-  [[ "$stderr" == *"warn: "*"required check"* ]] || { echo "stderr: $stderr"; return 1; }
+  # one line: the resolver's reason inside the warning, not printed raw before it
+  [[ "$stderr" == "warn: "*"could not be read"*"required_checks"* ]] || { echo "stderr: $stderr"; return 1; }
+  [[ "$stderr" != *$'\n'* ]] || { echo "stderr: $stderr"; return 1; }
   [ -f "${DRAFT}" ]
   run grep -ic 'required-check' "${DRAFT}"; [ "$status" -eq 1 ]
 }

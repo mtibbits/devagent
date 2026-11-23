@@ -246,6 +246,12 @@ behaviour, or the code backend has no `mr-checks`, a hand-run Git Bash transcrip
 `<issue-dir>/evidence/<YYYY-MM-DD>-gitbash-<stem>-<sha>.txt` (line 1 the pinned head,
 line 2 the `uname` line) stands in its place.
 
+**Writing the criterion (capture).** When the project declares required checks,
+capture fills in the criterion where the issue template carries the line
+`<!-- required-checks: capture fills this in when the project declares required CI checks -->`.
+The shipped `issue_template-*.md` files carry it; a project's own template override
+needs the line too, or its drafts get no criterion.
+
 **Known residual.** The job proves that the tagged file ran and that no test skipped
 without a reason, not that one particular test ran. The static check reads a guard in
 the named test and in one level of helper it calls; a conditional skip deeper in the
