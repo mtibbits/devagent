@@ -959,7 +959,7 @@ lc_lacks() {
   local f
   f="$(fresh "$README")"
   holds check_platform_tokens "$f"
-  edit "$f" 'macOS is currently untested' 'macOS may work'
+  edit "$f" 'macOS is untested' 'macOS may work'
   breaks 'macOS' check_platform_tokens "$f"
 }
 
@@ -968,27 +968,34 @@ lc_lacks() {
   page="$(fresh "$WEB/install.md")"; readme="$(fresh "$README")"
   holds check_platform_sentence "$page" "$readme"
   # Cut to the first sentence: a README prefix, but it drops claims.
-  drop "$page" 'Native Git Bash on Windows can run the plugin.'
-  drop "$page" 'macOS is currently untested:'
-  breaks 'drops the claim: Git Bash' check_platform_sentence "$page" "$readme"
+  drop "$page" 'WSL is for contributors to devAgent itself.'
+  drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  breaks 'drops the claim: WSL is for contributors' check_platform_sentence "$page" "$readme"
+  # Cut before the WSL-users sentence: still a README prefix, but drops it.
+  page="$(fresh "$WEB/install.md")"
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  breaks 'drops the claim: counts as Linux' check_platform_sentence "$page" "$readme"
   # A word changed.
   page="$(fresh "$WEB/install.md")"
-  edit "$page" 'can run the plugin' 'runs the plugin'
+  edit "$page" 'is for contributors' 'is for developers'
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # Cut mid-sentence.
   page="$(fresh "$WEB/install.md")"
-  edit "$page" ' (`stat -c`, GNU `sed -i`, `readlink -f`).' ''
+  drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  edit "$page" ' to devAgent itself.' ''
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # The bare label only.
   page="$(fresh "$WEB/install.md")"
-  drop "$page" 'Native Git Bash on Windows can run the plugin.'
-  drop "$page" 'macOS is currently untested:'
-  edit "$page" '**Supported platforms.** devAgent is developed and tested on **Linux**, including WSL on Windows.' \
-    '**Supported platforms.**'
+  drop "$page" 'WSL is for contributors to devAgent itself.'
+  drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  edit "$page" '**Supported platforms.** Linux, or Windows with Git Bash.' '**Supported platforms.**'
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # README's leading sentences change; the page does not follow.
   page="$(fresh "$WEB/install.md")"
-  edit "$readme" 'developed and tested on **Linux**' 'built and tested on **Linux**'
+  edit "$readme" 'Linux, or Windows with Git Bash.' 'Linux, or Windows under Git Bash.'
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # LIMIT (documented on the check): a README edit after the page's cut holds.
   readme="$(fresh "$README")"
