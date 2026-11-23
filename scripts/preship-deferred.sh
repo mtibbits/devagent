@@ -351,31 +351,22 @@ _mask() {
   MASK="$m"; MASKW="$w"
 }
 
-# _skip_words <mask>: sets SKIP_AT=( index ... ): where each skip command word starts.
-_skip_words() {
-  local m="$1" s="$1" off=0 before
-  SKIP_AT=()
-  while [[ "$s" == *skip* ]]; do
-    before="${s%%skip*}"
-    off=$((off + ${#before}))
-    s="${s:${#before}+4}"
-    if [[ ! "${m:0:off}" =~ $WORD_END_RE ]] && [[ "$s" =~ $SKIP_AFTER_RE ]]; then SKIP_AT+=("$off"); fi
-    off=$((off + 4))
-  done
-}
-
-# _word_count <text> <word>: sets WORDS to how often <word> stands in <text> as a word.
-_word_count() {
+# _word_at <text> <word> <after-re>: sets WORD_AT=( index ... ): where <word> starts
+# as a word of <text>, what follows it matching <after-re>.
+_word_at() {
   local t="$1" w="$2" s="$1" off=0 before
-  WORDS=0
+  WORD_AT=()
   while [[ "$s" == *"$w"* ]]; do
     before="${s%%"$w"*}"
     off=$((off + ${#before}))
     s="${s:${#before}+${#w}}"
-    if [[ ! "${t:0:off}" =~ $WORD_END_RE ]] && [[ "$s" =~ $WORD_AFTER_RE ]]; then WORDS=$((WORDS + 1)); fi
+    if [[ ! "${t:0:off}" =~ $WORD_END_RE ]] && [[ "$s" =~ $3 ]]; then WORD_AT+=("$off"); fi
     off=$((off + ${#w}))
   done
 }
+
+# _word_count <text> <word>: sets WORDS to how often <word> stands in <text> as a word.
+_word_count() { _word_at "$1" "$2" "$WORD_AFTER_RE"; WORDS=${#WORD_AT[@]}; }
 
 # _split <maskw> <raw>: sets WM to the blank-separated words of <maskw> and WR to the
 # same spans of <raw>. The two are character for character, and a quoted word of
@@ -620,8 +611,8 @@ _line_trips() {
      || "$line" == *case* || "$line" == *esac* ]] || return 1
   _mask "$line"
   if [[ "$MASK" == *skip* ]]; then
-    _skip_words "$MASK"
-    for at in ${SKIP_AT[@]+"${SKIP_AT[@]}"}; do
+    _word_at "$MASK" skip "$SKIP_AFTER_RE"     # each skip command word; the loop's list is
+    for at in ${WORD_AT[@]+"${WORD_AT[@]}"}; do   # expanded once, so _safe_form may reuse WORD_AT
       pre="${MASKW:0:at}"
       if [[ "${pre,,}" =~ $GB_TOKEN_RE ]]; then
         _safe_form "$pre" "${line:0:at}" || { hit=0; break; }
@@ -746,19 +737,17 @@ _unescape() {
 # is read from the commit's tree, so a file that is there and cannot be read is never
 # taken for one that is not (lib/selfcert.sh's rule): that is exit 2.
 _blob_at() {
-  local path="$1" F="${1//[[:cntrl:]]/?}" top out rc=0
-  top="$(_selfcert_git -C "$TREE" rev-parse --show-toplevel 2>/dev/null)" || top=""
-  [ -n "$top" ] || top="$TREE"
+  local path="$1" F="${1//[[:cntrl:]]/?}" top rc=0
+  _selfcert_top "$TREE"
+  top="$_SELFCERT_TOP"
   _selfcert_git -C "$top" rev-parse --verify --quiet "${PIN}^{commit}" >/dev/null 2>&1 \
     || _cnr "${PIN:0:7} is not a commit in $TREE"
-  out="$(_selfcert_git --literal-pathspecs -C "$top" ls-tree "$PIN" -- "$path" 2>/dev/null)" || rc=$?
-  [ "$rc" -eq 0 ] || _cnr "$F at ${PIN:0:7} cannot be read in $TREE (git ls-tree exited $rc)"
-  out="${out%%$'\t'*}"                           # <mode> <type> <object id>
-  [[ "$out" == *" blob "* ]] || _fail "$F does not exist at ${PIN:0:7}"
+  _selfcert_blob "$top" "$PIN" "$path" || _cnr "$F at ${PIN:0:7} cannot be read in $TREE ($_SELFCERT_ERR)"
+  [ -n "$_SELFCERT_OID" ] || _fail "$F does not exist at ${PIN:0:7}"
   TMP="$(mktemp -d)"
   mkdir "$TMP/sel"
   BLOB="$TMP/sel/${path##*/}"
-  _selfcert_git -C "$top" cat-file blob "${out##* }" 2>/dev/null | tr -d '\r' >"$BLOB" || rc=$?
+  _selfcert_git -C "$top" cat-file blob "$_SELFCERT_OID" 2>/dev/null | tr -d '\r' >"$BLOB" || rc=$?
   [ "$rc" -eq 0 ] || _cnr "$F at ${PIN:0:7} cannot be read in $TREE (git cat-file exited $rc)"
 }
 
@@ -838,9 +827,10 @@ STEM="${stem//[[:cntrl:]]/?}"
 _need_pin
 
 # The candidates: <issue-dir>/evidence/<YYYY-MM-DD>-gitbash-<stem>-<sha>.txt, <stem>
-# compared as text. `named` fit the form; `at_pin` also name the pinned head. The glob
-# is sorted in the C locale, so the last entry is the lexicographically last name.
-named=() at_pin=()
+# compared as text. `named` is the last that fits the form; `tx` the last that also
+# names the pinned head. The glob is sorted in the C locale, so the last is the
+# lexicographically last name.
+named="" tx=""
 shopt -s nullglob
 for p in "$issue_dir"/evidence/*; do
   n="${p##*/}"
@@ -849,16 +839,15 @@ for p in "$issue_dir"/evidence/*; do
   [ "${n:10:${#stem}+10}" = "-gitbash-$stem-" ] || continue
   sha="${n:${#stem}+20}"
   [[ "$sha" =~ ^([0-9a-f]{7,40})\.txt$ ]] || continue
-  named+=("$n")
-  [[ "$PIN" != "${BASH_REMATCH[1]}"* ]] || at_pin+=("$n")
+  named="$n"
+  [[ "$PIN" != "${BASH_REMATCH[1]}"* ]] || tx="$n"
 done
 shopt -u nullglob
-if [ "${#at_pin[@]}" -eq 0 ]; then
-  [ "${#named[@]}" -eq 0 ] \
-    || _fail "evidence/${named[${#named[@]}-1]//[[:cntrl:]]/?} is named for another head, not the pinned head ${PIN:0:7}"
+if [ -z "$tx" ]; then
+  [ -z "$named" ] \
+    || _fail "evidence/${named//[[:cntrl:]]/?} is named for another head, not the pinned head ${PIN:0:7}"
   _fail "no evidence/<YYYY-MM-DD>-gitbash-$STEM-<sha>.txt is in the issue directory for the pinned head ${PIN:0:7}"
 fi
-tx="${at_pin[${#at_pin[@]}-1]}"
 TX="evidence/${tx//[[:cntrl:]]/?}"
 
 l1="" l2=""

@@ -50,26 +50,46 @@ _selfcert_names() {
   [[ "$3" != */ || "${out%%$'\t'*}" != *" blob "* ]]
 }
 
-# _selfcert_tags <top> <rev> <path>: sets _SELFCERT_TAGS to <path>'s tag lines at
-# <rev>, in file order, one per line. rc 0 with it empty when <rev>'s tree has no file
-# at <path>, or the file has no tag line. Whether the file is there is read from the
-# tree (ls-tree), so a file that is there and cannot be read is never taken for one
-# with no tag line, the answer that lets a diff through: rc 1, and _SELFCERT_ERR is
-# `git ls-tree exited <rc>` or `git cat-file exited <rc>`. The C locale keeps a line
-# with a stray lead byte from dropping out; pipefail carries cat-file's status past
-# tr, and grep finding nothing is not a failure.
-_selfcert_tags() {
+# _selfcert_top <tree>: sets _SELFCERT_TOP to <tree>'s top level, or to <tree> itself
+# when it has none (a bare repository: ask in place).
+_selfcert_top() {
+  _SELFCERT_TOP="$(_selfcert_git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || _SELFCERT_TOP=""
+  [[ -n "$_SELFCERT_TOP" ]] || _SELFCERT_TOP="$1"
+}
+
+# _selfcert_blob <top> <rev> <path>: sets _SELFCERT_OID to the object id of the file
+# at <path> in <rev>'s tree, empty when the tree has no file there. Whether the file
+# is there is read from the tree (ls-tree), so a file that is there and cannot be read
+# is never taken for one that is not: rc 1 when ls-tree fails, and _SELFCERT_ERR is
+# `git ls-tree exited <rc>`.
+_selfcert_blob() {
   local out rc=0
-  _SELFCERT_TAGS="" _SELFCERT_ERR=""
+  _SELFCERT_OID="" _SELFCERT_ERR=""
   out="$(_selfcert_git --literal-pathspecs -C "$1" ls-tree "$2" -- "$3" 2>/dev/null)" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     _SELFCERT_ERR="git ls-tree exited $rc"
     return 1
   fi
   out="${out%%$'\t'*}"                   # <mode> <type> <object id>
-  [[ "$out" == *" blob "* ]] || return 0
+  [[ "$out" != *" blob "* ]] || _SELFCERT_OID="${out##* }"
+  return 0
+}
+
+# _selfcert_tags <top> <rev> <path>: sets _SELFCERT_TAGS to <path>'s tag lines at
+# <rev>, in file order, one per line. rc 0 with it empty when <rev>'s tree has no file
+# at <path>, or the file has no tag line. A file that is there and cannot be read
+# (_selfcert_blob) is never taken for one with no tag line, the answer that lets a
+# diff through: rc 1, and _SELFCERT_ERR is `git ls-tree exited <rc>` or
+# `git cat-file exited <rc>`. The C locale keeps a line with a stray lead byte from
+# dropping out; pipefail carries cat-file's status past tr, and grep finding nothing
+# is not a failure.
+_selfcert_tags() {
+  local rc=0
+  _SELFCERT_TAGS=""
+  _selfcert_blob "$1" "$2" "$3" || return 1
+  [[ -n "$_SELFCERT_OID" ]] || return 0
   _SELFCERT_TAGS="$(set -o pipefail
-    _selfcert_git -C "$1" cat-file blob "${out##* }" 2>/dev/null | tr -d '\r\000' \
+    _selfcert_git -C "$1" cat-file blob "$_SELFCERT_OID" 2>/dev/null | tr -d '\r\000' \
       | { LC_ALL=C grep -aiE -- "$SELFCERT_TAG_RE" || true; })" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     _SELFCERT_TAGS="" _SELFCERT_ERR="git cat-file exited $rc"
@@ -115,8 +135,8 @@ selfcert_paths() {
     SELFCERT_WHY="${base:0:7} is not a commit in ${tree:-(no tree)}"
     return 2
   fi
-  top="$(_selfcert_git -C "$tree" rev-parse --show-toplevel 2>/dev/null)" || top=""
-  [[ -n "$top" ]] || top="$tree"      # a bare repository has no top level: ask in place
+  _selfcert_top "$tree"
+  top="$_SELFCERT_TOP"
   if ! b="$(_selfcert_git -C "$top" rev-parse --verify --quiet "${base}^{commit}" 2>/dev/null)"; then
     SELFCERT_WHY="${base:0:7} is not a commit in $tree"
     return 2

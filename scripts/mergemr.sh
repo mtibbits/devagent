@@ -103,6 +103,22 @@ esac
 backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
 backend="${backend//$'\r'/}"
 code_sh="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/${backend:-(none)}.sh"
+# Read once, by whichever of _selfcert_scan and the rules below needs them first.
+verified_head="" default_baseline_raw=""
+
+# _read_verified_head: sets verified_head from state, CR-stripped, unless already read.
+_read_verified_head() {
+    [ -z "$verified_head" ] || return 0
+    verified_head="$(state_ctx_get "$project" verified_head "$issue_arg" 2>/dev/null || true)"
+    verified_head="${verified_head//$'\r'/}"
+}
+# _read_default_baseline: sets default_baseline_raw from config, CR-stripped, unless
+# already read.
+_read_default_baseline() {
+    [ -z "$default_baseline_raw" ] || return 0
+    default_baseline_raw="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+    default_baseline_raw="${default_baseline_raw//$'\r'/}"
+}
 
 # ---- how a run ends ----------------------------------------------------------------
 
@@ -208,8 +224,8 @@ _selfcert_scan() {
     SELFCERT_STATE=none SELFCERT_WHY="" SELFCERT_BASE="" SELFCERT_LIST=""
     SELFCERT_BAD_ENTRY="" SELFCERT_ACK_REASON=""
     [ "${#REQUIRED_CHECKS[@]}" -gt 0 ] || return 0
-    head="$(state_ctx_get "$project" verified_head "$issue_arg" 2>/dev/null || true)"
-    head="${head//$'\r'/}"
+    _read_verified_head
+    head="$verified_head"
     SELFCERT_BASE="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
     SELFCERT_BASE="${SELFCERT_BASE//$'\r'/}"
     if [ -z "$head" ]; then
@@ -219,10 +235,11 @@ _selfcert_scan() {
     elif [ -z "$SELFCERT_BASE" ]; then
         SELFCERT_STATE=unknown SELFCERT_WHY="no baseline_sha recorded"
     else
-        if (active_tree_resolve "$project" "$issue_arg") >/dev/null 2>&1; then
-            active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )
-            tree="$ACTIVE_TREE_DIR"
-        else
+        # The resolver dies on a failure, so it runs in the substitution's subshell,
+        # which prints only the tree; source_dir is the fallback.
+        tree="$(active_tree_resolve "$project" "$issue_arg" >/dev/null 2>&1 \
+            && printf '%s' "$ACTIVE_TREE_DIR")" || tree=""
+        if [ -z "$tree" ]; then
             tree="$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
             tree="${tree//$'\r'/}"
         fi
@@ -233,8 +250,8 @@ _selfcert_scan() {
             done
         fi
         if [ "${#want[@]}" -gt 0 ]; then
-            remote="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-            remote="${remote//$'\r'/}"
+            _read_default_baseline
+            remote="$default_baseline_raw"
             case "$remote" in */*) remote="${remote%%/*}" ;; *) remote="" ;; esac
             if [ -n "$remote" ] && upstream_remote_configured "$tree" "$remote" \
                     && command -v timeout >/dev/null 2>&1; then
@@ -369,8 +386,7 @@ _rc_eval
 [ "$CI_RESULT" != closed ] || _stop 4 "$R4_TEXT"                                         # rule 4
 [ "$MV_DRAFT" != true ] || _wait 5 "draft PR"                                            # rule 5
 
-default_baseline_raw="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-default_baseline_raw="${default_baseline_raw//$'\r'/}"
+_read_default_baseline
 default_base="$(printf '%s' "$default_baseline_raw" | sed 's|^[^/]*/||')"
 [ -n "$default_base" ] || default_base=main
 [ "$MV_BASE" = "$default_base" ] || _wait 6 "stacked on $MV_BASE"                       # rule 6
@@ -473,8 +489,7 @@ if [ "${pr_repo,,}" != "${CODE_TARGET_REPO,,}" ]; then
     _stop 9 "PR is not on $CODE_TARGET_REPO; it is on $pr_repo. Fix mr_url or code_source, then run /devagent:unstuck"
 fi
 
-verified_head="$(state_ctx_get "$project" verified_head "$issue_arg" 2>/dev/null || true)"
-verified_head="${verified_head//$'\r'/}"
+_read_verified_head
 [ -n "$verified_head" ] || _stop 10 "no verified head for this PR; run /devagent:preship"   # rule 10
 
 if [ "$CI_HEAD" != "$verified_head" ]; then                                   # rule 11
