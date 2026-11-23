@@ -149,6 +149,7 @@ A missing source is a row, never a failure.
 | `0` | Written, printed, or skipped as fresh (`--if-stale`). |
 | `1` | The config is missing or invalid, or `--project` names an unknown project. |
 | `2` | A usage error, `--archive` not a directory, a refused or unwritable output, or a refused `[archive].actuals_max_age_hours`. Nothing is written. |
+| `4` | `--if-stale` only: written, but a source the replaced file had is now missing (a tracker outage, say). One `actuals: WARNING:` line names them; cleanup reports it at the next close. |
 
 ## Privacy
 

@@ -539,6 +539,24 @@ def test_build_refuses_a_document_the_reader_would_refuse(tmp_path, monkeypatch,
     assert not out.exists()
 
 
+def test_if_stale_build_that_loses_a_source_exits_4(tmp_path):
+    """Cleanup's rebuild over a file it degrades (a source the old file had is missing): written, exit 4."""
+    _config(tmp_path)
+    a = _archive(tmp_path)
+    default = Path(os.environ["DA_HOME"]) / "actuals.json"
+    assert _cli("build", "--archive", a, env=_ok_manifest(tmp_path)).returncode == 0
+    same = _cli("build", "--archive", a, "--if-stale", env=_ok_manifest(tmp_path))
+    assert same.returncode == 0 and same.stderr == b""
+    failed = _manifest(tmp_path, [("alpha", 1, "", "boom\n"), ("beta", 0, _jsonl(BETA_MS), "")])
+    run = _cli("build", "--archive", a, "--if-stale", env=failed)
+    assert run.returncode == 4
+    assert run.stderr.decode().splitlines() == [
+        "actuals: WARNING: 1 source(s) missing that the replaced file had: milestones (alpha)"]
+    assert _issue(json.loads(default.read_text()), "alpha", "Issue-4")["milestones"] is None   # written anyway
+    # without --if-stale (a build by hand) the same loss is exit 0
+    assert _cli("build", "--archive", a, env=failed).returncode == 0
+
+
 def test_archive_not_a_directory(tmp_path):
     _config(tmp_path)
     run = _cli("preflight", "--archive", tmp_path / "nope", "--stdout")

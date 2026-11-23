@@ -381,8 +381,9 @@ fi
 # stale close whose pid file is younger than that bound and names a live process
 # starts no second rebuild; an older pid file is ignored (its pid may have been
 # reused; without `timeout` a rebuild may still run, and an overlap is harmless:
-# each write is atomic). The next stale close warns once about a non-zero status
-# (124: timed out) and keeps that run's log as actuals-rebuild.log.1. Every
+# each write is atomic). The next close, fresh or stale, warns once about a
+# non-zero status (124: timed out; 4: written, but missing a source the file it
+# replaced had) and keeps that run's log as actuals-rebuild.log.1. Every
 # failure warns and the close completes. Called inside the [archive] gate, after
 # the archive run, so an unconfigured close still spawns nothing.
 ACTUALS_REBUILD_TIMEOUT_S=900
@@ -390,6 +391,17 @@ _actuals_rebuild() {
     local home rc=0 pid log pidf statusf last
     home="$(devagent_home)"
     log="$home/actuals-rebuild.log" pidf="$home/actuals-rebuild.pid" statusf="$home/actuals-rebuild.status"
+    # Before the age gate: a degraded build (4) left a fresh file behind.
+    last="$(cat "$statusf" 2>/dev/null)" || last=""
+    rm -f "$statusf"
+    if [[ -n "$last" && "$last" != 0 ]]; then
+        mv -f "$log" "$log.1" 2>/dev/null || true
+        case "$last" in
+            124) warn "cleanup: the last actuals rebuild timed out after ${ACTUALS_REBUILD_TIMEOUT_S}s (log: $log.1)" ;;
+            4)   warn "cleanup: the last actuals rebuild wrote actuals.json without a source the file it replaced had (log: $log.1)" ;;
+            *)   warn "cleanup: the last actuals rebuild failed (exit $last; log: $log.1)" ;;
+        esac
+    fi
     DA_HOME="$home" python3 "$DEVAGENT_ROOT/scripts/lib/actuals.py" preflight --if-stale || rc=$?
     case "$rc" in
         3) return 0 ;;   # fresh
@@ -400,16 +412,6 @@ _actuals_rebuild() {
             && pid="$(cat "$pidf" 2>/dev/null)" && [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
         info "an actuals rebuild is already running (pid $pid); not starting another"
         return 0
-    fi
-    last="$(cat "$statusf" 2>/dev/null)" || last=""
-    rm -f "$statusf"
-    if [[ -n "$last" && "$last" != 0 ]]; then
-        mv -f "$log" "$log.1" 2>/dev/null || true
-        if [[ "$last" == 124 ]]; then
-            warn "cleanup: the last actuals rebuild timed out after ${ACTUALS_REBUILD_TIMEOUT_S}s (log: $log.1); retrying"
-        else
-            warn "cleanup: the last actuals rebuild failed (exit $last; log: $log.1); retrying"
-        fi
     fi
     local cmd=(bash "$DEVAGENT_ROOT/scripts/actuals.sh" --if-stale)
     command -v timeout >/dev/null 2>&1 && cmd=(timeout "$ACTUALS_REBUILD_TIMEOUT_S" "${cmd[@]}")

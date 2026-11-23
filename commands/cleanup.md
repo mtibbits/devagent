@@ -341,10 +341,14 @@ it still running starts no second one (a pid file older than the bound is
 ignored: its pid may have been reused). A refused `actuals_max_age_hours` or an
 unreadable config prints `cleanup: actuals rebuild failed (non-fatal)` and the
 close completes. A background build that fails says why in its log and
-records its exit status in `actuals-rebuild.status`; the next stale close
-prints `cleanup: the last actuals rebuild failed (exit N; log: …log.1);
-retrying` (or `timed out`), keeps that log as `actuals-rebuild.log.1`, and
-starts another. Until a build succeeds the portfolio keeps reading the last
+records its exit status in `actuals-rebuild.status`; the next close prints
+`cleanup: the last actuals rebuild failed (exit N; log: …log.1)` (or `timed
+out`) and keeps that log as `actuals-rebuild.log.1`, and a stale close starts
+another. A build that wrote the file but lost a source the old file had (a
+tracker outage: exit 4) is reported the same way at the next close, fresh or
+not: `cleanup: the last actuals rebuild wrote actuals.json without a source the
+file it replaced had (log: …log.1)`; that file stays until it ages out or
+`/devagent:actuals` rebuilds it. Until a build succeeds the portfolio keeps reading the last
 good file while it is under 7 days old, then reports it as unavailable
 (`/devagent:actuals` runs a build by hand).
 

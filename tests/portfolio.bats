@@ -226,6 +226,14 @@ _hashes() {
   [ -f "$T/afile" ] && [ ! -s "$T/afile" ]
 }
 
+@test "portfolio: --out inside a git work tree is refused, nothing written (#735)" {
+  git init -q "$T/repo"
+  run bash "$PORTFOLIO" --out "$T/repo/new/p.json"
+  [ "$status" -eq 2 ]
+  [[ "$output" == "portfolio: --out is inside a git work tree ($T/repo); the document lists session ids and working directories"* ]]
+  [ ! -e "$T/repo/new" ]
+}
+
 @test "portfolio: --out under a devdoc, source_dir or worktree_root is refused" {
   local role path
   for role in devdoc_dir source_dir worktree_root; do

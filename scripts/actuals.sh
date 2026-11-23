@@ -24,7 +24,8 @@
 #
 # Exit: 0 written, printed, or skipped as fresh; 1 config missing or invalid,
 # or an unknown project; 2 a usage error, --archive not a directory, a
-# refused or unwritable output, or a refused actuals_max_age_hours.
+# refused or unwritable output, or a refused actuals_max_age_hours; 4
+# (--if-stale only) written, but missing a source the replaced file had.
 
 set -euo pipefail
 
@@ -156,6 +157,7 @@ for p in "${projects[@]}"; do
 done
 export ACTUALS_MS_COUNT="$i"
 
+(( if_stale )) && args+=(--if-stale)
 rc=0
 python3 "$lib" build "${args[@]}" || rc=$?
 exit "$rc"

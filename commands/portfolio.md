@@ -46,10 +46,14 @@ written atomically and, where the platform supports it, is readable by its
 owner only (mode 0600); any directory the command creates is 0700. `--out PATH` chooses another file.
 
 **Privacy.** The document names every configured project, private ones
-included. Keep it outside every devdoc: every devdoc commit reaches origin at
-the next cleanup (#1148). The command refuses an `--out` under any
-configured `devdoc_dir`, `source_dir` or `worktree_root` (both sides are
-canonicalised first). When `worktree_root` is unset or empty, the rail treats
+included, and since schema 1.3 (#735) its actuals slots carry transcript
+session ids, host names, cwd slugs and, in the top-level `actuals.unassigned`
+rows, the working directories of work no project claimed. Keep it outside every
+devdoc and every repository: every devdoc commit reaches origin at the next
+cleanup (#1148). The command refuses an `--out` inside any git work tree (by
+git's own answer for the nearest existing directory; it fails closed when git
+cannot answer), and under any configured `devdoc_dir`, `source_dir` or
+`worktree_root` (both sides are canonicalised first). When `worktree_root` is unset or empty, the rail treats
 `<source_dir>-wt` as the worktree root (the rule trust applies) and refuses
 `--out` under it the same way.
 

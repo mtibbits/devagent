@@ -81,6 +81,23 @@ while (( $# > 0 )); do
 done
 [[ -n "$ready" && -n "$out" ]] && usage_error "--ready writes no document; drop --out"
 
+# #735: the document now carries session ids, cwd slugs and unassigned working
+# directories (the actuals slots), so an --out inside any git work tree is
+# refused, as actuals.sh refuses its own. Fail closed: the nearest existing
+# ancestor must be outside every repository by git's own answer.
+_out_outside_git() {
+  local anc err rc=0
+  anc="$(dirname -- "$1")"
+  while [[ ! -d "$anc" && "$anc" != "$(dirname -- "$anc")" ]]; do anc="$(dirname -- "$anc")"; done
+  err="$(unset "${!GIT_@}"; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 LC_ALL=C \
+          GIT_DISCOVERY_ACROSS_FILESYSTEM=1 "${DEVAGENT_GIT:-git}" -C "$anc" rev-parse --is-inside-work-tree \
+          2>&1 >/dev/null)" || rc=$?
+  (( rc == 0 )) && usage_error "--out is inside a git work tree ($anc); the document lists session ids and working directories"
+  (( rc == 128 )) && [[ "$err" == *"not a git repository"* ]] && return 0
+  usage_error "cannot tell whether --out ($anc) is inside a git work tree (${err:-rc $rc}); refusing"
+}
+[[ -n "$out" ]] && _out_outside_git "$out"
+
 config_load
 # The manifest is this script's alone: an inherited PORTFOLIO_* var would fill a gap.
 unset "${!PORTFOLIO_@}"

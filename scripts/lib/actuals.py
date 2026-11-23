@@ -26,6 +26,9 @@ usable document younger than [archive].actuals_max_age_hours), 1 the config
 cannot be read, 2 refused (--archive not a directory, an --out under a
 project's dir or inside a git work tree, a refused actuals_max_age_hours).
 build exits 0 written or printed, 1 or 2 likewise; nothing is written on 1 or 2.
+build --if-stale (cleanup's rebuild) exits 4 when it wrote the default file but
+the new document misses a source the file it replaced had (a tracker outage):
+one `actuals: WARNING:` line names them.
 
 Standard library only. commands/actuals.md is the user doc; the slot shapes
 are the portfolio schema's (docs/portfolio-schema.md, "Actuals").
@@ -43,7 +46,7 @@ from pathlib import Path
 
 LIB = Path(__file__).resolve().parent
 PROG = "actuals"
-EXIT_GO, EXIT_CONFIG, EXIT_REFUSED, EXIT_FRESH = 0, 1, 2, 3
+EXIT_GO, EXIT_CONFIG, EXIT_REFUSED, EXIT_FRESH, EXIT_DEGRADED = 0, 1, 2, 3, 4
 OUT_IN_REPO = ("--out", "the document lists project names, session ids and cwd paths")
 TIME_KEYS = ("agent_busy_s", "agent_wall_s", "operator_s", "operator_events", "returns_after_absence",
              "fallback_events")
@@ -373,6 +376,21 @@ def render(doc: dict) -> bytes:
     return pf.dumps(doc, sort_keys=True)
 
 
+def _missing(doc: dict) -> set[tuple]:
+    return {(s["source"], s["project"]) for s in doc["sources"] if s["status"] == "missing"}
+
+
+def _missing_before(path: Path) -> set[tuple] | None:
+    """The missing (source, project) pairs of the usable file at path, None when there is none."""
+    if pf._regular_file(path)[0] != "regular":
+        return None
+    try:
+        doc = pc.read_document(path)
+    except pc.DocumentError:
+        return None
+    return _missing(doc) if pc.actuals_usable(doc) is None else None
+
+
 def build(opts, env: Mapping) -> int:
     preflight(argparse.Namespace(**{**vars(opts), "if_stale": False}))
     doc = build_document(opts.archive, opts.project, env)
@@ -386,6 +404,7 @@ def build(opts, env: Mapping) -> int:
         sys.stdout.flush()
         return EXIT_GO
     out = opts.out or default_out()
+    before = _missing_before(out) if opts.if_stale else None
     try:
         pf.write_document(data, out)
     except OSError as e:
@@ -393,6 +412,11 @@ def build(opts, env: Mapping) -> int:
     missing = sum(1 for s in doc["sources"] if s["status"] == "missing")
     _say(sys.stdout, f"actuals: wrote {out} ({len(doc['issues'])} issues, {len(doc['projects'])} projects, "
                      f"{missing} missing sources)")
+    lost = sorted(_missing(doc) - before, key=lambda k: (k[0], k[1] or "")) if before is not None else []
+    if lost:
+        names = ", ".join(f"{s} ({p})" if p else s for s, p in lost)
+        _say(sys.stderr, f"{PROG}: WARNING: {len(lost)} source(s) missing that the replaced file had: {names}")
+        return EXIT_DEGRADED
     return EXIT_GO
 
 

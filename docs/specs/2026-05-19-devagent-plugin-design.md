@@ -3790,8 +3790,9 @@ file is missing, unreadable, unusable or more than 7 days older than the
 document it leaves them null with one `actuals_unavailable` entry per project.
 Cleanup refreshes the file inside its `[archive]` gate: an age check against
 `[archive].actuals_max_age_hours` (default 24, at most 168), and when stale a
-detached `actuals.sh --if-stale` it does not wait for; the next stale close
-warns once when that run failed or timed out. The rebuild's files sit beside
+detached `actuals.sh --if-stale` it does not wait for; the next close warns
+once when that run failed, timed out, or wrote a document missing a source the
+file it replaced had (a tracker outage; exit 4). The rebuild's files sit beside
 the document in `devagent_home`: `actuals-rebuild.log` (its output; a failed
 run's log is kept as `actuals-rebuild.log.1`), `actuals-rebuild.pid` and
 `actuals-rebuild.status` (its exit status). Estimates (#736) and

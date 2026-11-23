@@ -1342,10 +1342,26 @@ _stamp() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gene
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-1"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [ "$(grep -c "cleanup: the last actuals rebuild failed (exit 2; log: $HOME/.claude/devagent/actuals-rebuild.log.1); retrying" <<<"$output")" -eq 1 ]
+    [ "$(grep -c "cleanup: the last actuals rebuild failed (exit 2; log: $HOME/.claude/devagent/actuals-rebuild.log.1)" <<<"$output")" -eq 1 ]
     grep -q "^actuals: cannot write $HOME/.claude/devagent/actuals.json" "$HOME/.claude/devagent/actuals-rebuild.log.1"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
     _wait_rebuild
+}
+
+@test "cleanup.sh reports a degraded rebuild (exit 4) at the next close, even on a fresh file (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg
+    _actuals_file 1
+    echo 4 > "$HOME/.claude/devagent/actuals-rebuild.status"
+    echo "actuals: WARNING: 1 source(s) missing that the replaced file had: tracker (x)" \
+        > "$HOME/.claude/devagent/actuals-rebuild.log"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "cleanup: the last actuals rebuild wrote actuals.json without a source the file it replaced had (log: $HOME/.claude/devagent/actuals-rebuild.log.1)" <<<"$output")" -eq 1 ]
+    grep -q 'tracker (x)' "$HOME/.claude/devagent/actuals-rebuild.log.1"
+    [ ! -e "$HOME/.claude/devagent/actuals-rebuild.status" ]
+    [ ! -e "$HOME/.claude/devagent/actuals-rebuild.pid" ]   # fresh: no new rebuild
 }
 
 @test "cleanup.sh does not start a second actuals rebuild while one runs (#735)" {
