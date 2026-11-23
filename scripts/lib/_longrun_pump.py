@@ -154,7 +154,14 @@ def main(argv):
             since = start if previous is None else previous
             mtime = None
             if heartbeat:
-                mtime = os.stat(heartbeat).st_mtime
+                try:
+                    mtime = os.stat(heartbeat).st_mtime
+                except FileNotFoundError:
+                    # Removed mid-run: put it back, or the rest of the run's
+                    # output would not be progress. A missing directory raises
+                    # here too and skips this chunk's heartbeat work.
+                    open(heartbeat, "a").close()
+                    mtime = os.stat(heartbeat).st_mtime
                 since = min(max(since, mtime), now)
             gap = int(now - since)
             if gap > longest:

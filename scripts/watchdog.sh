@@ -216,15 +216,22 @@ cmd_check() {
 
   # The newest file under the session's own transcript directory: subagents
   # write there while the parent's file stands still. A file that vanishes
-  # between the listing and its stat is skipped.
-  local sub="${transcript%.jsonl}" t newest=""
+  # between the listing and its stat is skipped; a listing that failed and
+  # gave no time at all cannot tell progress from silence.
+  local sub="${transcript%.jsonl}" t newest="" listing lrc
   if [[ -d "$sub" ]]; then
+    lrc=0
+    listing="$(find "$sub" -type f -printf '%T@\n' 2>/dev/null)" || lrc=$?
     while IFS= read -r t; do
       t="${t//$'\r'/}" t="${t%%.*}"
       [[ "$t" =~ ^[0-9]+$ ]] || continue
       if [[ -z "$newest" ]] || (( t > newest )); then newest="$t"; fi
-    done < <(find "$sub" -type f -printf '%T@\n' 2>/dev/null || true)
-    [[ -z "$newest" ]] || wd_add "$newest" "$limit" subagent-transcript
+    done <<<"$listing"
+    if [[ -n "$newest" ]]; then
+      wd_add "$newest" "$limit" subagent-transcript
+    elif (( lrc != 0 )); then
+      wd_error "cannot list $sub: cannot determine progress"
+    fi
   fi
 
   # This session's state files, and no other session's. One stat for all.
@@ -237,16 +244,21 @@ cmd_check() {
     done
   fi
   if (( ${#files[@]} )); then
+    local parsed=0
+    lrc=0
+    listing="$(stat -c '%Y %n' -- "${files[@]}" 2>/dev/null)" || lrc=$?
     while IFS= read -r line; do
       line="${line//$'\r'/}"
       t="${line%% *}" f="${line#* }"
       [[ "$t" =~ ^[0-9]+$ ]] || continue
+      parsed=$((parsed + 1))
       name="${f##*/}"
       case "$name" in
         wrap.*|beat) wd_window "$f" "$limit" "$max"; wd_add "$t" "$WD_ALLOWANCE" "${name%%.*}" "$WD_WINDOWED" ;;
         *)           wd_add "$t" "$limit" "$name" ;;
       esac
-    done < <(stat -c '%Y %n' -- "${files[@]}" 2>/dev/null || true)
+    done <<<"$listing"
+    (( parsed > 0 || lrc == 0 )) || wd_error "cannot stat the state files in $dir: cannot determine progress"
   fi
 
   [[ -z "$since_epoch" ]] || wd_add "$since_epoch" "$limit" since

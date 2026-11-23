@@ -413,6 +413,17 @@ sys.stdout.buffer.write(bytes(range(256)) * 50 + b"a\r\nb\rc\n\x00tail")' > "$TM
   grep -q '^\[long-run\] closed stdout .* run=r2 longest-gap=[0-9]*s refreshes=1$' "$TMP/p2.log"
 }
 
+@test "a heartbeat file removed mid-run is put back by the next chunk; a missing directory only skips it" {
+  [ ! -e "$TMP/gone" ]
+  printf 'a\n' | pump stdout "$TMP/g.log" 5242880 "$TMP/gone" 0 180 r1 > "$TMP/g.out"
+  [ "$(cat "$TMP/g.out")" = a ]
+  [ -f "$TMP/gone" ]
+  # no directory to put it in: the bytes still pass and nothing is created
+  printf 'b\n' | pump stdout "$TMP/g2.log" 5242880 "$TMP/nodir/hb" 0 180 r2 > "$TMP/g2.out"
+  [ "$(cat "$TMP/g2.out")" = b ]
+  [ ! -e "$TMP/nodir" ]
+}
+
 @test "the wrapper's own lines and another run's output do not move this run's file" {
   local t=1600000000 a
   bg "$TMP/a.out" --every 0 -- bash "$FX/hold.sh" --quiet "$GO"
@@ -809,10 +820,16 @@ shim_path() {
     run --separate-stderr env "PATH=$TMP/bin" DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" \
       "$bash_bin" "$L" $shape -- "$bash_bin" -c 'echo hi; echo oops >&2; exit 3'
     [ "$status" -eq 3 ] || { echo "rc=$status out=$output err=$stderr" >&2; return 1; }
-    [ "$output" = hi ]
     [ "$(grep -c '^long-run: warning: ' <<<"$stderr")" -eq 1 ] || { echo "err=$stderr" >&2; return 1; }
     [[ "$stderr" == *"python3"* ]]
-    [ "$(grep -v '^long-run: warning: ' <<<"$stderr")" = oops ]
+    if [ -n "$shape" ]; then
+      # merged: the command's stderr joins its stdout, as when pumped
+      [ "$output" = "$(printf 'hi\noops')" ] || { echo "out=$output" >&2; return 1; }
+      [ -z "$(grep -v '^long-run: warning: ' <<<"$stderr")" ]
+    else
+      [ "$output" = hi ]
+      [ "$(grep -v '^long-run: warning: ' <<<"$stderr")" = oops ]
+    fi
   done
   # the run is still recorded as one, and its window would still be dropped
   have_wraps 2

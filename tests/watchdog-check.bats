@@ -196,6 +196,22 @@ refused() {
   is_stalled subagent-transcript "$T" "$((LIMIT + 5))"
 }
 
+@test "a subagent listing that fails is cannot-determine (exit 1), never stalled" {
+  at "$((T - 7200))" "$TR"
+  at "$T" "$PROJ/$ID/subagents/agent-a497e3b75296f1039.jsonl"
+  mkdir -p "$BATS_TEST_TMPDIR/shim"
+  printf '#!/bin/sh\nexit 2\n' > "$BATS_TEST_TMPDIR/shim/find"
+  chmod +x "$BATS_TEST_TMPDIR/shim/find"
+  # control: the same fixture with the real find is stalled
+  chk "$((T + LIMIT + 5))"
+  is_stalled subagent-transcript "$T" "$((LIMIT + 5))"
+  run --separate-stderr env "PATH=$BATS_TEST_TMPDIR/shim:$PATH" \
+    bash "$W" check volk Issue-7 --transcript "$TR" --now "$((T + LIMIT + 5))"
+  [ "$status" -eq 1 ] || { echo "rc=$status out=$output err=$stderr" >&2; return 1; }
+  [ -z "$output" ]
+  [[ "$stderr" == *"cannot determine progress"* ]]
+}
+
 # ---------------------------------------------------------------- Progress sources
 
 @test "transcript growth alone is ok at T+limit-1 and stalled at T+limit+5" {

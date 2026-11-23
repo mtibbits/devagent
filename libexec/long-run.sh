@@ -312,7 +312,10 @@ lr_note "[long-run] start ${LR_ISO} run=${run} cmd=${name}"
 # a program (never one of this script's functions) and its exit code is the
 # element's own.
 rc=0
-if (( ! python )); then
+if (( ! python )) && (( merge )); then
+  # Unpumped, but a merged caller still gets one stream.
+  ( exec "${cmd[@]}" 2>&1 ) || rc=$?
+elif (( ! python )); then
   ( exec "${cmd[@]}" ) || rc=$?
 elif (( merge )); then
   # One pipe carries both streams, so their order stays the command's.
