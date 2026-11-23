@@ -351,6 +351,22 @@ def test_field_order():
     assert len(hits) == 6
 
 
+def test_header_keys_scanned_or_exempt():
+    """Every header key is scanned and escaped, or named exempt here: a key
+    added to staging_layout must land in one list or the other (red team)."""
+    c = _chars()
+    scanned = {b"Labels": "label", b"State": "state", b"Author": "author"}
+    exempt = (b"URL", b"Created")  # tracker-generated; #923 residual I2
+    keys = c._L.HEADER_KEYS + (c._L.OPTIONAL_KEY,)
+    assert sorted(keys) == sorted(tuple(scanned) + exempt)
+    assert sorted(_load("staging_render", RENDER).CHARS_KEYS) == sorted(scanned)
+    hit = _u(0x202E)
+    cand = (b"# acme/widgets#7 \xe2\x80\x94 T\n\n"
+            + b"".join(b"- " + k + b": v" + hit + b"\n" for k in keys)
+            + b"\n---\n\nBody.\n\n---\n\n## Comments (0)\n")
+    assert {h[0] for h in c.candidate_scan(cand, set())} == set(scanned.values())
+
+
 def test_modules_load_acyclic():
     for path in (CHARS, LAYOUT, RENDER):
         code = ("import importlib.util,sys\n"

@@ -200,7 +200,8 @@ mixing Han and Katakana is not. It is a record, never a quarantine.
 
 **Quiet before PASS.** Until the floor passes, pull prints no ticket byte:
 the floor's diagnostics name a known key, a body line number, a label's
-position or a byte count, and end with what the operator can do. Each check
+position, a byte count, or a field, line and code point (`chars`), and end
+with what the operator can do. Each check
 prints at most 20 of them, then `<check>: <n> more not shown`. The remedy
 for `steering` is to drop the flag or label from the ticket, or to list the
 entry; for `size`, to shorten the ticket or raise `size_cap`; for `chars`,

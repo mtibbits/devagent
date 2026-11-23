@@ -28,10 +28,10 @@ _cand() {
   run --separate-stderr _chars scan body "$T/clean"
   [ "$status" -eq 0 ]
   [ "$output" = "hits 0" ]
-  _chars scan body "$T/hit" > "$T/out"
+  _chars scan body "$T/hit" > "$T/out" 2> "$T/err"
   [ "$(cat "$T/out")" = "$(printf 'hits 2\nbody line 1 U+202E\nbody line 2 U+200B')" ]
   [ "$(LC_ALL=C grep -c $'\r' "$T/out")" = 0 ]
-  [ -z "$stderr" ]
+  [ ! -s "$T/err" ]
 }
 
 @test "cli: --max caps the lines, not the total" {

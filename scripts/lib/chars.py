@@ -13,8 +13,9 @@ Callables (bytes in, bytes out where the name says so):
 
 The set is chars_table.SET (Unicode 16.0.0; chars_gen.py says what it holds).
 Every Unicode property comes from chars_table: nothing here asks the runtime
-(no unicodedata, no str.is* predicate, no \\w \\d \\s class, no str.splitlines),
-so the answer does not move with the Python that runs it.
+(no unicodedata, no Unicode-property predicate such as str.isalpha, no \\w
+\\d \\s class, no str.splitlines), so the answer does not move with the
+Python that runs it.
 
 Lines. A field's bytes are split into lines: a line ends at an LF together
 with every CR directly before it, or else at a lone CR (CR CR LF is one

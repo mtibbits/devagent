@@ -477,6 +477,10 @@ $REMEDY_CHARS_LAST" ]
   run --separate-stderr floor_run "$C"
   [ "$status" -eq 3 ]
   [ "$output" = "" ]
+  unset QUARANTINE_DETAIL_RE
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
 }
 
 @test "floor: chars — diagnostics carry no ticket byte" {
