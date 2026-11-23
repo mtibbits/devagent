@@ -20,18 +20,31 @@ _golden_norm() {
 
 # _golden_check <name> <argv-log>: compare (or, under TRUST_GOLDEN_CAPTURE_SHA,
 # write) the four fixture files from the last `run --separate-stderr`.
+# #715: a fifth kind, `.tree`, is OPT-IN per scenario: "no new files" — `ls -A`
+# of GOLDEN_TREE_DIR (the issue dir) and of $DA_HOME/state, plus the sha256 of
+# issue.md and .devagent-step-models there. It is checked only when
+# $GOLDEN_DIR/<name>.tree exists, and captured only by a scenario that sets
+# GOLDEN_TREE=1, so the scenarios without one are untouched.
+# TRUST_GOLDEN_CAPTURE_KINDS (default: every kind) limits which kinds a capture
+# writes; the other kinds are compared as usual, so a scenario can gain its
+# `.tree` while its other fixtures keep their captured-at line.
 # shellcheck disable=SC2154  # $output/$status are set by `run --separate-stderr` (bats idiom)
 _golden_check() {
-  local name="$1" argv_log="$2" kind got
+  local name="$1" argv_log="$2" kind got kinds=(out err rc argv)
   local tmp="$BATS_TEST_TMPDIR/golden"
   mkdir -p "$tmp"
   printf '%s\n' "$output" | _golden_norm > "$tmp/$name.out"
   printf '%s\n' "$stderr" | _golden_norm > "$tmp/$name.err"
   printf '%s\n' "$status" > "$tmp/$name.rc"
   if [ -f "$argv_log" ]; then _golden_norm < "$argv_log"; fi > "$tmp/$name.argv"
-  for kind in out err rc argv; do
+  if [ "${GOLDEN_TREE:-0}" = 1 ] || [ -f "$GOLDEN_DIR/$name.tree" ]; then
+    _golden_tree | _golden_norm > "$tmp/$name.tree"
+    kinds+=(tree)
+  fi
+  for kind in "${kinds[@]}"; do
     got="$tmp/$name.$kind"
-    if [ -n "${TRUST_GOLDEN_CAPTURE_SHA:-}" ]; then
+    if [ -n "${TRUST_GOLDEN_CAPTURE_SHA:-}" ] \
+       && [[ " ${TRUST_GOLDEN_CAPTURE_KINDS:-out err rc argv tree} " == *" $kind "* ]]; then
       { printf 'captured-at %s\n' "$TRUST_GOLDEN_CAPTURE_SHA"; cat "$got"; } \
         > "$GOLDEN_DIR/$name.$kind"
       continue
@@ -39,6 +52,22 @@ _golden_check() {
     if ! diff <(tail -n +2 "$GOLDEN_DIR/$name.$kind") "$got"; then
       echo "golden mismatch: $name.$kind (fixture line 1: $(head -1 "$GOLDEN_DIR/$name.$kind"))" >&2
       return 1
+    fi
+  done
+}
+
+# _golden_tree: the `.tree` kind's body (#715) — what files the run left.
+_golden_tree() {
+  local d="${GOLDEN_TREE_DIR:?GOLDEN_TREE_DIR unset}" f
+  echo "## ls -A issue dir"
+  if [ -d "$d" ]; then ls -A "$d"; else echo "(absent)"; fi
+  echo "## ls -A state"
+  ls -A "$DA_HOME/state"
+  for f in issue.md .devagent-step-models; do
+    if [ -f "$d/$f" ]; then
+      printf '%s  %s\n' "$(sha256sum < "$d/$f" | cut -d' ' -f1)" "$f"
+    else
+      printf 'absent  %s\n' "$f"
     fi
   done
 }
@@ -75,7 +104,31 @@ dir_prefix = "Issue-Fork-"
 EOF
   GOLDEN_TMP_ROOTS=("$BATS_TEST_TMPDIR" "$DA_HOME")
   GOLDEN_ARGV="$GH_STUB_ARGV_LOG"
+  GOLDEN_TREE=1 GOLDEN_TREE_DIR="$DEVDOC/Issue-676"
   run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+}
+
+# #715: two no-policy pulls across every print site Issue-715 refactors (its
+# plan's table C), captured at 1b24202 before any #715 code. The ticket text
+# reaches the bytes only through the gh-stub knobs, so `_scenario_pull` stays
+# the setup.
+# pull-steering crosses S3 (unknown key), S6 (the shim warn and the
+# explicit-beats-shim warn), S7 (an unrecognised `tier:*` label), S8's two
+# body-beats-label warns, and S9 (a `research` value that is not `required`).
+# S8's conflicting-labels die cannot be reached at exit 0; pull.bats covers it.
+_scenario_pull_steering() {
+  export GH_STUB_BODY_JSON='"Steering fixture.\n\n## Workflow flags\ntier: opus-checking\nchecking-model: fable\nimplementation-model: opus\nresearch: maybe\nzz-unknown: 1\n\nProse after the block."'
+  export GH_STUB_LABELS_JSON='[{"name": "tier:impl-sonnet"}, {"name": "tier:check-haiku"}, {"name": "tier:bogus-shape"}, {"name": "bug"}]'
+  _scenario_pull
+}
+
+# pull-flagsdiag crosses S1 (an inline `<!--` on a key line), S2 (a block
+# closed at a non-key line, which prints up to 60 bytes of it) and the
+# fence-close warning (flags.sh:287).
+_scenario_pull_flagsdiag() {
+  # shellcheck disable=SC2016  # the backticks are a literal code fence in the body
+  export GH_STUB_BODY_JSON='"Diagnostics fixture.\n\n## Workflow flags\nspike: required <!-- an inline note -->\n\n## Workflow flags\nTier: oneshot, a mis-cased key that closes this block\n\n## Workflow flags\n```text\nresearch: required\n```\n\nThe end."'
+  _scenario_pull
 }
 
 _scenario_ship() {

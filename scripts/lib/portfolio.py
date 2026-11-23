@@ -123,8 +123,8 @@ def node_deps(meta: dict, project: str) -> list[dict]:
 # --- issue-directory readers ---------------------------------------------------
 
 # A checklist step row: _checklist_line_re (scripts/lib/checklist.sh) with the
-# name captured; twin of ROW_RE in scripts/lib/wbs-tracker.py, which drops the
-# name group (a test holds the two equal).
+# name captured; twin of ROW_RE in scripts/lib/wbs-tracker.py, which names the
+# same group `name` (#734; a test holds the two equal).
 STEP_ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+([A-Za-z][A-Za-z0-9_-]*)")
 REVISION_HEADING = "## Revision "
 # A done checklist step row: no work left, done or skipped. It agrees on

@@ -1,0 +1,11 @@
+captured-at 1b24202
+flags.sh: warn: unknown ## Workflow flags key 'zz-unknown' — ignored (forward-compat)
+pull.sh: warn: 'tier: opus-checking' is a model annotation, not a template tier — interpreted as 'checking-model: opus'; prefer 'checking-model:'
+pull.sh: warn: explicit 'checking-model: fable' beats 'tier: opus-checking' — using 'fable'
+pull.sh: warn: unrecognized steering label 'tier:bogus-shape' — ignored (recognized shapes: tier:impl-<model>, tier:check-<model>, tier:<model>-checking)
+pull.sh: warn: body 'implementation-model: opus' beats label 'tier:impl-sonnet' — label ignored
+pull.sh: warn: body checking-class steering 'fable' beats label 'tier:check-haiku' — label ignored
+pull.sh: warn: 'research: maybe' is not a recognized value for flag 'research' (expected 'required') — ignored
+pull.sh: pulled gnuradio/volk#676 into <TMP>/devDoc/volk/Issue-676
+
+Would you like to continue on to /devagent:draft?

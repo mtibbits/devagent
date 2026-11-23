@@ -42,6 +42,7 @@ QUARANTINE_GUARD_POINTS=(
 declare -gA QUARANTINE_UNGUARDED=(
   [where]=reader [catchup]=reader [history]=reader [grep]=reader [status]=reader
   [statusreport]=reader [wbs-update]=reader [doctor]=reader [wbs-init]=reader
+  [milestones]=reader
   [capture/file]="captures, not issue dirs"
 )
 
@@ -465,25 +466,68 @@ quarantine_pull_guard() {
   if [ -n "$QUARANTINE_RELEASED" ]; then rm -f "$dir/QUARANTINE"; fi
 }
 
-# quarantine_verdict <project> <issue_dir>: `PASS` or `QUARANTINE <token>` on
-# stdout; never dies. #714 has one source, the policy-gated test seam:
-# DEVAGENT_TEST_QUARANTINE=<token>, honoured only in scope, with
-# test_seams = true, and a token in QUARANTINE_REASONS. The deciders (#715 on)
-# add sources here; none may turn another source's QUARANTINE into PASS.
+# quarantine_verdict <project> <issue_dir> [<candidate>]: `PASS` or
+# `QUARANTINE <token>` on stdout; never dies. It walks QUARANTINE_SOURCES in
+# order, each called as `<source> <project> <issue_dir> [<candidate>]`.
+#
+# THE SOURCE CONTRACT (for #717's screen and every later decider): a source
+# prints one QUARANTINE_REASONS token, or nothing, and returns non-zero when it
+# could not run. The first token ends the walk, so a later source is never
+# called after a quarantine (the floor quarantines with zero screener calls);
+# PASS is printed only after every source printed nothing, so no source can
+# turn another's QUARANTINE into PASS. A source that could not run, or prints
+# anything but one listed token (`PASS` included), is no verdict: nothing on
+# stdout, and quarantine_verdict returns 3 (callers treat anything but the
+# exact word PASS as no verdict). Out of scope a source prints nothing and
+# returns 0: pull's no-policy path calls quarantine_verdict without capturing
+# its status, under `set -e`. Append a source; never reorder the floor.
+QUARANTINE_SOURCES=(_quarantine_src_floor _quarantine_src_seam)
+
 quarantine_verdict() {
+  local src out r
+  for src in "${QUARANTINE_SOURCES[@]}"; do
+    out="$("$src" "$@")" || return 3
+    [ -n "$out" ] || continue
+    for r in "${QUARANTINE_REASONS[@]}"; do
+      if [ "$r" = "$out" ]; then echo "QUARANTINE $out"; return 0; fi
+    done
+    return 3
+  done
+  echo PASS
+}
+
+# _quarantine_src_floor <project> <issue_dir> [<candidate>]: #715's
+# deterministic floor (scripts/lib/floor.sh) on the candidate issue.md, in
+# scope only. In scope the candidate is required: a missing or unreadable one
+# could not be checked, so it is no verdict (never a silent PASS). floor.sh is
+# sourced here on first use, never at this file's load, so the guard points
+# that source quarantine.sh load nothing new.
+_quarantine_src_floor() {
+  [ "${TRUST_IN_SCOPE:-0}" = 1 ] || return 0
+  [ -n "${3:-}" ] && [ -f "$3" ] && [ -r "$3" ] || return 3
+  # shellcheck source=/dev/null
+  declare -F floor_run >/dev/null || source "$_QUARANTINE_LIB_DIR/floor.sh"
+  floor_run "$3"
+}
+
+# _quarantine_src_seam: #714's policy-gated test seam. DEVAGENT_TEST_QUARANTINE
+# =<token> is honoured only in scope, with test_seams = true, and a token in
+# QUARANTINE_REASONS; anything else prints nothing.
+_quarantine_src_seam() {
   local t="${DEVAGENT_TEST_QUARANTINE:-}" r
   if [ -n "$t" ] && [ "${TRUST_IN_SCOPE:-0}" = 1 ] && [ "${TRUST_VAL[test_seams]:-false}" = true ]; then
     for r in "${QUARANTINE_REASONS[@]}"; do
-      if [ "$r" = "$t" ]; then echo "QUARANTINE $t"; return 0; fi
+      if [ "$r" = "$t" ]; then echo "$t"; return 0; fi
     done
   fi
-  echo PASS
+  return 0
 }
 
 # quarantine_pull_quarantine <project> <issue_id> <issue_dir> <token>: pull's
 # quarantine of the ticket it just fetched; exits 6. Pre-work (no checklist)
-# the fetched issue.md is removed; in-work the files stay and the shared slot
-# is cleared. One label write, one fresh read-back; the marker carries the
+# the fetched issue.md is removed (under trust nothing was promoted, so this
+# can only remove an earlier pull's file); in-work the files stay and the
+# shared slot is cleared. One label write, one fresh read-back; the marker carries the
 # quarantine's time and seq when the read-back shows it, else `? ?` (the next
 # guarded call re-applies). No state change and no log line pre-work.
 quarantine_pull_quarantine() {

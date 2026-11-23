@@ -21,7 +21,9 @@
         "mergedAt": null,
         "repository": {
          "nameWithOwner": "me/testproj-fork"
-        }
+        },
+        "url": "https://github.com/me/testproj-fork/pull/3",
+        "baseRefName": "master"
        }
       }
      ]

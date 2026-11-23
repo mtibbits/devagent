@@ -229,9 +229,10 @@ tracker.
 ### The workflow checklist
 
 - FR-1: devagent's pull fetches a tracker issue and its comments from the
-  origin or the fork into the issue dir's `issue.md`, scaffolds the issue dir
-  and its checklist, and makes the issue the project's active issue. A
-  re-pull keeps the existing checklist. {refines: SR-1}
+  origin or the fork into the issue dir's `issue.md` (under a trust policy,
+  the comments only as their count: FR-102), scaffolds the issue dir and its
+  checklist, and makes the issue the project's active issue. A re-pull keeps
+  the existing checklist. {refines: SR-1}
 - FR-2: devagent picks the steps an issue runs from a named tier: the issue
   body's workflow flags, else the project's default, else the standard tier.
   It reads workflow flags only from the issue body's `## Workflow flags`
@@ -688,14 +689,15 @@ tracker.
 Partly delivered. A requirement here that is not built yet starts with
 "(Planned.)", and a part not built yet is marked "(planned)".
 
-- FR-98: (Planned.) At pull, devagent acts on no ticket text, workflow flag or label
-  until the ticket has passed a deterministic floor, a provenance check from
-  tracker history, and a screen by an isolated model session that holds no
-  tools; missing history counts as unknown and quarantines. {refines: SR-13}
-- FR-99: (Planned.) The deterministic floor quarantines a ticket that is over the size
-  limit, holds invisible or bidirectional control characters, or carries a
-  steering key or label outside the policy's allowlist; the model screen can
-  add a quarantine but never remove one. {refines: SR-13}
+- FR-98: At pull, devagent acts on no ticket text, workflow flag or label
+  until the ticket has passed a deterministic floor, (planned) a provenance
+  check from tracker history, and (planned) a screen by an isolated model
+  session that holds no tools; (planned) missing history counts as unknown and
+  quarantines. {refines: SR-13}
+- FR-99: The deterministic floor quarantines a ticket that is over the size
+  limit, (planned) holds invisible or bidirectional control characters, or
+  carries a steering key or label outside the policy's allowlist; (planned)
+  the model screen can add a quarantine but never remove one. {refines: SR-13}
 - FR-100: devagent marks a quarantined ticket with a tracker label; pull
   refuses it on every machine, every entry point refuses it with one fixed
   message, and devagent re-reads quarantine state at every step and before
@@ -704,9 +706,10 @@ Partly delivered. A requirement here that is not built yet starts with
   a worker identity, and (planned) counts an approval or a widening of bounds
   the same way, or from a countersignature made with a security key that
   needs a human touch. {refines: SR-13}
-- FR-102: (Planned.) devagent builds the statement of work only from the title, the body
-  and trusted comments, and no session that holds tools reads an untrusted
-  comment. {refines: SR-13}
+- FR-102: devagent builds the statement of work only from the title, the body
+  and (planned) trusted comments, and no session that holds tools reads an
+  untrusted issue comment ((planned) or merge-request comment).
+  {refines: SR-13}
 - FR-103: (Planned.) devagent checks its own outward writes (pushes, MRs, claims,
   comments, devdoc pushes, local merges) against the ticket's bounds for
   paths, destination, secrets and size before they leave the machine.
@@ -739,7 +742,7 @@ Partly delivered. A requirement here that is not built yet starts with
   store partitioned by host, so its actuals outlive the transcripts' own
   retention. {refines: SR-19}
 - FR-111: devagent reports agent time and operator time per issue, apart from
-  calendar time, and (planned) records each issue's milestones from
+  calendar time, and records each issue's milestones from
   checklists, the tracker and MRs. {refines: SR-19}
 - FR-112: (Planned.) devagent publishes per-issue actuals as a source the portfolio
   document reads. {refines: SR-19}

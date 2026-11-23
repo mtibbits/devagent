@@ -222,6 +222,7 @@ cmd_issue_mrs() {
                   else error("unrecognised MR state \(.state)") end),
           draft: (.draft // .work_in_progress // false),
           created: .created_at, merged: .merged_at,
+          url: .web_url, base: .target_branch,
           title: (.title // ""), body: (.description // "")}]}' >> "$recs"; then
       echo "gitlab.sh: issue-mrs: issue $iid: unrecognised MR record" >&2
       exit 5

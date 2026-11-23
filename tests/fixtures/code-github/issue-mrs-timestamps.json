@@ -21,7 +21,9 @@
         "mergedAt": "2026-10-07T05:00:59Z",
         "repository": {
          "nameWithOwner": "acme/testproj"
-        }
+        },
+        "url": "https://github.com/acme/testproj/pull/80",
+        "baseRefName": "master"
        }
       }
      ]

@@ -56,7 +56,7 @@ EOF
 GH_ISSUE_MRS_BATCH=50
 GH_ISSUE_MRS_MAX_PAGES=50
 # shellcheck disable=SC2016  # GraphQL, not shell
-GH_TL_FRAGMENT='fragment P on IssueTimelineItemsConnection { totalCount pageInfo{hasNextPage endCursor} nodes{ ... on CrossReferencedEvent { source { __typename ... on PullRequest { number title body state isDraft createdAt mergedAt repository{nameWithOwner} } } } } }'
+GH_TL_FRAGMENT='fragment P on IssueTimelineItemsConnection { totalCount pageInfo{hasNextPage endCursor} nodes{ ... on CrossReferencedEvent { source { __typename ... on PullRequest { number title body state isDraft createdAt mergedAt url baseRefName repository{nameWithOwner} } } } } }'
 
 # _im_fail <errfile> <what>: report gh's last stderr line; exit 3 for auth, else 1.
 _im_fail() {
@@ -198,6 +198,7 @@ issue_mrs() {
                        elif .state == "MERGED" then "merged"
                        else error("unrecognised PR state \(.state)") end),
                draft: (.isDraft == true), created: .createdAt, merged: .mergedAt,
+               url: .url, base: .baseRefName,
                title: (.title // ""), body: (.body // "")}]}' "$recs" > "$tmp/norm"; then
         echo "code/github.sh: issue-mrs: unrecognised PR record" >&2
         exit 5

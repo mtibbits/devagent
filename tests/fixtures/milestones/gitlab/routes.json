@@ -1,0 +1,6 @@
+{
+  "GET /api/v4/projects/foo%2Fbar/issues?per_page=100&page=1": {"status": 200, "body_file": "issues-page1.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/1/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-empty.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/2/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-empty.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/3/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-3.json"}
+}

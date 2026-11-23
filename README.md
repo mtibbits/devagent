@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **60 slash commands** driving a **25-step workflow** (22 mandatory steps + 3 optional), works against
+provides **61 slash commands** driving a **25-step workflow** (22 mandatory steps + 3 optional), works against
 GitHub, GitLab, and JIRA issue trackers and GitHub and GitLab code forges (JIRA
 is tracker-only; pair it with either forge), and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
@@ -164,6 +164,7 @@ All commands live under the `/devagent:` namespace.
 | `wbs` | Work-breakdown-structure authoring and rendering (`init` / `update` / `order` / `exclude` / `show`) |
 | `statusreport` | Generate a per-project status report and advance the report pin |
 | `portfolio` | Write one portfolio JSON document over every configured project's WBS, with a parse report, or list every project's ready leaves with `--ready` (read-only) |
+| `milestones` | Print each issue's dated milestones (opened, MRs, steps, parks, closed) and spans from the tracker, linked MRs and checklists (read-only) |
 
 ### Checklist primitives
 Low-level building blocks the workflow commands use; you rarely call them
@@ -172,7 +173,7 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 
 > The 25 numbered step commands above (22 mandatory + the optional `1 research`,
 > `3 spike`, and `19 mergetoall` steps), plus `next` / `revise` / `comments`, together with the tables in this
-> section, are the full set of 60 slash commands (57 commands + 3 user-invocable
+> section, are the full set of 61 slash commands (58 commands + 3 user-invocable
 > skills — `next`, `capture`, `ship`; #452).
 
 ## Concurrent sessions
