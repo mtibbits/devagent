@@ -116,7 +116,9 @@ trap 'rm -rf "$tmp"' EXIT
 if [[ -n "$project" ]]; then
   projects=("$project")
 else
-  mapfile -t projects < <(config_list_projects)
+  list="$(config_list_projects)" || die "cannot list the projects in $(config_path)"
+  projects=()
+  [[ -n "$list" ]] && mapfile -t projects <<<"$list"
 fi
 # The milestones runs are network-bound and independent, so they overlap, at
 # most MAX_JOBS at once (well under GitHub's secondary rate limits). Each run's

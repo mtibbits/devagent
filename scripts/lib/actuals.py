@@ -45,7 +45,6 @@ LIB = Path(__file__).resolve().parent
 PROG = "actuals"
 EXIT_GO, EXIT_CONFIG, EXIT_REFUSED, EXIT_FRESH = 0, 1, 2, 3
 OUT_IN_REPO = ("--out", "the document lists project names, session ids and cwd paths")
-NO_PAIR = ("(no project)", "(no issue)")
 TIME_KEYS = ("agent_busy_s", "agent_wall_s", "operator_s", "operator_events", "returns_after_absence",
              "fallback_events")
 TOKEN_KEYS = ("main", "subagents", "total", "raw")
@@ -65,6 +64,7 @@ cr = at._cost_report()
 pf = at._lib("_archive_portfolio", "portfolio.py")
 pc = pf.pc
 STAMP = pc.ACTUALS_STAMP_FORMAT
+NO_PAIR = (cr.NO_PROJECT, cr.NO_ISSUE)
 
 ACTUALS_VERSION = pc.ACTUALS_READER
 
@@ -131,6 +131,8 @@ def preflight(opts) -> int:
     """The checks that run before any slow work, then the --if-stale gate."""
     if opts.archive is not None and not opts.archive.is_dir():
         raise Refused(f"no archive dir {opts.archive}")
+    if opts.project is not None and opts.out is None and not opts.stdout:
+        raise Refused("--project builds a one-project document; pass --out PATH or --stdout")
     if opts.out is not None:
         check_out(opts.out)
     return gate() if opts.if_stale else EXIT_GO
@@ -207,6 +209,7 @@ def _inputs(archive: Path | None, src: Sources, skipped: list):
             src.add("live", "missing", f"cannot read {root} ({e})")
     else:
         src.add("live", "missing", f"no transcript dir {root}")
+    tdir = "[archive].transcripts_dir"   # named in an OSError raised before resolve() returns
     try:
         table = at.load_table(at.config_path())
         if not at.configured(table):
@@ -334,13 +337,13 @@ def build_document(archive: Path | None, project: str | None, env: Mapping) -> d
 
     overhead = {o["project"]: {"rules": {"cwd": o["rules"]["cwd"], "hint": o["rules"]["hint"]},
                                "sessions": o["sources"], "tokens": _tokens(o)}
-                for o in lines if o["project"] != "(unassigned)"}
+                for o in lines if o["project"] != cr.UNASSIGNED}
     names = set(cr._project_tables()) | set(overhead)
     if project is not None:
         names = {project}
     unassigned = [] if project is not None else sorted(
         ({"cwd": o["cwd"], "sessions": o["sources"], "tokens": _tokens(o)}
-         for o in lines if o["project"] == "(unassigned)"), key=lambda u: u["cwd"])
+         for o in lines if o["project"] == cr.UNASSIGNED), key=lambda u: u["cwd"])
     read_hosts = set(hosts.values()) | ({"local"} if live else set())
     return {
         "actuals_version": ACTUALS_VERSION,
@@ -363,6 +366,10 @@ def render(doc: dict) -> bytes:
 def build(opts, env: Mapping) -> int:
     preflight(argparse.Namespace(**{**vars(opts), "if_stale": False}))
     doc = build_document(opts.archive, opts.project, env)
+    # The reader's own predicate (a one-project document read as all-projects): never write what it refuses.
+    why = pc.actuals_usable({**doc, "inputs": {**doc["inputs"], "project": None}})
+    if why is not None:
+        raise Refused(f"refusing to write an unusable document: {why}")
     data = render(doc)
     if opts.stdout:
         sys.stdout.buffer.write(data)

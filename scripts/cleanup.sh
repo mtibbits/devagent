@@ -376,17 +376,20 @@ fi
 # so the close never waits for it. Only the age gate runs here (actuals.py
 # preflight --if-stale: one interpreter, no network): fresh is silent. Stale
 # starts `actuals.sh --if-stale` in its own session (setsid where present),
-# bounded by `timeout` where present, its output in actuals-rebuild.log and its
-# pid in actuals-rebuild.pid. A stale close whose pid file is younger than that
-# bound and names a live process starts no second rebuild; an older pid file
-# cannot be a running rebuild (its pid may have been reused), so it is ignored.
-# Every failure warns and the close completes. Called inside the [archive]
-# gate, after the archive run, so an unconfigured close still spawns nothing.
+# bounded by `timeout` where present, its output in actuals-rebuild.log, its
+# pid in actuals-rebuild.pid and its exit status in actuals-rebuild.status. A
+# stale close whose pid file is younger than that bound and names a live process
+# starts no second rebuild; an older pid file is ignored (its pid may have been
+# reused; without `timeout` a rebuild may still run, and an overlap is harmless:
+# each write is atomic). The next stale close warns once about a non-zero status
+# (124: timed out) and keeps that run's log as actuals-rebuild.log.1. Every
+# failure warns and the close completes. Called inside the [archive] gate, after
+# the archive run, so an unconfigured close still spawns nothing.
 ACTUALS_REBUILD_TIMEOUT_S=900
 _actuals_rebuild() {
-    local home rc=0 pid log pidf
+    local home rc=0 pid log pidf statusf last
     home="$(devagent_home)"
-    log="$home/actuals-rebuild.log" pidf="$home/actuals-rebuild.pid"
+    log="$home/actuals-rebuild.log" pidf="$home/actuals-rebuild.pid" statusf="$home/actuals-rebuild.status"
     DA_HOME="$home" python3 "$DEVAGENT_ROOT/scripts/lib/actuals.py" preflight --if-stale || rc=$?
     case "$rc" in
         3) return 0 ;;   # fresh
@@ -398,8 +401,21 @@ _actuals_rebuild() {
         info "an actuals rebuild is already running (pid $pid); not starting another"
         return 0
     fi
+    last="$(cat "$statusf" 2>/dev/null)" || last=""
+    rm -f "$statusf"
+    if [[ -n "$last" && "$last" != 0 ]]; then
+        mv -f "$log" "$log.1" 2>/dev/null || true
+        if [[ "$last" == 124 ]]; then
+            warn "cleanup: the last actuals rebuild timed out after ${ACTUALS_REBUILD_TIMEOUT_S}s (log: $log.1); retrying"
+        else
+            warn "cleanup: the last actuals rebuild failed (exit $last; log: $log.1); retrying"
+        fi
+    fi
     local cmd=(bash "$DEVAGENT_ROOT/scripts/actuals.sh" --if-stale)
     command -v timeout >/dev/null 2>&1 && cmd=(timeout "$ACTUALS_REBUILD_TIMEOUT_S" "${cmd[@]}")
+    # A wrapper records the exit status; its pid is the one the pid file names.
+    # shellcheck disable=SC2016  # expanded by the wrapper, not here
+    cmd=(bash -c 'rc=0; "$@" || rc=$?; (umask 077; echo "$rc" > "$0")' "$statusf" "${cmd[@]}")
     command -v setsid >/dev/null 2>&1 && cmd=(setsid "${cmd[@]}")
     # stdin, stdout, stderr and fd 3 (a test harness's) are not inherited, so
     # nothing waits on the child.

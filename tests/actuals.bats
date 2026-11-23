@@ -115,6 +115,8 @@ _strip() {
   [ "$(_check_rows <<<"$output")" = "2 2" ]
   [ "$(_py 'import json,sys; d=json.load(sys.stdin); print(next(r for r in d["issues"] if r["issue"] == "Issue-700")["actuals"]["tokens"]["total"])' <<<"$output")" = "30.0" ]
   [ "$(_py 'import json,sys; d=json.load(sys.stdin); print(len(next(r for r in d["issues"] if r["issue"] == "Issue-465")["actuals"]["milestones"]))' <<<"$output")" -gt 0 ]
+  # a milestone's source is milestones.sh's own: a checklist line is <issue-dir>/checklist.md:<line>, not "checklist"
+  [ "$(_py 'import json,re,sys; d=json.load(sys.stdin); m=next(r for r in d["issues"] if r["issue"] == "Issue-465")["actuals"]["milestones"]; print(sorted({bool(re.fullmatch(r"Issue-465/checklist\.md:[0-9]+", e["source"])) for e in m if e["event"] == "step_done"}))' <<<"$output")" = "[True]" ]
 }
 
 @test "AC3: --archive reads no live dir: the same bytes after the live root is deleted" {

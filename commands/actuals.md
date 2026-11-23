@@ -77,7 +77,7 @@ unchanged inputs differ only in `generated_at`. UTF-8, LF, 2-space indent.
   "inputs": {"archive": "/home/me/private/claude-transcripts", "hosts": ["laptop", "local"], "project": null},
   "issues": [
     {"project": "alpha", "issue": "Issue-4", "actuals": {
-      "milestones": [{"at": "2026-11-01T14:02:11Z", "event": "opened", "source": "tracker"}],
+      "milestones": [{"at": "2026-11-01T14:02:11Z", "event": "opened", "source": "https://github.com/acme/alpha/issues/4"}],
       "sessions": [{"cwd_slug": "-work-alpha", "host": "laptop", "session": "0b7c2f1e-…"}],
       "time": {"agent_busy_s": 5400.0, "agent_wall_s": 4980.5, "fallback_events": 0,
                "operator_events": 12, "operator_s": 610.0, "returns_after_absence": 2},

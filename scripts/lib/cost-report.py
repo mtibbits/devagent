@@ -120,6 +120,7 @@ PROJECT_ASSIGN = re.compile(
 )
 NO_PROJECT = "(no project)"
 NO_ISSUE = "(no issue)"
+UNASSIGNED = "(unassigned)"
 NO_STEP = "(no step)"
 START = ((NO_PROJECT, NO_ISSUE), NO_STEP)
 # A line holding none of these cannot carry a call, a tool use, a dispatch
@@ -1120,7 +1121,7 @@ def overhead_objects(ov: dict) -> list[dict]:
             "cwd": None if kind == "project" else name,
             "main": round(main, 2),
             "peak_context": peak,
-            "project": name if kind == "project" else "(unassigned)",
+            "project": name if kind == "project" else UNASSIGNED,
             "raw": raw_json(o.steps),
             "rules": dict(o.rules),
             "sessions": len(o.sessions),

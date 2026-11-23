@@ -374,7 +374,7 @@
                 "properties": {
                   "at": {"description": "The event time as the source wrote it.", "type": "string"},
                   "event": {"description": "The milestones vocabulary (open: a plain string).", "type": "string"},
-                  "source": {"description": "Where the event was read: tracker, mr, checklist and so on.", "type": "string"}
+                  "source": {"description": "Where the event was read, as milestones.sh reports it: the issue's tracker URL, the MR's URL (its ref when the backend gives none), or the checklist line as <issue-dir>/checklist.md:<line>.", "type": "string"}
                 }
               }
             },
@@ -506,7 +506,7 @@
       }
     },
     "ActualsTime": {
-      "description": "Agent and operator time in seconds under the file's time_rule; null when no transcript record was timed for the issue.",
+      "description": "Agent and operator time in seconds under the file's time_rule; null when no transcript call was charged to the issue (zeros when calls were charged but none was timed).",
       "type": ["object", "null"],
       "required": ["agent_busy_s", "agent_wall_s", "operator_s", "operator_events", "returns_after_absence", "fallback_events"],
       "additionalProperties": false,

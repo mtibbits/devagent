@@ -3770,8 +3770,9 @@ document, `<devagent_home>/actuals.json`, that joins per `(project, issue)` what
 `cost-report.sh` charges (tokens in input-token equivalents with raw per-model
 counts beside them, agent and operator time, the sessions they came from) with
 the rows `milestones.sh --all --json` reports (§13.5). It reuses both producers'
-machine output: one cost-report `collect()` pass, serialised through
-cost-report's own JSON, and one milestones run per project (up to 6 at once).
+machine output: one cost-report `collect()` pass, read as the same row
+objects cost-report's `--json` prints, and one milestones run per project (up
+to 6 at once).
 It writes no devdoc, state or tracker; the document goes owner-only under
 `devagent_home`, and an `--out` under a project's dirs or inside a git work tree
 is refused. Every source consulted is a `sources` row, `ok` or `missing`; a
@@ -3787,7 +3788,8 @@ file is missing, unreadable, unusable or more than 7 days older than the
 document it leaves them null with one `actuals_unavailable` entry per project.
 Cleanup refreshes the file inside its `[archive]` gate: an age check against
 `[archive].actuals_max_age_hours` (default 24, at most 168), and when stale a
-detached `actuals.sh --if-stale` it does not wait for. Estimates (#736) and
+detached `actuals.sh --if-stale` it does not wait for; the next stale close
+warns once when that run failed or timed out. Estimates (#736) and
 forecasts (#742) read the same file. The command doc is `commands/actuals.md`;
 the slot shapes are `docs/portfolio-schema.md`, "Actuals".
 

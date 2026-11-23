@@ -340,8 +340,12 @@ exists) and its pid is in `actuals-rebuild.pid`; a stale close that finds
 it still running starts no second one (a pid file older than the bound is
 ignored: its pid may have been reused). A refused `actuals_max_age_hours` or an
 unreadable config prints `cleanup: actuals rebuild failed (non-fatal)` and the
-close completes; a background build that fails says why in its log, and the
-portfolio reports the file as unavailable until a build succeeds
-(`/devagent:actuals` runs one by hand).
+close completes. A background build that fails says why in its log and
+records its exit status in `actuals-rebuild.status`; the next stale close
+prints `cleanup: the last actuals rebuild failed (exit N; log: …log.1);
+retrying` (or `timed out`), keeps that log as `actuals-rebuild.log.1`, and
+starts another. Until a build succeeds the portfolio keeps reading the last
+good file while it is under 7 days old, then reports it as unavailable
+(`/devagent:actuals` runs a build by hand).
 
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup.sh" $ARGUMENTS`

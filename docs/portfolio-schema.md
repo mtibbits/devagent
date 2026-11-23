@@ -308,7 +308,7 @@ Shared shapes, at each place they appear (`<P>` is the path of the holder):
 | `projects[].issues[].actuals.milestones[]` | object | — | One event. |
 | `projects[].issues[].actuals.milestones[].at` | string | req | The event time as its source wrote it. |
 | `projects[].issues[].actuals.milestones[].event` | string | req | The milestones vocabulary (`opened`, `step_done`, `mr_merged`, ...). A plain string: the vocabulary can grow. |
-| `projects[].issues[].actuals.milestones[].source` | string | req | Where it was read: `tracker`, `mr`, `checklist`, ... |
+| `projects[].issues[].actuals.milestones[].source` | string | req | Where it was read, as milestones.sh reports it: the issue's tracker URL, the MR's URL (its ref when the backend gives none), or the checklist line as `<issue-dir>/checklist.md:<line>`. |
 | `projects[].issues[].actuals.sessions` | array | req | The sessions the figures came from; `[]` when none. |
 | `projects[].issues[].actuals.time` | object\|null | req | Seconds under the file's `time_rule`: `agent_busy_s`, `agent_wall_s` (the headline), `operator_s` (numbers ≥ 0), and the integer counts `operator_events`, `returns_after_absence`, `fallback_events`. Null when the issue has no transcript calls. |
 | `projects[].issues[].actuals.tokens` | Tokens | req | The issue's token cost. |
@@ -343,9 +343,9 @@ milestones source was missing and that no transcript call was charged to.
 ```json
 {
   "milestones": [
-    {"at": "2026-11-01T14:02:11Z", "event": "opened", "source": "tracker"},
-    {"at": "2026-11-02 09:15", "event": "step_done", "source": "checklist"},
-    {"at": "2026-11-03T18:40:00Z", "event": "mr_merged", "source": "mr"}
+    {"at": "2026-11-01T14:02:11Z", "event": "opened", "source": "https://github.com/acme/alpha/issues/4"},
+    {"at": "2026-11-02 09:15", "event": "step_done", "source": "Issue-4/checklist.md:31"},
+    {"at": "2026-11-03T18:40:00Z", "event": "mr_merged", "source": "https://github.com/acme/alpha/pull/9"}
   ],
   "sessions": [
     {"cwd_slug": "-work-alpha", "host": "h1", "session": "0b7c2f1e-5d1a-4c55-9a43-3f1d2e8b9c10"}

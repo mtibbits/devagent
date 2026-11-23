@@ -1327,6 +1327,27 @@ _stamp() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gene
     [ ! -e "$HOME/.claude/devagent/actuals-rebuild.pid" ]
 }
 
+@test "cleanup.sh warns once at the next close when a background rebuild failed, keeping its log (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg
+    mkdir -p "$HOME/.claude/devagent/actuals.json"   # a directory: the build cannot write it
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"the last actuals rebuild"* ]]
+    _wait_rebuild
+    [ "$(cat "$HOME/.claude/devagent/actuals-rebuild.status")" = 2 ]
+    grep -q "^actuals: cannot write $HOME/.claude/devagent/actuals.json" "$HOME/.claude/devagent/actuals-rebuild.log"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' '
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-1"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "cleanup: the last actuals rebuild failed (exit 2; log: $HOME/.claude/devagent/actuals-rebuild.log.1); retrying" <<<"$output")" -eq 1 ]
+    grep -q "^actuals: cannot write $HOME/.claude/devagent/actuals.json" "$HOME/.claude/devagent/actuals-rebuild.log.1"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    _wait_rebuild
+}
+
 @test "cleanup.sh does not start a second actuals rebuild while one runs (#735)" {
     _seed_transcript
     _stub_backends

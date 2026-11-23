@@ -482,6 +482,31 @@ def test_out_refusals(tmp_path):
     assert not out.exists()
 
 
+def test_project_needs_out_or_stdout(tmp_path):
+    """--project writes a one-project document, never the default all-projects file."""
+    _config(tmp_path)
+    for verb in ("preflight", "build"):
+        run = _cli(verb, "--archive", _archive(tmp_path), "--project", "alpha", env=_ok_manifest(tmp_path))
+        assert run.returncode == 2
+        assert run.stderr.decode().splitlines() == [
+            "actuals: --project builds a one-project document; pass --out PATH or --stdout"]
+    assert not (Path(os.environ["DA_HOME"]) / "actuals.json").exists()
+
+
+def test_build_refuses_a_document_the_reader_would_refuse(tmp_path, monkeypatch, capsys):
+    """The builder runs the reader's predicate first: a lone surrogate is exit 2, nothing written."""
+    _config(tmp_path)
+    a = _archive(tmp_path)
+    doc = _build(tmp_path, archive=a)
+    doc["issues"][0]["actuals"]["sessions"][0]["cwd_slug"] = "\ud800"
+    monkeypatch.setattr(ac, "build_document", lambda *args: doc)
+    out = tmp_path / "out" / "actuals.json"
+    assert ac.main(["build", "--archive", str(a), "--out", str(out)], env=_ok_manifest(tmp_path)) == 2
+    assert capsys.readouterr().err.splitlines() == [
+        "actuals: refusing to write an unusable document: a string is not valid UTF-8 (a lone surrogate)"]
+    assert not out.exists()
+
+
 def test_archive_not_a_directory(tmp_path):
     _config(tmp_path)
     run = _cli("preflight", "--archive", tmp_path / "nope", "--stdout")
