@@ -34,8 +34,8 @@ filesystem where `chmod` really changes a mode and a UTF-8 locale; native Git
 Bash on Windows provides neither by default. Git Bash is the supported Windows
 environment for devAgent's users and runs individual scripts, but not the full
 suite: on Windows, develop in a WSL clone on a native Linux filesystem, not under
-`/mnt/c`. The README section named above explains the
-mechanism behind both requirements.
+`/mnt/c`. The README section named above explains the mechanism behind both
+requirements.
 For a tree with `tests/test_*.py`, `scripts/run-suite.sh` prefers
 `<tree>/.venv/bin/python` over `python3`; if no candidate can run pytest, the
 artifact records `pytest: (error)` and `scripts/preship-evidence.sh` refuses it.

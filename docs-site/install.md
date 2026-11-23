@@ -6,6 +6,7 @@
 **Supported platforms.** Linux, or Windows with Git Bash.
 WSL is for contributors to devAgent itself.
 macOS is untested.
+Running Claude Code inside WSL counts as Linux.
 
 - [Claude Code](https://claude.com/claude-code) **2.1.223** (earlier versions are untested).
 - `git` ≥ 2.29.

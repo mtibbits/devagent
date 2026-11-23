@@ -78,10 +78,10 @@ devAgent needs the Git Bash it provides. If Claude Code cannot find Git Bash, se
 <!-- tests/docs-site.bats: docs-site/install.md copies this paragraph's opening line word for word (check_platform_sentence); keep each PLATFORM_CLAIMS token on one line -->
 **Supported platforms.** Linux, or Windows with Git Bash.
 WSL is for contributors to devAgent itself. macOS is untested.
+Running Claude Code inside WSL counts as Linux.
 With Git for Windows installed, Claude Code's Bash tool runs in Git Bash, and
-devAgent's commands use that tool. Running Claude Code inside WSL counts as
-Linux. Supported means Windows defects get fixed; the known ones are tracked in
-the epic
+devAgent's commands use that tool. Supported means Windows defects get fixed;
+the known ones are tracked in the epic
 [Support Windows users through Git Bash](https://github.com/mtibbits/devagent/issues/983).
 Git Bash's default `noacl` mounts make `chmod` a no-op, so a suite that mentions
 file modes at all (devAgent's own, or your project's, even a `chmod +x` on a test
@@ -396,8 +396,8 @@ inline code comments this way.
 ## Running the test suite
 
 This section is contributor setup for devAgent's own test suite, and its
-requirements (a filesystem where `chmod` works, for a suite that references file
-modes) apply to your project's suite too, because `scripts/run-suite.sh` is the
+requirements (for example, a filesystem where `chmod` works, for a suite that
+references file modes) apply to your project's suite too, because `scripts/run-suite.sh` is the
 evidence runner the workflow uses for every project.
 
 The canonical runner is `scripts/run-suite.sh`, which runs bats and pytest with

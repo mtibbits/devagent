@@ -970,6 +970,7 @@ lc_lacks() {
   # Cut to the first sentence: a README prefix, but it drops claims.
   drop "$page" 'WSL is for contributors to devAgent itself.'
   drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
   breaks 'drops the claim: WSL is for contributors' check_platform_sentence "$page" "$readme"
   # A word changed.
   page="$(fresh "$WEB/install.md")"
@@ -978,12 +979,14 @@ lc_lacks() {
   # Cut mid-sentence.
   page="$(fresh "$WEB/install.md")"
   drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
   edit "$page" ' to devAgent itself.' ''
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # The bare label only.
   page="$(fresh "$WEB/install.md")"
   drop "$page" 'WSL is for contributors to devAgent itself.'
   drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
   edit "$page" '**Supported platforms.** Linux, or Windows with Git Bash.' '**Supported platforms.**'
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # README's leading sentences change; the page does not follow.
