@@ -2,6 +2,7 @@
 name: core-scaffold
 description: Bin an epic capture into child issue draft entries (subtype + title + summary). Triggers when /devagent:scaffold is invoked.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-scaffold
@@ -45,6 +46,18 @@ CHILDREN:
 ```
 
 (YAML-ish; the slash command parses by indent.)
+
+## Required CI checks (#1097)
+
+With no `DEVAGENT_PROJECT` the section does not apply: do not run the call. Otherwise
+run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" "$DEVAGENT_PROJECT"`.
+Exit 0 with no output: the section does not apply. **A non-zero exit: stop and
+report its stderr; never read it as "does not apply"** (devagent Issue-713).
+Otherwise, for a child whose behaviour differs under Git Bash (drive-letter
+paths, MSYS path rewriting, a native Windows python3, CRLF line endings, no POSIX
+file modes), its `summary` asks for this criterion, `<check name>` taken from the
+printed list:
+`` `tests/<file>.bats` carries the `gitbash` tag, `<test name>` has no Git Bash skip, and `<check name>` is green at the merged head ``.
 
 ## Anti-patterns
 

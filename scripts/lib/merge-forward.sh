@@ -13,16 +13,9 @@
 
 # merge_forward_entry_valid <e>: rc 0 iff <e> is an exact repo-relative file path —
 # non-empty, no leading /, no drive letter, none of * ? [, and no empty, . or ..
-# component.
-merge_forward_entry_valid() {
-  local e="$1"
-  [[ -n "$e" ]] || return 1
-  [[ "$e" != /* ]] || return 1
-  [[ ! "$e" =~ ^[A-Za-z]: ]] || return 1
-  [[ "$e" != *[\*\?\[]* ]] || return 1
-  case "/$e/" in */./*|*/../*|*//*) return 1 ;; esac
-  return 0
-}
+# component. The rule lives in config_repo_path_valid (lib/config.sh), which
+# required_checks_paths (#1097) is held to as well, so the two cannot drift.
+merge_forward_entry_valid() { config_repo_path_valid "$1"; }
 
 # merge_forward_resolve <project>: SETTER-GLOBALS, call bare (never in $(...)):
 #   MF_VERIFY       ci | preship (an absent table or key: preship)

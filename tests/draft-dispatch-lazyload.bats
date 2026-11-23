@@ -54,3 +54,12 @@ CONTRACT="$REPO/docs/draft-dispatch-contract.md"
   run grep -qE 'operator explicitly instructs dispatch|explicit operator dispatch|even on an EMPTY tier' "$DRAFT"
   [ "$status" -eq 0 ] || { echo "stub missing the operator-dispatch (empty-tier) load condition" >&2; return 1; }
 }
+
+@test "#1097 draft: commands/draft.md names the tagged test file and test for a CI-deferred criterion" {
+  local t
+  t="$(tr '\n' ' ' < "$DRAFT" | tr -s ' ')"
+  [[ "$t" == *'#1097'* ]] || { echo "no #1097 sentence"; return 1; }
+  [[ "$t" == *'CI-deferred'*'Git Bash'*'criterion'* ]] || { echo "no CI-deferred Git Bash criterion"; return 1; }
+  [[ "$t" == *'names the tagged test file and the test'* ]] || { echo "no 'names the tagged test file and the test'"; return 1; }
+  [[ "$t" == *'rule 1a'* ]] || { echo "does not say why (the verifier's rule 1a reads it)"; return 1; }
+}

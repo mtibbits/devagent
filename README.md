@@ -357,7 +357,7 @@ Every code backend MUST implement `push-branch`, `create-mr`, `mr-state`,
 | `mr-comments` | `<mr-url>`                                                    | markdown to stdout     |
 | `merge-mr`    | `<mr-url> [--method squash|merge|rebase] [--match-head-commit <sha>] [--subject <s>] [--body <b>]`, or `<mr-url> --disable-auto` | exit 0 |
 | `issue-mrs`   | `<repo> <id>...`                                              | `issue`/`mr` lines per id (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
-| `mr-checks`   | `<mr-url>`                                                    | `state`, `head` and one line per CI check (optional; read by `next` and `mergetoall`, #782) |
+| `mr-checks`   | `<mr-url>`                                                    | `state`, `head` and one line per CI check, a `pass` line ending in its conclusion (optional; read by `next` and `mergetoall`, #782; conclusion #1097) |
 | `mr-view`     | `<mr-url>`                                                    | the `mr-checks` lines plus the merge facts (optional; read by `mergemr`, #885) |
 
 Exit-code conventions across all backends:

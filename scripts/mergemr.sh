@@ -6,6 +6,13 @@
 # run decides at once. Rule 14 (#1125) also makes one fetch of default_baseline's
 # branch, bounded by DEVAGENT_MERGEMR_FETCH_SECS, and runs a local `git merge-tree`
 # that writes loose objects into the issue tree, to name the conflicted paths.
+# With `required_checks` set (#1097) it merges only when each of those checks is
+# `success` at that head (rules 15 and 16), and rules 8 and 12 report their states. On
+# a code backend that cannot report checks it stops instead (rule 20, CI NOT CHECKED),
+# whatever merge_mr says. A diff (baseline_sha..verified_head) that can change what
+# those checks measure (a workflow file, a required_checks_paths path, a Git Bash tag
+# line: lib/selfcert.sh) stops just before the merge call until the operator
+# acknowledges it for that head (rule 21); rules 8 and 12 report it.
 #
 # It marks its own row BY NAME and ends one of four ways:
 #   [x] merged, [-] ship was skipped   exit 0 (also writes last_step/last_step_name)
@@ -16,14 +23,18 @@
 #                                      mergemr, reason `mergemr rule <N>: <text>` (preship's
 #                                      record clears rules 10, 11, 14 and 15 and forward's
 #                                      rule 17 by that prefix; forward clears rule 14, and
-#                                      rule 11 when it names forward's head)
+#                                      rule 11 when it names forward's head; rules 20 and
+#                                      21 are the operator's, and neither clears them)
 # next.sh reads the glyph after exit 0. The decision order (first match wins) and every
 # message are in commands/mergemr.md.
 #
 # Knobs: DEVAGENT_MERGEMR_READ_SECS (20; the PR read, the re-read after a merge, each
 # dependency read), DEVAGENT_MERGEMR_MERGE_SECS (30; the merge call and the auto-merge
-# disable), DEVAGENT_MERGEMR_FETCH_SECS (20; rule 14's base fetch, #1125),
-# DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace).
+# disable), DEVAGENT_MERGEMR_FETCH_SECS (20; rule 14's base fetch, #1125, and the
+# self-certification scan's fetch of a commit its tree lacks, #1097),
+# DEVAGENT_CI_GRACE_SECS (120; #782's no-checks grace, and #1097's for a required
+# check that has not reported), DEVAGENT_CI_READ_SECS (20; ci_read's bound, for the
+# required-checks read on a backend other than github, #1097).
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -40,6 +51,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
 # shellcheck source=/dev/null
 . "$DEVAGENT_ROOT/scripts/lib/merge-forward.sh"   # #1125: rule 14's light remedy, rule 17
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/selfcert.sh"        # #1097: rule 21's scan and acknowledgment
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
@@ -58,6 +71,7 @@ config_is_project "$project" || die "unknown project '$project'"
 merge_checks_resolve "$project"
 merge_method_resolve "$project"
 merge_forward_resolve "$project"     # #1125: MF_VERIFY, MF_APPEND_ONLY
+required_checks_resolve "$project"   # #1097: REQUIRED_CHECKS, REQUIRED_CHECKS_PATHS
 
 trust_entry_check "mergemr" "$project"
 quarantine_guard "mergemr" "$project" "${2:-}"
@@ -89,6 +103,22 @@ esac
 backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
 backend="${backend//$'\r'/}"
 code_sh="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/${backend:-(none)}.sh"
+# Read once, by whichever of _selfcert_scan and the rules below needs them first.
+verified_head="" default_baseline_raw=""
+
+# _read_verified_head: sets verified_head from state, CR-stripped, unless already read.
+_read_verified_head() {
+    [ -z "$verified_head" ] || return 0
+    verified_head="$(state_ctx_get "$project" verified_head "$issue_arg" 2>/dev/null || true)"
+    verified_head="${verified_head//$'\r'/}"
+}
+# _read_default_baseline: sets default_baseline_raw from config, CR-stripped, unless
+# already read.
+_read_default_baseline() {
+    [ -z "$default_baseline_raw" ] || return 0
+    default_baseline_raw="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+    default_baseline_raw="${default_baseline_raw//$'\r'/}"
+}
 
 # ---- how a run ends ----------------------------------------------------------------
 
@@ -156,7 +186,126 @@ _mr_state() {
     _ST="$(printf '%s' "$_CALL_OUT" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 }
 
+# _rc_eval (#1097): after a CI read, judges the project's required checks by the lines
+# the read kept (ci_required_eval: RC_OK, RC_BAD, RC_PENDING, RC_MISSING, RC_REPORT)
+# and sets sfx, which ends rule 8's and rule 12's [?] line and rule 12's two stops;
+# _selfcert_scan then adds the self-certification result to it. With no
+# required_checks RC_OK is 1 and the rest, sfx included, is empty, so every rule reads
+# as it did.
+_rc_eval() {
+    ci_required_eval ${REQUIRED_CHECKS[@]+"${REQUIRED_CHECKS[@]}"}
+    sfx=""
+    [ "${#REQUIRED_CHECKS[@]}" -eq 0 ] || sfx="; required checks at ${CI_HEAD:0:7}: $RC_REPORT"
+}
+
+# _selfcert_scan (#1097), after _rc_eval: whether the PR's diff, baseline_sha..
+# verified_head, can change what its required checks measure (lib/selfcert.sh). It
+# reports and never stops: rules 12 and 21 read SELFCERT_STATE, and sfx gains
+# `; self-certifying: <paths>|none|unknown (<why>)`, so rule 8's [?] names the paths
+# when the step does not merge. With no required_checks it reads nothing and sfx
+# stays empty. Sets SELFCERT_BASE (baseline_sha) and SELFCERT_STATE:
+#   none     nothing self-certifying changed
+#   paths    SELFCERT_LIST names what did, and nobody acknowledged this head
+#   acked    the same, acknowledged for this head (SELFCERT_ACK_REASON)
+#   unknown  SELFCERT_WHY: no verified head, a PR head that is not the verified one
+#            (the result would describe another commit), no baseline_sha, or
+#            selfcert_paths's reason
+# The commits are read in the recorded issue tree while it exists (probed in a
+# subshell, as _r14 does: active_tree_resolve dies), else in source_dir, which keeps
+# a removed worktree's commits. One that is not there gets one bounded fetch by id
+# from default_baseline's remote first (DEVAGENT_MERGEMR_FETCH_SECS); the fetch
+# writes no ref and no FETCH_HEAD, and a failed one leaves the scan to say `unknown`.
+# That fetch is the only one: the probe for a missing commit and every read of the
+# scan go through _selfcert_git, so in a partial clone git fetches nothing by itself
+# and a file that is not there reads `unknown` too.
+_selfcert_scan() {
+    local head tree="" remote e rc=0
+    local -a want=()
+    SELFCERT_STATE=none SELFCERT_WHY="" SELFCERT_BASE="" SELFCERT_LIST=""
+    SELFCERT_BAD_ENTRY="" SELFCERT_ACK_REASON=""
+    [ "${#REQUIRED_CHECKS[@]}" -gt 0 ] || return 0
+    _read_verified_head
+    head="$verified_head"
+    SELFCERT_BASE="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
+    SELFCERT_BASE="${SELFCERT_BASE//$'\r'/}"
+    if [ -z "$head" ]; then
+        SELFCERT_STATE=unknown SELFCERT_WHY="no verified head recorded"
+    elif [ "$CI_HEAD" != "$head" ]; then
+        SELFCERT_STATE=unknown SELFCERT_WHY="PR head ${CI_HEAD:0:7} is not the verified head ${head:0:7}"
+    elif [ -z "$SELFCERT_BASE" ]; then
+        SELFCERT_STATE=unknown SELFCERT_WHY="no baseline_sha recorded"
+    else
+        # The resolver dies on a failure, so it runs in the substitution's subshell,
+        # which prints only the tree; source_dir is the fallback.
+        tree="$(active_tree_resolve "$project" "$issue_arg" >/dev/null 2>&1 \
+            && printf '%s' "$ACTIVE_TREE_DIR")" || tree=""
+        if [ -z "$tree" ]; then
+            tree="$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
+            tree="${tree//$'\r'/}"
+        fi
+        if [ -n "$tree" ] && [ -d "$tree" ]; then
+            for e in "$SELFCERT_BASE" "$head"; do
+                [[ "$e" =~ ^[0-9a-f]{40,64}$ ]] || continue
+                _selfcert_git -C "$tree" cat-file -e "${e}^{commit}" 2>/dev/null || want+=("$e")
+            done
+        fi
+        if [ "${#want[@]}" -gt 0 ]; then
+            _read_default_baseline
+            remote="$default_baseline_raw"
+            case "$remote" in */*) remote="${remote%%/*}" ;; *) remote="" ;; esac
+            if [ -n "$remote" ] && upstream_remote_configured "$tree" "$remote" \
+                    && command -v timeout >/dev/null 2>&1; then
+                _ci_secs DEVAGENT_MERGEMR_FETCH_SECS 20
+                _upstream_bounded "$tree" "$_CI_SECS" fetch --quiet --no-write-fetch-head \
+                    "$remote" "${want[@]}" </dev/null >/dev/null || true
+            fi
+        fi
+        selfcert_paths "$tree" "$SELFCERT_BASE" "$head" \
+            ${REQUIRED_CHECKS_PATHS[@]+"${REQUIRED_CHECKS_PATHS[@]}"} || rc=$?
+        if [ "$rc" -ne 0 ]; then SELFCERT_STATE=unknown
+        elif [ "${#SELFCERT_PATHS[@]}" -eq 0 ]; then SELFCERT_STATE=none
+        elif selfcert_ack "$issue_dir" "$head"; then SELFCERT_STATE=acked
+        else SELFCERT_STATE=paths
+        fi
+    fi
+    case "$SELFCERT_STATE" in
+        none)    sfx+="; self-certifying: none" ;;
+        paths)   sfx+="; self-certifying: $SELFCERT_LIST" ;;
+        acked)   sfx+="; self-certifying: $SELFCERT_LIST (acknowledged)" ;;
+        unknown) sfx+="; self-certifying: unknown ($SELFCERT_WHY)" ;;
+    esac
+}
+
+# _logged_since_head <message>: rc 0 when a `mergemr:` log line written since the head
+# was last recorded (the `verified_head` line preship's record and forward log) is
+# <message>. It reads every such line, not the last one, which a later wait or stop
+# displaces.
+_logged_since_head() {
+    _MSG="$1" awk '
+        /^## Log/ { p = 1; next } /^## / { p = 0 } !p { next }
+        { sub(/\r$/, "") }
+        /^- [0-9-]+ [0-9:]+  (preship|forward): verified_head / { hit = 0; next }
+        { line = $0 }
+        sub(/^- [0-9-]+ [0-9:]+  mergemr: /, "", line) && line == ENVIRON["_MSG"] { hit = 1 }
+        END { exit !hit }' "$cl"
+}
+
+# _stop_unchecked <why> (#1097), rule 20: the project requires checks and this code
+# backend cannot report them, so nothing here can say they succeeded. It applies
+# whatever merge_mr says, and it is the operator's to clear: no preship record and no
+# forward matches it. <why> is the bare reason (lib/ci.sh's _CI_REASON form). With
+# `mark` the step cannot read the PR's state on this backend either, so no later run
+# can see the hand merge: the remedy also marks the row, as rule 2's does.
+_stop_unchecked() {
+    local names how="then run /devagent:unstuck"
+    [ "${2:-}" != mark ] || how+=" and mark this step [x] with /devagent:checklist-mark"
+    names="$(printf ', %s' "${REQUIRED_CHECKS[@]}")"
+    _stop 20 "CI NOT CHECKED: $1; required check ${names#, } cannot be read on this code backend; check it by hand, merge the PR by hand, $how"
+}
+
 R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
+# rule 15's remedy for a required check that is not successful (#1097).
+R15_REQ_FIX="re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 
 # ---- rules 1-2: whatever the backend -------------------------------------------------
 
@@ -182,6 +331,11 @@ fi
 # Merging is GitHub only (#885). Decided by the code backend's name, so a non-github
 # backend never reaches ci_read_view. Exit 78 (not implemented) or 2 (unknown verb)
 # means the backend cannot tell; any other failure is a read that decided nothing.
+# With required_checks set (#1097) an open PR also gets one ci_read (mr-checks; the
+# local backend is not asked): no step here may leave a PR waiting for a hand merge
+# when nothing can say its required checks succeeded (rule 20). A backend that has the
+# verb reports their states, and the self-certification scan's result, on rule 8's
+# line, as the github path does.
 if [ "$backend" != github ]; then
     if [ ! -x "$code_sh" ]; then
         _wait read "could not read PR $mr_url: ${backend:-(none)}.sh not found or not executable"
@@ -189,14 +343,25 @@ if [ "$backend" != github ]; then
     _mr_state "$mr_url"
     case "$_CALL_RC" in
         0) ;;
-        78|2) _wait read "cannot read PR state on ${backend:-(none)}; merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
+        78|2)
+            [ "${#REQUIRED_CHECKS[@]}" -eq 0 ] || _stop_unchecked "${backend:-(none)} has no mr-state" mark
+            _wait read "cannot read PR state on ${backend:-(none)}; merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
         *) _wait read "could not read PR $mr_url: $_CALL_ERR" ;;
     esac
     case "$_ST" in
         merged) _merged "PR $mr_url merged (merge commit -)" ;;
         closed) _stop 4 "$R4_TEXT" ;;
         draft)  _wait 5 "draft PR" ;;
-        open)   _wait 8 "waiting for merge (merge step supports github only)" ;;
+        open)
+            [ "${#REQUIRED_CHECKS[@]}" -gt 0 ] || _wait 8 "waiting for merge (merge step supports github only)"
+            ci_read "$project" "$issue_arg" "$mr_url"
+            case "$CI_RESULT" in
+                notchecked|notapplicable) _stop_unchecked "$_CI_REASON" ;;
+                unknown) _wait read "could not read required checks on $mr_url: ${_CI_REASON:-unknown error}" ;;
+            esac
+            _rc_eval
+            _selfcert_scan
+            _wait 8 "waiting for merge (merge step supports github only)$sfx" ;;
         *)      _wait read "could not read PR $mr_url: unrecognised mr-state output '$_ST'" ;;
     esac
 fi
@@ -204,8 +369,16 @@ fi
 # ---- the PR read -----------------------------------------------------------------
 
 ci_read_view "$project" "$issue_arg" "$mr_url"
-[ "$MV_OK" = 1 ] || _wait read "could not read PR $mr_url: ${MV_ERR:-${_CI_REASON:-unknown error}}"
+if [ "$MV_OK" != 1 ]; then
+    # rule 20 (#1097): a backend script without mr-view (exit 78 or 2) cannot report
+    # the required checks either. Any other failed read decided nothing: it waits.
+    if [ "$CI_RESULT" = notchecked ] && [ "${#REQUIRED_CHECKS[@]}" -gt 0 ]; then
+        _stop_unchecked "$_CI_REASON" mark
+    fi
+    _wait read "could not read PR $mr_url: ${MV_ERR:-${_CI_REASON:-unknown error}}"
+fi
 ci_report "$issue_dir"
+_rc_eval
 
 # ---- rules 3-8: whatever merge_mr says ------------------------------------------------
 
@@ -213,8 +386,7 @@ ci_report "$issue_dir"
 [ "$CI_RESULT" != closed ] || _stop 4 "$R4_TEXT"                                         # rule 4
 [ "$MV_DRAFT" != true ] || _wait 5 "draft PR"                                            # rule 5
 
-default_baseline_raw="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-default_baseline_raw="${default_baseline_raw//$'\r'/}"
+_read_default_baseline
 default_base="$(printf '%s' "$default_baseline_raw" | sed 's|^[^/]*/||')"
 [ -n "$default_base" ] || default_base=main
 [ "$MV_BASE" = "$default_base" ] || _wait 6 "stacked on $MV_BASE"                       # rule 6
@@ -294,9 +466,15 @@ _deps_check() {
 }
 _deps_check
 
-[ "$merge_ok" = 1 ] || _wait 8 "waiting for merge ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"   # rule 8
+# The self-certification scan (#1097), whatever merge_mr says: rule 8's [?] reports it,
+# rule 12 and rule 21 act on it. Here rather than beside _rc_eval, so a PR that ends at
+# rules 3-7 (merged, closed, a draft, stacked, waiting for a dependency) pays no git
+# call and no fetch for a result nothing would print.
+_selfcert_scan
 
-# ---- rules 9-18: only when the step would merge ----------------------------------------
+[ "$merge_ok" = 1 ] || _wait 8 "waiting for merge ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)$sfx"   # rule 8
+
+# ---- rules 9-18, then 21: only when the step would merge ------------------------------
 
 # rule 9, the trust boundary: the PR must be on ship's target repo (config_code_target_repo,
 # ship's own rule), compared case-insensitively. An empty target is a config fault.
@@ -311,8 +489,7 @@ if [ "${pr_repo,,}" != "${CODE_TARGET_REPO,,}" ]; then
     _stop 9 "PR is not on $CODE_TARGET_REPO; it is on $pr_repo. Fix mr_url or code_source, then run /devagent:unstuck"
 fi
 
-verified_head="$(state_ctx_get "$project" verified_head "$issue_arg" 2>/dev/null || true)"
-verified_head="${verified_head//$'\r'/}"
+_read_verified_head
 [ -n "$verified_head" ] || _stop 10 "no verified head for this PR; run /devagent:preship"   # rule 10
 
 if [ "$CI_HEAD" != "$verified_head" ]; then                                   # rule 11
@@ -340,22 +517,33 @@ esac
 fwd_text="head ${verified_head:0:7} was recorded by forward and merges only on green CI ($CI_RESULT)"
 
 # rule 12: the PR's live state, not the log — a queue that ejects it, or a cancelled
-# auto-merge, falls through to the rules below. A forwarded head is left to the forge
-# only on green CI (#1125): before that, auto-merge is turned off, as rule 11 does, and
-# rules 13-17 decide; a merge queue cannot be left from here, so it stops.
+# auto-merge, falls through to the rules below. The PR is left to the forge only when
+# nothing here still has to decide: a forwarded head only on green CI (#1125), and any
+# head only when every required check is success and its diff is not self-certifying,
+# or is acknowledged for this head (#1097). Otherwise auto-merge is turned off, as rule
+# 11 does, and the rules below decide; a merge queue cannot be left from here, so it
+# stops. r12_rule/r12_why: the rule that still has to decide, and why.
 if [ "$MV_AUTOMERGE" = on ] || [ "$MV_QUEUE" = true ]; then
-    if [ "$vb_forward" = 0 ] || [ "$CI_RESULT" = green ]; then
-        _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"
+    r12_rule="" r12_why=""
+    if [ "$vb_forward" = 1 ] && [ "$CI_RESULT" != green ]; then
+        r12_rule=17 r12_why="$fwd_text"
+    elif [ "$RC_OK" != 1 ]; then
+        r12_rule=15 r12_why="head ${verified_head:0:7} merges only when every required check is successful"
+    elif [ "$SELFCERT_STATE" = paths ]; then
+        r12_rule=21 r12_why="head ${verified_head:0:7} merges only when an operator has acknowledged its self-certifying diff"
+    elif [ "$SELFCERT_STATE" = unknown ]; then
+        r12_rule=21 r12_why="head ${verified_head:0:7} merges only when its self-certifying diff can be read"
     fi
+    [ -n "$r12_why" ] || _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)$sfx"
     if [ "$MV_QUEUE" = true ]; then
-        _stop 17 "$fwd_text, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck"
+        _stop "$r12_rule" "$r12_why, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck$sfx"
     fi
     _call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" merge-mr "$mr_url" --disable-auto
     if [ "$_CALL_RC" -ne 0 ]; then
-        _stop 17 "$fwd_text; could not disable auto-merge: $_CALL_ERR; disable it on the forge, then run /devagent:unstuck"
+        _stop "$r12_rule" "$r12_why; could not disable auto-merge: $_CALL_ERR; disable it on the forge, then run /devagent:unstuck$sfx"
     fi
-    echo "mergemr: auto-merge disabled: $fwd_text"
-    log_append "$issue_dir" mergemr "auto-merge disabled: $fwd_text"
+    echo "mergemr: auto-merge disabled: $r12_why"
+    log_append "$issue_dir" mergemr "auto-merge disabled: $r12_why"
 fi
 if [ "$MV_MERGEABLE" = UNKNOWN ] || [ "$MV_MERGESTATE" = UNKNOWN ]; then      # rule 13
     _wait 13 "mergeability not computed yet"
@@ -426,15 +614,24 @@ _r14() {
 [ "$MV_MERGEABLE" != CONFLICTING ] || _r14                                     # rule 14
 
 # rules 15-17: #782's verdict, unchanged. ci_gate does not apply here: merging is a
-# stronger act than reporting.
+# stronger act than reporting. A required check (#1097) is judged beside it: one that
+# ended without success stops at rule 15 even while other checks are pending (a
+# terminal conclusion at this head cannot change), a pending one is a pending check
+# (rule 16), and one that did not report waits out the grace (rule 16), then stops.
 ci_verdict
 case "$CI_VERDICT" in
     red)                                                                      # rule 15
         _stop 15 "$CI_LINE; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;
+    hold|proceed)                                 # rule 15; `;;&` goes on to the verdict's own arm
+        [ -z "$RC_BAD" ] || _stop 15 "required check not successful on head ${verified_head:0:7}: $RC_BAD${RC_MISSING:+; not reported: $RC_MISSING}; $R15_REQ_FIX" ;;&
     hold)                                                                     # rule 16
         [ "$CI_RESULT" != none ] || _wait 16 "checks not reported yet (grace ${_CI_SECS}s)"
         _wait 16 "$CI_LINE" ;;
-    proceed) ;;
+    proceed)                                                                  # rule 16
+        if [ -n "$RC_MISSING" ]; then
+            _ci_grace_over || _wait 16 "required check not reported yet: $RC_MISSING (grace ${_CI_SECS}s)"
+            grace_secs="$_CI_SECS"      # past it: the stop below rule 17's forward arm
+        fi ;;
     *) _wait 16 "unexpected CI verdict '$CI_VERDICT'" ;;
 esac
 # rule 17, a head recorded by forward (#1125): it merges only on green CI, whatever
@@ -442,12 +639,43 @@ esac
 if [ "$vb_forward" = 1 ] && [ "$CI_RESULT" != green ]; then
     _stop 17 "$fwd_text; to verify it in full, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 fi
+# rule 15 again (#1097), ahead of merge_checks: a required check still not reported
+# after the grace (inside it, rule 16 waited above), so "if-present" never merges past it.
+if [ -n "$RC_MISSING" ]; then
+    _stop 15 "required check not reported on head ${verified_head:0:7} after ${grace_secs}s: $RC_MISSING; start it on the forge and run /devagent:unstuck, or push a head that runs it, then run /devagent:preship"
+fi
 if [ "$CI_RESULT" = none ] && [ "$MERGE_CHECKS" = required ]; then           # rule 17
     _stop 17 "no CI checks on head commit; set merge_checks = \"if-present\" to merge without CI, then run /devagent:unstuck"
 fi
 case "$MV_MERGESTATE" in                                                      # rule 18
     CLEAN|HAS_HOOKS) ;;
     *) _stop 18 "blocked by a forge rule ($MV_MERGESTATE); resolve it on the forge, then run /devagent:unstuck" ;;
+esac
+
+# rule 15 once more (#1097), the merge's precondition stated in one place: nothing
+# below runs while a required check is not success. The verdict arms above already
+# stop or wait on every such state (a bad, pending or missing check), so this is
+# unreachable until one of them changes; it names every required check and its state.
+if [ "${#REQUIRED_CHECKS[@]}" -gt 0 ] && [ "$RC_OK" != 1 ]; then
+    _stop 15 "required check not successful on head ${verified_head:0:7}: $RC_REPORT; $R15_REQ_FIX"
+fi
+
+# rule 21 (#1097), the self-certification stop. It sits here, after the CI verdict is
+# green and every forge rule has passed, so one acknowledgment covers one green head;
+# and ahead of rule 19's own stop, which sends the operator to merge by hand. It is
+# the operator's: no preship record and no forward clears it, and its text carries no
+# command to copy. An acknowledged diff is printed on every run and logged once per
+# recorded head.
+case "$SELFCERT_STATE" in
+    unknown)
+        [ -z "$SELFCERT_BAD_ENTRY" ] || SELFCERT_WHY+="; fix the key, or merge the base forward"
+        _stop 21 "self-certifying diff unknown: $SELFCERT_WHY; fix that, then run /devagent:unstuck" ;;
+    paths)
+        _stop 21 "self-certifying diff: $SELFCERT_LIST changed in ${SELFCERT_BASE:0:7}..${verified_head:0:7}, so this PR can change what its required checks measure. Operator only (reviewed workflow change only): record the review in $issue_dir/.devagent-selfcert-ack as commands/mergemr.md \"Escapes\" describes, then /devagent:unstuck" ;;
+    acked)
+        _ack_msg="self-certifying diff acknowledged at ${verified_head:0:7}: $SELFCERT_LIST — $SELFCERT_ACK_REASON"
+        echo "mergemr: $_ack_msg"
+        _logged_since_head "$_ack_msg" || log_append "$issue_dir" mergemr "$_ack_msg" ;;
 esac
 
 # ---- rule 19: the merge -------------------------------------------------------------------
