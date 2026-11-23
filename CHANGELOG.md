@@ -2160,7 +2160,7 @@ had already shipped SHA-by-SHA to `master` before the tag existed.
 Current capabilities as of this release:
 
 ### Core
-- **60 slash commands** driving a fixed **25-step issue workflow** (22 mandatory,
+- **61 slash commands** driving a fixed **25-step issue workflow** (22 mandatory,
   plus the optional research step 1, spike step 3, and mergetoall step 19),
   with all state preserved on disk so you can switch issues — or hand one to a
   fresh session — without losing context.

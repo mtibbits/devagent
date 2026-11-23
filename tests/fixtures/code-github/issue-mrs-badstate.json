@@ -21,7 +21,9 @@
         "mergedAt": null,
         "repository": {
          "nameWithOwner": "acme/testproj"
-        }
+        },
+        "url": "https://github.com/acme/testproj/pull/70",
+        "baseRefName": "master"
        }
       }
      ]

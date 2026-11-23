@@ -200,9 +200,10 @@ tier_shim_model() {
 # HEADER segment's `- Labels: <csv>` line.
 #
 # This IS the backend payload as pull.sh sees it (#561 operator answer A1):
-# the §9.1 backend contract defines `fetch` as markdown-to-stdout and
-# pull.sh writes that stdout verbatim, so no JSON crosses the process
-# boundary — the `- Labels:` line the backends render
+# the §9.1 backend contract defines `fetch` as markdown-to-stdout and, with
+# no policy in scope, pull.sh writes that stdout verbatim (under trust, the
+# trust render: the same header, control bytes escaped; spec §9.3), so no JSON
+# crosses the process boundary — the `- Labels:` line the backends render
 # (scripts/issue/github.sh, scripts/lib/backend-common.sh) is the structured
 # surface available here.
 #
@@ -271,7 +272,26 @@ issue_labels() {
 # heading parsed after a comment-hidden fence marker warns that parity may be
 # inverted; and at END a heading swallowed by a fence that never closed, or by
 # one that a hidden marker inverted, warns.
-flags_validate() {
+flags_validate() { _flags_scan "$1" >/dev/null; }
+
+# flags_enumerate <issue-md-path> — the QUIET mode of the same machine (#715):
+# one `<line-number>\t<key>\t<value>` line on stdout per live key line of the
+# body's `## Workflow flags` blocks, unknown keys and duplicates included, in file
+# order. The value is trimmed as flags_get trims it, comes last and may be empty.
+# Read a row whole in the C locale (`IFS= LC_ALL=C read -r row`) and split it at
+# its first two TABs by expansion, as floor.sh does: under UTF-8, `read` takes
+# the LF after an incomplete lead byte as data; IFS=$'\t' would strip a TAB at
+# the value's edge that flags_get keeps (one beside a NUL, which `read` drops). Nothing on stderr, awk's
+# own warnings included: under a trust policy pull's floor reads the ticket with
+# this before PASS, when no ticket byte may be printed. rc 0, for an absent file
+# too. Being a mode of the validate machine, not a third machine, it cannot drift
+# from what flags_validate sees; tests/lib_flags.bats holds it equal to flags_get
+# over a planted corpus.
+flags_enumerate() { _flags_scan "$1" 2>/dev/null; }
+
+# _flags_scan <issue-md-path> — the validate machine: flags_enumerate's rows on
+# stdout, flags_validate's diagnostics on stderr. Each caller keeps one stream.
+_flags_scan() {
   local file="$1"
   [[ -f "$file" ]] || return 0
   awk -v known=" $(flags_known_keys) " '
@@ -303,7 +323,12 @@ flags_validate() {
     }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
-      key = $0; sub(/:.*/, "", key)
+      # match(), not sub(/:.*/): gawk under UTF-8 cannot match `.` over an
+      # invalid byte, which would leave it in the key.
+      match($0, /^[a-z][a-z-]*/); key = substr($0, 1, RLENGTH)
+      val = substr($0, RLENGTH + 2)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+      print NR "\t" key "\t" val
       if (index(known, " " key " ") == 0)
         print "flags.sh: warn: unknown ## Workflow flags key '\''" key "'\'' — ignored (forward-compat)" > "/dev/stderr"
     }

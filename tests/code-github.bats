@@ -398,7 +398,8 @@ _gql_page() {
         nodes: [{source: {__typename: "PullRequest", number: 7, title: "t",
           body: "Closes #1", state: "OPEN", isDraft: false,
           createdAt: "2026-07-01T00:00:00Z", mergedAt: null,
-          repository: {nameWithOwner: "acme/testproj"}}}]}}}}}'
+          repository: {nameWithOwner: "acme/testproj"},
+          url: "https://github.com/acme/testproj/pull/7", baseRefName: "master"}}]}}}}}'
 }
 
 # _gql_truncate <file>: alias i0 reports 2 cross-references, holds 1, has more.
@@ -424,9 +425,25 @@ _query_shape_ok() {
     _gql_serve 1 "$GQL_FIX/issue-mrs-links.json"
     _issue_mrs acme/testproj 6
     [ "$status" -eq 0 ]
-    [ "$output" = $'issue\t6\tmerged\nmr\t6\tacme/testproj#21\tmerged\t2026-06-10T04:11:31Z\t2026-06-10T04:27:27Z\nmr\t6\tacme/testproj#22\tclosed\t2026-06-11T09:00:00Z\t-' ]
+    [ "$output" = $'issue\t6\tmerged\nmr\t6\tacme/testproj#21\tmerged\t2026-06-10T04:11:31Z\t2026-06-10T04:27:27Z\thttps://github.com/acme/testproj/pull/21\tchore/shellcheck-scripts-review-followups\nmr\t6\tacme/testproj#22\tclosed\t2026-06-11T09:00:00Z\t-\thttps://github.com/acme/testproj/pull/22\tmaster' ]
     [[ "$output" != *"#99"* ]]
     [ "$(_gql_calls)" -eq 1 ]
+}
+
+@test "issue-mrs emits each PR's url and base branch (#734)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-links.json"
+    _issue_mrs acme/testproj 6
+    [ "$status" -eq 0 ]
+    grep -qxF $'mr\t6\tacme/testproj#21\tmerged\t2026-06-10T04:11:31Z\t2026-06-10T04:27:27Z\thttps://github.com/acme/testproj/pull/21\tchore/shellcheck-scripts-review-followups' <<<"$output"
+}
+
+@test "issue-mrs asks GraphQL for url and baseRefName (#734)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-links.json"
+    _issue_mrs acme/testproj 6
+    [ "$status" -eq 0 ]
+    sed -n 1p "$GH_STUB_ARGS_LOG" | grep -qF 'url baseRefName'
 }
 
 @test "issue-mrs resolves #N against the repository's canonical name, so a renamed repo still links (#704)" {
@@ -447,8 +464,8 @@ _query_shape_ok() {
     [ "$status" -eq 0 ]
     issues="$(grep '^issue' <<<"$output")"
     [ "$issues" = $'issue\t1\topen\nissue\t2\tdraft\nissue\t3\tmerged\nissue\t4\tnone\nissue\t5\tnone' ]
-    grep -qxF $'mr\t1\tacme/testproj#32\tdraft\t2026-07-01T00:00:02Z\t-' <<<"$output"
-    grep -qxF $'mr\t5\tacme/testproj#61\tclosed\t2026-07-01T00:00:01Z\t-' <<<"$output"
+    grep -qxF $'mr\t1\tacme/testproj#32\tdraft\t2026-07-01T00:00:02Z\t-\thttps://github.com/acme/testproj/pull/32\tmaster' <<<"$output"
+    grep -qxF $'mr\t5\tacme/testproj#61\tclosed\t2026-07-01T00:00:01Z\t-\thttps://github.com/acme/testproj/pull/61\tmaster' <<<"$output"
 }
 
 @test "a fork-repo PR \"Closes #5\" links the fork's 5, not upstream 5 (#704)" {
@@ -457,7 +474,7 @@ _query_shape_ok() {
     _gql_serve 2 "$GQL_FIX/issue-mrs-fork.json"
     _issue_mrs me/testproj-fork 5
     [ "$status" -eq 0 ]
-    [ "$output" = $'issue\t5\topen\nmr\t5\tme/testproj-fork#3\topen\t2026-08-01T12:00:00Z\t-' ]
+    [ "$output" = $'issue\t5\topen\nmr\t5\tme/testproj-fork#3\topen\t2026-08-01T12:00:00Z\t-\thttps://github.com/me/testproj-fork/pull/3\tmaster' ]
     _issue_mrs acme/testproj 5
     [ "$status" -eq 0 ]
     [ "$output" = $'issue\t5\tnone' ]
@@ -530,7 +547,7 @@ _query_shape_ok() {
     _gql_serve 1 "$GQL_FIX/issue-mrs-notfound.json" 1 "gh: Could not resolve to an Issue with the number of 9."
     _issue_mrs acme/testproj 6 9
     [ "$status" -eq 0 ]
-    [ "$output" = $'issue\t6\topen\nmr\t6\tacme/testproj#21\topen\t2026-06-10T04:11:31Z\t-\nissue\t9\tmissing' ]
+    [ "$output" = $'issue\t6\topen\nmr\t6\tacme/testproj#21\topen\t2026-06-10T04:11:31Z\t-\thttps://github.com/acme/testproj/pull/21\tmaster\nissue\t9\tmissing' ]
     rm -f "$GH_STUB_GRAPHQL_DIR"/*
     _gql_serve 1 "$GQL_FIX/issue-mrs-ratelimited.json" 1 "gh: API rate limit exceeded for user ID 1."
     _issue_mrs acme/testproj 6 9
@@ -550,7 +567,7 @@ _query_shape_ok() {
     _gql_serve 1 "$GQL_FIX/issue-mrs-timestamps.json"
     _issue_mrs acme/testproj 8
     [ "$status" -eq 0 ]
-    grep -qxF $'mr\t8\tacme/testproj#80\tmerged\t2026-10-07T03:24:16Z\t2026-10-07T05:00:59Z' <<<"$output"
+    grep -qxF $'mr\t8\tacme/testproj#80\tmerged\t2026-10-07T03:24:16Z\t2026-10-07T05:00:59Z\thttps://github.com/acme/testproj/pull/80\tmaster' <<<"$output"
 }
 
 @test "issue-mrs output passes mr-link.py check (#704)" {

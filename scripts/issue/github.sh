@@ -47,6 +47,10 @@ _gh_json() {
 # _gh_view <repo> <num> <json-fields>
 _gh_view() { _gh_json issue view "$2" --repo "$1" --json "$3"; }
 
+# cmd_fetch: the spec §9.3 issue shape. The title is rendered on ONE line: a CR
+# or LF in it becomes a space (#715), since a multi-line title could otherwise
+# forge the header lines below it — `- Labels:` is read from the header by
+# issue_labels, under a trust policy by the floor too.
 cmd_fetch() {
   local repo="${1:?repo required}"
   local num="${2:?issue number required}"
@@ -68,7 +72,7 @@ cmd_fetch() {
         + "\n\n" + (.body // "")
       ) | join("\n\n");
 
-    "# " + $repo + "#" + $num + " — " + (.title // "(no title)") + "\n\n"
+    "# " + $repo + "#" + $num + " — " + ((.title // "(no title)") | gsub("[\r\n]"; " ")) + "\n\n"
     + "- State: " + ((.state // "unknown") | ascii_downcase) + "\n"
     + "- Author: @" + (.author.login // "unknown") + "\n"
     + "- Labels: " + label_csv + "\n"

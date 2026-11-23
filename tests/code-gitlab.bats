@@ -96,8 +96,14 @@ _related_calls() {
 @test "issue-mrs links \"Closes #6, #7 and grp/sub/bar#8\"; mention-only does not (#704)" {
   run --separate-stderr "$SCRIPT" issue-mrs foo/bar 6 7
   [ "$status" -eq 0 ]
-  [ "$output" = $'issue\t6\tmerged\nmr\t6\tfoo/bar!21\tmerged\t2026-10-07T03:24:16Z\t2026-10-09T00:44:35Z\nissue\t7\tmerged\nmr\t7\tfoo/bar!21\tmerged\t2026-10-07T03:24:16Z\t2026-10-09T00:44:35Z' ]
+  [ "$output" = $'issue\t6\tmerged\nmr\t6\tfoo/bar!21\tmerged\t2026-10-07T03:24:16Z\t2026-10-09T00:44:35Z\thttps://gitlab.example/foo/bar/-/merge_requests/21\tdev/all-prs\nissue\t7\tmerged\nmr\t7\tfoo/bar!21\tmerged\t2026-10-07T03:24:16Z\t2026-10-09T00:44:35Z\thttps://gitlab.example/foo/bar/-/merge_requests/21\tdev/all-prs' ]
   [[ "$output" != *'!99'* ]]
+}
+
+@test "issue-mrs emits each MR's web_url and target_branch (#734)" {
+  run --separate-stderr "$SCRIPT" issue-mrs foo/bar 6
+  [ "$status" -eq 0 ]
+  [[ "$(grep -F 'foo/bar!21' <<<"$output")" == *$'\thttps://gitlab.example/foo/bar/-/merge_requests/21\tdev/all-prs' ]]
 }
 
 @test "issue-mrs aggregation incl. draft and locked (#704)" {
@@ -106,8 +112,8 @@ _related_calls() {
   [ "$status" -eq 0 ]
   issues="$(grep '^issue' <<<"$output")"
   [ "$issues" = $'issue\t1\topen\nissue\t2\tdraft\nissue\t3\tmerged\nissue\t4\tnone\nissue\t13\tnone\nissue\t10\topen' ]
-  grep -qxF $'mr\t2\tfoo/bar!41\tdraft\t2026-07-01T00:00:01Z\t-' <<<"$output"
-  grep -qxF $'mr\t13\tfoo/bar!61\tclosed\t2026-07-01T00:00:01Z\t-' <<<"$output"
+  grep -qxF $'mr\t2\tfoo/bar!41\tdraft\t2026-07-01T00:00:01Z\t-\thttps://gitlab.example/foo/bar/-/merge_requests/41\tmain' <<<"$output"
+  grep -qxF $'mr\t13\tfoo/bar!61\tclosed\t2026-07-01T00:00:01Z\t-\thttps://gitlab.example/foo/bar/-/merge_requests/61\tmain' <<<"$output"
 }
 
 @test "issue-mrs makes one GET per id (#704)" {
@@ -140,7 +146,7 @@ _related_calls() {
 @test "a fork-project MR \"Closes #5\" links me/bar 5 only (#704)" {
   run --separate-stderr "$SCRIPT" issue-mrs me/bar 5
   [ "$status" -eq 0 ]
-  [ "$output" = $'issue\t5\topen\nmr\t5\tme/bar!3\topen\t2026-08-01T12:00:00Z\t-' ]
+  [ "$output" = $'issue\t5\topen\nmr\t5\tme/bar!3\topen\t2026-08-01T12:00:00Z\t-\thttps://gitlab.example/me/bar/-/merge_requests/3\tmain' ]
   run --separate-stderr "$SCRIPT" issue-mrs foo/bar 5
   [ "$status" -eq 0 ]
   [ "$output" = $'issue\t5\tnone' ]

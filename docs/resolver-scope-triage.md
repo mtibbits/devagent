@@ -1,6 +1,6 @@
 # Resolver-scope triage (#572)
 
-The 23 scripts that resolve the active project — the 22 call sites of
+The 24 scripts that resolve the active project — the 23 call sites of
 `active_resolve_project` plus `next.sh`, which calls
 `active_resolve_project_src` directly — classified PROTECTED (a wrong scope
 writes, verifies, or transitions against the wrong project; the site calls
@@ -8,14 +8,15 @@ writes, verifies, or transitions against the wrong project; the site calls
 Line anchors are at the pre-change baseline `86efe8c`, except the `rederive.sh`
 row, re-anchored after #590 moved its guard, and the `evidence-stamp.sh`,
 `quarantine-check.sh` and `claims-check.sh` rows, added by #894, #714 and #1122 at
-their own commits, and the `wbs-exclude.sh` row, added by #761 at its own commit.
+their own commits, the `wbs-exclude.sh` row, added by #761 at its own commit,
+and the `milestones.sh` row, added by #734 at its own commit.
 
 Derivation (the sweep test `tests/resolver-scope-triage.bats` re-runs this and
 diffs it against the rows below):
 
 ```bash
 grep -rln 'active_resolve_project' scripts/ \
-  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 23 files
+  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 24 files
 ```
 
 Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
@@ -33,6 +34,7 @@ all listed).
 | `evidence-stamp.sh` | PROTECTED | rewrites the `## Evidence` block of another project's `mr.md` from that project's suite-count artifact (#894) — the write side of `preship-evidence.sh`'s verdict | validates (`:94`) |
 | `grep.sh` | EXEMPT | read-only search; every output line is prefixed with the issue-dir path, so a wrong scope is self-identifying and leaves no record | no-validation |
 | `history.sh` | EXEMPT | read-only chronological print with the same self-identifying path prefix | no-validation |
+| `milestones.sh` | EXEMPT | read-only report (#734); the first output line names the project (`milestones: <project> scope: …`), so a wrong scope is self-identifying, and it writes no file | validates (`:99`) |
 | `next.sh` | PROTECTED | dispatches and execs write-capable step scripts against the resolved project and refreshes the global pointer; largest blast radius of the set | validates (`:53`) |
 | `preship-evidence.sh` | PROTECTED | emits a PASS/FAIL verdict about another project's MR — the print-only PROTECTED site (#572's second observed misfire) | validates (`:36`) |
 | `quarantine-check.sh` | PROTECTED | the first action of every skill-backed step command (#714); in trust scope it re-applies the quarantine label on the tracker, writes the issue's `QUARANTINE` marker and clears the shared slot — a wrong scope does that to another project's issue, or stops the step on it | validates (`:31`) |
@@ -49,7 +51,7 @@ all listed).
 | `wbs-show.sh` | EXEMPT | read-only render of another project's WBS; no write, no verdict | validates (`:39`) |
 | `wbs-update.sh` | PROTECTED | rewrites another project's committed `WBS.md` (#572's first observed misfire) | validates (`:53`) |
 
-Counts: **19 PROTECTED, 4 EXEMPT; 15 validate, 8 no-validation.** The eight
+Counts: **19 PROTECTED, 5 EXEMPT; 16 validate, 8 no-validation.** The eight
 non-validating sites are `checklist-init`, `comments`, `depends`, `grep`,
 `history`, `revise`, `template`, `transition-draft-start`. Four of those eight
 are PROTECTED (`checklist-init`, `comments`, `revise`,

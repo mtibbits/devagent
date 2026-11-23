@@ -9,7 +9,8 @@ gh-stub's `api graphql` arm (`tests/fixtures/gh-stub`, `$GH_STUB_GRAPHQL_DIR`).
   [CROSS_REFERENCED_EVENT], first:100){...P} }` per alias, fragment `P` =
   `totalCount pageInfo{hasNextPage endCursor} nodes{ ... on CrossReferencedEvent
   { source { __typename ... on PullRequest { number title body state isDraft
-  createdAt mergedAt repository{nameWithOwner} } } } }`).
+  createdAt mergedAt url baseRefName repository{nameWithOwner} } } } }`;
+  `url baseRefName` since #734).
 - Recorded 2026-10-13 with gh 2.95.0 (Windows) against public repositories:
   50 open issues of cli/cli, and 51 issues of
   mtibbits/devagent (including #148, whose closing PR #152 targets the
@@ -36,5 +37,12 @@ sources with no other fields, cursor format). Edited:
   - `issue-mrs-ratelimited.json`: a non-NOT_FOUND GraphQL error (`RATE_LIMITED`).
   - `issue-mrs-badstate.json`: a PR state outside OPEN/CLOSED/MERGED (`QUEUED`).
   - `issue-mrs-timestamps.json`: createdAt/mergedAt values for the `mr` line.
-- `baseRefName` and `closingIssuesReferences`, which the recording query also
-  asked for, are dropped: the verb does not request them.
+- `closingIssuesReferences`, which the recording query also asked for, is
+  dropped: the verb does not request it.
+- `url` and `baseRefName` (#734): dropped at #704, added back because the
+  verb now requests both for the `mr` line's `<url>`/`<base>` pair. Each
+  `PullRequest` source carries `url` = `https://github.com/<repo>/pull/<number>`
+  for its rewritten repo and number, and `baseRefName` `master`, except #21 in
+  `issue-mrs-links.json`, which carries the recorded #152's non-default base
+  `chore/shellcheck-scripts-review-followups`. The `_gql_page` reply in
+  `tests/code-github.bats` carries the same two keys.
