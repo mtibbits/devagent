@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # bats file_tags=gitbash
-# A fixture for tests/preship-deferred.bats (#1097): one test per guard form. It is
+# A fixture for tests/preship-deferred*.bats (#1097): one test per guard form. It is
 # committed to a scratch repository as tests/guards.bats and read as text at a pinned
 # commit; nothing runs it. Each guard line is unique in this file: the tests find its
 # line number by its text.

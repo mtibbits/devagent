@@ -207,7 +207,7 @@ _CI_NOT_IMPL_RE='(^|[^[:alnum:]_])(exit[[:space:]]+78|bc_die_not_implemented)([^
 # _ci_fetch reports as unknown, never as notchecked.
 # The verb table is read as text, never run: a `case` arm naming mr-checks
 # (_CI_CHECKS_ARM_RE) up to its `;;`, a stub when a line of it matches
-# _CI_NOT_IMPL_RE. Comment lines are not read. tests/preship-deferred.bats holds the
+# _CI_NOT_IMPL_RE. Comment lines are not read. tests/preship-deferred-parse.bats holds the
 # answer equal to each shipped backend's own exit code for `mr-checks` with no URL.
 # A setter-global: call it bare or in a condition.
 # shellcheck disable=SC2034  # CI_CAPABLE* are the return channel — read by preship-deferred.sh

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # bats file_tags=gitbash
-# A fixture for tests/preship-deferred.bats (#1097): what the static check does NOT see.
+# A fixture for tests/preship-deferred-parse.bats (#1097): what the static check does NOT see.
 # Every test here is skipped on Git Bash, and each is deferred all the same: these are
 # the misses scripts/preship-deferred.sh lists, pinned so that closing one is a
 # deliberate change. Committed to a scratch repository as tests/misses.bats and read as

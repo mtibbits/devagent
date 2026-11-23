@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # bats file_tags=gitbash
-# A fixture for tests/preship-deferred.bats (#1097): a helper that skips on Git Bash
+# A fixture for tests/preship-deferred-parse.bats (#1097): a helper that skips on Git Bash
 # must be found wherever it is defined. Each skipping helper here stands after
 # something that once hid it: a function whose closing brace carries more than the
 # brace, a function it is defined inside, a heredoc that holds half a definition, a

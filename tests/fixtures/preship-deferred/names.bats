@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # bats file_tags=gitbash
-# A fixture for tests/preship-deferred.bats (#1097): how a test is found by its name.
+# A fixture for tests/preship-deferred*.bats (#1097): how a test is found by its name.
 # Committed to a scratch repository as tests/names.bats and read as text at a pinned
 # commit; nothing runs it.
 
