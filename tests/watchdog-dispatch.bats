@@ -58,8 +58,8 @@ row() {
 
 # nxt [<env assignment>...] — the staged next.sh for project p.
 nxt()      { run --separate-stderr env "$@" bash "$root/scripts/next.sh" p; }
-watched()  { nxt DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID" "$@"; }
-attended() { nxt "CLAUDE_CODE_SESSION_ID=$ID" "$@"; }
+watched()  { nxt DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$ID"; }
+attended() { nxt "CLAUDE_CODE_SESSION_ID=$ID"; }
 
 # wrap_lines — the stdout lines that start "long-run: ".
 wrap_lines() { grep -c '^long-run: ' <<<"$output" || true; }

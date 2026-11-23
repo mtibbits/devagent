@@ -174,15 +174,6 @@ _lib() {
 # that path.
 SID=0f8fad5b-d9cb-469f-a165-70867728950e
 
-@test "entry-points: each refuses with 9 when whoami is a trusted id" {
-  _refusals
-  [ ! -e "$DA_HOME/state/watchdog" ]
-}
-
-@test "entry-points: the same refusals in an unattended session leave state/watchdog/<id>/script and nothing else (#932)" {
-  _refusals unattended
-}
-
 # _refusals [unattended]
 _refusals() {
   local unattended="${1:-}" marked=0 tree
@@ -238,6 +229,15 @@ _refusals() {
     fails=$((fails + 1))
   fi
   [ "$fails" -eq 0 ]
+}
+
+@test "entry-points: each refuses with 9 when whoami is a trusted id" {
+  _refusals
+  [ ! -e "$DA_HOME/state/watchdog" ]
+}
+
+@test "entry-points: the same refusals in an unattended session leave state/watchdog/<id>/script and nothing else (#932)" {
+  _refusals unattended
 }
 
 @test "file: project derived from devdoc_dir; zero or two matches refuse 9" {
