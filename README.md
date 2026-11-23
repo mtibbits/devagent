@@ -75,7 +75,7 @@ devAgent needs the Git Bash it provides. If Claude Code cannot find Git Bash, se
 `C:\Program Files\Git\bin\bash.exe`) in the `env` block of Claude Code's
 `settings.json`.
 
-<!-- tests/docs-site.bats: docs-site/install.md copies this paragraph's opening line word for word (check_platform_sentence); keep each PLATFORM_CLAIMS token on one line -->
+<!-- tests/docs-site.bats: docs-site/install.md copies this paragraph through "counts as Linux." word for word (check_platform_sentence); keep each PLATFORM_CLAIMS token on one line -->
 **Supported platforms.** Linux, or Windows with Git Bash.
 WSL is for contributors to devAgent itself. macOS is untested.
 Running Claude Code inside WSL counts as Linux.
@@ -88,8 +88,9 @@ file modes at all (devAgent's own, or your project's, even a `chmod +x` on a tes
 stub) cannot produce suite evidence in Git Bash: run that step in a WSL clone on
 a Linux filesystem, not under `/mnt/c` (see
 [Running the test suite](#running-the-test-suite)). macOS should work with
-Homebrew bash and GNU coreutils, sed and findutils (the scripts use `stat -c`,
-`sed -i`, `find -printf` and `readlink -f`).
+Homebrew bash and GNU coreutils, sed and findutils, with their `gnubin`
+directories first on PATH (the scripts use, for example, `stat -c`, `sed -i`,
+`find -printf` and `readlink -f`).
 CI runs the full suite on Linux, and runs the `gitbash`-tagged test files under
 Git Bash on Windows.
 
@@ -395,10 +396,10 @@ inline code comments this way.
 
 ## Running the test suite
 
-This section is contributor setup for devAgent's own test suite, and its
-requirements (for example, a filesystem where `chmod` works, for a suite that
-references file modes) apply to your project's suite too, because `scripts/run-suite.sh` is the
-evidence runner the workflow uses for every project.
+This section is contributor setup for devAgent's own test suite. One of its
+requirements also applies to your project's suite: a suite that references file
+modes needs a filesystem where `chmod` works, because `scripts/run-suite.sh` is
+the evidence runner the workflow uses for every project.
 
 The canonical runner is `scripts/run-suite.sh`, which runs bats and pytest with
 the hermetic environment baked in and writes the provenance artifact

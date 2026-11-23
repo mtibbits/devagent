@@ -972,6 +972,10 @@ lc_lacks() {
   drop "$page" 'macOS is untested.'
   drop "$page" 'Running Claude Code inside WSL counts as Linux.'
   breaks 'drops the claim: WSL is for contributors' check_platform_sentence "$page" "$readme"
+  # Cut before the WSL-users sentence: still a README prefix, but drops it.
+  page="$(fresh "$WEB/install.md")"
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  breaks 'drops the claim: counts as Linux' check_platform_sentence "$page" "$readme"
   # A word changed.
   page="$(fresh "$WEB/install.md")"
   edit "$page" 'is for contributors' 'is for developers'

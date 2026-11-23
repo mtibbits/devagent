@@ -1012,9 +1012,10 @@ check_prereqs_trace() {
 }
 
 # The #579 platform posture claims, as #984 words them: README carries each
-# (check_platform_tokens), and the install page's copied platform line keeps
-# each (check_platform_sentence). One list, so the two cannot drift.
-PLATFORM_CLAIMS=('Linux, or Windows with Git Bash' 'WSL is for contributors' 'macOS is untested')
+# (check_platform_tokens), and the install page's copy of the paragraph's
+# opening, through "counts as Linux.", keeps each (check_platform_sentence).
+# One list, so the two cannot drift.
+PLATFORM_CLAIMS=('Linux, or Windows with Git Bash' 'WSL is for contributors' 'macOS is untested' 'counts as Linux')
 
 # check_platform_tokens <file> — the file names every PLATFORM_CLAIMS entry.
 check_platform_tokens() {
