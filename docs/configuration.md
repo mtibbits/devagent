@@ -198,17 +198,20 @@ or that host merges without them.
 `success` (passed with the conclusion `SUCCESS`) at the verified head. A pending check
 waits `[?]`; a check not reported waits inside the grace and stops `[!]` after it;
 `skipped`, `neutral`, `cancelled`, `failure` and `no conclusion` stop `[!]` (rule 15).
-A passing `/devagent:preship` clears a rule 15 stop, as it clears red CI. While a
-required check is not `success`, or a self-certifying diff is not acknowledged, the
-step turns the forge's auto-merge off rather than leaving the PR to it (rule 12); a PR
-in a merge queue stops `[!]`. With `merge_mr = false` the step never merges; its `[?]`
-line names each required check's state and the self-certification result. Two stops
-apply whatever `merge_mr` says, and no preship clears them:
+A passing `/devagent:preship` clears a rule 15 stop, as it clears red CI. With
+`merge_mr = true`, while a required check is not `success` or a self-certifying diff is
+not acknowledged, the step turns the forge's auto-merge off rather than leaving the PR
+to it (rule 12); a PR in a merge queue stops `[!]`. Under `merge_mr = false` the step
+never merges and never touches auto-merge: its `[?]` line names each required check's
+state and the self-certification result, rule 21 does not stop, and a forge auto-merge
+or a person's merge is not held back (see branch protection below). No preship clears
+these two stops:
 
-- **Rule 20, `CI NOT CHECKED`**: the code backend cannot report checks (no
-  `mr-checks`), so nothing can say the check succeeded. Check it by hand, merge the PR
-  by hand, then run `/devagent:unstuck`.
-- **Rule 21, a self-certifying diff**: the PR changes a file under
+- **Rule 20, `CI NOT CHECKED`**, whatever `merge_mr` says: the code backend cannot
+  report checks (no `mr-checks`), so nothing can say the check succeeded. Check it by
+  hand, merge the PR by hand, then run `/devagent:unstuck`.
+- **Rule 21, a self-certifying diff**, with `merge_mr = true` (under `false` it is
+  reported only): the PR changes a file under
   `.github/workflows/`, a `required_checks_paths` path, or a `gitbash` tag line a test
   file had at the baseline (adding a tag line does not count). Such a PR could change
   what its own required check measures. It is cleared by the operator only (reviewed

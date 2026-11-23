@@ -49,7 +49,8 @@ CHILDREN:
 
 ## Required CI checks (#1097)
 
-Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" "$DEVAGENT_PROJECT"`.
+With no `DEVAGENT_PROJECT` the section does not apply: do not run the call. Otherwise
+run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" "$DEVAGENT_PROJECT"`.
 Exit 0 with no output: the section does not apply. **A non-zero exit: stop and
 report its stderr; never read it as "does not apply"** (devagent Issue-713).
 Otherwise, for a child whose behaviour differs under Git Bash (drive-letter

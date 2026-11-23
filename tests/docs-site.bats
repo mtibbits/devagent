@@ -1384,3 +1384,14 @@ RC_SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
   sed -i '/^| 20 | `\/devagent:mergemr`/s/required_checks/requiredchecks/g' "$d/spec"
   breaks 'row 20' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
 }
+
+@test "#1097 required checks docs scope rule 12's auto-merge change and rule 21's stop to merge_mr = true" {
+  local t c
+  t="$(awk '/^## Required CI checks$/{f=1} f && /^## Capacity$/{exit} f' "$CONFIG_DOC" | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$t" ]
+  [[ "$t" != *'Two stops apply whatever `merge_mr` says'* ]] || { echo "rule 21 is said to stop whatever merge_mr says"; return 1; }
+  [[ "$t" == *'With `merge_mr = true`'*'turns the forge'"'"'s auto-merge off'* ]] || { echo "auto-merge change not scoped to merge_mr = true"; return 1; }
+  [[ "$t" == *'Under `merge_mr = false`'*'rule 21 does not stop'* ]] || { echo "no merge_mr = false statement for rule 21"; return 1; }
+  c="$(tr '\n' ' ' < "$PLUGIN_ROOT/changelog.d/1097.md")"
+  [[ "$c" == *'With `merge_mr = true`'* ]] || { echo "changelog entry not scoped to merge_mr = true"; return 1; }
+}

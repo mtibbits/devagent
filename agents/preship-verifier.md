@@ -90,8 +90,9 @@ verification passed; FAIL otherwise).
    A hand-recorded Git Bash transcript is accepted in the check's place only
    when `issue.md` says why the job cannot exercise the behaviour (quote its
    reason), or the `code backend:` line says `mr-checks: no`. Then add
-   `transcript '<test file>'` instead: exit 0 PASS, exit 1 FAIL, each with the
-   printed line. A criterion that an issue already open words as a hand
+   `transcript '<test file>'` instead; exit 1 is FAIL with the printed line. On
+   `transcript accepted`, read the transcript it names and quote the named test's
+   `ok` line: PASS. A `not ok` line, a `# skip` on it, or no line for that test: FAIL. A criterion that an issue already open words as a hand
    transcript is verified as worded.
 
    Any other exit of a call above: FAIL, could not run (quote stderr).

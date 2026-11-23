@@ -69,3 +69,11 @@ _rc_section() { awk '/^## Required CI checks/{f=1; print; next} f && /^## /{exit
     [[ "$t" == *'never read it as "does not apply"'* ]] || { echo "$f: no never-read-as"; return 1; }
   done
 }
+
+@test "#1097 core-capture and core-scaffold do not run required-checks.sh without DEVAGENT_PROJECT" {
+  local f t
+  for f in "${SKILL}" "${REPO_ROOT}/skills/core-scaffold/SKILL.md"; do
+    t="$(awk '/^## Required CI checks/{f=1; print; next} f && /^## /{exit} f' "$f" | tr '\n' ' ' | tr -s ' ')"
+    [[ "$t" == *'With no `DEVAGENT_PROJECT`'*'does not apply'*'do not run the call'* ]] || { echo "$f: no unset-project case"; return 1; }
+  done
+}
