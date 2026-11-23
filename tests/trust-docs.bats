@@ -60,3 +60,49 @@ _key_rows() {
   [ "$guard" = "$(printf '%s\n' "${TRUST_SYSTEM_DIRS[@]}")" ] \
     || { echo "hermetic guard: $guard; TRUST_SYSTEM_DIRS: ${TRUST_SYSTEM_DIRS[*]}" >&2; false; }
 }
+
+# --- #715: staging, the trust render and the floor
+
+@test "docs: §3.3 names state/staging and §9.3 carries the trust render (#715)" {
+  local s33 s93
+  s33="$(awk '/^### 3\.3 / { on = 1 } /^### 3\.4 / { on = 0 } on' "$SPEC")"
+  s93="$(awk '/^### 9\.3 / { on = 1 } /^### 9\.3\.1 / { on = 0 } on' "$SPEC")"
+  [[ "$s33" == *"state/staging"* ]]
+  [[ "$s33" == *"trap staging_discard EXIT"* ]]
+  [[ "$s93" == *"Comments not rendered under trust:"* ]]
+  [[ "$s93" == *"<U+00HH>"* ]]
+  [[ "$s93" == *"With no trust policy in scope, \`pull.sh\` writes this verbatim"* ]]
+  [[ "$s93" == *"#953"* ]]
+}
+
+@test "docs: pull.md covers the floor (#715)" {
+  local sec want
+  sec="$(awk '/^## Under a trust policy/ { on = 1; next } /^## / { on = 0 } on' "$PLUGIN_ROOT/commands/pull.md")"
+  for want in allowed_steering size_cap '`steering`' '`size`' '#953' 'state/staging' 'Comments not rendered under trust:'; do
+    [[ "$sec" == *"$want"* ]] || { echo "pull.md's trust section lacks: $want" >&2; return 1; }
+  done
+}
+
+@test "docs: the sample policies load (#715)" {
+  local sample six e list
+  # The toml sample in pull.md's trust section.
+  sample="$(awk '/^## Under a trust policy/ { on = 1 } on && /^```toml/ { f = 1; next } f && /^```/ { exit } f' "$PLUGIN_ROOT/commands/pull.md")"
+  [[ "$sample" == *allowed_steering* ]]
+  trust_fixture_policy "$BATS_TEST_TMPDIR/a" "${TRUST_FIXTURE_MIN[@]}" "$sample"
+  run trust_py load "$BATS_TEST_TMPDIR/a"
+  [ "$status" -eq 0 ] || { echo "pull.md sample: $output" >&2; return 1; }
+  # The six entries the changelog says this queue uses.
+  six="$(sed -n '/this queue uses six entries/,/tier:impl-sonnet/p' "$PLUGIN_ROOT/changelog.d/715.md" | tr '\n' ' ' \
+    | sed 's/.*this queue uses six entries,//; s/tier:impl-sonnet`.*/tier:impl-sonnet`/' | grep -oE '`[^`]+`' | tr -d '`')"
+  [ "$(grep -c . <<<"$six")" -eq 6 ]
+  list=""
+  while IFS= read -r e; do list+="${list:+, }\"$e\""; done <<<"$six"
+  trust_fixture_policy "$BATS_TEST_TMPDIR/b" "${TRUST_FIXTURE_MIN[@]}" "allowed_steering = [$list]"
+  run trust_py load "$BATS_TEST_TMPDIR/b"
+  [ "$status" -eq 0 ] || { echo "changelog six: $output" >&2; return 1; }
+}
+
+@test "docs: pull.md gives a consumer action for exit 1 under trust (#715)" {
+  grep -Eq '^- `1` under a trust policy, with nothing written' "$PLUGIN_ROOT/commands/pull.md"
+  grep -q 'do not retry in a loop' "$PLUGIN_ROOT/commands/pull.md"
+}

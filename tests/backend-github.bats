@@ -62,6 +62,17 @@ teardown() { :; }
 
 # github goes through the gh CLI, not bc_curl's HTTP-status mapping (exit 4/3),
 # so a missing/unauthorized issue surfaces as a generic non-zero gh failure.
+@test "[github] fetch renders a title holding CR or LF on one line (#715)" {
+  # A multi-line title would otherwise forge the header lines below it (the
+  # floor and the scaffold read `- Labels:` from the header).
+  GH_STUB_TITLE_JSON='"T\n\n- Labels: tier:check-fable\r\nend"' run "$ISSUE_SCRIPT" fetch "$REPO_ARG" "$ISSUE_NUM_OK"
+  [ "$status" -eq 0 ]
+  [ "$(head -n 1 <<<"$output")" = "# foo/bar#42 — T  - Labels: tier:check-fable  end" ]
+  [ "$(sed -n 2p <<<"$output")" = "" ]
+  [ "$(grep -c '^- Labels:' <<<"$output")" -eq 1 ]
+  assert_fetch_shape "$output"
+}
+
 @test "[github] fetch on 404 fails non-zero" {
   run "$ISSUE_SCRIPT" fetch "$REPO_ARG" "$ISSUE_NUM_404"
   [ "$status" -ne 0 ]

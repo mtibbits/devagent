@@ -510,6 +510,22 @@ Adjacent state files:
 - `~/.claude/devagent/state/<project>.statusreport.toml` — `last_pin`, `last_pin_by`
 - `~/.claude/devagent/state/<project>.reaped.toml` — content hashes of items already reaped into captures (for idempotence)
 
+
+`~/.claude/devagent/state/staging/` (#715) holds a fetched ticket under a
+trust policy until pull's floor passes (§9.3): one
+`<project>.<issue_id>.XXXXXX/` dir per pull (mode 0700; the root too), with
+`fetch.raw` (deleted by the render, so comment text is on disk only while it
+runs) and the candidate `issue.md`. It is outside git and must
+not resolve inside the project's `devdoc_dir` (pull dies before creating
+anything if it does). Every exit removes the dir:
+
+| Exit path | Staging dir | Devdoc tree |
+|---|---|---|
+| PASS | the candidate is copied, then the dir removed | `mkdir -p` the issue dir, `issue.md.tmp`, `mv`: the pull's first devdoc write |
+| QUARANTINE | removed before the label write | pre-work: the marker only; in-work: old files untouched, slot cleared (#714) |
+| fetch failure, layout defect, no verdict, any die or refusal, INT, TERM | removed by pull's `trap staging_discard EXIT` | nothing written |
+| KILL, power loss | swept by the next trusted pull (dirs older than 60 minutes) | nothing written |
+
 ### 3.4 Secrets (`~/.claude/devagent/secrets/`)
 
 ```
@@ -676,7 +692,8 @@ account ids; never a login or display name), an empty `worker_identities` or
 `code_host_workers` and `trusted_reviewers`) without `single_identity = true`
 refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 `idlist` `["<backend>:<id>", …]`, `repolist` repo keys, `str`, `strlist`,
-`charlist` single code points, `bool`, `int` (non-negative), `provenance`
+`charlist` single code points, `steering` a list drawn from a closed set (#715,
+below), `bool`, `int` (non-negative, at most 2147483647), `provenance`
 `required`|`optional`, `approval` `{kind = "label"|"status", id}`,
 `size_classes` a table of non-negative ints, `trackers` `github.host`,
 `gitlab.api_url`, `jira.base_url`, `jira.project_key`, `hardening` a subset of
@@ -704,7 +721,7 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `provenance` | `provenance` | — |
 | `later_stages` | `strlist` | — |
 | `revoking` | `strlist` | `[]` |
-| `allowed_steering` | `strlist` | — |
+| `allowed_steering` | `steering` | `[]` |
 | `paths_deny` | `strlist` | — |
 | `paths_allow` | `strlist` | — |
 | `fixture_paths` | `strlist` | — |
@@ -713,7 +730,7 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `allowed_chars` | `charlist` | — |
 | `approval` | `approval` | — |
 | `size_classes` | `size_classes` | — |
-| `size_cap` | `int` | — |
+| `size_cap` | `int` | `65536` |
 | `approver_not_author` | `bool` | — |
 | `require_trusted_reporter` | `bool` | — |
 | `require_user_verification` | `bool` | `true` |
@@ -725,6 +742,16 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `merge_mr` | `bool` | `false` |
 | `file` | `bool` | `false` |
 | `required_hardening` | `hardening` | `[]` |
+
+**`allowed_steering` and `size_cap` (#715).** The steering a ticket may carry
+past pull's floor (§9.3). Each `allowed_steering` entry is one exact string from
+a closed set, built from `tier_allowlist` (T) and `model_token_allowlist` (M) in
+`scripts/lib/flags.sh`: `tier: <T>`, `tier: <M>-checking`, `research: required`,
+`spike: required`, `implementation-model: <M>`, `checking-model: <M>`, and the
+label shapes `tier:impl-<M>`, `tier:check-<M>`, `tier:<M>-checking` (38 entries
+today). Any other entry refuses (exit 3 from the loader, so exit 9 at every
+entry point); the default `[]` allows nothing. `size_cap` is in bytes of the
+staged `issue.md`, default 65536, at most 2147483647.
 
 **Digest.** `sha256:` of the normalised policy (defaults applied, lists sorted
 and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
@@ -958,7 +985,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
-| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
+| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate, and writes `issue.md` only on PASS (§9.3, #715) |
 | 1 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 2. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
 | 2 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
 | 3 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 2 and 4. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. `scripts/spike.sh` is a helper the command calls, not this row's entry point, so `next.sh` dispatches the row skill-backed (#812). |
@@ -2756,7 +2783,72 @@ has an `origin`, a local ship never pushes, so a suite artifact's
 <comment body>
 ```
 
-`pull.sh` writes this verbatim to `<issue-dir>/issue.md`.
+`<title>` is one line: the github backend turns a CR or LF in it into a space
+(#715), so a title can never forge the header lines below it.
+
+With no trust policy in scope, `pull.sh` writes this verbatim to
+`<issue-dir>/issue.md`.
+
+#### Under a trust policy: the trust render and the floor (#715)
+
+In scope, pull fetches into `state/staging/` (§3.3), and `issue.md` is the
+trust render of the fetch (`scripts/lib/staging_render.py`), written only after
+the floor passes. The render keeps the fetch layout, so `flags_get`,
+`issue_labels` and `catchup` read it unchanged:
+
+```markdown
+# <repo>#<num> — <title>
+
+- State: …      (then Author, Labels, URL and, when fetched, Created)
+
+---
+
+<body, byte for byte>
+
+---
+
+## Comments (N)
+
+Comments not rendered under trust: N
+```
+
+- Lines end at LF; a layout line is matched without its trailing CRs, and each
+  line is copied with its own ending. For N > 0 the heading is followed by one
+  blank line and the count line, each with the heading's ending, and the file
+  ends there; for N = 0 the file ends with the heading line.
+- Strict header: line 1 starts `# <repo>#<num> — `; line 2 is blank; then
+  `- State:`, `- Author:`, `- Labels:`, `- URL:` and optionally `- Created:`, in
+  that order and nothing else; then blank, `---`, blank. Anything else is a
+  layout defect: pull dies and writes nothing.
+- The body ends at the first comments trailer: a line that is exactly
+  `## Comments (<digits>)` after blank, `---`, blank, searched from the first
+  body line (the header's own rule never counts). Comment text never enters
+  the file.
+- Each byte 0x00-0x1F or 0x7F in the title or a header value becomes
+  `<U+00HH>` (uppercase hex). Nothing else is rewritten.
+- Header values are measured, not truncated: `size_cap` counts every byte of
+  the candidate, and cutting the `- Labels:` line could hide a `tier:*` label
+  from the steering check.
+
+**Accepted residual (until #953's `issue-fields` read).** A body that itself
+holds the full trailer (blank, `---`, blank, `## Comments (n)`) is cut there:
+the workflow reads less than the tracker shows, never more, and the count is
+the body's number. `flags_get` has the same blind spot, so the steering the
+floor checks and the steering the scaffold applies agree. More than one
+trailer prints a fixed note after PASS. Rejected: quarantining on a second
+trailer (any commenter could then hold any ticket), and a second
+`comment-list` read to cut the exact suffix (a network read and a race path
+that #953 removes).
+
+The floor (`scripts/lib/floor.sh`, the first source of `quarantine_verdict`)
+runs `steering` then `size` on the candidate; every check runs, and the first
+failing token quarantines (exit 6). `steering` reads the body's live
+`## Workflow flags` key lines with `flags_enumerate` (the validate machine's
+quiet mode) and the `tier:*` labels with `issue_labels`, and requires each to be
+listed in `allowed_steering` (§3.8); `size` compares the candidate's bytes
+with `size_cap`. Until PASS pull prints no ticket byte, and each check prints
+at most 20 diagnostic lines, then a count of the rest (`FLOOR_SAY_MAX`), so a
+ticket's author cannot set how much the worker session reads.
 
 #### `mr-comments` output (code backends, #592)
 
