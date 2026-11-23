@@ -61,42 +61,32 @@ never a ticket byte. Both streams are written as bytes with b"\\n"
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import sys
 
-HEADER_KEYS = (b"State", b"Author", b"Labels", b"URL")
-OPTIONAL_KEY = b"Created"
-HEADER_LINE = re.compile(rb"- ([A-Za-z]+):")
-HEADING = re.compile(rb"## Comments \(([0-9]{1,9})\)")
+
+def _sibling(name: str):
+    """Load scripts/lib/<name>.py by absolute path (never through sys.path:
+    the script runs under `python3 -I`)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name + ".py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_layout = _sibling("staging_layout")
+HEADER_LINE = _layout.HEADER_LINE
+HEADING = _layout.HEADING
+Layout = _layout.Layout
+_split = _layout._split
 CONTROL = re.compile(rb"[\x00-\x1f\x7f]")
-
-
-class Layout(Exception):
-    """The fetched text is not in fetch's layout; rc 3."""
 
 
 def _escape(b: bytes) -> bytes:
     return CONTROL.sub(lambda m: b"<U+%04X>" % m.group(0)[0], b)
-
-
-def _split(data: bytes) -> list:
-    """[(content, ending)]: content without its trailing CRs, ending = those
-    CRs plus the LF (b"" for a last line with no LF)."""
-    parts = data.split(b"\n")
-    lines = []
-    for i, p in enumerate(parts):
-        last = i == len(parts) - 1
-        if last and p == b"":
-            break
-        c = p.rstrip(b"\r")
-        lines.append((c, p[len(c):] + (b"" if last else b"\n")))
-    return lines
-
-
-def _is_trailer(lines: list, i: int, body: int) -> bool:
-    return (i - 3 >= body and HEADING.fullmatch(lines[i][0]) is not None
-            and lines[i - 1][0] == b"" and lines[i - 2][0] == b"---" and lines[i - 3][0] == b"")
 
 
 def render(data: bytes, repo: bytes, num: bytes) -> tuple:
@@ -105,34 +95,12 @@ def render(data: bytes, repo: bytes, num: bytes) -> tuple:
     prefix = b"# " + repo + b"#" + num + " — ".encode()
     if not lines or not lines[0][0].startswith(prefix):
         raise Layout("line 1")
-    if len(lines) < 2 or lines[1][0] != b"":
-        raise Layout("line 2")
+    body, first, count = _layout.layout(lines)
     out = [prefix + _escape(lines[0][0][len(prefix):]) + lines[0][1], lines[1][0] + lines[1][1]]
-    keys = []
-    i = 2
-    while i < len(lines) and lines[i][0] != b"":
-        m = HEADER_LINE.match(lines[i][0])
-        if m is None:
-            raise Layout(f"header line {i + 1}")
-        keys.append(m.group(1))
-        head = m.group(0)
-        out.append(head + _escape(lines[i][0][len(head):]) + lines[i][1])
-        i += 1
-    if tuple(keys) not in (HEADER_KEYS, HEADER_KEYS + (OPTIONAL_KEY,)):
-        raise Layout("header keys")
-    if i + 2 >= len(lines) or lines[i][0] != b"" or lines[i + 1][0] != b"---" or lines[i + 2][0] != b"":
-        raise Layout("no header rule")
-    body = i + 3
-    first = None
-    count = 0
-    for j in range(body, len(lines)):
-        if _is_trailer(lines, j, body):
-            count += 1
-            if first is None:
-                first = j
-    if first is None:
-        raise Layout("no comments heading")
-    out += [c + e for c, e in lines[i:first + 1]]
+    for c, e in lines[2:body - 3]:
+        head = HEADER_LINE.match(c).group(0)
+        out.append(head + _escape(c[len(head):]) + e)
+    out += [c + e for c, e in lines[body - 3:first + 1]]
     n = int(HEADING.fullmatch(lines[first][0]).group(1))
     if n > 0:
         eol = lines[first][1] or b"\n"

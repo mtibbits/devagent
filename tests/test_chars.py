@@ -222,3 +222,181 @@ def test_generator_check(tmp_path):
     assert r.returncode == 1
     assert b"Scripts.txt" in r.stderr
     assert _gen("bogus").returncode == 2
+
+
+# ---- Task 4: chars.py ---------------------------------------------------------
+
+import json  # noqa: E402
+import random  # noqa: E402
+
+import pytest  # noqa: E402
+
+CHARS = LIB / "chars.py"
+LAYOUT = LIB / "staging_layout.py"
+RENDER = LIB / "staging_render.py"
+
+
+def _chars():
+    return _load("chars", CHARS)
+
+
+def _u(cp):
+    return chr(cp).encode("utf-8")
+
+
+def test_ac_code_points_hit():
+    c = _chars()
+    for cp in (0x202E, 0xE0041, 0x200B, 0xFE00, 0x00AD, 0x0007, 0x0378):
+        hits = c.chars_scan("body", b"a" + _u(cp) + b"b", set())
+        assert hits == [("body", 1, "U+%04X" % cp)], hex(cp)
+    for raw in (b"a" + _u(0xE000) + b"b", b"a\tb", b"one\r\ntwo\r\n"):
+        assert c.chars_scan("body", raw, set()) == [], raw
+
+
+def test_invalid_utf8():
+    c = _chars()
+    assert c.chars_scan("body", b"ok\nab\xffcd\n", set()) == [("body", 2, "0xFF")]
+    assert c.chars_scan("body", b"x\xed\xa0\x80y", set()) == [("body", 1, "0xED")]
+
+
+def test_allowlist_and_runs():
+    c = _chars()
+    rlm = _u(0x200F)
+    a = {chr(0x200F)}
+    assert c.chars_scan("body", b"a" + rlm + b"b", a) == []
+    assert c.chars_scan("body", b"a" + rlm * 3 + b"b", a) == [("body", 1, "U+200F")] * 3
+    zw = {chr(0x200C), chr(0x200D)}
+    assert len(c.chars_scan("body", _u(0x200C) + _u(0x200D) + _u(0x200C), zw)) == 3
+    flag = _u(0x1F3F3) + _u(0xFE0F) + _u(0x200D) + _u(0x1F308)
+    assert c.chars_scan("body", flag, {chr(0xFE0F), chr(0x200D)}) == []
+    assert c.chars_scan("body", rlm * 2 + b"x" + rlm * 2, a) == []
+    assert c.chars_scan("body", rlm * 2 + b"\n" + rlm * 2, a) == []
+    assert c.chars_scan("body", rlm + _u(0x202E), a) == [("body", 1, "U+202E")]
+    sub = _u(0x1F3F4) + b"".join(_u(cp) for cp in (0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F))
+    tags = {chr(cp) for cp in (0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE007F)}
+    assert len(c.chars_scan("body", sub, tags)) == 6
+
+
+def test_lines_and_fields():
+    c = _chars()
+    hit = _u(0x202E)
+    for sep in (b"\r\n", b"\r\r\n", b"\r", b"\n"):
+        assert c.chars_scan("body", b"a" + sep + b"b" + sep + hit, set()) == [("body", 3, "U+202E")], sep
+    for cp in (0x000C, 0x0085, 0x2028):
+        hits = c.chars_scan("body", b"a" + _u(cp) + b"b" + _u(0x202E), set())
+        assert [h[1] for h in hits] == [1] * len(hits), hex(cp)
+        assert ("body", 1, "U+202E") in hits
+    assert c.chars_scan("comment:12/ab cd", hit, set()) == [("comment:12_ab_cd", 1, "U+202E")]
+    long_id = "a" * 70
+    assert c.chars_scan("comment:" + long_id, hit, set())[0][0] == "comment:" + "a" * 64
+    with pytest.raises(ValueError):
+        c.chars_scan("comments", hit, set())
+
+
+def test_escape():
+    c = _chars()
+    a = {chr(0x200F), chr(0xE0041)}
+    assert c.chars_escape("x" + chr(0x200F) + "y", a) == "x<U+200F>y"
+    assert c.chars_escape("x" + chr(0xE0041) + "y", a) == "x<U+E0041>y"
+    run = chr(0x200F) * 3
+    assert c.chars_escape(run, a) == run
+    assert c.chars_escape("x" + chr(0x202E), a) == "x" + chr(0x202E)
+    raw = b"a" + _u(0x200F) + b"\r\nb\xff" + _u(0x200F) + b"\n"
+    assert c.chars_escape_bytes(raw, a) == b"a<U+200F>\r\nb\xff" + _u(0x200F) + b"\n"
+
+
+def test_scan_of_escape_equals_scan():
+    c = _chars()
+    rnd = random.Random(923)
+    allow = {chr(0x200F), chr(0x200D)}
+    members = [_u(0x200F), _u(0x200D), _u(0x202E), _u(0x200B), b"\x07"]
+    plain = [b"a", b"Z", b" ", _u(0x0430), _u(0x6771)]
+    ends = [b"\n", b"\r", b"\r\n"]
+    bad = [b"\xff", b"\xed\xa0\x80", b"\xc3"]
+    pool = members * 3 + plain * 3 + ends + bad
+    for _ in range(2000):
+        b = b"".join(rnd.choice(pool) for _ in range(rnd.randint(0, 24)))
+        assert c.chars_scan("body", c.chars_escape_bytes(b, allow), set()) == c.chars_scan("body", b, allow), b
+
+
+def test_mixed_record():
+    c = _chars()
+    paypal = "p" + chr(0x0430) + "ypal"
+    assert c.mixed_record("title", "x\n" + paypal) == [
+        {"field": "title", "line": 2, "word_scripts": ["Cyrillic", "Latin"]}]
+    privet = "".join(chr(cp) for cp in (0x41F, 0x440, 0x438, 0x432, 0x435, 0x442)) + " " + \
+        "".join(chr(cp) for cp in (0x43C, 0x438, 0x440))
+    formula = chr(0x3B1) + " + " + chr(0x3B2) + " = " + chr(0x3B3)
+    tokyo = "".join(chr(cp) for cp in (0x6771, 0x4EAC, 0x30BF, 0x30EF, 0x30FC))
+    for text in (privet, formula, tokyo):
+        assert c.mixed_record("body", text) == [], text
+    assert c.mixed_record("body", "ab" + chr(0x30FC)) == [
+        {"field": "body", "line": 1, "word_scripts": ["Common", "Latin"]}]
+    assert c.mixed_record("body", "ab1" + chr(0x0430)) == []
+    assert c.mixed_record_bytes("body", b"\xff" + paypal.encode("utf-8") + b"\n" + paypal.encode("utf-8")) == [
+        {"field": "body", "line": 2, "word_scripts": ["Cyrillic", "Latin"]}]
+
+
+def test_runtime_tables_unused():
+    c = _chars()
+    assert c.chars_scan("body", _u(0x10D40), set()) == []
+    assert c.mixed_record("body", "ab" + chr(0xA7CB) + "cd") == []
+
+
+def test_field_order():
+    c = _chars()
+    hit = _u(0x202E)
+    cand = (b"# acme/widgets#7 \xe2\x80\x94 T" + hit + b"\n\n- State: open" + hit + b"\n- Author: @a" + hit
+            + b"\n- Labels: bug" + hit + b"\n- URL: u\n\n---\n\nbody" + hit + b"\n" + hit + b"\n\n---\n\n## Comments (0)\n")
+    hits = c.candidate_scan(cand, set())
+    assert [h[0] for h in hits] == ["title", "body", "body", "label", "state", "author"]
+    assert len(hits) == 6
+
+
+def test_modules_load_acyclic():
+    for path in (CHARS, LAYOUT, RENDER):
+        code = ("import importlib.util,sys\n"
+                "s=importlib.util.spec_from_file_location('m', %r)\n"
+                "m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
+                "print('loaded')\n") % str(path)
+        r = subprocess.run([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout == b"loaded\n"
+        assert b"RecursionError" not in r.stderr
+
+
+def test_no_unicodedata():
+    code = ("import sys\n"
+            "sys.modules['unicodedata'] = None\n"
+            "import importlib.util\n"
+            "s=importlib.util.spec_from_file_location('chars', %r)\n"
+            "c=importlib.util.module_from_spec(s); s.loader.exec_module(c)\n"
+            "assert c.chars_scan('body', chr(0x202E).encode(), set())\n"
+            "c.chars_escape('a', set()); c.mixed_record('body', 'ab')\n"
+            "c.chars_escape_bytes(b'a', set()); c.mixed_record_bytes('body', b'ab')\n"
+            "g=importlib.util.spec_from_file_location('gen', %r)\n"
+            "m=importlib.util.module_from_spec(g); g.loader.exec_module(m)\n"
+            "assert m.main(['check']) == 0\n"
+            "print('no-unicodedata-ok')\n") % (str(CHARS), str(GEN))
+    r = subprocess.run([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == b"no-unicodedata-ok\n"
+
+
+def test_new_sources_are_ascii():
+    for p in (LIB / "chars.py", LIB / "chars_gen.py", LIB / "chars_table.py", LIB / "staging_layout.py",
+              REPO / "tests" / "test_chars.py", REPO / "tests" / "chars.bats", REPO / "tests" / "chars-pull.bats"):
+        data = p.read_bytes()
+        assert all(b < 0x80 for b in data), p
+
+
+def test_load_allowlist(tmp_path):
+    c = _chars()
+    assert c.load_allowlist(None) == frozenset()
+    f = tmp_path / "a.json"
+    f.write_bytes(b'["\\u200f", "\\u200d"]')
+    assert c.load_allowlist(str(f)) == frozenset({chr(0x200F), chr(0x200D)})
+    for bad in (b"null", b"{}", b'["ab"]', b"[1]", b'["a"', b""):
+        f.write_bytes(bad)
+        with pytest.raises(ValueError):
+            c.load_allowlist(str(f))
