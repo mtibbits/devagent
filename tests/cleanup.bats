@@ -41,7 +41,28 @@ setup() {
     # Local main branch in source repo for the checkout.
     ( cd "$SOURCE_DIR" && git branch -f main )
 }
-teardown() { devagent_test_teardown; }
+# #735: cleanup starts the actuals rebuild detached; wait for it (bounded) so no
+# test leaves a process writing into a removed tmp dir.
+_wait_rebuild() {
+    local pidf="$HOME/.claude/devagent/actuals-rebuild.pid" pid n=0
+    [ -f "$pidf" ] || return 0
+    pid="$(cat "$pidf")"
+    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
+}
+teardown() { _wait_rebuild; devagent_test_teardown; }
+
+# #735: the [archive] tests reach the actuals rebuild, whose milestones run
+# dispatches the project's github issue_source: stub it, and catch any real CLI.
+_stub_backends() {
+    . "$BATS_TEST_DIRNAME/helpers/wbs-tracker.bash"
+    export WBS_STUB_ROOT="$DEVAGENT_TMP"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
+    export DEVAGENT_CODE_BACKEND_DIR="$DEVAGENT_TMP/code-backends"
+    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+    wbs_mr_install_stub "$DEVAGENT_CODE_BACKEND_DIR"
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    export PATH="$DEVAGENT_TMP/shims:$PATH"
+}
 
 # #611: a line staged for the PROJECT layer (the devdoc register the setup committed).
 stage_in_project_layer() {
@@ -648,6 +669,7 @@ _seed_transcript() {
 
 @test "cleanup.sh archives transcripts when [archive] is configured (#731)" {
     _seed_transcript
+    _stub_backends
     printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$DEVAGENT_TMP/archive" \
         >> "$HOME/.claude/devagent/config.toml"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
@@ -665,6 +687,7 @@ _prepend_config() {
 
 @test "cleanup.sh archives when [archive] is written as dotted keys (#731)" {
     _seed_transcript
+    _stub_backends
     _prepend_config "archive.transcripts_dir = \"$DEVAGENT_TMP/archive\"
 archive.host_id = \"h1\""
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
@@ -675,6 +698,7 @@ archive.host_id = \"h1\""
 
 @test "cleanup.sh archives when [archive] is written as an inline table (#731)" {
     _seed_transcript
+    _stub_backends
     _prepend_config "archive = { transcripts_dir = \"$DEVAGENT_TMP/archive\", host_id = \"h1\" }"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -684,6 +708,7 @@ archive.host_id = \"h1\""
 
 @test "cleanup.sh warns once and completes when the archive fails (#731)" {
     _seed_transcript
+    _stub_backends
     printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$DEVDOC_DIR/archive" \
         >> "$HOME/.claude/devagent/config.toml"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
@@ -1225,4 +1250,102 @@ _net_secs() {
     ! grep -q '^start ' "$DEVAGENT_TMP/w2/calls" || false
     [[ "$output" != *"devDoc sync"* && "$output" != *"WARNING:"* ]]
     [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]
+}
+
+
+# --- #735: the detached actuals rebuild ---------------------------------------------
+
+
+# _archive_cfg [extra]: an [archive] table (plus extra lines) in config.toml.
+_archive_cfg() {
+    printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n%s' "$DEVAGENT_TMP/archive" "${1:-}" \
+        >> "$HOME/.claude/devagent/config.toml"
+}
+
+# _actuals_file <hours-ago>: a usable all-projects actuals.json that old.
+_actuals_file() {
+    python3 - "$HOME/.claude/devagent/actuals.json" "$1" <<'PY'
+import json, sys
+from datetime import datetime, timedelta, timezone
+at = (datetime.now(timezone.utc) - timedelta(hours=float(sys.argv[2]))).strftime("%Y-%m-%dT%H:%M:%SZ")
+doc = {"actuals_version": "1.0", "generated_at": at, "inputs": {"archive": None, "hosts": [], "project": None},
+       "issues": [], "projects": [], "unassigned": [], "sources": [],
+       "time_rule": {"attention_cap_s": 900.0, "idle_gap_s": 300.0, "tool_gap_s": 3600.0}}
+open(sys.argv[1], "w").write(json.dumps(doc))
+PY
+}
+
+_stamp() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generated_at"])' "$1"; }
+
+@test "cleanup.sh skips the actuals rebuild while actuals.json is younger than actuals_max_age_hours (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg
+    _actuals_file 1
+    local before
+    before="$(sha256sum "$HOME/.claude/devagent/actuals.json")"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"actuals"* ]]
+    [ ! -e "$HOME/.claude/devagent/actuals-rebuild.pid" ]
+    [ "$(sha256sum "$HOME/.claude/devagent/actuals.json")" = "$before" ]
+}
+
+@test "cleanup.sh rebuilds actuals.json in the background when it is missing, and when it is older (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg 'actuals_max_age_hours = 1'
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^cleanup.sh: rebuilding actuals.json in the background (log: ' <<<"$output")" -eq 1 ]
+    _wait_rebuild
+    [ -f "$HOME/.claude/devagent/actuals.json" ]
+    grep -q "^actuals: wrote $HOME/.claude/devagent/actuals.json (" "$HOME/.claude/devagent/actuals-rebuild.log"
+    [ "$(stat -c %a "$HOME/.claude/devagent/actuals-rebuild.log")" = 600 ]
+    # a 2 h old file under a 1 h max age is rebuilt too: generated_at moves
+    _actuals_file 2
+    local old
+    old="$(_stamp "$HOME/.claude/devagent/actuals.json")"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' '
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-1"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    _wait_rebuild
+    [ "$(_stamp "$HOME/.claude/devagent/actuals.json")" != "$old" ]
+}
+
+@test "cleanup.sh warns once and completes when the actuals rebuild cannot start (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg 'actuals_max_age_hours = 0'
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'cleanup: actuals rebuild failed (non-fatal)' <<<"$output")" -eq 1 ]
+    [[ "$output" == *"actuals: [archive].actuals_max_age_hours must be a number of hours, 0 < x <= 168: 0"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    grep -q '^active_issue *= *""' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ ! -e "$HOME/.claude/devagent/actuals-rebuild.pid" ]
+}
+
+@test "cleanup.sh does not start a second actuals rebuild while one runs (#735)" {
+    _seed_transcript
+    _stub_backends
+    _archive_cfg
+    sleep 30 &
+    local pid=$!
+    echo "$pid" > "$HOME/.claude/devagent/actuals-rebuild.pid"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    kill "$pid" 2>/dev/null || true
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"cleanup.sh: an actuals rebuild is already running (pid $pid); not starting another"* ]]
+    [ ! -e "$HOME/.claude/devagent/actuals.json" ]
+}
+
+@test "cleanup.sh does not rebuild actuals without [archive] (#735)" {
+    _seed_transcript
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"actuals"* ]]
+    [ ! -e "$HOME/.claude/devagent/actuals.json" ]
+    [ ! -e "$HOME/.claude/devagent/actuals-rebuild.pid" ]
 }

@@ -370,6 +370,44 @@ if [ "$commit_devdoc" = true ] && [ "$devdoc_git" -eq 0 ] && devdoc_sync_repo "$
 fi
 
 
+# #735: rebuild <devagent_home>/actuals.json when it is stale, DETACHED. A
+# build reads every transcript and runs one milestones.sh per project (tens of
+# seconds to minutes of tracker calls), longer than a close's launcher budget,
+# so the close never waits for it. Only the age gate runs here (actuals.py
+# preflight --if-stale: one interpreter, no network): fresh is silent. Stale
+# starts `actuals.sh --if-stale` in its own session (setsid where present),
+# bounded by `timeout` where present, its output in actuals-rebuild.log and its
+# pid in actuals-rebuild.pid; a live pid there means one is already running.
+# Every failure warns and the close completes. Called inside the [archive]
+# gate, after the archive run, so an unconfigured close still spawns nothing.
+ACTUALS_REBUILD_TIMEOUT_S=900
+_actuals_rebuild() {
+    local home rc=0 pid log pidf
+    home="$(devagent_home)"
+    log="$home/actuals-rebuild.log" pidf="$home/actuals-rebuild.pid"
+    if [ -f "$pidf" ] && pid="$(cat "$pidf" 2>/dev/null)" && [[ "$pid" =~ ^[0-9]+$ ]] \
+            && kill -0 "$pid" 2>/dev/null; then
+        info "an actuals rebuild is already running (pid $pid); not starting another"
+        return 0
+    fi
+    DA_HOME="$home" python3 "$DEVAGENT_ROOT/scripts/lib/actuals.py" preflight --if-stale || rc=$?
+    case "$rc" in
+        3) return 0 ;;   # fresh
+        0) ;;
+        *) warn "cleanup: actuals rebuild failed (non-fatal)"; return 0 ;;
+    esac
+    local cmd=(bash "$DEVAGENT_ROOT/scripts/actuals.sh" --if-stale)
+    command -v timeout >/dev/null 2>&1 && cmd=(timeout "$ACTUALS_REBUILD_TIMEOUT_S" "${cmd[@]}")
+    command -v setsid >/dev/null 2>&1 && cmd=(setsid "${cmd[@]}")
+    # stdin, stdout, stderr and fd 3 (a test harness's) are not inherited, so
+    # nothing waits on the child.
+    ( umask 077; : > "$log" ) 2>/dev/null || { warn "cleanup: actuals rebuild failed (non-fatal)"; return 0; }
+    DA_HOME="$home" nohup "${cmd[@]}" </dev/null >>"$log" 2>&1 3>&- &
+    pid=$!
+    ( umask 077; echo "$pid" > "$pidf" ) 2>/dev/null || true
+    info "rebuilding actuals.json in the background (log: $log)"
+}
+
 # #731: copy this machine's transcripts into the durable archive when
 # [archive].transcripts_dir is set (scripts/lib/archive-transcripts.py owns
 # every rule). The bash-side table test keeps an unconfigured close spawn-free
@@ -382,4 +420,5 @@ fi
 if grep -Eq '^[[:space:]]*(\[[[:space:]]*archive[[:space:]]*[].]|archive[[:space:]]*[.=])' "$(config_path)" 2>/dev/null; then
     DA_HOME="$(devagent_home)" "$DEVAGENT_ROOT/scripts/archive-transcripts.sh" --if-configured || \
         warn "cleanup: transcript archive failed (non-fatal)"
+    _actuals_rebuild
 fi

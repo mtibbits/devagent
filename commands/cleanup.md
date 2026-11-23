@@ -327,4 +327,20 @@ storage; a `transcripts_dir` inside a git work tree or inside
 `~/.claude/projects` is refused. `cost-report --archive <transcripts_dir>` reads
 it, every host partition at once, counting each API call once.
 
+**Actuals rebuild (#735).** Inside the same `[archive]` gate, after the
+archive run, cleanup checks the age of `<devagent_home>/actuals.json` (one
+interpreter, no network). While it is a usable document younger than
+`[archive].actuals_max_age_hours` (default 24) cleanup says nothing. When it is
+older, missing or unusable, cleanup starts `actuals.sh --if-stale` in the
+background, prints `rebuilding actuals.json in the background (log:
+<devagent_home>/actuals-rebuild.log)` and does not wait: a build makes one
+milestones run per project (about a minute of tracker calls), longer than a
+close may take. The background run is bounded (15 minutes where `timeout`
+exists) and its pid is in `actuals-rebuild.pid`; a close that finds it still
+running starts no second one. A refused `actuals_max_age_hours` or an
+unreadable config prints `cleanup: actuals rebuild failed (non-fatal)` and the
+close completes; a background build that fails says why in its log, and the
+portfolio reports the file as unavailable until a build succeeds
+(`/devagent:actuals` runs one by hand).
+
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup.sh" $ARGUMENTS`

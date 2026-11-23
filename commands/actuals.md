@@ -157,19 +157,20 @@ not commit it or paste it into an issue; quote figures instead.
 ## Cost and the cleanup rebuild
 
 A build reads every transcript once (one cost-report pass, time and overhead
-included) and runs one `milestones.sh --all --json` per project, which makes
-one tracker `issue-list` call per configured source. Measured at #735 on one
-host: the transcript pass took about 10 s over 895 MB in 24 dirs; the
-milestones runs took from 3 s to 55 s per project (devagent, about 10,000
-rows) and about 2.5 minutes over 14 projects.
+included) and runs one `milestones.sh --all --json` per project, up to 6 at
+once, each making one tracker `issue-list` call per configured source and its
+MR lookups. Measured at #735 on one host with 14 projects: the transcript pass
+took about 10 s over 895 MB in 24 dirs, and a whole build about 64 s, bounded
+by the largest project's own milestones run (devagent, about 10,000 rows).
 
-Cleanup (step 24) runs `actuals.sh --if-stale` inside its `[archive]` gate,
-after the archive run, so a host without an `[archive]` table builds actuals
-on demand only. `[archive].actuals_max_age_hours` (`0 < x <= 168`, default 24)
-sets the age; 168 is the portfolio's 7-day stale line. **A plugin older than
-#735 refuses an `[archive]` table that sets this key** (it stops archiving,
-with a warning): set it only after every install that reads the config is
-upgraded.
+Cleanup (step 24) checks the file's age inside its `[archive]` gate, after
+the archive run, and when it is stale starts `actuals.sh --if-stale` in the
+background without waiting (`commands/cleanup.md`, "Actuals rebuild"); a host
+without an `[archive]` table builds actuals on demand only.
+`[archive].actuals_max_age_hours` (`0 < x <= 168`, default 24) sets the age;
+168 is the portfolio's 7-day stale line. **A plugin older than #735 refuses an
+`[archive]` table that sets this key** (it stops archiving, with a warning):
+set it only after every install that reads the config is upgraded.
 
 ## Versions
 
