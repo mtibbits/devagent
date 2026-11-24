@@ -491,6 +491,81 @@ _state_listing() { (cd "$DA_HOME/state" && ls -la . | sed 1d | awk '{ print $1, 
   [ -f "$PG_RECORDED" ]
 }
 
+# _run_names_file <records-file> [<flags>…]: the full run, the names check
+# scanning <records-file> in place of --file.
+_run_names_file() {
+  local nf="$1"; shift
+  pg_run "$PG" run "${PG_COMMON[@]}" --repo acme/widgets --backend github --backend-script "$PG_GITHUB" \
+    --record "$RECORD" --names-file "$nf" --no-record "$@"
+}
+
+@test "run --names-file: hits are reported at the record numbers" {
+  local nf="$BATS_TEST_TMPDIR/added-lines.tsv"
+  # the post itself is clean; the records are the lines an edit adds to it.
+  pg_post; pg_record
+  printf '12\tthis line has %s in it\n40\tclean\n' "$PG_SENTINEL" > "$nf"
+  _run_names_file "$nf"
+  [ "$status" -eq "$(pg_held)" ]
+  [ "$stderr" = "post-gate: permission pass
+post-gate: tracker pass
+post-gate: names hold names-hit hits=1 lines=12" ]
+  # several hits, in the file's order or not, are listed ascending, each once.
+  printf '40\t%s\n7\tclean\n12\tx %s y\n12\tagain %s\n' "$PG_SENTINEL" "${PG_SENTINEL^^}" "$PG_SENTINEL" > "$nf"
+  _run_names_file "$nf"
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: names hold names-hit hits=2 lines=12,40" ]
+  # a text that starts with a TAB keeps its number: the split is at the FIRST tab.
+  printf '3\t\t%s after a tab\n' "$PG_SENTINEL" > "$nf"
+  _run_names_file "$nf"
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: names hold names-hit hits=1 lines=3" ]
+  # a last record with no newline is read.
+  printf '5\tclean\n9\t%s' "$PG_SENTINEL" > "$nf"
+  _run_names_file "$nf"
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: names hold names-hit hits=1 lines=9" ]
+  # the records are scanned INSTEAD of --file: a sentinel in the post alone is
+  # not this check's hit (its review record then goes stale, which is review's).
+  printf '5\tclean\n' > "$nf"
+  _run_names_file "$nf"
+  [ "$status" -eq 0 ]
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: review pass" ]
+  printf 'has %s\n' "$PG_SENTINEL" > "$POST"; pg_record
+  _run_names_file "$nf"
+  [ "$status" -eq 0 ]
+  [ "$(pg_gate_lines | sed -n 3p)" = "post-gate: names pass" ]
+  # no record at all is an edit that adds nothing.
+  : > "$nf"
+  _run_names_file "$nf"
+  [ "$status" -eq 0 ]
+  # a record with no TAB, a number that is not one, or a missing file holds gate-error.
+  local bad
+  for bad in 'no tab here' $'x\ttext' $'0\ttext' $'012\ttext' $'-3\ttext' $'12345678901\ttext' $'\ttext' ''; do
+    printf '4\tclean\n%s\n' "$bad" > "$nf"
+    _run_names_file "$nf"
+    [ "$(pg_gate_lines | tail -n 1)" = "post-gate: names hold gate-error names-file-malformed" ] \
+      || { echo "record: '$bad': $stderr" >&2; false; }
+    [ "$status" -eq "$(pg_held)" ]
+  done
+  _run_names_file "$BATS_TEST_TMPDIR/no-such-records.tsv"
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: names hold gate-error file-unreadable" ]
+  # records that are not valid UTF-8 hold as the text would.
+  printf '4\tcaf\xc3\n' > "$nf"
+  _run_names_file "$nf"
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: names hold gate-error invalid-utf8" ]
+  # no temp file is left behind (on a hold, a pass or a malformed record),
+  # and nothing was recorded.
+  mkdir "$BATS_TEST_TMPDIR/tmp"
+  printf '12\tthis line has %s in it\n' "$PG_SENTINEL" > "$nf"
+  TMPDIR="$BATS_TEST_TMPDIR/tmp" _run_names_file "$nf"
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: names hold names-hit hits=1 lines=12" ]
+  printf '12\tclean\n' > "$nf"
+  TMPDIR="$BATS_TEST_TMPDIR/tmp" _run_names_file "$nf"
+  [ "$status" -eq 0 ]
+  printf 'no tab\n' > "$nf"
+  TMPDIR="$BATS_TEST_TMPDIR/tmp" _run_names_file "$nf"
+  [ "$status" -eq "$(pg_held)" ]
+  [ -z "$(ls -A "$BATS_TEST_TMPDIR/tmp")" ]
+  [ ! -e "$PG_RECORDED" ]
+}
+
 @test "names: text or a list that is not valid UTF-8 holds gate-error" {
   # an incomplete lead byte at a line end
   printf 'clean line\ncaf\xc3\nlast\n' > "$POST"

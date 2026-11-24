@@ -75,6 +75,26 @@
 #                         a user.status of `none` prints no head at all (a
 #                         transport failure: DNS, network, timeout).
 #
+#   GH_STUB_GATE_DIR      the #966 leak-gate paths. Unset, every answer is as
+#                         above: `repos/<o>/<r>` prints `{}` and a comment
+#                         POST is a stub assertion failure (exit 3), so a
+#                         suite that reaches the write without opting in goes
+#                         red. Set:
+#                         `gh api … repos/<o>/<r>` serves <dir>/repo.json when
+#                         it exists (writes repo.err to stderr, exits repo.rc,
+#                         default 0), else `{}`;
+#                         `gh api … --method POST repos/<o>/<r>/issues/<n>/comments
+#                         -F body=@-` copies stdin to <dir>/comment.body,
+#                         appends one line to <dir>/comment.posts, prints
+#                         <dir>/comment.json (default: an object whose
+#                         html_url is https://<host>/<o>/<r>/issues/<n>#issuecomment-1),
+#                         writes comment.err to stderr and exits comment.rc
+#                         (default 0). The POST is keyed on `--method POST`
+#                         and tested before the events/comments GET, so with
+#                         GH_STUB_EVENTS_DIR also set the paginated GET is
+#                         still the comment list. Any other POST, or one
+#                         without `-F body=@-`, exits 3.
+#
 # `gh api` and `gh api graphql` append their argv to GH_STUB_ARGV_LOG as
 # `issue view` does, plus a trailing `GH_HOST=<value>` (`GH_HOST=<unset>` when
 # unset) (#712). Any other REST path is a stub assertion failure (exit 3).
@@ -155,6 +175,42 @@ _events_serve() {
   [ -f "$d/$name.err" ] && cat "$d/$name.err" >&2
   rc=$(cat "$d/$name.rc" 2>/dev/null || echo 0)
   exit "$rc"
+}
+
+_api_method() {
+  # _api_method "$@" → the value after --method or -X (GET when neither is given).
+  local a prev="" m=GET
+  for a in "$@"; do
+    case "$prev" in --method|-X) m="$a" ;; esac
+    prev="$a"
+  done
+  printf '%s' "$m"
+}
+
+_gate_repo_serve() {
+  # _gate_repo_serve → the GH_STUB_GATE_DIR answer for repos/<o>/<r> (#966).
+  local d="$GH_STUB_GATE_DIR"
+  cat "$d/repo.json"
+  [ -f "$d/repo.err" ] && cat "$d/repo.err" >&2
+  exit "$(cat "$d/repo.rc" 2>/dev/null || echo 0)"
+}
+
+_gate_comment_post() {
+  # _gate_comment_post <path> "$@" → the comment write (#966): the body is stdin.
+  local path="$1" d="${GH_STUB_GATE_DIR:-}" host=github.com a prev=""; shift
+  [ -n "$d" ] || _assert_fail "api: comment POST with GH_STUB_GATE_DIR unset: $path"
+  _has_flag body=@- -- "$@" || _assert_fail "api: comment POST without -F body=@-: $*"
+  for a in "$@"; do [ "$prev" = --hostname ] && host="$a"; prev="$a"; done
+  cat > "$d/comment.body"
+  printf '%s\n' "$path" >> "$d/comment.posts"
+  if [ -f "$d/comment.json" ]; then
+    cat "$d/comment.json"
+  else
+    path="${path#repos/}"
+    printf '{"id": 1, "html_url": "https://%s/%s#issuecomment-1"}\n' "$host" "${path%/comments}"
+  fi
+  [ -f "$d/comment.err" ] && cat "$d/comment.err" >&2
+  exit "$(cat "$d/comment.rc" 2>/dev/null || echo 0)"
 }
 
 _run_jq() {
@@ -414,8 +470,17 @@ case "$sub $sub2" in
     # and `gh api repos/<repo>` → {}. #712: any other path fails (exit 3).
     _api_log "$@"
     _path=$(_api_path "$@")
-    if [[ "$_path" =~ ^repos/[^/]+/[^/]+/pulls/[^/]+/comments$ ]]; then
+    if [ "$(_api_method "$@")" = POST ]; then
+      # #966: the one write. Keyed on the method and tested first, so the
+      # events/comments GET branch below never serves it.
+      if [[ "$_path" =~ ^repos/[^/]+/[^/]+/issues/[^/]+/comments$ ]]; then
+        _gate_comment_post "$_path" "$@"
+      fi
+      _assert_fail "api: unexpected POST to $_path"
+    elif [[ "$_path" =~ ^repos/[^/]+/[^/]+/pulls/[^/]+/comments$ ]]; then
       _run_jq '[]' "$@"
+    elif [[ "$_path" =~ ^repos/[^/]+/[^/]+$ ]] && [ -n "${GH_STUB_GATE_DIR:-}" ] && [ -f "$GH_STUB_GATE_DIR/repo.json" ]; then
+      _gate_repo_serve
     elif [[ "$_path" =~ ^repos/[^/]+/[^/]+/branches/.+$ ]] || [[ "$_path" =~ ^repos/[^/]+/[^/]+$ ]]; then
       echo "{}"
     elif [[ "$_path" =~ ^repos/[^/]+/[^/]+/issues/[^/]+/(events|comments)$ ]]; then

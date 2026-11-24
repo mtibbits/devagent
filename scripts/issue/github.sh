@@ -831,6 +831,36 @@ cmd_whoami() {
   printf '%s\n' "$id"
 }
 
+# repo-owner <repo>: "<owner-id>\t<owner-login>" from one repos/<owner>/<repo>
+# call (#966) — the leak gate's tracker check compares the id with whoami's.
+# The host comes from <repo> and the call runs with GH_HOST unset, as the
+# other read verbs above. Exit 1 on bad arguments, the wrong-host refusal or a
+# failed call; 5 when the answer names no positive integer owner.id or no
+# login of the form [A-Za-z0-9][A-Za-z0-9_-]*. Never 2. Stdout stays empty on
+# every failure.
+cmd_repo_owner() {
+  if [ "$#" -ne 1 ] || ! _gh_ev_args_ok "$@"; then
+    echo "github.sh: usage: repo-owner <repo>" >&2
+    return 1
+  fi
+  _gh_target repo-owner "$1" || return 1
+  _need gh
+  _need jq
+  local out line id login
+  out="$(_gh_ev_call api --hostname "$GT_HOST" "repos/$GT_OWNER/$GT_NAME")" || return 1
+  line="$(printf '%s' "$out" | jq -r '
+    if type == "object" and (.owner | type) == "object"
+       and (.owner.id | type) == "number" and (.owner.login | type) == "string"
+    then "\(.owner.id)\t\(.owner.login)" else empty end' 2>/dev/null | tr -d '\r')" || line=""
+  id="${line%%$'\t'*}"
+  login="${line#*$'\t'}"
+  if ! [[ "$id" =~ ^[1-9][0-9]*$ ]] || ! [[ "$login" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+    echo "github.sh: repo-owner: repos/$GT_OWNER/$GT_NAME on $GT_HOST names no numeric owner id and login" >&2
+    return 5
+  fi
+  printf '%s\t%s\n' "$id" "$login"
+}
+
 main() {
   local verb="${1:-}"
   if [ -z "$verb" ]; then
@@ -851,6 +881,7 @@ main() {
     events)        cmd_events       "$@" ;;
     comment-records) cmd_comment_records "$@" ;;
     whoami)        cmd_whoami       "$@" ;;
+    repo-owner)    cmd_repo_owner   "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2
       exit 2

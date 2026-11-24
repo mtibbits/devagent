@@ -469,6 +469,124 @@ _pg_permission() {
   _pg_pass permission
 }
 
+# --- the tracker check --------------------------------------------------------
+#
+# auto_post_owners (top level of the user config only) is read and every entry
+# checked first, for every backend. Then:
+#   github  the owner is the second path part of the repo's canonical key. An
+#           entry github:<owner> (case-insensitive, on any host: the grammar
+#           has no host part) passes with no call. Otherwise the repo owner's
+#           numeric id (`repo-owner`) must equal the authenticated account's
+#           (`whoami`), both asked through the backend script the caller will
+#           write through, so both answer for the host the write goes to. This
+#           is the one caller of whoami with trust off (spec §9.1;
+#           tests/events-trust-off.bats allow-lists this file).
+#   gitlab  the namespace (the key's path minus the project) must be listed,
+#           compared lower-cased; a parent group does not cover a subgroup.
+#   jira    <repo>, the project key, must be listed exactly.
+#   other   unowned.
+# GitLab and JIRA have no whoami (#900), so neither makes a backend call.
+
+_PG_OWNER_RE='^(github:[A-Za-z0-9][A-Za-z0-9_-]*|gitlab:[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*|jira:[A-Z][A-Z0-9_]*)$'
+
+# _pg_owner_listed <owners> <entry> [fold]: 0 iff <entry> is a line of <owners>
+# (both sides lower-cased with `fold`).
+_pg_owner_listed() {
+  local line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ -z "${3:-}" ] || line="${line,,}"
+    if [ "$line" = "$2" ]; then return 0; fi
+  done <<<"$1"
+  return 1
+}
+
+_pg_tracker() {
+  local repo="${PG_ARG[repo]}" backend="${PG_ARG[backend],,}"
+  local backend_script="${PG_ARG["backend-script"]}"
+  local owners="" rc=0 entry key rest owner out oid who
+  owners="$(config_get_global_list auto_post_owners 2>/dev/null)" || rc=$?
+  case "$rc" in
+    0 | 1) ;;   # absent is an empty list
+    3) _pg_hold tracker gate-error owners-malformed; return ;;
+    *) _pg_hold tracker gate-error config-unreadable; return ;;
+  esac
+  if [ -n "$owners" ]; then
+    while IFS= read -r entry; do
+      if ! [[ "$entry" =~ $_PG_OWNER_RE ]]; then
+        _pg_hold tracker gate-error owners-malformed
+        return
+      fi
+    done <<<"$owners"
+  fi
+  case "$backend" in
+    github)
+      if ! key="$(_trust_py key github "$repo" 2>/dev/null)"; then
+        _pg_hold tracker gate-error repo-unkeyable
+        return
+      fi
+      rest="${key#github:}"   # <host>/<owner>/<name>
+      rest="${rest#*/}"
+      owner="${rest%%/*}"
+      if [ -z "$owner" ]; then
+        _pg_hold tracker gate-error repo-unkeyable
+        return
+      fi
+      if _pg_owner_listed "$owners" "github:$owner" fold; then
+        _pg_pass tracker
+        return
+      fi
+      rc=0
+      out="$("$backend_script" repo-owner "$repo")" || rc=$?
+      oid="${out%%$'\t'*}"
+      if [ "$rc" -ne 0 ] || ! [[ "$oid" =~ ^[1-9][0-9]*$ ]]; then
+        _pg_hold tracker tracker-unavailable
+        return
+      fi
+      rc=0
+      who="$("$backend_script" whoami "$repo")" || rc=$?
+      who="${who//$'\r'/}"
+      if [ "$rc" -ne 0 ] || ! [[ "$who" =~ ^[1-9][0-9]*$ ]]; then
+        _pg_hold tracker tracker-unavailable
+        return
+      fi
+      if [ "$oid" != "$who" ]; then
+        _pg_hold tracker unowned
+        return
+      fi
+      _pg_pass tracker
+      ;;
+    gitlab)
+      if ! key="$(_trust_py key gitlab "$repo" 2>/dev/null)"; then
+        _pg_hold tracker gate-error repo-unkeyable
+        return
+      fi
+      rest="${key#gitlab:}"   # <host>/<namespace>/<project>
+      rest="${rest#*/}"
+      owner="${rest%/*}"
+      if [ -z "$owner" ] || [ "$owner" = "$rest" ]; then
+        _pg_hold tracker gate-error repo-unkeyable
+        return
+      fi
+      if ! _pg_owner_listed "$owners" "gitlab:$owner" fold; then
+        _pg_hold tracker unowned
+        return
+      fi
+      _pg_pass tracker
+      ;;
+    jira)
+      if ! _pg_owner_listed "$owners" "jira:$repo"; then
+        _pg_hold tracker unowned
+        return
+      fi
+      _pg_pass tracker
+      ;;
+    *)
+      _pg_hold tracker unowned
+      ;;
+  esac
+}
+
 # --- the names check ----------------------------------------------------------
 #
 # First match wins:
@@ -692,9 +810,40 @@ _pg_line_numbers() {
   ( set -o pipefail; LC_ALL="$1" grep "$2" -f - -- "$3" | LC_ALL=C cut -d: -f1 )
 }
 
-# _pg_names: the names check.
+# _pg_names_file_split <records> <out>: --names-file, one `<n><TAB><text>`
+# record per line, <n> being the text's line number in --file. Writes the texts
+# to <out>, one per line, in order. SETTER-GLOBAL PG_NF_NUM[k]: the number of
+# the k-th record. The split is at the FIRST tab, by expansion, so a text may
+# start with a tab; the number is bounded and matched as text. 1 on a record
+# with no tab or a number outside ^[1-9][0-9]{0,9}$.
+_pg_names_file_split() {
+  local LC_ALL=C line n k=0
+  PG_NF_NUM=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *$'\t'*) ;;
+      *) return 1 ;;
+    esac
+    n="${line%%$'\t'*}"
+    [[ "$n" =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+    k=$((k + 1))
+    PG_NF_NUM[k]="$n"
+    printf '%s\n' "${line#*$'\t'}"
+  done < "$1" > "$2"
+}
+
+# _pg_names: the names check. The temp file --names-file needs is removed on
+# every way out.
 _pg_names() {
-  local text="${PG_ARG[file]}" loc rc name cites="" wnums cnums all n count=0 list="" vrc=0
+  local rc=0
+  PG_NAMES_TMP=""
+  _pg_names_scan || rc=$?
+  [ -z "$PG_NAMES_TMP" ] || rm -f -- "$PG_NAMES_TMP"
+  return "$rc"
+}
+
+_pg_names_scan() {
+  local text="${PG_ARG[file]}" loc rc name cites="" wnums cnums all n count=0 list="" vrc=0 mapped=""
   _pg_denylist_locate
   case "$PG_DL_STATE" in
     ok) ;;
@@ -718,11 +867,23 @@ _pg_names() {
   fi
   loc="$UTF8_LOCALE"
   if [ -n "${PG_ARG[names-file]+x}" ]; then
-    # Task 7 builds --names-file; until then it fails closed.
-    _pg_hold names gate-error not-built
-    return
-  fi
-  if [ ! -f "$text" ] || [ ! -r "$text" ]; then
+    # The records are scanned in place of --file; hits are reported at their numbers.
+    if [ ! -f "${PG_ARG[names-file]}" ] || [ ! -r "${PG_ARG[names-file]}" ]; then
+      _pg_hold names gate-error file-unreadable
+      return
+    fi
+    if ! pg_tmp; then
+      _pg_hold names gate-error scan-failed
+      return
+    fi
+    PG_NAMES_TMP="$PG_TMP"
+    text="$PG_TMP"
+    if ! _pg_names_file_split "${PG_ARG[names-file]}" "$text"; then
+      _pg_hold names gate-error names-file-malformed
+      return
+    fi
+    mapped=1
+  elif [ ! -f "$text" ] || [ ! -r "$text" ]; then
     _pg_hold names gate-error file-unreadable
     return
   fi
@@ -771,6 +932,19 @@ _pg_names() {
     return
   fi
   all="$(printf '%s\n%s\n' "$wnums" "$cnums" | LC_ALL=C sort -n -u)"
+  if [ -n "$mapped" ]; then
+    # grep's line k is the k-th record: report its number, each once, ascending.
+    wnums=""
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      if ! [[ "$n" =~ ^[1-9][0-9]*$ ]] || [ -z "${PG_NF_NUM[$n]:-}" ]; then
+        _pg_hold names gate-error scan-failed
+        return
+      fi
+      wnums+="${PG_NF_NUM[$n]}"$'\n'
+    done <<<"$all"
+    all="$(printf '%s' "$wnums" | LC_ALL=C sort -n -u)"
+  fi
   while IFS= read -r n; do
     [ -n "$n" ] || continue
     if ! [[ "$n" =~ ^[1-9][0-9]*$ ]]; then
@@ -889,8 +1063,7 @@ _pg_one() {
     review) _pg_review ;;
     names) _pg_names ;;
     permission) _pg_permission ;;
-    # Task 7 builds the tracker check; until then it fails closed.
-    *) _pg_hold "$1" gate-error not-built ;;
+    tracker) _pg_tracker ;;
   esac
 }
 

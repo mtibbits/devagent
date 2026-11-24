@@ -45,6 +45,7 @@ pg_held() { ( . "$PLUGIN_ROOT/scripts/lib/refusals.sh"; trust_exit_code leak-hel
 #                  `none` writes no [paths] table
 #   PG_ALPHA_PUSH  alpha's permissions.push_mr (default true)
 #   PG_ALPHA_REPO  alpha's issue_source.repo (default acme/widgets)
+#   PG_ALPHA_KEYS  more lines inside [project.alpha]
 #   PG_EXTRA       lines appended after both projects
 pg_config() {
   local paths="${PG_PATHS:-denylist_path = \"$PG_LIST\"}"
@@ -55,6 +56,7 @@ pg_config() {
 [project.alpha]
 source_dir = "$BATS_TEST_TMPDIR/src/alpha"
 devdoc_dir = "$BATS_TEST_TMPDIR/devDoc/alpha"
+${PG_ALPHA_KEYS:-}
 
 [project.alpha.permissions]
 push_mr = ${PG_ALPHA_PUSH:-true}
@@ -80,7 +82,7 @@ pg_setup() {
   printf '%s\n' '# the fixture denylist' "$PG_SENTINEL" > "$PG_LIST"
   PG_RECORDED="$DA_HOME/state/post-gate-denylist-path"
   PG_NOTIFY="$DA_HOME/state/notifications.jsonl"
-  unset PG_TOP PG_PATHS PG_ALPHA_PUSH PG_ALPHA_REPO PG_EXTRA
+  unset PG_TOP PG_PATHS PG_ALPHA_PUSH PG_ALPHA_REPO PG_ALPHA_KEYS PG_EXTRA
   pg_config
   STUB_BIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$STUB_BIN"
@@ -160,6 +162,9 @@ pg_passes() {
   [ "$status" -eq 0 ] || { echo "rc=$status; stderr: $stderr" >&2; return 1; }
   [ "$(pg_gate_lines)" = "post-gate: $1 pass" ] || { echo "want '$1 pass', got: $stderr" >&2; return 1; }
 }
+
+# pg_gh_calls: the gh-stub's argv log lines (0 when it logged nothing).
+pg_gh_calls() { if [ -e "$GH_STUB_ARGV_LOG" ]; then grep -c '' "$GH_STUB_ARGV_LOG"; else printf '0\n'; fi; }
 
 # pg_names [<flags>…]: the names check on the fixture post.
 pg_names() { pg_run "$PG" check names "${PG_COMMON[@]}" "$@"; }

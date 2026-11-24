@@ -17,7 +17,7 @@ setup() {
 
 # The gate suites. Each calls pg_setup in setup(); a file joins this list in the
 # task that creates it.
-PG_SUITES=(post-gate.bats post-gate-names.bats post-gate-modes.bats)
+PG_SUITES=(post-gate.bats post-gate-names.bats post-gate-modes.bats issue-github-post.bats)
 
 # _usage <args…>: the call is a usage fault: exit 2, nothing on stdout, and no
 # `post-gate:` line.
@@ -631,6 +631,205 @@ _policy() { trust_fixture_policy "$HOME/.config/devagent/trust" "$@"; }
   pg_holds permission push-mr project=alpha
 }
 
+# --- the tracker check --------------------------------------------------------
+# The gh-stub answers whoami with id 1001 and repos/acme/widgets with owner id
+# 1001, login acme: an owned tracker, unless a test changes one side.
+
+# _tracker [<repo> [<backend> [<backend-script>]]]
+_tracker() {
+  pg_run "$PG" check tracker "${PG_COMMON[@]}" --repo "${1:-acme/widgets}" \
+    --backend "${2:-github}" --backend-script "${3:-$PG_GITHUB}"
+}
+# _owners <toml-value>: set the top-level auto_post_owners.
+_owners() { PG_TOP="auto_post_owners = $1" pg_config; }
+# _owner_id <id>: the repo owner's numeric id, as the stub answers it.
+_owner_id() { printf '{"owner":{"login":"acme","id":%s}}\n' "$1" > "$GH_STUB_GATE_DIR/repo.json"; }
+# _recorder: a backend script that logs each call; SETTER RECORDER, RECORDER_LOG.
+_recorder() {
+  RECORDER="$BATS_TEST_TMPDIR/recording-backend.sh" RECORDER_LOG="$BATS_TEST_TMPDIR/recording-backend.log"
+  printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' \"\$*\" >> '$RECORDER_LOG'" 'echo 1001' > "$RECORDER"
+  chmod +x "$RECORDER"
+}
+
+@test "tracker: an owner listed in auto_post_owners passes with no gh call" {
+  pg_post
+  _owner_id 2002                    # not the account's: only the list can pass it
+  _owners '["github:ACME"]'
+  _tracker
+  pg_passes tracker
+  [ "$(pg_gh_calls)" -eq 0 ]
+  _tracker Acme/Widgets
+  pg_passes tracker
+  # an entry names an owner on every host: the grammar has no host part.
+  _tracker ghe.example/acme/widgets
+  pg_passes tracker
+  _tracker https://github.com/acme/widgets.git
+  pg_passes tracker
+  [ "$(pg_gh_calls)" -eq 0 ]
+  # an entry for another owner, or another backend's entry of the same name, lists nothing.
+  _owners '["github:acme-corp", "gitlab:acme", "jira:ACME"]'
+  _tracker
+  pg_holds tracker unowned
+}
+
+@test "tracker: an unlisted owner that is the authenticated account passes" {
+  pg_post
+  _tracker
+  pg_passes tracker
+  # exactly two calls, both on the repo's host with GH_HOST unset: the owner, then the account.
+  [ "$(pg_gh_calls)" -eq 2 ]
+  [ "$(sed -n 1p "$GH_STUB_ARGV_LOG")" = "[api] [--hostname] [github.com] [repos/acme/widgets] GH_HOST=<unset>" ]
+  [ "$(sed -n 2p "$GH_STUB_ARGV_LOG")" = "[api] [-i] [--hostname] [github.com] [user] GH_HOST=<unset>" ]
+  # a list that names other owners changes nothing.
+  rm "$GH_STUB_ARGV_LOG"
+  _owners '["github:someone-else"]'
+  _tracker
+  pg_passes tracker
+  [ "$(pg_gh_calls)" -eq 2 ]
+}
+
+@test "tracker: an unlisted owner that is not the account holds unowned; listing it passes" {
+  pg_post
+  _owner_id 2002
+  _tracker
+  pg_holds tracker unowned
+  [ "$(pg_gh_calls)" -eq 2 ]
+  # an id that merely starts with the account's is another id.
+  _owner_id 10010
+  _tracker
+  pg_holds tracker unowned
+  _owners '["github:acme"]'
+  _tracker
+  pg_passes tracker
+}
+
+@test "tracker: a failed lookup holds tracker-unavailable" {
+  pg_post
+  # a failed repo-owner call
+  echo 1 > "$GH_STUB_GATE_DIR/repo.rc"
+  _tracker
+  pg_holds tracker tracker-unavailable
+  rm "$GH_STUB_GATE_DIR/repo.rc"
+  # an owner answer with no numeric id (repo-owner exits 5)
+  printf '{}\n' > "$GH_STUB_GATE_DIR/repo.json"
+  _tracker
+  pg_holds tracker tracker-unavailable
+  _owner_id 1001
+  # whoami exits 3: the credential is refused
+  printf '401 Unauthorized\n' > "$GH_STUB_EVENTS_DIR/user.status"
+  echo 1 > "$GH_STUB_EVENTS_DIR/user.rc"
+  run "$PG_GITHUB" whoami acme/widgets
+  [ "$status" -eq 3 ]
+  _tracker
+  pg_holds tracker tracker-unavailable
+  # whoami exits 75: the call could not run
+  printf 'none\n' > "$GH_STUB_EVENTS_DIR/user.status"
+  run "$PG_GITHUB" whoami acme/widgets
+  [ "$status" -eq 75 ]
+  _tracker
+  pg_holds tracker tracker-unavailable
+  rm "$GH_STUB_EVENTS_DIR/user.status" "$GH_STUB_EVENTS_DIR/user.rc"
+  # a backend script that is not there, and one that answers something that is not an id
+  _tracker acme/widgets github "$BATS_TEST_TMPDIR/no-such-backend.sh"
+  pg_holds tracker tracker-unavailable
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "not an id"' > "$BATS_TEST_TMPDIR/odd-backend.sh"
+  chmod +x "$BATS_TEST_TMPDIR/odd-backend.sh"
+  _tracker acme/widgets github "$BATS_TEST_TMPDIR/odd-backend.sh"
+  pg_holds tracker tracker-unavailable
+  # control: with every lookup answering, the same call passes.
+  _tracker
+  pg_passes tracker
+}
+
+@test "tracker: a GitLab namespace or JIRA key passes only when listed, and the backend script is never run" {
+  pg_post
+  _recorder
+  _owners '["gitlab:grp/sub", "jira:PROJ"]'
+  _tracker grp/sub/proj gitlab "$RECORDER"
+  pg_passes tracker
+  _tracker Grp/Sub/Proj gitlab "$RECORDER"            # namespaces compare lower-cased
+  pg_passes tracker
+  _tracker grp/sub/deeper/proj gitlab "$RECORDER"     # a subgroup of a listed group is another namespace
+  pg_holds tracker unowned
+  _tracker grp/proj gitlab "$RECORDER"                # … and so is its parent
+  pg_holds tracker unowned
+  _tracker PROJ jira "$RECORDER"
+  pg_passes tracker
+  _tracker proj jira "$RECORDER"                      # JIRA keys compare exactly
+  pg_holds tracker unowned
+  _tracker OTHER jira "$RECORDER"
+  pg_holds tracker unowned
+  # a parent group alone does not cover its subgroup.
+  _owners '["gitlab:grp"]'
+  _tracker grp/sub/proj gitlab "$RECORDER"
+  pg_holds tracker unowned
+  _tracker grp/proj gitlab "$RECORDER"
+  pg_passes tracker
+  # nothing listed
+  pg_config
+  _tracker grp/sub/proj gitlab "$RECORDER"
+  pg_holds tracker unowned
+  _tracker PROJ jira "$RECORDER"
+  pg_holds tracker unowned
+  # neither backend has whoami (#900): no call was made, to the script or to gh.
+  [ ! -e "$RECORDER_LOG" ]
+  [ "$(pg_gh_calls)" -eq 0 ]
+  # control: the recorder does log when it is run.
+  "$RECORDER" whoami x >/dev/null
+  [ -s "$RECORDER_LOG" ]
+}
+
+@test "tracker: any other backend holds unowned" {
+  pg_post
+  _recorder
+  _owners '["github:acme", "gitlab:acme", "jira:ACME"]'
+  _tracker acme/widgets inhouse "$RECORDER"
+  pg_holds tracker unowned
+  _tracker /srv/issues disk "$RECORDER"
+  pg_holds tracker unowned
+  [ ! -e "$RECORDER_LOG" ]
+  # the backend name is case-folded, as trust folds it.
+  _tracker acme/widgets GitHub
+  pg_passes tracker
+}
+
+@test "tracker: a malformed auto_post_owners holds gate-error" {
+  pg_post
+  local v
+  for v in '["github:"]' '["bitbucket:x"]' '["acme"]' '"github:acme"' '["github:acme", "gitlab:"]' \
+           '["github:-acme"]' '["jira:proj"]' '["github:acme "]' '[7]' '["gitlab:grp//proj"]'; do
+    _owners "$v"
+    _tracker
+    pg_holds tracker gate-error owners-malformed || { echo "value: $v" >&2; false; }
+  done
+  # checked first, for every backend: also where the list could not matter.
+  _owners '["acme"]'
+  _tracker acme/widgets inhouse
+  pg_holds tracker gate-error owners-malformed
+  [ "$(pg_gh_calls)" -eq 0 ]
+  # an empty list is a list.
+  _owners '[]'
+  _tracker
+  pg_passes tracker
+  # a repo that cannot be keyed has no owner to look up.
+  _tracker 'not a repo'
+  pg_holds tracker gate-error repo-unkeyable
+  _tracker solo gitlab
+  pg_holds tracker gate-error repo-unkeyable
+}
+
+@test "tracker: a [project.<name>] auto_post_owners is ignored" {
+  pg_post
+  _owner_id 2002
+  PG_ALPHA_KEYS='auto_post_owners = ["github:acme"]' pg_config
+  _tracker
+  pg_holds tracker unowned
+  # the user-level value is the one that is read.
+  PG_TOP='auto_post_owners = ["github:acme"]' PG_ALPHA_KEYS='auto_post_owners = ["github:someone-else"]' pg_config
+  _tracker
+  pg_passes tracker
+}
+
 # --- every cause, once, under the options github.sh runs with ------------------
 
 @test "sweep: each cause holds the same way under bash -euo pipefail" {
@@ -679,6 +878,28 @@ _policy() { trust_fixture_policy "$HOME/.config/devagent/trust" "$@"; }
   _e check review "${c[@]}" --record "$RECORD";      pg_holds review review-stale
   _e check review "${c[@]}" --record "$BATS_TEST_TMPDIR"
   pg_holds review gate-error review-unreadable
+  # tracker: unowned, tracker-unavailable, gate-error; and the full run.
+  pg_post; pg_record
+  local b=(--backend-script "$PG_GITHUB")
+  _e check tracker "${c[@]}" "${t[@]}" "${b[@]}";    pg_passes tracker
+  printf '{"owner":{"login":"acme","id":2002}}\n' > "$GH_STUB_GATE_DIR/repo.json"
+  _e check tracker "${c[@]}" "${t[@]}" "${b[@]}";    pg_holds tracker unowned
+  echo 1 > "$GH_STUB_GATE_DIR/repo.rc"
+  _e check tracker "${c[@]}" "${t[@]}" "${b[@]}";    pg_holds tracker tracker-unavailable
+  rm "$GH_STUB_GATE_DIR/repo.rc"
+  printf '{"owner":{"login":"acme","id":1001}}\n' > "$GH_STUB_GATE_DIR/repo.json"
+  printf '401 Unauthorized\n' > "$GH_STUB_EVENTS_DIR/user.status"; echo 1 > "$GH_STUB_EVENTS_DIR/user.rc"
+  _e check tracker "${c[@]}" "${t[@]}" "${b[@]}";    pg_holds tracker tracker-unavailable
+  rm "$GH_STUB_EVENTS_DIR/user.status" "$GH_STUB_EVENTS_DIR/user.rc"
+  PG_TOP='auto_post_owners = ["acme"]' pg_config
+  _e check tracker "${c[@]}" "${t[@]}" "${b[@]}";    pg_holds tracker gate-error owners-malformed
+  pg_config
+  _e run "${c[@]}" "${t[@]}" "${b[@]}" --record "$RECORD" --no-record
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "post-gate: permission pass
+post-gate: tracker pass
+post-gate: names pass
+post-gate: review pass" ]
   # usage and hash keep their exits there as well.
   _e check review "${c[@]}"
   [ "$status" -eq 2 ]
