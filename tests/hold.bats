@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# Not gitbash-tagged: the Git Bash job budget (#962 projected ~28.5 min with it,
-# from Linux time x3; not measured on Git Bash);
+# Not gitbash-tagged: the Git Bash job budget. This file took ~11.4 min on a
+# Git Bash laptop (#962), and the job already runs ~23 of its 30 min (#1188);
 # its Windows evidence is the hand-run file in the issue directory.
 # tests/hold.bats — #962: scripts/hold.sh (ask, --no-ask, the hold, re-entry,
 # one stop at a time) and park.sh's --reason and kept `[?]`.

@@ -168,8 +168,11 @@ Other options: b' ]
 
 @test "question: a CRLF file renders byte-identical to its LF twin" {
   _q "$BATS_TEST_TMPDIR/lf.md"
-  sed 's/$/\r/' "$BATS_TEST_TMPDIR/lf.md" > "$BATS_TEST_TMPDIR/crlf.md"
-  grep -q $'\r' "$BATS_TEST_TMPDIR/crlf.md"
+  # Built and checked without grep or sed: Git Bash's grep can strip CRs from
+  # a text file before matching, so `grep $'\r'` missed them there (#962).
+  local l
+  while IFS= read -r l; do printf '%s\r\n' "$l"; done < "$BATS_TEST_TMPDIR/lf.md" > "$BATS_TEST_TMPDIR/crlf.md"
+  [ "$(od -An -v -tx1 "$BATS_TEST_TMPDIR/crlf.md" | tr -s ' \n' '\n\n' | grep -c '^0d$')" -eq "$(wc -l < "$BATS_TEST_TMPDIR/lf.md")" ]
   run question_validate "$BATS_TEST_TMPDIR/crlf.md"
   [ "$status" -eq 0 ]
   _render "$BATS_TEST_TMPDIR/lf.md" > "$BATS_TEST_TMPDIR/a.out"
