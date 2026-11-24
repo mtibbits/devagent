@@ -30,12 +30,10 @@ PREREQ_STOP_PYTHON3='doctor: stopped — the remaining checks need python3'
 PREREQ_ALIAS_REMEDY='this python3 is probably the Windows Store alias: turn off its App execution alias under Settings > Apps > Advanced app settings > App execution aliases, then install Python 3.11 or later and open a new Git Bash window'
 
 # The rows, as three parallel arrays (no TSV: `IFS=$'\t' read` collapses an
-# empty field). PREREQ_PY is the python3 path that resolved; PREREQ_PY_OK is 1
-# when it is usable.
+# empty field). PREREQ_PY_OK is 1 when python3 is usable.
 PREREQ_ST=()
 PREREQ_LABEL=()
 PREREQ_DETAIL=()
-PREREQ_PY=''
 PREREQ_PY_OK=0
 
 check() {
@@ -126,13 +124,13 @@ prereq_git() {
   return 1
 }
 
-# prereq_python3: sets PREREQ_PY / PREREQ_PY_OK and records one row. The probe runs
+# prereq_python3: sets PREREQ_PY_OK and records one row. The probe runs
 # the way devagent's scripts run python3 — without -I, so user-site packages
 # (pip install --user tomli) count — from an empty temporary directory, so no file
 # in the current folder can be imported instead.
 prereq_python3() {
   local py d out err rc first re remedy tomli_fix mm
-  PREREQ_PY='' PREREQ_PY_OK=0
+  PREREQ_PY_OK=0
   py="$(type -P python3 2>/dev/null)"
   if [ -z "$py" ]; then
     _prereq_row fail "$PREREQ_LABEL_PY" "not found on PATH; $(prereq_remedy python3)"
@@ -140,7 +138,6 @@ prereq_python3() {
   fi
   # A relative PATH entry would resolve again after the cd below.
   case "$py" in /*|[A-Za-z]:*) ;; *) py="$PWD/$py" ;; esac
-  PREREQ_PY="$py"
   case "$py" in
     */[Ww]indows[Aa]pps/*) remedy="$PREREQ_ALIAS_REMEDY" ;;
     *)                     remedy="$(prereq_remedy python3)" ;;
@@ -174,21 +171,17 @@ prereq_python3() {
     return 1
   fi
   mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
-  if prereq_version_ge "$mm" 3.11; then
+  if prereq_version_ge "$mm" 3.11 ||
+     { prereq_version_ge "$mm" 3.8 && (cd "$d/run" && "$py" -c 'import tomli' >/dev/null 2>&1); }; then
     _prereq_row ok "$PREREQ_LABEL_PY"
     PREREQ_PY_OK=1
   elif prereq_version_ge "$mm" 3.8; then
-    if (cd "$d/run" && "$py" -c 'import tomli' >/dev/null 2>&1); then
-      _prereq_row ok "$PREREQ_LABEL_PY"
-      PREREQ_PY_OK=1
+    if prereq_on_git_bash; then
+      tomli_fix="run \"$py\" -m pip install --user tomli"
     else
-      if prereq_on_git_bash; then
-        tomli_fix="run \"$py\" -m pip install --user tomli"
-      else
-        tomli_fix="install tomli for it (apt install python3-tomli, or \"$py\" -m pip install --user tomli)"
-      fi
-      _prereq_row fail "$PREREQ_LABEL_PY" "$py is Python $mm without tomli; $tomli_fix, or install Python 3.11 or later"
+      tomli_fix="install tomli for it (apt install python3-tomli, or \"$py\" -m pip install --user tomli)"
     fi
+    _prereq_row fail "$PREREQ_LABEL_PY" "$py is Python $mm without tomli; $tomli_fix, or install Python 3.11 or later"
   else
     _prereq_row fail "$PREREQ_LABEL_PY" "$py is Python $mm; $(prereq_remedy python3)"
   fi
@@ -196,15 +189,11 @@ prereq_python3() {
   [ "$PREREQ_PY_OK" -eq 1 ]
 }
 
-# prereq_print: replay the recorded rows through check (ok rows carry no detail).
+# prereq_print: replay the recorded rows through check.
 prereq_print() {
   local i=0
   while [ "$i" -lt "${#PREREQ_ST[@]}" ]; do
-    if [ "${PREREQ_ST[i]}" = ok ]; then
-      check "${PREREQ_LABEL[i]}" ok
-    else
-      check "${PREREQ_LABEL[i]}" "${PREREQ_ST[i]}" "${PREREQ_DETAIL[i]}"
-    fi
+    check "${PREREQ_LABEL[i]}" "${PREREQ_ST[i]}" "${PREREQ_DETAIL[i]}"
     i=$((i + 1))
   done
 }

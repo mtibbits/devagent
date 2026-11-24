@@ -467,30 +467,22 @@ trust_doctor_block() {
 # bare-line gate, so it over-approximates and fails closed. The config is read only
 # when jq is absent, so a normal host pays no extra python3 spawn.
 check_prereq_jq() {
-  local projects p v dg hit=''
+  local projects='' p field v hit=''
   if type -P jq >/dev/null 2>&1; then check "$PREREQ_LABEL_JQ" ok; return 0; fi
-  if [[ ! -f "$(config_path)" ]]; then
-    check "$PREREQ_LABEL_JQ" skip "not found on PATH; nothing configured needs it (no GitHub, GitLab or Jira backend, git_guard off)"
-    return 0
-  fi
-  if ! projects="$(config_list_projects 2>/dev/null)"; then
+  if [[ -f "$(config_path)" ]] && ! projects="$(config_list_projects 2>/dev/null)"; then
     check "$PREREQ_LABEL_JQ" warn "not found on PATH; could not read the config to tell whether anything needs it"
     return 0
   fi
-  projects="${projects//$'\r'/}"
-  dg="$(config_get_default git_guard 2>/dev/null || true)"; dg="${dg//$'\r'/}"
   while IFS= read -r p; do
     [[ -n "$p" ]] || continue
-    v="$(config_get_project_field "$p" issue_source.backend 2>/dev/null || true)"; v="${v//$'\r'/}"
-    case "$v" in github|gitlab|jira) hit="$p (issue_source.backend = $v)"; break ;; esac
-    v="$(config_get_project_field "$p" issue_source_fork.backend 2>/dev/null || true)"; v="${v//$'\r'/}"
-    case "$v" in github|gitlab|jira) hit="$p (issue_source_fork.backend = $v)"; break ;; esac
-    v="$(config_get_project_field "$p" code_source.backend 2>/dev/null || true)"; v="${v//$'\r'/}"
-    case "$v" in github|gitlab) hit="$p (code_source.backend = $v)"; break ;; esac
-    v="$(config_get_project_field "$p" git_guard 2>/dev/null || true)"; v="${v//$'\r'/}"
-    [[ -n "$v" ]] || v="$dg"
-    if [[ "$v" == true ]]; then hit="$p (git_guard = true)"; break; fi
-  done <<<"$projects"
+    for field in issue_source.backend issue_source_fork.backend code_source.backend; do
+      v="$(config_get_project_field "$p" "$field" 2>/dev/null || true)"; v="${v//$'\r'/}"
+      case "$field:${v,,}" in
+        issue_source*:jira|*:github|*:gitlab) hit="$p ($field = $v)"; break 2 ;;
+      esac
+    done
+    if [[ "$(doctor_git_guard_toml "$p")" == true ]]; then hit="$p (git_guard = true)"; break; fi
+  done <<<"${projects//$'\r'/}"
   if [[ -n "$hit" ]]; then
     check "$PREREQ_LABEL_JQ" fail "not found on PATH; needed by project $hit; $(prereq_remedy jq)"
   else
@@ -498,11 +490,20 @@ check_prereq_jq() {
   fi
 }
 
+# doctor_git_guard_toml <project>: git_guard as tomllib reads it — the project's
+# value, else [defaults]. A superset of the hook's bare-line gate.
+doctor_git_guard_toml() {
+  local v
+  v="$(config_get_project_field "$1" git_guard 2>/dev/null || true)"; v="${v//$'\r'/}"
+  [[ -n "$v" ]] || { v="$(config_get_default git_guard 2>/dev/null || true)"; v="${v//$'\r'/}"; }
+  printf '%s' "$v"
+}
+
 # doctor_prereq_block (#986): replay the rows prereqs.sh recorded before the
 # libraries loaded, stop when python3 is unusable (every later check needs it),
-# then add the config-reading jq row. git/jq FAILs are moved out of ERRORS into
-# PREREQ_ERRORS so they never trip the global-error abort — the per-project
-# checks still run — and are added back into the final verdict.
+# then add the config-reading jq row. Its git/jq FAILs stay in ERRORS and are
+# also counted in PREREQ_ERRORS, which the global-error abort subtracts so the
+# per-project checks still run.
 PREREQ_ERRORS=0
 doctor_prereq_block() {
   local before=$ERRORS
@@ -515,7 +516,6 @@ doctor_prereq_block() {
   check_prereq_jq
   echo
   PREREQ_ERRORS=$((ERRORS - before))
-  ERRORS=$before
 }
 
 # ---- main ----------------------------------------------------------------
@@ -556,8 +556,7 @@ if [[ -f "$(config_path)" ]]; then
     [[ -n "$gproj" ]] || gproj="$(awk -F'"' '/^active_project[[:space:]]*=/{print $2; exit}' \
       "$(dirname "$(config_path)")/state/_active.toml" 2>/dev/null || true)"
   fi
-  gtoml="$(config_get_project_field "$gproj" git_guard 2>/dev/null || true)"
-  [[ -z "$gtoml" ]] && gtoml="$(config_get_default git_guard 2>/dev/null || true)"
+  gtoml="$(doctor_git_guard_toml "$gproj")"
   if awk -v proj="$gproj" '
     /^\[/ {
       in_def  = ($0 == "[defaults]")
@@ -678,8 +677,8 @@ fi
 
 echo
 
-if (( ERRORS > 0 )); then
-  echo "doctor: aborting per-project checks due to $ERRORS global error(s)"
+if (( ERRORS - PREREQ_ERRORS > 0 )); then
+  echo "doctor: aborting per-project checks due to $((ERRORS - PREREQ_ERRORS)) global error(s)"
   exit 1
 fi
 
@@ -697,7 +696,6 @@ else
 fi
 
 echo
-ERRORS=$((ERRORS + PREREQ_ERRORS))   # #986: git/jq FAILs, held out of the global abort
 if (( ERRORS == 0 )); then
   echo "OK ($(date -Iseconds))"
   exit 0
