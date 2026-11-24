@@ -605,10 +605,11 @@ _policy() { trust_fixture_policy "$HOME/.config/devagent/trust" "$@"; }
   pg_holds permission gate-error repo-unkeyable
 }
 
-@test "permission: the check leaves the caller's trust state as it found it" {
+@test "permission: the check restores the caller's TRUST_IN_SCOPE; under a policy TRUST_VAL ends up the host policy's" {
   pg_post
   # A caller that ran trust_entry_check holds TRUST_IN_SCOPE and the policy's
-  # gates; permission_value reads both. The check must not overwrite them.
+  # gates; permission_value reads both. With no policy on the host the check
+  # overwrites neither.
   run --separate-stderr bash -euo pipefail -c '
     . "$1"; shift
     TRUST_IN_SCOPE=1
@@ -629,6 +630,23 @@ _policy() { trust_fixture_policy "$HOME/.config/devagent/trust" "$@"; }
     post_gate_check permission "$@"
   ' _ "$PG" --project alpha --issue Issue-7 --file "$POST" --repo acme/widgets --backend github
   pg_holds permission push-mr project=alpha
+  # Under a policy (project and target out of scope) the flag and the scope
+  # list are still the caller's afterwards, but trust_load re-declares TRUST_ID
+  # and TRUST_VAL globally: those two then hold the HOST policy's values, as
+  # the spec's gate section says. Pinned so the sentence and the code agree.
+  pg_config
+  _policy 'scopes = ["github:github.com/other/thing"]' 'worker_identities = ["github:1001"]'
+  run --separate-stderr bash -euo pipefail -c '
+    . "$1"; shift
+    TRUST_IN_SCOPE=1
+    TRUST_SCOPES=(caller:scope)
+    declare -gA TRUST_VAL=([push_mr]=true [marker]=kept)
+    post_gate_check permission "$@" || exit 70
+    echo "in_scope=$TRUST_IN_SCOPE scopes=${TRUST_SCOPES[*]} marker=${TRUST_VAL[marker]:-lost} policy_push_mr=${TRUST_VAL[push_mr]:-unset}"
+  ' _ "$PG" --project alpha --issue Issue-7 --file "$POST" --repo acme/widgets --backend github
+  [ "$status" -eq 0 ] || { echo "rc=$status $stderr" >&2; false; }
+  [ "$output" = "in_scope=1 scopes=caller:scope marker=lost policy_push_mr=false" ]
+  [ "$stderr" = "post-gate: permission pass" ]
 }
 
 # --- the tracker check --------------------------------------------------------
@@ -977,6 +995,10 @@ _has() { grep -qF -- "$1" || { echo "missing: $1" >&2; return 1; }; }
   stderr="$(grep -E '^post-gate: (permission|tracker|names|review) (pass|hold [a-z])' <<<"$gate" | grep -v '<' || true)"
   [ "$(grep -c . <<<"$stderr")" -ge 4 ]
   pg_lines_ok
+  # what the permission check leaves behind, as the code does it (not "as it found it").
+  _has 'restores the caller'"'"'s `TRUST_IN_SCOPE`' <<<"$flat"
+  _has 'under a policy `TRUST_ID` and `TRUST_VAL` hold the host'"'"'s policy afterwards' <<<"$flat"
+  if grep -qF 'and the rest) as it found it' <<<"$flat"; then echo "the gate section still claims the whole trust state is untouched" >&2; false; fi
   # the grammar, the statuses, the record format and the exit id.
   _has 'post-gate.sh run <common> --repo <repo> --backend <name> --backend-script <path> --record <record> [--draft] [--names-file <records>] [--no-record]' <<<"$flat"
   _has 'post-gate.sh record-denylist --project <name> (--issue <issue-dir-name> | --capture <slug>) [--expect <path>]' <<<"$flat"

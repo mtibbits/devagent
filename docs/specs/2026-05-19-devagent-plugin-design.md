@@ -2744,8 +2744,13 @@ nothing). Any other configured project whose `issue_source` or
 `issue_source_fork` reaches a key the target reaches must have `push_mr` true
 as well, so one project's permission cannot open another's tracker. Keys are
 compared as `_trust_candidate_keys` builds them, never as raw strings: case, a
-host-qualified form or a URL do not hide a shared tracker. The check leaves
-the caller's trust state (`TRUST_IN_SCOPE` and the rest) as it found it.
+host-qualified form or a URL do not hide a shared tracker. The check scopes
+the trust setters' globals to itself and restores the caller's
+`TRUST_IN_SCOPE`, the flag `permission_value` reads, so a sourced caller's
+gates read as they did before. One exception: loading a policy re-declares
+two globals (`trust_load`), so under a policy `TRUST_ID` and `TRUST_VAL` hold
+the host's policy afterwards, which is what a caller's own
+`trust_entry_check` puts there; with no policy on the host neither changes.
 
 **The `tracker` check.** `auto_post_owners` is read only from the top level
 of the user config (§3.2), never from a `[project.<name>]` block, and every
