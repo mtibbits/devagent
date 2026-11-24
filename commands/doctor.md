@@ -27,6 +27,22 @@ account (one `gh auth status --hostname <h>` call per GitHub host, doctor
 only). A host-level refusal there exits 9 (or 10) before the per-project
 checks. With no policy the block is absent.
 
+The `[prerequisites]` block (#986) reports the base toolchain: `bash` 4.4 or
+later, `git`, a usable `python3` (3.11 or later, or 3.8-3.10 with `tomli`) and
+`jq`. It is the first global block, or comes right after the trust block when a
+policy is on the host. The `python3` probe runs without `-I` and from an empty
+temporary directory, the way devagent's scripts run it, so a user-site `tomli`
+counts. `jq` is FAIL when it is missing and a project needs it (a GitHub, GitLab
+or Jira issue backend, a GitHub or GitLab code backend, or `git_guard` on), SKIP
+when nothing configured needs it, and WARN when the config cannot be read to
+tell. Each FAIL carries a one-line remedy; on Git Bash (`uname -s`) it names the
+Windows fix, and a failing `python3` under `WindowsApps` is named as the
+probable Store alias. A `bash` or `python3` FAIL stops doctor with a stop line
+and exit 1, because the remaining checks cannot run; a `git` or `jq` FAIL counts
+toward exit 1 but the per-project checks still run. With a policy on the host
+and a broken `python3`, the trust block refuses first (exit 9) and the
+`[prerequisites]` block does not print.
+
 Two global #731 checks, both warn-only: `claude transcript retention` when
 `cleanupPeriodDays` in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` is not
 set, 30 or less, or not a number (Claude Code deletes transcripts older than
