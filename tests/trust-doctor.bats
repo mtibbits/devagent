@@ -77,6 +77,36 @@ _doctor() { run --separate-stderr "$PLUGIN_ROOT/scripts/doctor.sh" volk; }
   [[ "$stderr" == *"doctor.sh: trust: account github:1001 is not in worker_identities — host-level refusal (exit 9)"* ]]
 }
 
+@test "doctor: a policy on the host with python3 unusable exits 9 with the trust refusal and no prerequisites block" {
+  trust_fixture_policy "$POL" "$VOLK" 'worker_identities = ["github:1001"]'
+  # #986: a Store-alias python3 first on PATH (doctor-prereqs.bats has the full stub).
+  local wa="$BATS_TEST_TMPDIR/AppData/Local/Microsoft/WindowsApps"
+  mkdir -p "$wa"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "echo 'Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Manage App Execution Aliases.' >&2" \
+    'exit 9009' > "$wa/python3"
+  chmod +x "$wa/python3"
+  export PATH="$wa:$PATH"
+  [ "$(type -P python3)" = "$wa/python3" ]
+  _doctor
+  [ "$status" -eq 9 ] || { echo "$output $stderr" >&2; false; }
+  [[ "$stderr" == *"host-level refusal (exit 9)"* ]]
+  [[ "$output" != *"[prerequisites]"* ]]
+  [[ "$output" != *"config exists"* ]]
+}
+
+@test "doctor: with a policy the trust block comes before the prerequisites block" {
+  trust_fixture_policy "$POL" "$VOLK" 'worker_identities = ["github:1001"]'
+  _doctor
+  [ "$status" -eq 0 ] || { echo "$output $stderr" >&2; false; }
+  local t p c
+  t="$(grep -n -m1 'trust policy' <<<"$output" | cut -d: -f1)"
+  p="$(grep -n -m1 -xF '[prerequisites]' <<<"$output" | cut -d: -f1)"
+  c="$(grep -n -m1 'config exists' <<<"$output" | cut -d: -f1)"
+  [ -n "$t" ] && [ -n "$p" ] && [ -n "$c" ] || { echo "t=$t p=$p c=$c" >&2; false; }
+  [ "$t" -lt "$p" ] && [ "$p" -lt "$c" ]
+}
+
 @test "doctor: no policy prints no trust block" {
   _doctor
   [ "$status" -eq 0 ]
