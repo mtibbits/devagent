@@ -215,10 +215,10 @@ def _refusal_case(tmp_path, case):
         return f"[archive].transcripts_dir is inside {root}, where Claude Code deletes old transcripts"
     if case == "unknown-key":
         _cfg(_store(tmp_path), extra='excludes = ["*private*"]\n')
-        return "[archive].excludes is not a known key (transcripts_dir, host_id, exclude)"
+        return "[archive].excludes is not a known key (transcripts_dir, host_id, exclude, actuals_max_age_hours)"
     if case == "subtable":
         _cfg(_store(tmp_path), extra='\n[archive.x]\nexclude = ["*"]\n')
-        return "[archive].x is not a known key (transcripts_dir, host_id, exclude)"
+        return "[archive].x is not a known key (transcripts_dir, host_id, exclude, actuals_max_age_hours)"
     if case == "exclude-type":
         _cfg(_store(tmp_path), exclude="*private*")
         return "[archive].exclude must be a list of strings"
@@ -830,3 +830,45 @@ def test_session_in_two_hosts_and_live_counts_once(tmp_path):
     assert both[("alpha", "Issue-4")]["subagents"] == live[("alpha", "Issue-4")]["subagents"] == 150
     summary = _cost("--archive", _store(tmp_path), "--all-dirs", "--summary")
     assert "beta/Issue-5: " in summary and "over 1 session(s)" in summary.split("beta/Issue-5: ")[1].splitlines()[0]
+
+
+# --- #735: [archive].actuals_max_age_hours -------------------------------------
+
+AGE_MSG = "[archive].actuals_max_age_hours must be a number of hours, 0 < x <= 168: {}"
+
+
+def test_actuals_max_age_key_is_known(tmp_path):
+    _corpus()
+    _cfg(_store(tmp_path), extra="actuals_max_age_hours = 6\n")
+    run = _run()
+    assert run.returncode == 0, run.stderr
+    assert (_store(tmp_path) / "h1" / "last-run").is_file()
+
+
+@pytest.mark.parametrize("table, hours", [
+    ({}, 24.0), ({"actuals_max_age_hours": 6}, 6.0), ({"actuals_max_age_hours": 0.5}, 0.5),
+    ({"actuals_max_age_hours": 168}, 168.0),
+], ids=["absent", "int", "fraction", "cap"])
+def test_max_age_hours_values(table, hours):
+    got = ar.max_age_hours(table)
+    assert got == hours and type(got) is float
+
+
+@pytest.mark.parametrize("value, shown", [
+    (True, "True"), ("6", "6"), (0, "0"), (-1, "-1"), (169, "169"), (168.5, "168.5"),
+    (float("nan"), "nan"), (float("inf"), "inf"), (10 ** 400, str(10 ** 400)),
+], ids=["bool", "string", "zero", "negative", "169", "168.5", "nan", "inf", "overflow"])
+def test_max_age_hours_refusals(value, shown):
+    with pytest.raises(ar.Refusal) as e:
+        ar.max_age_hours({"actuals_max_age_hours": value})
+    assert str(e.value) == AGE_MSG.format(shown)
+
+
+def test_refused_max_age_hours_stops_the_archive(tmp_path):
+    _corpus()
+    _cfg(_store(tmp_path), extra="actuals_max_age_hours = 0\n")
+    before = _snapshot(tmp_path)
+    run = _run()
+    assert run.returncode == 2
+    assert run.stderr.splitlines() == [P + AGE_MSG.format("0")]
+    assert _snapshot(tmp_path) == before

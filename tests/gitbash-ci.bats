@@ -146,6 +146,14 @@ fileline() {
   [ -n "$output" ]
 }
 
+# #1097 (U5): tests/preship-deferred.bats checks the Git Bash criterion's static half
+# with git and this selector, so the Windows job must run it.
+@test "#1097 select tests lists tests/preship-deferred.bats" {
+  run --separate-stderr "$H" select "$PLUGIN_ROOT/tests"
+  [ "$status" -eq 0 ] || { echo "rc $status: $stderr"; return 1; }
+  grep -qxF "$PLUGIN_ROOT/tests/preship-deferred.bats" <<<"$output"
+}
+
 @test "select: the README's documented tag line selects" {
   local sect tagl
   sect="$(sed -n '/^## Running the test suite$/,/^## /p' "$PLUGIN_ROOT/README.md")"

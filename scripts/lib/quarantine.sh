@@ -33,7 +33,7 @@ QUARANTINE_GUARD_POINTS=(
   analyze analyze-static analyze-shellcheck analyze-sanitizers born-red
   oneshot-zerodiff preship-evidence preship-verified-head rebaseline rederive
   record-scope run-suite evidence-stamp quarantine-check claims-check preship-preflight
-  hold
+  preship-deferred hold
 )
 
 # The scripts the census sweep reaches that act on no issue dir's work: they
@@ -55,10 +55,36 @@ declare -gA QUARANTINE_UNGUARDED=(
 #   event <time> <seq>          (the tracker record; `<time> ?`: a landed
 #                               write not yet read back, at this machine's
 #                               write time; `? ?`: no write is known to land)
+#   [detail: <detail>]          (#923: optional; the first `chars` hit, in
+#                               refusals.sh's QUARANTINE_DETAIL_RE grammar)
 #   <blank>
 #   <the five quarantine_message lines>
-# Only lines 1-4 are ever read back, each field against its rule; the message
-# lines are for a human who opens the file.
+# Only lines 1-5 are ever read back, each field against its rule; the message
+# lines are for a human who opens the file. Without a detail the file is
+# #714's, byte for byte.
+
+# QM_DETAIL is set by quarantine_marker_read only; a path that never reads the
+# marker (a first sight) must still find it bound under `set -u`.
+QM_DETAIL=""
+
+# _quarantine_detail_ok <detail>: 0 iff <detail> matches QUARANTINE_DETAIL_RE,
+# in the C locale. An unset or empty regex accepts nothing: an empty regex
+# would match everything.
+_quarantine_detail_ok() {
+  local LC_ALL=C
+  [ -n "${QUARANTINE_DETAIL_RE:-}" ] || return 1
+  [[ "$1" =~ $QUARANTINE_DETAIL_RE ]]
+}
+
+# _quarantine_detail_line <line>: SETTER-GLOBAL QD — the detail of a
+# `detail: <detail>` line. Returns 1 (QD empty) unless the prefix is there and
+# the rest passes _quarantine_detail_ok. The one parser of every detail
+# carrier: a source's second line, a verdict's, and marker line 5.
+_quarantine_detail_line() {
+  QD=""
+  [ "$1" != "${1#detail: }" ] && _quarantine_detail_ok "${1#detail: }" || return 1
+  QD="${1#detail: }"
+}
 
 # quarantine_marked <issue_dir>: 0 iff the marker exists, a dangling or
 # unreadable one included.
@@ -66,14 +92,18 @@ quarantine_marked() {
   [ -e "$1/QUARANTINE" ] || [ -L "$1/QUARANTINE" ]
 }
 
-# quarantine_marker_write <issue_dir> <key> <token> <time> <seq>: write the
-# marker atomically (temp file, then mv), creating the dir.
+# quarantine_marker_write <issue_dir> <key> <token> <time> <seq> [<detail>]:
+# write the marker atomically (temp file, then mv), creating the dir. Line 5,
+# `detail: <detail>`, is written only when <detail> matches
+# QUARANTINE_DETAIL_RE; otherwise the file is #714's, byte for byte.
 quarantine_marker_write() {
-  local dir="$1" key="$2" token="$3" time="$4" seq="$5" tmp
+  local dir="$1" key="$2" token="$3" time="$4" seq="$5" detail="${6:-}" tmp
   mkdir -p "$dir"
   tmp="$(mktemp "$dir/.QUARANTINE.XXXXXX")"
   {
-    printf 'devagent-quarantine 1\nkey %s\nreason %s\nevent %s %s\n\n' "$key" "$token" "$time" "$seq"
+    printf 'devagent-quarantine 1\nkey %s\nreason %s\nevent %s %s\n' "$key" "$token" "$time" "$seq"
+    if _quarantine_detail_ok "$detail"; then printf 'detail: %s\n' "$detail"; fi
+    printf '\n'
     quarantine_message "$key"
   } > "$tmp"
   mv -f "$tmp" "$dir/QUARANTINE"
@@ -98,13 +128,15 @@ _quarantine_confirms() {
 }
 
 # quarantine_marker_read <issue_dir>: SETTER-GLOBAL QM_KEY QM_REASON QM_TIME
-# QM_SEQ. A field that fails its rule reads `?`; a bad header, a symlink or an
-# unreadable file reads all four as `?` (and the dir still counts as marked).
+# QM_SEQ QM_DETAIL. A field that fails its rule reads `?`; a bad header, a
+# symlink or an unreadable file reads all four as `?` (and the dir still counts
+# as marked). QM_DETAIL is empty unless line 5 is `detail: ` plus a match.
 quarantine_marker_read() {
-  local f="$1/QUARANTINE" l1="" l2="" l3="" l4="" v t s r
-  QM_KEY="?" QM_REASON="?" QM_TIME="?" QM_SEQ="?"
+  local f="$1/QUARANTINE" l1="" l2="" l3="" l4="" l5="" v t s r
+  QM_KEY="?" QM_REASON="?" QM_TIME="?" QM_SEQ="?" QM_DETAIL=""
   [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || return 0
-  { IFS= read -r l1; IFS= read -r l2; IFS= read -r l3; IFS= read -r l4; } < <(head -n 4 "$f" 2>/dev/null) || true
+  { IFS= read -r l1; IFS= read -r l2; IFS= read -r l3; IFS= read -r l4; IFS= read -r l5; } \
+    < "$f" 2>/dev/null || true
   [ "$l1" = "devagent-quarantine 1" ] || return 0
   v="${l2#key }"
   [ "$l2" != "$v" ] && [[ "$v" =~ ^[A-Za-z0-9:._/#-]{1,200}$ ]] && QM_KEY="$v"
@@ -118,15 +150,18 @@ quarantine_marker_read() {
     [[ "$t" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z|\?)$ ]] && QM_TIME="$t"
     [[ "$s" =~ ^([0-9]{1,20}|\?)$ ]] && QM_SEQ="$s"
   fi
+  if _quarantine_detail_line "$l5"; then QM_DETAIL="$QD"; fi
   return 0
 }
 
 # quarantine_print <issue_dir>: the message for the marker's key, then
-# `Reason: <token>`, on stdout. No other marker byte is printed.
+# `Reason: <token>`, then `detail: <detail>` when the marker carries one, on
+# stdout. No other marker byte is printed.
 quarantine_print() {
   quarantine_marker_read "$1"
   quarantine_message "$QM_KEY"
   printf 'Reason: %s\n' "$QM_REASON"
+  if [ -n "${QM_DETAIL:-}" ]; then printf 'detail: %s\n' "$QM_DETAIL"; fi
 }
 
 # ---- the tracker state (the authority) -------------------------------------
@@ -305,7 +340,7 @@ QUARANTINE_RELEASED=""
 # shellcheck disable=SC2034  # QUARANTINE_RELEASED is read by pull.sh
 _quarantine_decide() {
   local dir="$1" project="$2" id="$3" mode="$4" code=11 marked=0 label
-  local reason tt="?" ts="?" apply=0 confirmed=0
+  local reason tt="?" ts="?" apply=0 confirmed=0 detail=""
   [ "$mode" = pull ] && code=7
   QUARANTINE_RELEASED=""
   quarantine_marked "$dir" && marked=1
@@ -361,9 +396,11 @@ _quarantine_decide() {
     # a marker left alone keeps its event when the tracker shows no fresher one
     if [ "$apply" = 0 ] && [ "$tt" = "?" ]; then tt="$QM_TIME" ts="$QM_SEQ"; fi
   fi
+  # #923: a rewrite that keeps the marker's reason keeps its detail.
+  if [ "$marked" = 1 ] && [ "$QM_REASON" = "$reason" ]; then detail="${QM_DETAIL:-}"; fi
   if [ "$marked" = 0 ] || [ "$QM_KEY" != "$QK_KEY" ] || [ "$QM_REASON" != "$reason" ] \
      || [ "$QM_TIME" != "$tt" ] || [ "$QM_SEQ" != "$ts" ]; then
-    quarantine_marker_write "$dir" "$QK_KEY" "$reason" "$tt" "$ts"
+    quarantine_marker_write "$dir" "$QK_KEY" "$reason" "$tt" "$ts" "$detail"
   fi
   _quarantine_clear_slot "$project" "$id" "$dir"
   _quarantine_refuse "$code" "$QK_KEY"
@@ -472,7 +509,10 @@ quarantine_pull_guard() {
 #
 # THE SOURCE CONTRACT (for #717's screen and every later decider): a source
 # prints one QUARANTINE_REASONS token, or nothing, and returns non-zero when it
-# could not run. The first token ends the walk, so a later source is never
+# could not run. A token may be followed by one second line,
+# `detail: <detail>` matching QUARANTINE_DETAIL_RE (#923), which the verdict
+# repeats after `QUARANTINE <token>`; any other second line, or a third, is no
+# verdict. The first token ends the walk, so a later source is never
 # called after a quarantine (the floor quarantines with zero screener calls);
 # PASS is printed only after every source printed nothing, so no source can
 # turn another's QUARANTINE into PASS. A source that could not run, or prints
@@ -484,16 +524,38 @@ quarantine_pull_guard() {
 QUARANTINE_SOURCES=(_quarantine_src_floor _quarantine_src_seam)
 
 quarantine_verdict() {
-  local src out r
+  local src out r tok detail
   for src in "${QUARANTINE_SOURCES[@]}"; do
     out="$("$src" "$@")" || return 3
     [ -n "$out" ] || continue
+    tok="$out" detail=""
+    if [[ "$out" == *$'\n'* ]]; then
+      tok="${out%%$'\n'*}" detail="${out#*$'\n'}"
+      [[ "$detail" != *$'\n'* ]] && _quarantine_detail_line "$detail" || return 3
+      detail="$QD"
+    fi
     for r in "${QUARANTINE_REASONS[@]}"; do
-      if [ "$r" = "$out" ]; then echo "QUARANTINE $out"; return 0; fi
+      if [ "$r" = "$tok" ]; then
+        echo "QUARANTINE $tok"
+        if [ -n "$detail" ]; then echo "detail: $detail"; fi
+        return 0
+      fi
     done
     return 3
   done
   echo PASS
+}
+
+# quarantine_verdict_split <verdict>: SETTER-GLOBAL QV_TOKEN QV_DETAIL — the
+# token and the detail (empty when none) of a `QUARANTINE <token>` verdict, as
+# quarantine_verdict prints it; call bare. The one parser both pull call sites
+# use. A detail that does not match QUARANTINE_DETAIL_RE reads empty.
+# shellcheck disable=SC2034  # setter-globals, read by pull.sh
+quarantine_verdict_split() {
+  local v="${1#QUARANTINE }"
+  QV_TOKEN="${v%%$'\n'*}" QV_DETAIL=""
+  if [[ "$v" == *$'\n'* ]] && _quarantine_detail_line "${v#*$'\n'}"; then QV_DETAIL="$QD"; fi
+  return 0
 }
 
 # _quarantine_src_floor <project> <issue_dir> [<candidate>]: #715's
@@ -523,15 +585,16 @@ _quarantine_src_seam() {
   return 0
 }
 
-# quarantine_pull_quarantine <project> <issue_id> <issue_dir> <token>: pull's
-# quarantine of the ticket it just fetched; exits 6. Pre-work (no checklist)
+# quarantine_pull_quarantine <project> <issue_id> <issue_dir> <token> [<detail>]:
+# pull's quarantine of the ticket it just fetched; exits 6. <detail> (#923)
+# goes to the marker's line 5. Pre-work (no checklist)
 # the fetched issue.md is removed (under trust nothing was promoted, so this
 # can only remove an earlier pull's file); in-work the files stay and the
 # shared slot is cleared. One label write, one fresh read-back; the marker carries the
 # quarantine's time and seq when the read-back shows it, else `? ?` (the next
 # guarded call re-applies). No state change and no log line pre-work.
 quarantine_pull_quarantine() {
-  local project="$1" id="$2" dir="$3" token="$4" tt="?" ts="?"
+  local project="$1" id="$2" dir="$3" token="$4" detail="${5:-}" tt="?" ts="?"
   quarantine_key "$project" "$id"
   if [ -f "$dir/checklist.md" ]; then
     _quarantine_clear_slot "$project" "$id" "$dir"
@@ -542,6 +605,6 @@ quarantine_pull_quarantine() {
     tt="$QA_TIME"
     if [ "$QS_STATE" = held ] && [ "$QS_PRESENT" = 1 ]; then tt="$QS_TIME" ts="$QS_SEQ"; fi
   fi
-  quarantine_marker_write "$dir" "$QK_KEY" "$token" "$tt" "$ts"
+  quarantine_marker_write "$dir" "$QK_KEY" "$token" "$tt" "$ts" "$detail"
   _quarantine_refuse 6 "$QK_KEY"
 }

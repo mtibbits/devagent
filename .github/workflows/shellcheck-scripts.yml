@@ -1,6 +1,6 @@
-# Gates against shellcheck errors in scripts/.
+# Gates against shellcheck errors in scripts/ and libexec/.
 # shellcheck is pre-installed on ubuntu-24.04; no apt step needed.
-# Scope: all *.sh files under scripts/.
+# Scope: all *.sh files under scripts/ and libexec/ (#932: the long-run wrapper).
 # Severity=error: scripts/ passes today; gate lands green immediately.
 # tests/*.bats is excluded — blanket shellcheck has many pre-existing
 # non-error findings there — see shellcheck.yml for the SC2314-specific gate.
@@ -23,7 +23,7 @@ jobs:
       - name: shellcheck version
         run: shellcheck --version
 
-      - name: shellcheck scripts/ at severity=error
+      - name: shellcheck scripts/ and libexec/ at severity=error
         run: |
-          find scripts -name "*.sh" -print0 \
+          find scripts libexec -name "*.sh" -print0 \
             | xargs -r -0 shellcheck --severity=error

@@ -104,6 +104,24 @@ trust_warn() {
 # shellcheck disable=SC2034  # read by scripts/lib/quarantine.sh
 QUARANTINE_REASONS=(steering size chars provenance screen screen-failed operator tracker paths destination secrets drift actions diff-size signature)
 
+# The quarantine detail (#923): `<field> line <n> <U+XXXX|0xHH>[ (+N more)]`,
+# the first hit of the `chars` check. One grammar for its three carriers: a
+# verdict source's second line (`detail: <detail>`), the marker's line 5 and
+# quarantine_print. Built from its pieces, which the floor reuses to check
+# chars.py's diagnostic lines; nothing re-spells a piece. Every match site
+# refuses an unset or empty QUARANTINE_DETAIL_RE (quarantine.sh
+# _quarantine_detail_ok), since an empty regex matches everything.
+# shellcheck disable=SC2034  # read by scripts/lib/quarantine.sh and floor.sh
+QUARANTINE_DETAIL_FIELD_RE='(title|body|label|state|author|comment:[A-Za-z0-9_.-]{1,64})'
+# shellcheck disable=SC2034
+QUARANTINE_DETAIL_LINE_RE='[1-9][0-9]{0,8}'
+# shellcheck disable=SC2034
+QUARANTINE_DETAIL_POINT_RE='(U\+[0-9A-F]{4,6}|0x[0-9A-F]{2})'
+# shellcheck disable=SC2034
+QUARANTINE_DETAIL_MORE_RE='( \(\+[1-9][0-9]{0,8} more\))?'
+# shellcheck disable=SC2034
+QUARANTINE_DETAIL_RE="^${QUARANTINE_DETAIL_FIELD_RE} line ${QUARANTINE_DETAIL_LINE_RE} ${QUARANTINE_DETAIL_POINT_RE}${QUARANTINE_DETAIL_MORE_RE}\$"
+
 # quarantine_message <key>: the fixed quarantine message (#714), on stdout;
 # callers redirect it. Byte-identical at every entry point: no script name, no
 # reason line.

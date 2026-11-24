@@ -20,6 +20,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+# shellcheck source=lib/watchdog-limits.sh
+. "$DEVAGENT_ROOT/scripts/lib/watchdog-limits.sh"
 
 : "${DEVAGENT_CMAKE:=cmake}"
 : "${DEVAGENT_CTEST:=ctest}"
@@ -75,13 +77,27 @@ mkdir -p "$issue_dir/analysis"
 date_tag="$(date_tag)"
 
 # #351: per-phase timeout budget (seconds). A configure/build/ctest with no
-# timeout can wedge an --auto chain forever (next.sh has no watchdog). Configurable
+# timeout can wedge an --auto chain forever: nothing in devagent kills a step
+# (the #932 watchdog only reports a session that stopped making progress, to a
+# launcher that asks). Configurable
 # via `analyze_timeout` (per project) or DEVAGENT_ANALYZE_TIMEOUT (env, for tests);
 # default 1800s — generous, so a slow cold build isn't false-killed; volk-scale
 # ctest suites should raise it. A leg that hits the budget exits 124 and fails
 # step 13 via the #117 aggregation below.
 timeout_budget="${DEVAGENT_ANALYZE_TIMEOUT:-$(config_get_project_field "$project" analyze_timeout 2>/dev/null || true)}"
 : "${timeout_budget:=1800}"
+
+# #932: every leg below runs under libexec/long-run.sh, so that its output is the
+# session's progress, and declares one silent window, resolved here, ONCE, before
+# any leg. A window set above the maximum fails the step before anything runs
+# (doctor fails the same config); one that cannot be read warns once and the
+# derived window stands in.
+_silent_rc=0
+watchdog_analyze_window "$project" "$timeout_budget" || _silent_rc=$?
+[ "$_silent_rc" -eq 0 ] || die "analyze-sanitizers: $WATCHDOG_ANALYZE_NOTE. No leg was run."
+[ -z "$WATCHDOG_ANALYZE_NOTE" ] || warn "analyze-sanitizers: $WATCHDOG_ANALYZE_NOTE"
+watchdog_long_run_argv "$project" --silent "${WATCHDOG_ANALYZE_SECS}s"
+long_run=("${WATCHDOG_LONG_RUN[@]}")
 
 # #351: key build dirs per project+issue so two concurrent chains sharing a
 # source_dir never interleave configure/build in the SAME dir (cache corruption).
@@ -122,13 +138,19 @@ run_one() {
     # configure skips build+ctest for THIS leg; a failed build skips ctest.
     # The artifact records the skip so a later reader is not left with a
     # fabricated exit=0. All three legs still run (aggregate evidence).
+    # #932: each phase is the wrapper's command, in the stream shape it had.
+    # Configure and build ended `2>&1`, so they pass --merge (one pipe, the
+    # command's own order) and drop the redirect; ctest never merged, so it keeps
+    # two streams: stdout into the artifact, stderr to the caller. `timeout` stays
+    # the command, so a kill still exits 124 and reads "timed out" below.
     local conf_rc=0 build_rc=0 test_rc=0 ran_ctest=0
     {
         echo "=== $tag ==="
-        timeout -k 10 "$timeout_budget" "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build" \
+        "${long_run[@]}" --merge -- \
+            timeout -k 10 "$timeout_budget" "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build" \
             "-DCMAKE_BUILD_TYPE=Debug" \
             "-DCMAKE_C_FLAGS=-fsanitize=$flag" \
-            "-DCMAKE_CXX_FLAGS=-fsanitize=$flag" 2>&1 || conf_rc=$?
+            "-DCMAKE_CXX_FLAGS=-fsanitize=$flag" || conf_rc=$?
         if [ "$conf_rc" -ne 0 ]; then
             echo "build skipped: configure failed (exit=$conf_rc)"
             echo "ctest skipped: configure failed (exit=$conf_rc)"
@@ -148,7 +170,8 @@ run_one() {
             if [ "$tag" = "tsan" ] && command -v setarch >/dev/null 2>&1; then
                 launcher=(setarch "$(uname -m)" --addr-no-randomize)
             fi
-            timeout -k 10 "$timeout_budget" "${launcher[@]}" "$DEVAGENT_CMAKE" --build "$build" 2>&1 || build_rc=$?
+            "${long_run[@]}" --merge -- \
+                timeout -k 10 "$timeout_budget" "${launcher[@]}" "$DEVAGENT_CMAKE" --build "$build" || build_rc=$?
             if [ "$build_rc" -ne 0 ]; then
                 echo "ctest skipped: build failed (exit=$build_rc)"
             else
@@ -156,7 +179,8 @@ run_one() {
                 # #351: `timeout(1)` guards a wedged ctest process; ctest's own
                 # `--timeout` bounds a single hung test. Either exceeding the
                 # budget yields a nonzero rc → the #117 aggregation fails step 13.
-                ( cd "$build" && timeout -k 10 "$timeout_budget" "${launcher[@]}" \
+                ( cd "$build" && "${long_run[@]}" -- \
+                    timeout -k 10 "$timeout_budget" "${launcher[@]}" \
                     "$DEVAGENT_CTEST" --timeout "$timeout_budget" --output-on-failure )
                 test_rc=$?
                 set -e

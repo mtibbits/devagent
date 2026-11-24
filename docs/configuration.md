@@ -35,6 +35,12 @@ merge_checks = "required"   # the default: step 20 merges only on green CI and s
                             # [!] when the PR has no checks. A repo without CI sets
                             # merge_checks = "if-present". Both keys also work per
                             # project; a bad value stops step 20 on every run.
+# The no-progress watchdog (#932), optional: see "Watchdog limits" below.
+# Integer seconds, 1 to 604800. The values shown are the shipped ones.
+# watchdog_no_progress_secs = 1200   # a session with no progress for this long reads stalled
+# watchdog_telemetry_secs = 180      # the wrapping line's "longer than"; the quiet-note threshold
+# watchdog_silent_max_secs = 3600    # the longest silent window a session may declare;
+                                     # [defaults] only, never per project
 
 # Operator capacity (#743), optional: see "Capacity" below.
 # devagent does not know the subscription's limits: every value here is an example.
@@ -64,6 +70,10 @@ suite_jobs       = 1                           # bats test files run N at a time
                                                # needs GNU parallel on PATH; raise only after
                                                # auditing the suite at file granularity
                                                # (README "Parallel bats")
+# watchdog_no_progress_secs = 1800             # optional (#932): this project's limits; see
+# watchdog_telemetry_secs = 300                # "Watchdog limits" below. Examples, not defaults.
+# analyze_silent_secs = 2400                   # the silent window each analyze leg declares; unset =
+                                               # min(analyze_timeout, watchdog_silent_max_secs)
 # evidence_platforms = ["os=Linux fs=ext4 modes=posix"]
                                                # optional (#654): platforms whose suite evidence
                                                # THIS config's preship accepts; any other fails
@@ -77,6 +87,11 @@ suite_jobs       = 1                           # bats test files run N at a time
                                                # (tests/suite-platform.bats runs the example
                                                # line as written.)
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
+# required_checks = ["Git Bash tagged files"]  # optional (#1097): CI checks step 20
+                                               # merges only on success; see "Required
+                                               # CI checks" below
+# required_checks_paths = ["scripts/ci/"]      # optional: more paths that decide what
+                                               # they measure
 
 [project.myproj.permissions]   # pre-grants: true = proceed unprompted,
                                # false = stop and ask (autonomous paths
@@ -162,6 +177,101 @@ checking = "opus"
                                # declared secret is not quoted into an MR body.
 MYPROJ_DATA_ROOT = "~/src/myprojData"
 ```
+
+## Required CI checks
+
+`required_checks` and `required_checks_paths` (#1097) let an issue whose behaviour
+differs on another platform, such as Git Bash, use a named CI check as its evidence
+instead of a hand-run transcript. Both are `[project.<name>]` keys, beside
+`merge_checks`, with **no `[defaults]` layer**: they describe one repository, so an
+inherited list would stop every other project on a check it never reports. Either key
+under `[defaults]` stops step 20 naming the key, and so does `required_checks_paths`
+without `required_checks`.
+
+```toml
+[project.devagent]
+required_checks = ["Git Bash tagged files"]  # check-run names, compared byte for byte
+required_checks_paths = ["scripts/ci/"]      # repo-relative files or directories
+```
+
+- **`required_checks`**: the CI checks a merge needs. Every check of that name on the
+  PR counts. A name is a non-empty single line, at most 200 characters, with no
+  leading or trailing blank.
+- **`required_checks_paths`**: paths that decide what a required check measures; one
+  trailing `/` marks a directory. `.github/workflows/` is always watched and needs no
+  entry. An entry is the path as git stores it: no glob, no pathspec magic.
+
+Config is per host: **every host** that runs step 20 for the project needs both keys,
+or that host merges without them.
+
+**What step 20 (mergemr) does.** It merges only when each required check is
+`success` (passed with the conclusion `SUCCESS`) at the verified head. A pending check
+waits `[?]`; a check not reported waits inside the grace and stops `[!]` after it;
+`skipped`, `neutral`, `cancelled`, `failure` and `no conclusion` stop `[!]` (rule 15).
+A passing `/devagent:preship` clears a rule 15 stop, as it clears red CI. With
+`merge_mr = true`, while a required check is not `success` or a self-certifying diff is
+not acknowledged, the step turns the forge's auto-merge off rather than leaving the PR
+to it (rule 12); a PR in a merge queue stops `[!]`. Under `merge_mr = false` the step
+never merges and never touches auto-merge: its `[?]` line names each required check's
+state and the self-certification result, rule 21 does not stop, and a forge auto-merge
+or a person's merge is not held back (see branch protection below). No preship clears
+these two stops:
+
+- **Rule 20, `CI NOT CHECKED`**, whatever `merge_mr` says: the code backend cannot
+  report checks (no `mr-checks`), so nothing can say the check succeeded. Check it by
+  hand, merge the PR by hand, then run `/devagent:unstuck`. Where the step cannot read
+  the PR's state either (no `mr-view` on github, no `mr-state` elsewhere), no later run
+  can see the merge: also mark the step `[x]` with `/devagent:checklist-mark`.
+- **Rule 21, a self-certifying diff**, with `merge_mr = true` (under `false` it is
+  reported only): the PR changes a file under
+  `.github/workflows/`, a `required_checks_paths` path, or a `gitbash` tag line a test
+  file had at the baseline (adding a tag line does not count). Such a PR could change
+  what its own required check measures. It is cleared by the operator only (reviewed
+  workflow change only): line 1 of `<issue-dir>/.devagent-selfcert-ack` is
+  `<verified_head> <reason>`, all 40 hex digits of the verified head and a reason that
+  is not blank, then `/devagent:unstuck`. It covers that head only. An agent never
+  writes it.
+
+`commands/mergemr.md` has every rule's exact text.
+
+**Make the check required on the forge too.** Where the forge plan offers it, make the
+check a required status check in branch protection: a person's merge and a forge
+auto-merge bypass step 20.
+
+**A required check must be a job that runs on every PR.** A `paths:` filter or a
+job-level `if:` that skips it reads as missing or skipped, and step 20 stops.
+
+**What preship verifies (step 17).** A criterion such as "`tests/<file>.bats` carries
+the `gitbash` tag, `<test name>` has no Git Bash skip, and `<check name>` is green at
+the merged head" cannot be run before ship. The verifier runs
+`scripts/preship-deferred.sh`, which checks at the pinned head that the name is listed
+in `required_checks`, that the job's selector picks the file, and that the named test
+has no Git Bash skip guard; it records `deferred to CI at merge: <check name>`, and
+step 20 enforces the rest. It also prints a `self-certification warning:` line when the
+diff would stop at rule 21. A listed name proves only that the project requires the
+check, not that the check runs the tagged files. The skip guard is read against a
+fixed model of the job's host (MINGW64, `uname -o` `Msys`, `OSTYPE` `msys`). A
+single-line guard it cannot read fails the check rather than pass it; the shapes it
+does not see at all (below) pass.
+
+**Fallback transcript.** Only where `issue.md` says why the job cannot exercise the
+behaviour, or the code backend has no `mr-checks`, a hand-run Git Bash transcript at
+`<issue-dir>/evidence/<YYYY-MM-DD>-gitbash-<stem>-<sha>.txt` (line 1 the pinned head,
+line 2 the `uname` line) stands in its place.
+
+**Writing the criterion (capture).** When the project declares required checks,
+capture fills in the criterion where the issue template carries the line
+`<!-- required-checks: capture fills this in when the project declares required CI checks -->`.
+The shipped `issue_template-*.md` files carry it; a project's own template override
+needs the line too, or its drafts get no criterion.
+
+**Known residual.** The job proves that the tagged file ran and that no test skipped
+without a reason, not that one particular test ran. The static check reads a guard in
+the named test and in one level of helper it calls; a conditional skip deeper in the
+test (a guard spread over several lines, a multi-line `if` block, a nested helper) is
+not covered, nor are some helper shapes (a subshell body, a hyphenated name, a body
+ended early by a redirected or heredoc `}`). `scripts/preship-deferred.sh` lists every
+known miss at its code, and a fixture pins each one.
 
 ## Capacity
 
@@ -413,6 +523,87 @@ checks and prints a `[capacity]` header, then:
 
 `doctor <project>` does not run it.
 
+## Watchdog limits
+
+A launcher can ask `scripts/watchdog.sh check <project> <issue>` whether an
+unattended session made progress (#932; the contract is spec §7.3, "The
+no-progress watchdog"). Four keys set its limits. None is required: a config
+with none of them runs on the shipped values. An attended session uses only
+the two that bound an analyze leg's window, `analyze_silent_secs` and
+`watchdog_silent_max_secs`.
+
+| Key | Shipped | `[defaults]` | `[project.<name>]` | What it is |
+|---|---|---|---|---|
+| `watchdog_no_progress_secs` | 1200 (20 min) | yes | overrides | A session none of whose progress sources moved for longer than this reads `stalled` (exit 3). |
+| `watchdog_telemetry_secs` | 180 (3 min) | yes | overrides | The interval in the dispatch wrapping line ("may take longer than … s"), and the gap above which the long-run wrapper logs a `quiet` line. |
+| `watchdog_silent_max_secs` | 3600 (60 min) | yes | **no** | The longest silent window a session may declare with `--silent`. Operator-set: a session cannot raise it. |
+| `analyze_silent_secs` | none | yes | overrides | The silent window every step-13 analyze leg declares. Unset, it is `min(analyze_timeout, watchdog_silent_max_secs)`: 1800 s with both at their shipped values. |
+
+Every value is an integer number of seconds from 1 to 604800 (7 days); a quoted
+integer reads like a bare one. A value is resolved project first, then
+`[defaults]`, then the shipped value, and a malformed value is never replaced
+by the next scope or by the shipped value without a word: it is reported
+(`tests/watchdog-config.bats`: `shipped defaults are 1200, 180 and 3600
+seconds`, `[defaults] overrides each constant`, `a project overrides the limit,
+the interval and analyze_silent_secs`, `a quoted integer and the range ends 1
+and 604800 resolve`, `a malformed value returns 2, not a default or the next
+scope`, `unset analyze_silent_secs derives min(analyze_timeout, maximum)`).
+
+`/devagent:doctor` checks the keys in `[defaults]` and in each project, and
+prints nothing for a key that is absent (`doctor passes a config with none of
+the keys`). It fails:
+
+- a value that is not an integer from 1 to 604800, such as `0`, `-5`, `1.5`,
+  `"abc"` or `604801`, and a table where a value belongs (`doctor fails 0, -5,
+  1.5, "abc", 604801 and a 19-digit value for each key`, `doctor fails a table
+  where a limit belongs`);
+- `watchdog_silent_max_secs` in a project table, whatever it holds: the
+  maximum is read from `[defaults]` only, and a project-level key is never read
+  (`a project-level maximum is ignored by the resolver and failed by doctor`);
+- `analyze_silent_secs` above the maximum; equal to it passes (`doctor fails
+  analyze_silent_secs above the maximum and passes it equal`);
+- any other key that starts `watchdog_`, as unknown, so a misspelt limit cannot
+  silently mean the shipped value (`doctor fails a misspelt watchdog_ key`).
+
+What a bad value does at run time depends on who reads it. `watchdog.sh check`
+exits 1, "cannot determine", and never answers from a default
+(`tests/watchdog-check.bats`: `a malformed or table-typed limit exits 1, never
+a default`). `next.sh`, the long-run wrapper and `watchdog.sh heartbeat` print
+one warning and use the shipped value, because they must not fail a run
+(`tests/watchdog-dispatch.bats`: `a malformed interval prints the line with 180
+s and one warning, and next exits as before`). Step 13 is the exception:
+`analyze_silent_secs` above the maximum stops it before any leg runs, attended
+or not (`tests/analyze-sanitizers.bats`: `analyze_silent_secs above the maximum
+fails before any leg runs (#932)`), while a value that cannot be read warns
+once and the derived window stands in (`a malformed analyze_silent_secs warns
+once and the legs take the derived window (#932)`).
+
+Choosing values:
+
+- `watchdog_no_progress_secs` is how long a healthy session may show nothing.
+  A session shows progress through its transcript, its subagents' transcripts,
+  devagent's own scripts and any command run under the wrapper, so the limit
+  has to cover only the longest stretch with none of those: one long model
+  turn, or one long command run unwrapped. On a project whose step 13 runs the
+  static analyzer, keep it at 840 s or more. The analyzer captures its
+  children's output and its child budgets allow about 840 s of silence in one
+  phase (an estimate read from the code; the leg's real cadence is not
+  measured). The window the leg declares covers that silence, and the limit
+  should not be what a healthy leg depends on.
+- Raise `analyze_silent_secs` for a suite with one test that runs silently for
+  longer than the derived window; it cannot pass `watchdog_silent_max_secs`,
+  so raise that first.
+- `watchdog_silent_max_secs` bounds how long any one declared silence can hide
+  a real stall. A window is declared per command (`--silent 45m`, `--silent
+  90s`; a bare number is minutes), in a plan's `## Declared silent windows`
+  section or on the command line; one above the maximum is refused before the
+  command starts.
+
+The keys set limits only. What a launcher does about `stalled` is the
+launcher's, and the watchdog's state lives under
+`$(devagent_home)/state/watchdog/` (layout, retention and clean-up in spec
+§7.3).
+
 ## The backend verb contract
 
 Backends are plain scripts; four issue backends ship out of the box
@@ -486,7 +677,7 @@ and `mr-view`:
 | `mr-comments` | `<mr-url>` | markdown to stdout |
 | `merge-mr` | `<mr-url> [--method squash\|merge\|rebase] [--match-head-commit <sha>] [--subject <s>] [--body <b>]`, or `<mr-url> --disable-auto` | exit 0 |
 | `issue-mrs` | `<repo> <id>...` | `issue` and `mr` lines per issue (optional) |
-| `mr-checks` | `<mr-url>` | `state`, `head` and one line per CI check (optional) |
+| `mr-checks` | `<mr-url>` | `state`, `head` and one line per CI check; `pass <name> <link> <CONCLUSION>` carries the conclusion (optional) |
 | `mr-view` | `<mr-url>` | the `mr-checks` lines plus draft, base, mergeability, auto-merge, queue, title, closing issues, trailers and commit counts (optional) |
 
 `issue-mrs` is what `wbs update` reads to show linked-MR state on open
@@ -571,6 +762,15 @@ default the hostname with `-wsl` under WSL) and `exclude` (cwd-slug globs).
 reads it. The archive holds everything a session read, so a `transcripts_dir`
 inside a git work tree or inside `~/.claude/projects` is refused; keep it on
 private storage.
+
+`actuals_max_age_hours` (#735, default 24, a number with 0 < x <= 168) is the
+age after which cleanup, inside the same `[archive]` gate, rebuilds
+`<devagent_home>/actuals.json` (`/devagent:actuals`, read by the portfolio);
+168 is the portfolio's 7-day stale line. Any other value refuses the whole
+`[archive]` table, as an unknown key does. A plugin older than #735 does not
+know the key, so it refuses the table and archiving stops (cleanup warns and
+continues): set the key only after every install that reads this config is
+upgraded.
 
 The plugin's own `templates/potholes.md` is a curated public excerpt (#613): at
 most 100 entries, 25 per section, citing devagent issues only. Its line-1

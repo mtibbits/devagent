@@ -27,6 +27,8 @@ source "$PLUGIN_ROOT/scripts/lib/issue-source.sh"   # #1099: default_issue_sourc
 source "$PLUGIN_ROOT/scripts/lib/merge-forward.sh"  # #1125: check_merge_forward
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/ci.sh"   # #1125: _ci_key_resolve (merge_checks)
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/watchdog-limits.sh"   # #932: check_watchdog
 
 declare -i ERRORS=0
 
@@ -287,6 +289,73 @@ check_capacity() {
   rm -f "$out" "$err"
 }
 
+# check_watchdog [<project>] (#932): the watchdog's limits in one table, [defaults]
+# with no argument (global mode) or [project.<project>]. A key that is absent
+# prints nothing. Each present key must be integer seconds in 1..604800 (a quoted
+# integer reads like a bare one; a table is refused). watchdog_silent_max_secs is
+# [defaults]-only, so a project-level one fails whatever it holds;
+# analyze_silent_secs must not exceed the maximum; and any other key starting
+# `watchdog_` fails as unknown, so a misspelt limit cannot silently mean the default.
+check_watchdog() {
+  local project="${1:-}" table keys k t rc max="" max_rc=""
+  if [[ -n "$project" ]]; then table="project.$project"; else table="defaults"; fi
+  keys="$(_config_toml list-keys "$(config_path)" "$table" 2>/dev/null)" || keys=""
+  # list-keys leaves out table-typed keys; list-tables names them. Read once.
+  if [[ -z "${_WATCHDOG_TABLES+x}" ]]; then
+    _WATCHDOG_TABLES="$(_config_toml list-tables "$(config_path)" 2>/dev/null)" || _WATCHDOG_TABLES=""
+  fi
+  while IFS= read -r t; do
+    t="${t%$'\r'}"
+    [[ "$t" == "$table".* ]] || continue
+    t="${t#"$table".}"
+    [[ "$t" != *.* ]] || continue
+    keys+=$'\n'"$t"
+  done <<< "$_WATCHDOG_TABLES"
+  while IFS= read -r k; do
+    k="${k%$'\r'}"
+    case "$k" in
+      watchdog_no_progress_secs|watchdog_telemetry_secs|analyze_silent_secs) ;;
+      watchdog_silent_max_secs)
+        if [[ -n "$project" ]]; then
+          check "$table.$k" fail "the silent-window maximum is set in [defaults] only; a project-level key is never read — remove it"
+          continue
+        fi ;;
+      watchdog_*)
+        check "$table.$k" fail "unknown key; the watchdog's keys are $WATCHDOG_KEYS"
+        continue ;;
+      *) continue ;;
+    esac
+    rc=0
+    watchdog_read "$table.$k" || rc=$?
+    case "$rc" in
+      0) ;;
+      1) continue ;;
+      2) if [[ "$WATCHDOG_RAW" != table ]]; then
+           check "$table.$k" fail "must be an integer number of seconds from 1 to $WATCHDOG_SECS_MAX, got '$WATCHDOG_RAW'"
+         else
+           check "$table.$k" fail "must be an integer number of seconds from 1 to $WATCHDOG_SECS_MAX, got a table"
+         fi
+         continue ;;
+      *) check "$table.$k" fail "could not be read from $(config_path)"
+         continue ;;
+    esac
+    if [[ "$k" == analyze_silent_secs ]]; then
+      t="$WATCHDOG_RAW"
+      if [[ -z "$max_rc" ]]; then
+        max_rc=0
+        watchdog_limit watchdog_silent_max_secs || max_rc=$?
+        max="$WATCHDOG_LIMIT"
+      fi
+      # A maximum that cannot be read is the [defaults] row's failure, not this one's.
+      if [[ "$max_rc" == 0 ]] && (( 10#$t > 10#$max )); then
+        check "$table.$k" fail "$t s exceeds the silent-window maximum of $max s (watchdog_silent_max_secs)"
+        continue
+      fi
+    fi
+    check "$table.$k" ok
+  done <<< "$keys"
+}
+
 check_one_project() {
   local project="$1"
   echo "[project: $project]"
@@ -414,6 +483,7 @@ check_one_project() {
   check_tracker_mapping "$project"
   check_merge_step "$project"
   check_merge_forward "$project" "$src"
+  check_watchdog "$project"
 
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"
@@ -574,6 +644,7 @@ else
 fi
 
 check_transition_env
+check_watchdog   # #932: the [defaults] limits
 
 # #731 (global, warn-only): transcript retention (cleanupPeriodDays) and the
 # archive's last-run stamp. The helper is a pure read that prints

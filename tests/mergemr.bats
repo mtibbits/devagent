@@ -8,7 +8,8 @@
 # Stub code backend (DEVAGENT_CODE_BACKEND_DIR): mr-view serves $MV_OUT ($MV_OUT_AFTER
 # once a merge-mr call succeeded); merge-mr writes its argv to $MERGE_LOG (one
 # `[elem]` line per element, then `--`) and exits $MERGE_RC; mr-state/issue-mrs answer
-# from files under $STUB_DIR; every call is counted in $STUB_DIR/calls. Stub issue
+# from files under $STUB_DIR; every call is counted in $STUB_DIR/calls; mr-checks is an
+# unknown verb (exit 2) unless a test serves $MC_OUT (#1097, _checks). Stub issue
 # backend: state-class from $STUB_DIR/sc.<num>, transition logged to $DEVAGENT_STUB_LOG.
 # Fixture checklist: ship [x] 18, mergetoall 19, mergemr 20, updatewbs 21.
 load 'helpers/common'
@@ -109,6 +110,11 @@ case "$v" in
     if [ "${STUB_IM_RC:-0}" != 0 ]; then echo "stub: issue-mrs failed" >&2; exit "$STUB_IM_RC"; fi
     shift
     for n in "$@"; do printf 'issue\t%s\t%s\n' "$n" "$(cat "$d/im.$n" 2>/dev/null || echo none)"; done ;;
+  mr-checks)
+    [ -n "${MC_OUT:-}" ] || exit 2
+    [ -z "${STUB_CHECKS_SLEEP:-}" ] || exec sleep "$STUB_CHECKS_SLEEP"
+    if [ "${STUB_CHECKS_RC:-0}" != 0 ]; then echo "stub: mr-checks failed" >&2; exit "$STUB_CHECKS_RC"; fi
+    cat "$MC_OUT" ;;
   *) exit 2 ;;
 esac
 EOF
@@ -137,13 +143,16 @@ teardown() { devagent_test_teardown; }
 
 # _view [key=value ...]: write an mr-view reply to $MV_OUT (out=after writes
 # $MV_OUT_AFTER instead). checks: space-separated <kind>:<name> (pass|pending|fail),
-# empty = no checks. closes/trailers: `;`-separated. commits: "<total> <read>".
+# empty = no checks; a pass line has three fields, as a backend that prints no
+# conclusion writes it. rchecks (#1097): `;`-separated <kind>|<name>[|<CONCLUSION>],
+# for a name with a space and a line with its conclusion (the fourth field, left out
+# when <CONCLUSION> is). closes/trailers: `;`-separated. commits: "<total> <read>".
 _view() {
-    local -A f=([state]=open [head]="$PR_HEAD" [checks]="pass:ci" [draft]=false [base]=main
+    local -A f=([state]=open [head]="$PR_HEAD" [checks]="pass:ci" [rchecks]="" [draft]=false [base]=main
                 [mergeable]=MERGEABLE [mergestate]=CLEAN [automerge]=off [queue]=false
                 [number]=77 [title]="Add the thing" [mergecommit]=- [commits]="1 1"
                 [closes]="" [trailers]="Signed-off-by: Tess <tess@example.com>" [out]="")
-    local kv c item path="$DEVAGENT_TMP/view.txt" k
+    local kv c item path="$DEVAGENT_TMP/view.txt" k kind name concl
     for kv in "$@"; do f[${kv%%=*}]="${kv#*=}"; done
     if [ "${f[out]}" = after ]; then path="$DEVAGENT_TMP/view-after.txt"; export MV_OUT_AFTER="$path"
     else export MV_OUT="$path"; fi
@@ -152,6 +161,13 @@ _view() {
         for c in ${f[checks]}; do
             if [ "${c%%:*}" = fail ]; then printf 'fail\t%s\t-\tFAILURE\n' "${c#*:}"
             else printf '%s\t%s\t-\n' "${c%%:*}" "${c#*:}"; fi
+        done
+        IFS=';' read -ra items <<<"${f[rchecks]}"
+        for item in "${items[@]}"; do
+            [ -n "$item" ] || continue
+            IFS='|' read -r kind name concl <<<"$item"
+            if [ -n "$concl" ]; then printf '%s\t%s\t-\t%s\n' "$kind" "$name" "$concl"
+            else printf '%s\t%s\t-\n' "$kind" "$name"; fi
         done
         for k in draft base mergeable mergestate automerge queue number title mergecommit; do
             [ "${f[$k]}" = OMIT ] || printf '%s\t%s\n' "$k" "${f[$k]}"
@@ -1659,4 +1675,1134 @@ _no_checks_past_grace() {
     [[ "$output" == *"mergemr: waiting (read): "* ]]
     _mrlog | grep -q '^waiting (read): '
     [ "$(_merges)" -eq 0 ]
+}
+
+# ---- #1097: required checks ------------------------------------------------------
+# `[project.<p>] required_checks` names the check runs the merge needs: each must be
+# `pass` + SUCCESS at the verified head. The default fixture stays key-less, and its
+# `pass ci -` line is the ordinary check that prints no conclusion.
+
+GBT="Git Bash tagged files"
+RC_BAD_REMEDY="re-run the job on the forge and run /devagent:unstuck, or fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+RC_MISSING_REMEDY="start it on the forge and run /devagent:unstuck, or push a head that runs it, then run /devagent:preship"
+
+# _proj_key <key> <toml value>: insert `<key> = <value>` right after the
+# [project.$TEST_PROJECT] header (`_toml.py set` stores an array as a string). Fails
+# unless exactly one header took the insert: an edit that no-ops must not pass.
+_proj_key() {
+    local line out="" n=0
+    while IFS= read -r line; do
+        out+="$line"$'\n'
+        if [ "$line" = "[project.$TEST_PROJECT]" ]; then out+="$1 = $2"$'\n'; n=$((n + 1)); fi
+    done < "$CFG"
+    [ "$n" -eq 1 ] || { echo "_proj_key: [project.$TEST_PROJECT] matched $n header lines in $CFG" >&2; return 1; }
+    printf '%s' "$out" > "$CFG"
+}
+
+# _req '<toml array>': required_checks, read back as an array of strings.
+_req() {
+    _proj_key required_checks "$1"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get-list "$CFG" "project.$TEST_PROJECT.required_checks" >/dev/null \
+        || { echo "_req: get-list does not read required_checks as an array" >&2; return 1; }
+}
+
+# _past_grace: the head's grace clock ran out long ago.
+_past_grace() {
+    devagent_state_set "$STATE" "context.Issue-1.ci_seen_head" "$PR_HEAD"
+    devagent_state_set "$STATE" "context.Issue-1.ci_seen_at" 1000
+}
+
+_unstuck() {
+    run bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    [ "$status" -eq 0 ]
+}
+
+# _next_run_merges <head>: the PR merges on the next run, at <head>.
+_next_run_merges() {
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    echo "status=$status output=$output" >&2
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    [ "$(_merges)" -eq 1 ]
+    grep -qxF "[$1]" "$MERGE_LOG"
+}
+
+@test "#1097 required: success at the verified head merges" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SUCCESS"          # beside the ordinary three-field `pass ci -`
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 required: pending holds through rule 16" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pending|$GBT"
+    _run
+    _wait_is 16 "CI PENDING: 1 of 2 checks still running on $URL (head ${PR_HEAD:0:7}): $GBT"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: failure stops at rule 15 naming the check" {
+    _req "[\"$GBT\"]"
+    _view rchecks="fail|$GBT|FAILURE"
+    _run
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): $GBT; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: skipped stops" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: skipped stops while another check is still pending" {
+    _req "[\"$GBT\"]"
+    _view checks="pending:ci" rchecks="pass|$GBT|SKIPPED"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: neutral stops" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|NEUTRAL"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (neutral); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: a pass line with no conclusion fails closed" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (no conclusion); $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: missing inside the grace waits, past it stops" {
+    _req "[\"$GBT\"]"
+    export DEVAGENT_CI_GRACE_SECS=300           # both messages carry the knob, not its default
+    _run                                        # `pass ci -` alone: CI is green, the required check absent
+    _wait_is 16 "required check not reported yet: $GBT (grace 300s)"
+    [ ! -e "$MERGE_LOG" ]
+    _past_grace
+    _run
+    _stop_is 15 "required check not reported on head ${PR_HEAD:0:7} after 300s: $GBT; $RC_MISSING_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: no checks at all past the grace stops naming the check, also under if-present" {
+    _req "[\"$GBT\"]"
+    _view checks=""
+    _past_grace
+    _run
+    _stop_is 15 "required check not reported on head ${PR_HEAD:0:7} after 120s: $GBT; $RC_MISSING_REMEDY"
+    _unstuck
+    _set merge_checks if-present
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    _stop_is 15 "required check not reported on head ${PR_HEAD:0:7} after 120s: $GBT; $RC_MISSING_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 required: one skipped and one missing are both named" {
+    _req "[\"$GBT\", \"lint\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); not reported: lint; $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# The merge's precondition, stated once before the merge call: unreachable while the
+# verdict arms hold, so the state is forced through a copy of the plugin whose
+# evaluator reports a required check as neither successful, bad, pending nor missing.
+@test "#1097 required: a required check that is not successful never reaches the merge call (forced state)" {
+    local root="$DEVAGENT_TMP/root"
+    mkdir -p "$root"
+    cp -R "$DEVAGENT_ROOT/scripts" "$root/scripts"
+    printf '%s\n' 'ci_required_eval() { RC_OK=0 RC_BAD="" RC_PENDING="" RC_MISSING="" RC_REPORT="$1: odd"; }' >> "$root/scripts/lib/ci.sh"
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SUCCESS"
+    DEVAGENT_ROOT="$root" run "$root/scripts/mergemr.sh" "$TEST_PROJECT" </dev/null
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT: odd; $RC_BAD_REMEDY"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 merge_mr=false: the [?] line names each required check and its state at the head" {
+    _req "[\"$GBT\", \"lint\", \"docs\"]"
+    _setb permissions.merge_mr false
+    _view rchecks="pass|$GBT|SUCCESS;pass|lint|SKIPPED"
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN); required checks at ${PR_HEAD:0:7}: $GBT: success; lint: skipped; docs: missing; self-certifying: none"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 R12: auto-merge on with every required check successful waits and names them" {
+    _req "[\"$GBT\", \"lint\"]"
+    _view automerge=on rchecks="pass|$GBT|SUCCESS;pass|lint|SUCCESS"
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN); required checks at ${PR_HEAD:0:7}: $GBT: success; lint: success; self-certifying: none"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 no key: a skipped check and a three-field pass line merge as today" {
+    _view rchecks="pass|$GBT|SKIPPED"          # beside the three-field `pass ci -`
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 empty list: auto-merge on with a skipped check waits at rule 12 as today, no disable call" {
+    _req '[]'
+    _view automerge=on rchecks="pass|$GBT|SKIPPED"
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 config: a bad required_checks dies at mergemr start, also with merge_mr false" {
+    _proj_key required_checks "\"$GBT\""        # a string where the key takes an array
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run
+        echo "status=$status output=$output" >&2
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"required_checks must be an array of single-line strings, e.g. required_checks = [\"$GBT\"]; fix [project.testproj] required_checks"* ]]
+        assert_step "$CL" 20 ' ' mergemr
+    done
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 remedy: re-run on the forge, unstuck; the next run merges" {
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not successful on head ${PR_HEAD:0:7}: "* ]]
+    _view rchecks="pass|$GBT|SUCCESS"           # the re-run job succeeded at the same head
+    _unstuck
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 remedy: fix, push, preship clears the stop; the next run merges" {
+    local h2
+    _req "[\"$GBT\"]"
+    _view rchecks="pass|$GBT|SKIPPED"
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not successful on head ${PR_HEAD:0:7}: "* ]]
+    ( cd "$SOURCE_DIR" && echo fix > fix.txt && git add fix.txt && git commit -q -m fix )
+    h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _view head="$h2" rchecks="pass|$GBT|SUCCESS"
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _next_run_merges "$h2"
+}
+
+@test "#1097 remedy: start the check on the forge, unstuck; the next run merges" {
+    _req "[\"$GBT\"]"
+    _past_grace
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not reported on head ${PR_HEAD:0:7} after 120s: "* ]]
+    _view rchecks="pass|$GBT|SUCCESS"           # started by hand, it succeeded at the same head
+    _unstuck
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 remedy: push a head that runs the check, preship clears the stop; the next run merges" {
+    local h2
+    _req "[\"$GBT\"]"
+    _past_grace
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$(_reason)" == "mergemr rule 15: required check not reported on head ${PR_HEAD:0:7} after 120s: "* ]]
+    ( cd "$SOURCE_DIR" && git commit -q --allow-empty -m "run the checks" )
+    h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _view head="$h2" rchecks="pass|$GBT|SUCCESS"
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _next_run_merges "$h2"
+}
+
+R12_REQ="merges only when every required check is successful"
+
+@test "#1097 R12: auto-merge on with a skipped required check turns auto-merge off, then stops at rule 15" {
+    _req "[\"$GBT\"]"
+    _view automerge=on rchecks="pass|$GBT|SKIPPED"
+    _run
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    _stop_is 15 "required check not successful on head ${PR_HEAD:0:7}: $GBT (skipped); $RC_BAD_REMEDY"
+    [[ "$output" == *"mergemr: auto-merge disabled: head ${PR_HEAD:0:7} $R12_REQ"* ]]
+    _mrlog | grep -qxF "auto-merge disabled: head ${PR_HEAD:0:7} $R12_REQ"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1097 R12: auto-merge on with a pending required check turns auto-merge off, then rule 16 waits" {
+    _req "[\"$GBT\"]"
+    _view automerge=on rchecks="pending|$GBT"
+    _run
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    _wait_is 16 "CI PENDING: 1 of 2 checks still running on $URL (head ${PR_HEAD:0:7}): $GBT"
+    [[ "$output" == *"mergemr: auto-merge disabled: head ${PR_HEAD:0:7} $R12_REQ"* ]]
+}
+
+@test "#1097 R12: auto-merge that cannot be turned off with a required check not successful stops" {
+    _req "[\"$GBT\"]"
+    _view automerge=on rchecks="pass|$GBT|SKIPPED"
+    export MERGE_RC=1 STUB_MERGE_ERR="GraphQL: Pull request auto merge is not allowed"
+    _run
+    _stop_is 15 "head ${PR_HEAD:0:7} $R12_REQ; could not disable auto-merge: GraphQL: Pull request auto merge is not allowed; disable it on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: skipped; self-certifying: none"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1097 R12: a merge queue with a pending required check stops" {
+    _req "[\"$GBT\"]"
+    _view queue=true mergestate=BLOCKED rchecks="pending|$GBT"
+    _run
+    _stop_is 15 "head ${PR_HEAD:0:7} $R12_REQ, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: pending; self-certifying: none"
+    [ ! -e "$MERGE_LOG" ]
+    # the remedy: out of the queue, then unstuck; the check has succeeded meanwhile
+    _view rchecks="pass|$GBT|SUCCESS"
+    _unstuck
+    _next_run_merges "$PR_HEAD"
+}
+
+@test "#1097 R12: a forwarded head that is not green keeps its own stop and names the required checks" {
+    _req "[\"$GBT\"]"
+    devagent_state_set "$STATE" verified_by forward
+    _view queue=true mergestate=BLOCKED rchecks="pending|$GBT"
+    _run
+    _stop_is 17 "head ${PR_HEAD:0:7} was recorded by forward and merges only on green CI (pending), but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: pending; self-certifying: none"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# ---- #1097: CI NOT CHECKED (rule 20) ------------------------------------------------
+# A project with required checks on a code backend that cannot report checks stops
+# [!], whatever merge_mr says: nothing there can say a required check succeeded. The
+# gitlab stub has no mr-checks (exit 2) until _checks serves one.
+
+# _nc <why> [<names>]: rule 20's text. _nc_mark: the same where the step cannot read
+# the PR's state, so the remedy also marks the row.
+_nc() {
+    printf '%s' "CI NOT CHECKED: $1; required check ${2:-$GBT} cannot be read on this code backend; check it by hand, merge the PR by hand, then run /devagent:unstuck"
+}
+_nc_mark() { printf '%s and mark this step [x] with /devagent:checklist-mark' "$(_nc "$@")"; }
+
+# _mark_x: the remedy's last step where no run can see the hand merge.
+_mark_x() {
+    run bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" mergemr x
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+# _checks [<kind>|<name>[|<CONCLUSION>] ...]: the stub answers mr-checks from $MC_OUT:
+# an open PR at $PR_HEAD with these check lines (the fields of _view's rchecks).
+_checks() {
+    local item kind name concl
+    export MC_OUT="$STUB_DIR/checks.txt"
+    {
+        printf 'state\topen\nhead\t%s\n' "$PR_HEAD"
+        for item in "$@"; do
+            IFS='|' read -r kind name concl <<<"$item"
+            if [ -n "$concl" ]; then printf '%s\t%s\t-\t%s\n' "$kind" "$name" "$concl"
+            else printf '%s\t%s\t-\n' "$kind" "$name"; fi
+        done
+    } > "$MC_OUT"
+}
+
+# _custom: the project's code backend is the shipped scripts/code/custom.sh (exit 78
+# on mr-state), behind a wrapper that counts the call.
+_custom() {
+    cat > "$DEVAGENT_TMP/fake-code/custom.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >> "\$STUB_DIR/calls"
+exec "$DEVAGENT_ROOT/scripts/code/custom.sh" "\$@"
+EOF
+    chmod +x "$DEVAGENT_TMP/fake-code/custom.sh"
+    _set code_source.backend custom
+}
+
+@test "#1097 other backend: an open PR with a required check is [!] CI NOT CHECKED under both merge_mr values" {
+    _gitlab
+    _req "[\"$GBT\", \"lint\"]"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run                                    # the gitlab stub has no mr-checks: exit 2
+        _stop_is 20 "$(_nc "gitlab has no mr-checks" "$GBT, lint")"
+        _unstuck
+    done
+    [ "$(_calls mr-state)" -eq 2 ]
+    [ "$(_calls mr-checks)" -eq 2 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 local backend: CI NOT CHECKED; the script is never asked for mr-checks" {
+    cp "$DEVAGENT_TMP/fake-code/github.sh" "$DEVAGENT_TMP/fake-code/local.sh"
+    _set code_source.backend local
+    _req "[\"$GBT\"]"
+    _run
+    _stop_is 20 "$(_nc "local code backend")"
+    [ "$(_calls mr-state)" -eq 1 ]
+    [ "$(_calls mr-checks)" -eq 0 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+}
+
+@test "#1097 custom backend (mr-state exits 78) with a required check: CI NOT CHECKED" {
+    _custom
+    _req "[\"$GBT\"]"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run
+        _stop_is 20 "$(_nc_mark "custom has no mr-state")"
+        _unstuck
+    done
+    [ "$(_calls mr-state)" -eq 2 ]
+    [ "$(_calls mr-checks)" -eq 0 ]
+    _gitlab                                     # an unknown verb (exit 2) is the same stop
+    STUB_MRSTATE_RC=2 run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 20 "$(_nc_mark "gitlab has no mr-state")"
+}
+
+# inv: green before and after.
+@test "#1097 custom backend (mr-state exits 78) with no key or an empty list: today's [?] cannot read PR state" {
+    _custom
+    _run
+    _wait_is read "cannot read PR state on custom; merge by hand, then mark this step [x] with /devagent:checklist-mark"
+    _req '[]'
+    _run
+    _wait_is read "cannot read PR state on custom; merge by hand, then mark this step [x] with /devagent:checklist-mark"
+    [ "$(_calls mr-state)" -eq 2 ]
+    [ "$(_calls mr-checks)" -eq 0 ]
+}
+
+# inv: green before and after. No CI read unless the PR is open.
+@test "#1097 other backend: merged, closed and draft are unchanged" {
+    _gitlab
+    _req "[\"$GBT\"]"
+    STUB_MRSTATE=draft run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is 5 "draft PR"
+    STUB_MRSTATE=closed run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 4 "PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
+    _unstuck
+    STUB_MRSTATE=MERGED run "$MM" "$TEST_PROJECT" </dev/null
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    _mrlog | grep -qxF "PR $URL merged (merge commit -)"
+    [ "$(_calls mr-checks)" -eq 0 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+}
+
+@test "#1097 other backend with mr-checks: [?] names each required check" {
+    _gitlab
+    _req "[\"$GBT\", \"lint\", \"docs\"]"
+    _checks "pass|ci" "pass|$GBT|SUCCESS" "pass|lint|SKIPPED"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        _run
+        _wait_is 8 "waiting for merge (merge step supports github only); required checks at ${PR_HEAD:0:7}: $GBT: success; lint: skipped; docs: missing; self-certifying: none"
+    done
+    [ "$(_calls mr-checks)" -eq 2 ]
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# inv: green before and after. Without the key nothing reads CI on another backend.
+@test "#1097 other backend with mr-checks and no key: today's [?], no CI read" {
+    _gitlab
+    _checks "pass|$GBT|SKIPPED"
+    _run
+    _wait_is 8 "waiting for merge (merge step supports github only)"
+    [[ "$output" != *"required checks"* ]]
+    [ "$(_calls mr-checks)" -eq 0 ]
+}
+
+@test "#1097 other backend: a failed mr-checks read waits, no STUCK" {
+    _gitlab
+    _req "[\"$GBT\"]"
+    _checks "pass|$GBT|SUCCESS"
+    STUB_CHECKS_RC=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read required checks on $URL: stub: mr-checks failed"
+    STUB_CHECKS_SLEEP=10 DEVAGENT_CI_READ_SECS=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read required checks on $URL: timed out after 1s"
+    printf 'state\topen\n' > "$MC_OUT"          # no head line: not an mr-checks reply
+    _run
+    _wait_is read "could not read required checks on $URL: unrecognised mr-checks output"
+    [ "$(_calls mr-checks)" -eq 3 ]
+}
+
+@test "#1097 a github backend without mr-view stops CI NOT CHECKED" {
+    _req "[\"$GBT\"]"
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        for rc in 78 2; do
+            STUB_VIEW_RC=$rc run "$MM" "$TEST_PROJECT" </dev/null
+            _stop_is 20 "$(_nc_mark "github has no mr-view")"
+            _unstuck
+        done
+    done
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# inv: green before and after. Only a missing verb is rule 20: a read that failed
+# another way still waits, with a required check too.
+@test "#1097 a github backend without mr-view and no key: today's read wait" {
+    STUB_VIEW_RC=78 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read PR $URL: github has no mr-view"
+    _req "[\"$GBT\"]"
+    STUB_VIEW_RC=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read PR $URL: HTTP 502: bad gateway"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 remedy: merge by hand, unstuck; the next run is [x]; unstuck alone stops again" {
+    _gitlab
+    _req "[\"$GBT\"]"
+    _run
+    _stop_is 20 "$(_nc "gitlab has no mr-checks")"
+    _preship                                    # operator-only: a passing preship leaves it
+    assert_step "$CL" 20 '!' mergemr
+    [ "$(_reason)" = "mergemr rule 20: $(_nc "gitlab has no mr-checks")" ]
+    _unstuck
+    _run                                        # unstuck alone: the PR is still open
+    _stop_is 20 "$(_nc "gitlab has no mr-checks")"
+    _unstuck
+    STUB_MRSTATE=MERGED run "$MM" "$TEST_PROJECT" </dev/null    # merged by hand
+    echo "status=$status output=$output" >&2
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _mrlog | grep -qxF "PR $URL merged (merge commit -)"
+    [ "$(_transitions)" -eq 1 ]
+}
+
+@test "#1097 remedy where the PR cannot be read: merge by hand, unstuck, mark [x]; unstuck alone stops again" {
+    _custom
+    _req "[\"$GBT\"]"
+    _run
+    _stop_is 20 "$(_nc_mark "custom has no mr-state")"
+    _unstuck
+    _run                                        # merged by hand or not, no run can tell
+    _stop_is 20 "$(_nc_mark "custom has no mr-state")"
+    _unstuck
+    _mark_x
+    # a github backend without mr-view: the same remedy
+    _set code_source.backend github
+    mark_step "$CL" 20 ' '
+    STUB_VIEW_RC=78 run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 20 "$(_nc_mark "github has no mr-view")"
+    _unstuck
+    _mark_x
+}
+
+# ---- #1097: the self-certification scan (lib/selfcert.sh) -----------------------------
+# mergemr's rule 21 and preship's warning read one lib. Its tag-line regex is the one
+# the Git Bash job's malformed-line detector greps, so the two cannot drift.
+
+@test "#1097 selfcert: SELFCERT_TAG_RE is the regex gitbash-tagged.sh greps" {
+    run bash -c '. "$1" && printf "%s" "$SELFCERT_TAG_RE"' _ "$DEVAGENT_ROOT/scripts/lib/selfcert.sh"
+    echo "status=$status output=$output" >&2
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+    # the detector's own literal, quotes included, on exactly one line
+    [ "$(grep -cF -- "'$output'" "$DEVAGENT_ROOT/scripts/ci/gitbash-tagged.sh")" -eq 1 ]
+    grep -F -- "'$output'" "$DEVAGENT_ROOT/scripts/ci/gitbash-tagged.sh" | grep -qF 'grep -niE'
+}
+
+# ---- #1097: the self-certification stop (rule 21) -----------------------------------
+# A PR whose diff (baseline_sha..verified_head) changes a CI workflow file, a path a
+# project lists in required_checks_paths, or a Git Bash tag line the base already had
+# can change what its own required checks measure. With required_checks set the step
+# stops [!] at rule 21 just before its merge call, until the operator records the
+# review for that head in <issue-dir>/.devagent-selfcert-ack. It never stops under
+# merge_mr = false: rule 8's [?] names the paths there.
+
+WF=.github/workflows/ci.yml
+TAGLINE='# bats file_tags=gitbash'
+R12_SC="merges only when an operator has acknowledged its self-certifying diff"
+
+# _sc_put <path> <line>...: write <path> in the issue tree, one argument per line.
+_sc_put() {
+    local p="$SOURCE_DIR/$1"; shift
+    mkdir -p "$(dirname "$p")"
+    printf '%s\n' "$@" > "$p"
+}
+
+# _sc_commit: commit every change in the issue tree. SC_AT is the new commit.
+_sc_commit() {
+    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m "$1" )
+    SC_AT="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+}
+
+# _sc_base: the changes so far are the base's. Commits them and records the commit
+# as baseline_sha (SC_BASE).
+_sc_base() {
+    _sc_commit base
+    SC_BASE="$SC_AT"
+    devagent_state_set "$STATE" baseline_sha "$SC_BASE"
+}
+
+# _sc_head [_view key=value ...]: the changes since are the PR's. Commits them as the
+# PR head, verified, with the required check successful.
+_sc_head() {
+    _sc_commit head
+    PR_HEAD="$SC_AT"
+    devagent_state_set "$STATE" verified_head "$PR_HEAD"
+    _view head="$PR_HEAD" rchecks="pass|$GBT|SUCCESS" "$@"
+}
+
+# _sc_text <paths>: rule 21's text for a diff nobody acknowledged. _sc_unknown <why>:
+# its text when the diff cannot be read.
+_sc_text() {
+    local base="${SC_BASE:-$(git -C "$SOURCE_DIR" rev-parse main)}"
+    printf '%s' "self-certifying diff: $1 changed in ${base:0:7}..${PR_HEAD:0:7}, so this PR can change what its required checks measure. Operator only (reviewed workflow change only): record the review in $ISSUE_DIR/.devagent-selfcert-ack as commands/mergemr.md \"Escapes\" describes, then /devagent:unstuck"
+}
+_sc_unknown() { printf '%s' "self-certifying diff unknown: $1; fix that, then run /devagent:unstuck"; }
+
+# _ack <text>: the acknowledgment file holds <text>, then a newline.
+_ack() { printf '%s\n' "$1" > "$ISSUE_DIR/.devagent-selfcert-ack"; }
+
+# _sc_acked <reason> [<paths>]: the line an acknowledged run prints and logs.
+_sc_acked() { printf '%s' "self-certifying diff acknowledged at ${PR_HEAD:0:7}: ${2:-$WF} — $1"; }
+
+@test "#1097 selfcert: a workflow file changed in baseline..head stops naming it, every required check green" {
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    [[ "$output" == *"CI PASSED: 2 checks on $URL (head ${PR_HEAD:0:7})"* ]]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 selfcert: two acknowledged runs at one head leave one log line" {
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    printf '%s reviewed by tess\r\n' "$PR_HEAD" > "$ISSUE_DIR/.devagent-selfcert-ack"   # CRLF, as an editor on Windows saves it
+    export MERGE_RC=1                           # the merge call fails: each run ends [!] at rule 19
+    for _ in 1 2; do
+        _run
+        [ "$status" -eq 1 ]
+        [[ "$(_reason)" == "mergemr rule 19: merge call failed: "* ]]
+        [[ "$output" == *"mergemr: $(_sc_acked "reviewed by tess")"* ]]
+        _unstuck                                # its STUCK line is now the last mergemr: log line
+    done
+    [ "$(_mrlog | grep -cxF "$(_sc_acked "reviewed by tess")")" -eq 1 ]
+    # a head recorded again starts over: the line is logged once more, then not again
+    _preship
+    for _ in 1 2; do
+        _run
+        [ "$status" -eq 1 ]
+        _unstuck
+    done
+    [ "$(_mrlog | grep -cxF "$(_sc_acked "reviewed by tess")")" -eq 2 ]
+    unset MERGE_RC
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_mrlog | grep -cxF "$(_sc_acked "reviewed by tess")")" -eq 2 ]
+}
+
+@test "#1097 selfcert: the issue worktree removed after preship: the scan runs from the repo directory" {
+    local wt="$DEVAGENT_TMP/wt"
+    _req "[\"$GBT\"]"
+    git -C "$SOURCE_DIR" worktree add -q -b feat/1-wt "$wt" feat/1-x
+    ( cd "$wt" && mkdir -p .github/workflows && echo 'on: push' > "$WF" \
+      && git add -A && git commit -q -m workflow )
+    PR_HEAD="$(git -C "$wt" rev-parse HEAD)"
+    devagent_state_set "$STATE" verified_head "$PR_HEAD"
+    devagent_state_set "$STATE" worktree_path "$wt"
+    _view head="$PR_HEAD" rchecks="pass|$GBT|SUCCESS"
+    rm -rf "$wt"                                # removed by hand: its commits stay in the repository
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 selfcert merge_mr=false: the [?] line names the workflow path; no STUCK" {
+    _req "[\"$GBT\"]"
+    _setb permissions.merge_mr false
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN); required checks at ${PR_HEAD:0:7}: $GBT: success; self-certifying: $WF"
+    # an acknowledged diff still names the paths, and says so
+    _ack "$PR_HEAD reviewed by tess"
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN); required checks at ${PR_HEAD:0:7}: $GBT: success; self-certifying: $WF (acknowledged)"
+    # a diff that cannot be read says why
+    devagent_state_set "$STATE" baseline_sha ""
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN); required checks at ${PR_HEAD:0:7}: $GBT: success; self-certifying: unknown (no baseline_sha recorded)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 selfcert merge_mr=false: a PR head that is not the verified head reads unknown, never the verified head's result" {
+    local pushed
+    _req "[\"$GBT\"]"
+    _setb permissions.merge_mr false
+    pushed="$(git -C "$SOURCE_DIR" rev-parse main)"      # any commit that is not verified_head
+    _view head="$pushed" rchecks="pass|$GBT|SUCCESS"
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN); required checks at ${pushed:0:7}: $GBT: success; self-certifying: unknown (PR head ${pushed:0:7} is not the verified head ${PR_HEAD:0:7})"
+    devagent_state_set "$STATE" verified_head ""
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN); required checks at ${pushed:0:7}: $GBT: success; self-certifying: unknown (no verified head recorded)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 selfcert R12: auto-merge on with an un-acked workflow change turns auto-merge off, then stops at rule 21" {
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head automerge=on
+    _run
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    _stop_is 21 "$(_sc_text "$WF")"
+    [[ "$output" == *"mergemr: auto-merge disabled: head ${PR_HEAD:0:7} $R12_SC"* ]]
+    _mrlog | grep -qxF "auto-merge disabled: head ${PR_HEAD:0:7} $R12_SC"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1097 selfcert R12: a merge queue with an un-acked workflow change stops; preship does not clear it; acknowledged, it is left to the forge" {
+    local text
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head queue=true mergestate=BLOCKED
+    text="head ${PR_HEAD:0:7} $R12_SC, but the PR is in a merge queue; remove it from the queue on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: success; self-certifying: $WF"
+    _run
+    _stop_is 21 "$text"
+    _preship                                    # operator-only: a passing preship leaves it
+    assert_step "$CL" 20 '!' mergemr
+    [ "$(_reason)" = "mergemr rule 21: $text" ]
+    # auto-merge that cannot be turned off stops the same way
+    _unstuck
+    _view head="$PR_HEAD" rchecks="pass|$GBT|SUCCESS" automerge=on
+    MERGE_RC=1 STUB_MERGE_ERR="GraphQL: not allowed" run "$MM" "$TEST_PROJECT" </dev/null
+    _stop_is 21 "head ${PR_HEAD:0:7} $R12_SC; could not disable auto-merge: GraphQL: not allowed; disable it on the forge, then run /devagent:unstuck; required checks at ${PR_HEAD:0:7}: $GBT: success; self-certifying: $WF"
+    # acknowledged at this head: nothing here still has to decide
+    _unstuck
+    _ack "$PR_HEAD reviewed by tess"
+    _view head="$PR_HEAD" rchecks="pass|$GBT|SUCCESS" queue=true mergestate=BLOCKED
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/BLOCKED); required checks at ${PR_HEAD:0:7}: $GBT: success; self-certifying: $WF (acknowledged)"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1097 selfcert R12: auto-merge on with a diff that cannot be read turns auto-merge off, then stops at rule 21" {
+    _req "[\"$GBT\"]"
+    devagent_state_set "$STATE" baseline_sha ""
+    _view automerge=on rchecks="pass|$GBT|SUCCESS"
+    _run
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    _stop_is 21 "$(_sc_unknown "no baseline_sha recorded")"
+    [[ "$output" == *"mergemr: auto-merge disabled: head ${PR_HEAD:0:7} merges only when its self-certifying diff can be read"* ]]
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#1097 selfcert: a gitbash tag line removed or edited, and a tagged file deleted or renamed, each stop naming the .bats file" {
+    local how
+    _req "[\"$GBT\"]"
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# a body line'
+    _sc_base
+    for how in removed edited deleted renamed; do
+        git -C "$SOURCE_DIR" reset -q --hard "$SC_BASE"
+        case "$how" in
+            removed) sed -i '/file_tags/d' "$SOURCE_DIR/tests/a.bats" ;;
+            edited)  sed -i 's/file_tags=gitbash/file_tags=slow,gitbash/' "$SOURCE_DIR/tests/a.bats" ;;
+            deleted) git -C "$SOURCE_DIR" rm -q tests/a.bats ;;
+            renamed) git -C "$SOURCE_DIR" mv tests/a.bats tests/b.bats ;;      # named by its old path
+        esac
+        _sc_head
+        _run
+        echo "how=$how" >&2
+        _stop_is 21 "$(_sc_text tests/a.bats)"
+        _unstuck
+    done
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# inv: green before and after. Reddens when the scan stops on a path that had no tag
+# line at the base.
+@test "#1097 selfcert: a tag line added to an existing file, and a new tagged file, do not stop" {
+    _req "[\"$GBT\"]"
+    _sc_put tests/a.bats '#!/usr/bin/env bats' '# a body line'
+    _sc_base
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# a body line'
+    _sc_put tests/new.bats '#!/usr/bin/env bats' "$TAGLINE"
+    _sc_head
+    _next_run_merges "$PR_HEAD"
+    [[ "$output" != *"self-certifying diff"* ]]
+}
+
+@test "#1097 selfcert: a file at any depth under a required_checks_paths directory, and an exact-file entry, each stop naming the file; a sibling path does not" {
+    _req "[\"$GBT\"]"
+    _proj_key required_checks_paths '["scripts/ci/", "tools/gate.sh"]'
+    _sc_put scripts/ci/deep/er/x.sh 'echo x'
+    _sc_put tools/gate.sh 'echo gate'
+    _sc_put scripts/cia.sh 'echo sibling of the directory'
+    _sc_put tools/gate.sh.bak 'echo sibling of the file'
+    _sc_base
+    _sc_put scripts/ci/deep/er/x.sh 'echo x2'
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text scripts/ci/deep/er/x.sh)"
+    _unstuck
+    git -C "$SOURCE_DIR" reset -q --hard "$SC_BASE"
+    _sc_put tools/gate.sh 'echo gate2'
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text tools/gate.sh)"
+    _unstuck
+    git -C "$SOURCE_DIR" reset -q --hard "$SC_BASE"
+    _sc_put scripts/cia.sh 'echo sibling2'
+    _sc_put tools/gate.sh.bak 'echo sibling2'
+    _sc_put scripts/other/ci/y.sh 'echo elsewhere'
+    _sc_head
+    _next_run_merges "$PR_HEAD"
+    [[ "$output" != *"self-certifying diff"* ]]
+}
+
+@test "#1097 selfcert: a required_checks_paths entry that names a submodule stops when its commit moves; one with a trailing / that names a file is unknown" {
+    local sub="$DEVAGENT_TMP/subrepo" s1 s2
+    git -c init.defaultBranch=main init -q "$sub"
+    ( cd "$sub" && git config user.email s@example.com && git config user.name S \
+      && echo one > f && git add f && git commit -q -m one && echo two > f && git commit -q -am two )
+    s1="$(git -C "$sub" rev-parse HEAD~1)"
+    s2="$(git -C "$sub" rev-parse HEAD)"
+    _req "[\"$GBT\"]"
+    _proj_key required_checks_paths '["vendor/ci/"]'
+    # the index alone: a submodule's commit is not an object of this repository
+    git -C "$SOURCE_DIR" update-index --add --cacheinfo "160000,$s1,vendor/ci"
+    git -C "$SOURCE_DIR" commit -q -m "base: the submodule"
+    SC_BASE="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    devagent_state_set "$STATE" baseline_sha "$SC_BASE"
+    git -C "$SOURCE_DIR" update-index --cacheinfo "160000,$s2,vendor/ci"
+    git -C "$SOURCE_DIR" commit -q -m "head: the submodule moves"
+    PR_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    devagent_state_set "$STATE" verified_head "$PR_HEAD"
+    _view head="$PR_HEAD" rchecks="pass|$GBT|SUCCESS"
+    _run
+    _stop_is 21 "$(_sc_text vendor/ci)"
+    _unstuck
+    sed -i 's|"vendor/ci/"|"f1.txt/"|' "$CFG"      # f1.txt is a file: as a pathspec f1.txt/ matches nothing
+    _run
+    _stop_is 21 "$(_sc_unknown "required_checks_paths entry 'f1.txt/' names no path at ${SC_BASE:0:7} or ${PR_HEAD:0:7}; fix the key, or merge the base forward")"
+}
+
+@test "#1097 selfcert: a workflow path with a space and a non-ASCII letter is named exactly under core.quotePath=true" {
+    local p=".github/workflows/night ly-é.yml"
+    _req "[\"$GBT\"]"
+    git -C "$SOURCE_DIR" config core.quotePath true
+    _sc_put "$p" 'on: push'
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text "$p")"
+}
+
+# U3: after a merge-forward, rebaseline.sh leaves baseline_sha..verified_head free of
+# the base's own workflow change.
+@test "#1097 selfcert: the base alone changed a workflow, merged forward and rebaselined: no stop" {
+    local origin="$DEVAGENT_TMP/origin.git" upwc="$DEVAGENT_TMP/upwc" base
+    _req "[\"$GBT\"]"
+    git -c init.defaultBranch=main init -q --bare "$origin"
+    ( cd "$SOURCE_DIR" && git remote add origin "$origin" && git push -q origin main && git fetch -q origin )
+    git clone -q -b main "$origin" "$upwc"
+    ( cd "$upwc" && git config user.email u@example.com && git config user.name U \
+      && mkdir -p .github/workflows && echo 'on: push' > "$WF" && git add -A \
+      && git commit -q -m "base: a workflow" && git push -q origin main )
+    ( cd "$SOURCE_DIR" && git fetch -q origin && git merge -q --no-edit origin/main )
+    PR_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    devagent_state_set "$STATE" verified_head "$PR_HEAD"
+    _view head="$PR_HEAD" rchecks="pass|$GBT|SUCCESS"
+    # before the rebaseline the recorded range still holds the base's own change
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    _unstuck
+    run "$DEVAGENT_ROOT/scripts/rebaseline.sh" "$TEST_PROJECT"
+    echo "$output" >&2
+    [ "$status" -eq 0 ]
+    base="$(git -C "$upwc" rev-parse HEAD)"      # the base commit the merge brought in
+    [[ "$output" == *"→ ${base:0:7}"* ]]
+    _preship
+    DEVAGENT_GIT=git
+    . "$DEVAGENT_ROOT/scripts/lib/selfcert.sh"
+    selfcert_paths "$SOURCE_DIR" "$base" "$PR_HEAD"
+    [ "${#SELFCERT_PATHS[@]}" -eq 0 ]
+    _next_run_merges "$PR_HEAD"
+    [[ "$output" != *"self-certifying diff"* ]]
+}
+
+# inv: green before and after.
+@test "#1097 selfcert: no stop for an untouched tag line, a file_tags line without gitbash, a listed path without the paths key, or a workflow change with no required_checks" {
+    # no required_checks: a workflow change merges as it always did
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    _next_run_merges "$PR_HEAD"
+    [[ "$output" != *"self-certifying"* ]]
+    # the same project with a required check: none of these three is watched
+    rm -f "$STUB_DIR/merged" "$MERGE_LOG"
+    mark_step "$CL" 20 ' '
+    _req "[\"$GBT\"]"
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# a body line'
+    _sc_put tests/b.bats '#!/usr/bin/env bats' '# bats file_tags=slow' '# a body line'
+    _sc_put scripts/ci/x.sh 'echo x'
+    _sc_base
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# another body line'
+    _sc_put tests/b.bats '#!/usr/bin/env bats' '# bats file_tags=fast' '# a body line'
+    _sc_put scripts/ci/x.sh 'echo x2'
+    _sc_head
+    _next_run_merges "$PR_HEAD"
+    [[ "$output" != *"self-certifying diff"* ]]
+}
+
+@test "#1097 selfcert remedy: an ack for this head, then unstuck: the next run merges and logs the reason" {
+    local form
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    # the message's own steps: the ack as "Escapes" writes it, then unstuck
+    form="$(grep -oF 'echo "<verified_head> <reason>" > <issue-dir>/.devagent-selfcert-ack' "$DEVAGENT_ROOT/commands/mergemr.md" | head -n 1)"
+    [ -n "$form" ]
+    form="${form//<verified_head>/$PR_HEAD}"
+    form="${form//<reason>/reviewed: the job still runs every tagged file}"
+    form="${form//<issue-dir>/$ISSUE_DIR}"
+    bash -c "$form"
+    _unstuck
+    _next_run_merges "$PR_HEAD"
+    [[ "$output" == *"mergemr: $(_sc_acked "reviewed: the job still runs every tagged file")"* ]]
+    _mrlog | grep -qxF "$(_sc_acked "reviewed: the job still runs every tagged file")"
+}
+
+@test "#1097 selfcert: unstuck alone, an ack for another head, an ack with no reason and a zero-byte ack each stop again" {
+    local other ack
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    other="$(git -C "$SOURCE_DIR" rev-parse main)"
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    _unstuck
+    _run                                        # unstuck alone
+    _stop_is 21 "$(_sc_text "$WF")"
+    for ack in "$other reviewed by tess" "$PR_HEAD" "$PR_HEAD   " "${PR_HEAD:0:7} reviewed by tess" \
+               "${PR_HEAD^^} reviewed by tess" "reviewed by tess"; do
+        _unstuck
+        _ack "$ack"
+        _run
+        echo "ack=[$ack]" >&2
+        _stop_is 21 "$(_sc_text "$WF")"
+    done
+    _unstuck
+    : > "$ISSUE_DIR/.devagent-selfcert-ack"     # zero bytes
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    _unstuck
+    printf '\n%s reviewed by tess\n' "$PR_HEAD" > "$ISSUE_DIR/.devagent-selfcert-ack"    # not on line 1
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#1097 selfcert: a missing baseline_sha, one that is not a commit, and a paths entry that names no path (wrong case) each stop \"unknown\"" {
+    local main none=dddddddddddddddddddddddddddddddddddddddd
+    main="$(git -C "$SOURCE_DIR" rev-parse main)"
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_put scripts/ci/x.sh 'echo x'
+    _sc_head
+    devagent_state_set "$STATE" baseline_sha ""
+    _run
+    _stop_is 21 "$(_sc_unknown "no baseline_sha recorded")"
+    _unstuck
+    devagent_state_set "$STATE" baseline_sha "$none"
+    _run
+    _stop_is 21 "$(_sc_unknown "${none:0:7} is not a commit in $SOURCE_DIR")"
+    _unstuck
+    devagent_state_set "$STATE" baseline_sha "$main"
+    _proj_key required_checks_paths '["Scripts/ci/"]'      # the directory is scripts/ci/
+    _run
+    _stop_is 21 "$(_sc_unknown "required_checks_paths entry 'Scripts/ci/' names no path at ${main:0:7} or ${PR_HEAD:0:7}; fix the key, or merge the base forward")"
+    [ ! -e "$MERGE_LOG" ]
+    # the remedy: fix the key, then unstuck. The entry now names the changed file.
+    sed -i 's|"Scripts/ci/"|"scripts/ci/"|' "$CFG"
+    _unstuck
+    _run
+    _stop_is 21 "$(_sc_text "$WF, scripts/ci/x.sh")"
+}
+
+@test "#1097 selfcert: a passing preship record does not clear a rule 21 stop" {
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text "$WF")"
+    _preship                                    # operator-only: a passing preship leaves it
+    assert_step "$CL" 20 '!' mergemr
+    [ "$(_reason)" = "mergemr rule 21: $(_sc_text "$WF")" ]
+}
+
+@test "#1097 selfcert: more than ten paths are named as the first ten and a count; a path with a line break stays on one line" {
+    local i first="" nl
+    _req "[\"$GBT\"]"
+    for i in 01 02 03 04 05 06 07 08 09 10 11 12; do
+        _sc_put ".github/workflows/w$i.yml" 'on: push'
+        [ "$i" -gt 10 ] || first+=", .github/workflows/w$i.yml"
+    done
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text "${first#, } (+2 more)")"
+    _unstuck
+    git -C "$SOURCE_DIR" reset -q --hard main
+    nl=".github/workflows/a"$'\n'"b.yml"
+    _sc_put "$nl" 'on: push'
+    _sc_head
+    _run
+    _stop_is 21 "$(_sc_text ".github/workflows/a?b.yml")"      # _reason reads one line
+}
+
+# _sc_origin: a bare origin (SC_ORIGIN) that holds main and the issue branch and
+# serves a partial clone.
+_sc_origin() {
+    SC_ORIGIN="$DEVAGENT_TMP/origin.git"
+    git -c init.defaultBranch=main init -q --bare "$SC_ORIGIN"
+    git -C "$SC_ORIGIN" config uploadpack.allowFilter true
+    git -C "$SOURCE_DIR" push -q "$SC_ORIGIN" main feat/1-x
+}
+
+# In a partial clone git fetches a missing object by itself, unbounded, on any read
+# that touches it. The scan's own reads never do, so the one bounded fetch is the only
+# way the commit arrives.
+@test "#1097 selfcert: a head the repo directory lacks is fetched by id, bounded, then scanned; in a partial clone too" {
+    local clone kind
+    local -a filter
+    _req "[\"$GBT\"]"
+    _sc_put "$WF" 'on: push'
+    _sc_head
+    _sc_origin
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = fetch ] && exec sleep 30; done\nexec git "$@"\n' > "$DEVAGENT_TMP/gitshim"
+    chmod +x "$DEVAGENT_TMP/gitshim"
+    for kind in full partial; do
+        echo "kind=$kind" >&2
+        clone="$DEVAGENT_TMP/clone-$kind"
+        filter=()
+        [ "$kind" = full ] || filter=(--filter=blob:none)
+        git clone -q --single-branch -b main "${filter[@]}" "file://$SC_ORIGIN" "$clone"      # main only
+        GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none run git -C "$clone" cat-file -e "$PR_HEAD^{commit}"
+        [ "$status" -ne 0 ]                     # the PR head is not in this clone
+        _set source_dir "$clone"
+        # a fetch that hangs is cut at the bound: the diff is unknown
+        DEVAGENT_GIT="$DEVAGENT_TMP/gitshim" DEVAGENT_MERGEMR_FETCH_SECS=1 run "$MM" "$TEST_PROJECT" </dev/null
+        _stop_is 21 "$(_sc_unknown "${PR_HEAD:0:7} is not a commit in $clone")"
+        _unstuck
+        _run                                    # one fetch of the missing commit from default_baseline's remote
+        _stop_is 21 "$(_sc_text "$WF")"
+        [ -z "$(git -C "$clone" for-each-ref --contains "$PR_HEAD")" ]      # no ref was written for it
+        [ ! -e "$clone/.git/FETCH_HEAD" ]
+        _unstuck
+    done
+}
+
+# The entry check and the diff must read an entry the same way: literally. A form git
+# would otherwise read as pathspec magic names a path for one and nothing for the other.
+@test "#1097 selfcert: a required_checks_paths entry written as pathspec magic names no path: it stops \"unknown\", never matching nothing" {
+    local main e
+    main="$(git -C "$SOURCE_DIR" rev-parse main)"
+    _req "[\"$GBT\"]"
+    _sc_put scripts/ci/x.sh 'echo x'
+    _sc_head
+    _proj_key required_checks_paths '["scripts/ci/"]'
+    for e in ':/scripts/ci/' ':(top)scripts/ci/' ':(literal)scripts/ci/'; do
+        sed -i "s|^required_checks_paths = .*|required_checks_paths = [\"$e\"]|" "$CFG"
+        grep -qxF "required_checks_paths = [\"$e\"]" "$CFG"
+        _run
+        echo "entry=$e" >&2
+        _stop_is 21 "$(_sc_unknown "required_checks_paths entry '$e' names no path at ${main:0:7} or ${PR_HEAD:0:7}; fix the key, or merge the base forward")"
+        _unstuck
+    done
+    [ ! -e "$MERGE_LOG" ]
+    # the remedy: the path as git stores it names the changed file
+    sed -i 's|^required_checks_paths = .*|required_checks_paths = ["scripts/ci/"]|' "$CFG"
+    _run
+    _stop_is 21 "$(_sc_text scripts/ci/x.sh)"
+}
+
+@test "#1097 selfcert: a tagged file that cannot be read at the base, or at the head, stops \"unknown\", never as a file with no tag line" {
+    local side nth at
+    _req "[\"$GBT\"]"
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# a body line'
+    _sc_base
+    _sc_put tests/a.bats '#!/usr/bin/env bats' '# bats file_tags=slow,gitbash' '# a body line'
+    _sc_head
+    # a git whose nth `cat-file blob` fails. One file changed, so the 1st call reads it
+    # at the base and the 2nd at the head.
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'if [[ " $* " == *" cat-file blob "* ]]; then' \
+        '    n=$(( $(cat "$BLOB_COUNT" 2>/dev/null || echo 0) + 1 ))' \
+        '    echo "$n" > "$BLOB_COUNT"' \
+        '    [ "$n" -ne "$FAIL_BLOB" ] || exit 3' \
+        'fi' \
+        'exec git "$@"' > "$DEVAGENT_TMP/gitshim"
+    chmod +x "$DEVAGENT_TMP/gitshim"
+    export BLOB_COUNT="$DEVAGENT_TMP/blob-count"
+    for side in base head; do
+        if [ "$side" = base ]; then nth=1 at="$SC_BASE"; else nth=2 at="$PR_HEAD"; fi
+        rm -f "$BLOB_COUNT"
+        FAIL_BLOB="$nth" DEVAGENT_GIT="$DEVAGENT_TMP/gitshim" run "$MM" "$TEST_PROJECT" </dev/null
+        echo "side=$side" >&2
+        _stop_is 21 "$(_sc_unknown "tests/a.bats at ${at:0:7} cannot be read in $SOURCE_DIR (git cat-file exited 3)")"
+        _unstuck
+    done
+    [ ! -e "$MERGE_LOG" ]
+    _run                                        # readable again: the edited tag line is what stops
+    _stop_is 21 "$(_sc_text tests/a.bats)"
+}
+
+@test "#1097 selfcert: in a partial clone a file that is not there is never fetched: the diff is unknown until the operator fetches it" {
+    local clone="$DEVAGENT_TMP/partial" at_base at_head
+    _req "[\"$GBT\"]"
+    _sc_put tests/a.bats '#!/usr/bin/env bats' "$TAGLINE" '# a body line'
+    _sc_base
+    _sc_put tests/a.bats '#!/usr/bin/env bats' '# a body line'      # the tag line removed
+    _sc_head
+    at_base="$(git -C "$SOURCE_DIR" rev-parse "$SC_BASE:tests/a.bats")"
+    at_head="$(git -C "$SOURCE_DIR" rev-parse "$PR_HEAD:tests/a.bats")"
+    _sc_origin
+    git clone -q --no-checkout --filter=blob:none "file://$SC_ORIGIN" "$clone"    # every commit and tree, no file
+    _set source_dir "$clone"
+    _run
+    _stop_is 21 "$(_sc_unknown "tests/a.bats at ${SC_BASE:0:7} cannot be read in $clone (git cat-file exited 128)")"
+    git -C "$clone" rev-list --objects --missing=print "$SC_BASE" | grep -qxF "?$at_base"      # still not there
+    # the remedy: the operator fetches what is missing, then unstuck
+    git -C "$clone" fetch -q origin "$at_base" "$at_head"
+    _unstuck
+    _run
+    _stop_is 21 "$(_sc_text tests/a.bats)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+# commands/mergemr.md is read by an agent (Issue-461). It names rule 21 and how the
+# operator acknowledges it; the acknowledgment is never in a fenced block, which an
+# agent reads as a command to run.
+@test "#1097 selfcert docs: commands/mergemr.md has rule 21, the order sentence and the operator's acknowledgment, outside every fence" {
+    local doc="$DEVAGENT_ROOT/commands/mergemr.md" flat
+    flat="$(tr '\n' ' ' < "$doc")"
+    grep -q '^| 21 | ' "$doc"
+    [[ "$flat" == *'rules 20-21 are operator-only stops; each row states where it sits in the order'* ]]
+    [[ "$flat" == *'echo "<verified_head> <reason>" > <issue-dir>/.devagent-selfcert-ack'* ]]
+    [[ "$flat" == *'Only the operator writes this file, never an agent'* ]]
+    # the stop's text as the script prints it, the issue directory as a placeholder
+    grep -qF 'record the review in <issue-dir>/.devagent-selfcert-ack as commands/mergemr.md "Escapes" describes, then /devagent:unstuck' "$doc"
+    run awk '/^```/ { f = !f; next } f && /selfcert-ack/ { n++ } END { exit n > 0 }' "$doc"
+    [ "$status" -eq 0 ]
 }

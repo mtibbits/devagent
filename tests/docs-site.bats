@@ -959,7 +959,7 @@ lc_lacks() {
   local f
   f="$(fresh "$README")"
   holds check_platform_tokens "$f"
-  edit "$f" 'macOS is currently untested' 'macOS may work'
+  edit "$f" 'macOS is untested' 'macOS may work'
   breaks 'macOS' check_platform_tokens "$f"
 }
 
@@ -968,27 +968,34 @@ lc_lacks() {
   page="$(fresh "$WEB/install.md")"; readme="$(fresh "$README")"
   holds check_platform_sentence "$page" "$readme"
   # Cut to the first sentence: a README prefix, but it drops claims.
-  drop "$page" 'Native Git Bash on Windows can run the plugin.'
-  drop "$page" 'macOS is currently untested:'
-  breaks 'drops the claim: Git Bash' check_platform_sentence "$page" "$readme"
+  drop "$page" 'WSL is for contributors to devAgent itself.'
+  drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  breaks 'drops the claim: WSL is for contributors' check_platform_sentence "$page" "$readme"
+  # Cut before the WSL-users sentence: still a README prefix, but drops it.
+  page="$(fresh "$WEB/install.md")"
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  breaks 'drops the claim: counts as Linux' check_platform_sentence "$page" "$readme"
   # A word changed.
   page="$(fresh "$WEB/install.md")"
-  edit "$page" 'can run the plugin' 'runs the plugin'
+  edit "$page" 'is for contributors' 'is for developers'
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # Cut mid-sentence.
   page="$(fresh "$WEB/install.md")"
-  edit "$page" ' (`stat -c`, GNU `sed -i`, `readlink -f`).' ''
+  drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  edit "$page" ' to devAgent itself.' ''
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # The bare label only.
   page="$(fresh "$WEB/install.md")"
-  drop "$page" 'Native Git Bash on Windows can run the plugin.'
-  drop "$page" 'macOS is currently untested:'
-  edit "$page" '**Supported platforms.** devAgent is developed and tested on **Linux**, including WSL on Windows.' \
-    '**Supported platforms.**'
+  drop "$page" 'WSL is for contributors to devAgent itself.'
+  drop "$page" 'macOS is untested.'
+  drop "$page" 'Running Claude Code inside WSL counts as Linux.'
+  edit "$page" '**Supported platforms.** Linux, or Windows with Git Bash.' '**Supported platforms.**'
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # README's leading sentences change; the page does not follow.
   page="$(fresh "$WEB/install.md")"
-  edit "$readme" 'developed and tested on **Linux**' 'built and tested on **Linux**'
+  edit "$readme" 'Linux, or Windows with Git Bash.' 'Linux, or Windows under Git Bash.'
   breaks 'word for word' check_platform_sentence "$page" "$readme"
   # LIMIT (documented on the check): a README edit after the page's cut holds.
   readme="$(fresh "$README")"
@@ -1353,4 +1360,45 @@ rr_fixture() {
   breaks 'no post-tag half' check_release_recheck "$d/README.md" "$d/policy.md"
   d="$(rr_fixture)"; edit "$d/README.md" '## Versioning & releases' '## Releases'
   breaks 'Versioning & releases' check_release_recheck "$d/README.md" "$d/policy.md"
+}
+
+# ---- #1097: required checks -------------------------------------------------------------
+
+RC_SKEL="$PLUGIN_ROOT/templates/config.toml.skel"
+RC_SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+
+@test "#1097 required checks docs hold" {
+  holds check_required_checks_docs "$RC_SKEL" "$CONFIG_DOC" "$RC_SPEC"
+}
+
+@test "#1097 mutation: required checks docs" {
+  local d="$BATS_TEST_TMPDIR/rc" t
+  mkdir -p "$d"
+  _rc_copy() { cp "$RC_SKEL" "$d/skel"; cp "$CONFIG_DOC" "$d/page"; cp "$RC_SPEC" "$d/spec"; }
+  _rc_copy; holds check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  edit "$d/skel" '# required_checks = [' '# requiredchecks = ['
+  breaks 'required_checks sample' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  _rc_copy; edit "$d/skel" '# required_checks_paths = [' '# requiredchecks_paths = ['
+  breaks 'required_checks_paths sample' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  for t in 'required_checks_paths' 'every host' 'branch protection' '.devagent-selfcert-ack' \
+           'operator only' 'every PR' 'not covered'; do
+    _rc_copy; edit "$d/page" "$t" 'XXXX'
+    breaks "lacks '$t'" check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  done
+  _rc_copy; edit "$d/spec" $'pass     <name>  <link>  <CONCLUSION>' $'pass     <name>  <link>'
+  breaks 'four-field pass line' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+  _rc_copy
+  sed -i '/^| 20 | `\/devagent:mergemr`/s/required_checks/requiredchecks/g' "$d/spec"
+  breaks 'row 20' check_required_checks_docs "$d/skel" "$d/page" "$d/spec"
+}
+
+@test "#1097 required checks docs scope rule 12's auto-merge change and rule 21's stop to merge_mr = true" {
+  local t c
+  t="$(awk '/^## Required CI checks$/{f=1} f && /^## Capacity$/{exit} f' "$CONFIG_DOC" | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$t" ]
+  [[ "$t" != *'Two stops apply whatever `merge_mr` says'* ]] || { echo "rule 21 is said to stop whatever merge_mr says"; return 1; }
+  [[ "$t" == *'With `merge_mr = true`'*'turns the forge'"'"'s auto-merge off'* ]] || { echo "auto-merge change not scoped to merge_mr = true"; return 1; }
+  [[ "$t" == *'Under `merge_mr = false`'*'rule 21 does not stop'* ]] || { echo "no merge_mr = false statement for rule 21"; return 1; }
+  c="$(tr '\n' ' ' < "$PLUGIN_ROOT/changelog.d/1097.md")"
+  [[ "$c" == *'With `merge_mr = true`'* ]] || { echo "changelog entry not scoped to merge_mr = true"; return 1; }
 }

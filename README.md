@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **61 slash commands** driving a **25-step workflow** (22 mandatory steps + 3 optional), works against
+provides **62 slash commands** driving a **25-step workflow** (22 mandatory steps + 3 optional), works against
 GitHub, GitLab, and JIRA issue trackers and GitHub and GitLab code forges (JIRA
 is tracker-only; pair it with either forge), and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
@@ -68,14 +68,31 @@ devAgent is tested against `shellcheck` 0.9.0 or newer, and nothing checks the v
 at run time — `commands/analyze.md` says where it is recorded. The backend and auth
 scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (JIRA),
 as appropriate for your backend.
+On native Windows: Git for Windows. Claude Code's
+[setup page](https://code.claude.com/docs/en/setup) lists it as optional, but
+devAgent needs the Git Bash it provides. If Claude Code cannot find Git Bash, set
+`CLAUDE_CODE_GIT_BASH_PATH` to the path of its `bash.exe` (for example
+`C:\Program Files\Git\bin\bash.exe`) in the `env` block of Claude Code's
+`settings.json`.
 
-**Supported platforms.** devAgent is developed and tested on **Linux**, including
-WSL on Windows. Native Git Bash on Windows can run the plugin.
-macOS is currently untested: the scripts assume GNU coreutils (`stat -c`, GNU
-`sed -i`, `readlink -f`). CI runs the full suite on Linux, and runs the
-`gitbash`-tagged test files under Git Bash on Windows; the full suite needs a
-filesystem where `chmod` works, which Git Bash's default `noacl` mounts are not
-(see [Running the test suite](#running-the-test-suite)).
+<!-- tests/docs-site.bats: docs-site/install.md copies this paragraph through "counts as Linux." word for word (check_platform_sentence); keep each PLATFORM_CLAIMS token on one line -->
+**Supported platforms.** Linux, or Windows with Git Bash.
+WSL is for contributors to devAgent itself. macOS is untested.
+Running Claude Code inside WSL counts as Linux.
+With Git for Windows installed, Claude Code's Bash tool runs in Git Bash, and
+devAgent's commands use that tool. Supported means Windows defects get fixed;
+the known ones are tracked in the epic
+[Support Windows users through Git Bash](https://github.com/mtibbits/devagent/issues/983).
+Git Bash's default `noacl` mounts make `chmod` a no-op, so a suite that mentions
+file modes at all (devAgent's own, or your project's, even a `chmod +x` on a test
+stub) cannot produce suite evidence in Git Bash: run that step in a WSL clone on
+a Linux filesystem, not under `/mnt/c` (see
+[Running the test suite](#running-the-test-suite)). macOS should work with
+Homebrew bash and GNU coreutils, sed and findutils, with their `gnubin`
+directories first on PATH (the scripts use, for example, `stat -c`, `sed -i`,
+`find -printf` and `readlink -f`).
+CI runs the full suite on Linux, and runs the `gitbash`-tagged test files under
+Git Bash on Windows.
 
 **Claude Code version.** Developed and verified against Claude Code **2.1.223**;
 earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,
@@ -165,6 +182,7 @@ All commands live under the `/devagent:` namespace.
 | `statusreport` | Generate a per-project status report and advance the report pin |
 | `portfolio` | Write one portfolio JSON document over every configured project's WBS, with a parse report, or list every project's ready leaves with `--ready` (read-only) |
 | `milestones` | Print each issue's dated milestones (opened, MRs, steps, parks, closed) and spans from the tracker, linked MRs and checklists (read-only) |
+| `actuals` | Build the per-issue actuals document (tokens, time, sessions and dated milestones per issue) that the portfolio reads |
 
 ### Checklist primitives
 Low-level building blocks the workflow commands use; you rarely call them
@@ -173,7 +191,7 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 
 > The 25 numbered step commands above (22 mandatory + the optional `1 research`,
 > `3 spike`, and `19 mergetoall` steps), plus `next` / `revise` / `comments`, together with the tables in this
-> section, are the full set of 61 slash commands (58 commands + 3 user-invocable
+> section, are the full set of 62 slash commands (59 commands + 3 user-invocable
 > skills — `next`, `capture`, `ship`; #452).
 
 ## Concurrent sessions
@@ -218,6 +236,25 @@ STUCK, the step `[?]`, the issue parked, one `hold` line — and
 table) until the answer is recorded. Rules for the session:
 `skills/next/references/operator-questions.md`. No step calls `hold.sh` until
 #963 and #964 land.
+
+A launcher can also ask whether a session it started is still making progress
+(#932):
+
+```sh
+bash scripts/watchdog.sh check <project> <issue> --transcript <path> --since <launch time>
+```
+
+prints `ok` (exit 0) or one `stalled no-progress …` line (exit 3); exit 1 means
+it could not tell, and exit 2 a wrong call. It kills nothing and writes
+nothing. In an unattended session whose launcher also sets
+`DEVAGENT_WATCHDOG_WRAP`, `next` tells the session to run long commands under
+`libexec/long-run.sh`, so that their output counts as progress. Granting that
+wrapper a permission rule is the same as allowing every command, which is why
+no devagent command or skill grants it, and a launcher sets
+`DEVAGENT_WATCHDOG_WRAP` only once it has granted it. The limits are four optional config
+keys (`docs/configuration.md`, "Watchdog limits"); the progress sources, the
+transcript recipe, the state layout and the permission rule are in spec §7.3,
+"The no-progress watchdog".
 
 ## Trust policy
 
@@ -366,7 +403,7 @@ Every code backend MUST implement `push-branch`, `create-mr`, `mr-state`,
 | `mr-comments` | `<mr-url>`                                                    | markdown to stdout     |
 | `merge-mr`    | `<mr-url> [--method squash|merge|rebase] [--match-head-commit <sha>] [--subject <s>] [--body <b>]`, or `<mr-url> --disable-auto` | exit 0 |
 | `issue-mrs`   | `<repo> <id>...`                                              | `issue`/`mr` lines per id (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
-| `mr-checks`   | `<mr-url>`                                                    | `state`, `head` and one line per CI check (optional; read by `next` and `mergetoall`, #782) |
+| `mr-checks`   | `<mr-url>`                                                    | `state`, `head` and one line per CI check, a `pass` line ending in its conclusion (optional; read by `next` and `mergetoall`, #782; conclusion #1097) |
 | `mr-view`     | `<mr-url>`                                                    | the `mr-checks` lines plus the merge facts (optional; read by `mergemr`, #885) |
 
 Exit-code conventions across all backends:
@@ -388,6 +425,11 @@ are fixed across backends (spec §9.3) — downstream code is backend-agnostic.
 inline code comments this way.
 
 ## Running the test suite
+
+This section is contributor setup for devAgent's own test suite. One of its
+requirements also applies to your project's suite: a suite that references file
+modes needs a filesystem where `chmod` works, because `scripts/run-suite.sh` is
+the evidence runner the workflow uses for every project.
 
 The canonical runner is `scripts/run-suite.sh`, which runs bats and pytest with
 the hermetic environment baked in and writes the provenance artifact
@@ -446,9 +488,9 @@ On Windows that means **a WSL clone on a native Linux filesystem (ext4) — not 
 checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
 mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
 with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
-is fine for individual scripts (a preship check there attests the WSL tree,
-below), but not for the full suite; the `gitbash`-tagged files run on Windows
-CI. That `noacl` limit is a property of the mount, not a defect to repair. Run the suite in the WSL clone on the
+is the supported Windows environment for users, and is fine for individual
+scripts (a preship check there attests the WSL tree, below), but not for the
+full suite; the `gitbash`-tagged files run on Windows CI. That `noacl` limit is a property of the mount, not a defect to repair. Run the suite in the WSL clone on the
 issue's branch, never a detached SHA: `git fetch origin && git checkout <branch>`
 the first time, and `git merge --ff-only origin/<branch>` after that.
 
@@ -681,8 +723,9 @@ passes no `--filter-tags`.
 
 Every test file must be hermetic: one stray `export DEVAGENT_ACTIVE_ISSUE=…` in a
 developer's shell must not change a verdict. `tests/lib/hermetic-env.bash` is the
-single home for that — it unsets the #240 session pins and a launcher's
-`DEVAGENT_UNATTENDED` marker, and neutralizes a hostile global gitconfig, `TZ`, and
+single home for that — it unsets the #240 session pins, a launcher's
+`DEVAGENT_UNATTENDED` marker, and the watchdog's `CLAUDE_CODE_SESSION_ID`,
+`DEVAGENT_WATCHDOG_TRANSCRIPT` and `DEVAGENT_WATCHDOG_WRAP`, and neutralizes a hostile global gitconfig, `TZ`, and
 locale. How a file gets it depends on its shape:
 
 - A file that `load`s a setup layer (`load 'lib/bats-helpers'`, `load 'helpers/fixtures'`)

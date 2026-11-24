@@ -695,7 +695,7 @@ Partly delivered. A requirement here that is not built yet starts with
   session that holds no tools; (planned) missing history counts as unknown and
   quarantines. {refines: SR-13}
 - FR-99: The deterministic floor quarantines a ticket that is over the size
-  limit, (planned) holds invisible or bidirectional control characters, or
+  limit, holds invisible or bidirectional control characters, or
   carries a steering key or label outside the policy's allowlist; (planned)
   the model screen can add a quarantine but never remove one. {refines: SR-13}
 - FR-100: devagent marks a quarantined ticket with a tracker label; pull
@@ -744,7 +744,7 @@ Partly delivered. A requirement here that is not built yet starts with
 - FR-111: devagent reports agent time and operator time per issue, apart from
   calendar time, and records each issue's milestones from
   checklists, the tracker and MRs. {refines: SR-19}
-- FR-112: (Planned.) devagent publishes per-issue actuals as a source the portfolio
+- FR-112: devagent publishes per-issue actuals as a source the portfolio
   document reads. {refines: SR-19}
 - FR-113: devagent's work-breakdown key contract classifies every `est`
   value as absent, placeholder, time, non-time or unparseable and every `tok`
@@ -875,9 +875,9 @@ Partly delivered. A requirement here that is not built yet starts with
   codes, and one shared contract suite checks them. Two parts are GitHub
   only so far: the merge step, and the account and change-event reads the
   trust policy needs.
-- QA-7: Portability across hosts: devagent runs on Linux and WSL, and its
-  scripts behave the same under any POSIX awk and normalise CRLF output and
-  backslash paths before matching; native Git Bash runs the plugin, but
+- QA-7: Portability across hosts: devagent runs on Linux and on Windows under
+  Git Bash, with WSL for contributors, and its scripts behave the same under any
+  POSIX awk and normalise CRLF output and backslash paths before matching;
   the full suite needs a filesystem where `chmod` works, which Git Bash's
   default `noacl` mounts are not; the `gitbash`-tagged files run on Windows CI.
 - QA-8: Safe concurrency: every state write holds an exclusive lock across
@@ -945,7 +945,7 @@ Partly delivered. A requirement here that is not built yet starts with
 - QA-30: A failed web request is reported with its method, URL, status and
   response, and an auth failure, a network failure and an absent resource are
   told apart.
-- QA-31: (Planned.) Every actuals figure traces to its sources: cost and time to the
+- QA-31: Every actuals figure traces to its sources: cost and time to the
   session and host they came from, and milestones to a tracker or MR address
   or a checklist line.
 - QA-32: devagent's spec keeps in step with its behaviour: the MR red-team
@@ -1033,9 +1033,10 @@ Partly delivered. A requirement here that is not built yet starts with
 - EI-23: The ticket screen and signing keys (planned): devagent passes staged
   ticket text to an isolated model process and parses its verdict against a
   strict grammar, and verifies security-key signatures posted on the tracker.
-- EI-24: Actuals, calibration and forecast documents (planned): devagent
-  writes per-issue cost, time and milestones, per-project calibration pairs,
-  and forecasts with their inputs, for the portfolio and other tools to read.
+- EI-24: Actuals, calibration and forecast documents: devagent writes
+  per-issue cost, time and milestones (the actuals document), and, planned,
+  per-project calibration pairs and forecasts with their inputs, for the
+  portfolio and other tools to read.
 - EI-25: The operator's private name list (planned): devagent reads it by
   path only, to scan tracker posts for private names before they are sent.
 - EI-26: The public documentation site: devagent's onboarding pages,

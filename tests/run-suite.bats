@@ -1039,3 +1039,82 @@ _rs659_bare() { LC_ALL=C grep -vE "$RS659_OK" || true; }   # stdin: invocation l
     [[ "$output" == *"SCOPE MISMATCH"* ]]
     [[ "$output" != *"ISSUE UNSTATED"* ]]
 }
+
+# --- #932: both suite captures run under libexec/long-run.sh --merge ---
+#
+# The captures ended `2>&1`, so the wrapper is given --merge: the suite's stderr
+# joins its stdout in ONE pipe and their order stays the suite's own. The stub
+# below makes that order observable in the counts: a line that reads `not ok`
+# only when the two streams interleave as written, and an `ok` line that exists
+# only on stderr. The wrapper sits OUTSIDE the env -u list, so it sees the
+# unattended marker and the suite's children do not.
+RS932_ID=0f8fad5b-d9cb-469f-a165-70867728950e
+_wd932() { printf '%s' "$HOME/.claude/devagent/state/watchdog"; }
+_stub_bats_two_streams() {
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'printf "%s" "${DEVAGENT_UNATTENDED-<UNSET>}" > "$DEVAGENT_TMP/seen-child-marker"' \
+        'echo "1..4"' \
+        'echo "ok 1 a"' \
+        'echo "ok 2 from stderr" >&2' \
+        'printf "not " >&2' \
+        'echo "ok 3 c"' \
+        'echo "ok 4 d"' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+}
+_run_rs932_unattended() {
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$RS932_ID" \
+        "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
+}
+
+@test "run-suite's artifact lines are identical with the marker set and unset (#932)" {
+    export DEVAGENT_DATE_OVERRIDE=1999-01-02
+    _stub_bats_two_streams
+    _stub_python3_pytest "7 passed, 1 failed in 0.20s"
+    echo 'def test_x(): pass' > "$SOURCE_DIR/tests/test_x.py"
+    git -C "$SOURCE_DIR" add -A && git -C "$SOURCE_DIR" commit -q -m "add pytest"
+    _run_rs
+    [ "$status" -eq 0 ]
+    cp "$(_art)" "$DEVAGENT_TMP/attended.txt"
+    # The counts as literals: stderr's `ok 2` counted, `not ` + `ok 3 c` one line.
+    grep -q '^bats: 3/4 notok=1$' "$DEVAGENT_TMP/attended.txt"
+    grep -q '^pytest: 7 passed, 1 failed, 0 errors$' "$DEVAGENT_TMP/attended.txt"
+    # Both captures went through the wrapper, attended: one merged log each.
+    [ "$(find "$(_wd932)/logs" -name 'no-session.*.log' | wc -l)" -eq 2 ]
+    [ -z "$(find "$(_wd932)" -mindepth 1 -maxdepth 1 ! -name logs)" ]
+    _run_rs932_unattended
+    [ "$status" -eq 0 ]
+    diff "$DEVAGENT_TMP/attended.txt" "$(_art)"
+}
+
+@test "an unattended run-suite leaves a wrap file and its suite children see no marker (#932)" {
+    _stub_bats_two_streams
+    _run_rs932_unattended
+    [ "$status" -eq 0 ]
+    [ "$(find "$(_wd932)/$RS932_ID" -name 'wrap.*' | wc -l)" -eq 1 ]
+    [ "$(cat "$DEVAGENT_TMP/seen-child-marker")" = "<UNSET>" ]
+    # The run's log holds the suite's merged output, in the suite's order.
+    grep -q '^not ok 3 c$' "$(_wd932)/logs/$RS932_ID".*.log
+    grep -q '^bats: 3/4 notok=1$' "$(_art)"
+}
+
+@test "an unattended run-suite wraps the pytest capture too, and pytest's exit code still decides (error) (#932)" {
+    rm -f "$SOURCE_DIR/tests/x.bats"
+    echo 'def test_x(): pass' > "$SOURCE_DIR/tests/test_x.py"
+    git -C "$SOURCE_DIR" add -A && git -C "$SOURCE_DIR" commit -q -m "pytest only"
+    local real_py3; real_py3="$(command -v python3)"
+    cat > "$DEVAGENT_TMP/binstub/python3" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *pytest*) printf '%s' "\${DEVAGENT_UNATTENDED-<UNSET>}" > "$DEVAGENT_TMP/seen-child-marker"
+            echo "boom" >&2; exit 3 ;;
+  *) exec "$real_py3" "\$@" ;;
+esac
+EOF
+    chmod +x "$DEVAGENT_TMP/binstub/python3"
+    _run_rs932_unattended
+    [ "$status" -eq 0 ]
+    grep -q '^pytest: (error)$' "$(_art)"
+    [ "$(cat "$DEVAGENT_TMP/seen-child-marker")" = "<UNSET>" ]
+    [ "$(find "$(_wd932)/$RS932_ID" -name 'wrap.*' | wc -l)" -eq 1 ]
+    grep -q '^boom$' "$(_wd932)/logs/$RS932_ID".*.log
+}

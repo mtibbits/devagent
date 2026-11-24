@@ -9,7 +9,7 @@ argument-hint: "[--out PATH | --ready]"
 **Usage:** `/devagent:portfolio [--out PATH | --ready]`
 
 Writes one document that describes every configured project's `WBS.md`
-(#726). The document conforms to the portfolio schema v1.2; its contract is
+(#726). The document conforms to the portfolio schema v1.3; its contract is
 [`docs/portfolio-schema.md`](../docs/portfolio-schema.md), and spec §13.4
 introduces it. The command is read-only. It writes the one document and
 nothing else: no `WBS.md`, no state, and no devdoc file. With `--ready` it
@@ -28,6 +28,15 @@ writes nothing and prints every project's ready leaves instead (#727; see
 - **Each issue dir.** For an issue id on a node, `<devdoc>/<issue>/checklist.md`
   gives `checklist`, `next_step` and `next_step_number` (the rule `next.sh`
   uses), and `<devdoc>/<issue>/STUCK` gives `stuck`.
+- **Actuals** (#735). `<devagent_home>/actuals.json`, built by
+  `/devagent:actuals` (and by cleanup when it is stale), is read, never run:
+  each issue's row fills its `actuals` slot, each project's row its `actuals`
+  field, and the file's `actuals_version`, `generated_at` and `unassigned` the
+  document's top-level `actuals`. A row whose issue is on no node is ignored.
+  When the file is missing, unreadable, not a usable actuals document, or
+  generated more than 7 days before the document, every one of them is null
+  and each project gets one `actuals_unavailable` entry saying why; the run
+  still writes and exits 0.
 
 ## Output
 
@@ -37,10 +46,14 @@ written atomically and, where the platform supports it, is readable by its
 owner only (mode 0600); any directory the command creates is 0700. `--out PATH` chooses another file.
 
 **Privacy.** The document names every configured project, private ones
-included. Keep it outside every devdoc: every devdoc commit reaches origin at
-the next cleanup (#1148). The command refuses an `--out` under any
-configured `devdoc_dir`, `source_dir` or `worktree_root` (both sides are
-canonicalised first). When `worktree_root` is unset or empty, the rail treats
+included, and since schema 1.3 (#735) its actuals slots carry transcript
+session ids, host names, cwd slugs and, in the top-level `actuals.unassigned`
+rows, the working directories of work no project claimed. Keep it outside every
+devdoc and every repository: every devdoc commit reaches origin at the next
+cleanup (#1148). The command refuses an `--out` inside any git work tree (by
+git's own answer for the nearest existing directory; it fails closed when git
+cannot answer), and under any configured `devdoc_dir`, `source_dir` or
+`worktree_root` (both sides are canonicalised first). When `worktree_root` is unset or empty, the rail treats
 `<source_dir>-wt` as the worktree root (the rule trust applies) and refuses
 `--out` under it the same way.
 
@@ -58,13 +71,15 @@ with its project, `WBS.md` line and kind: issue-less leaves, unresolved
 rows (`dep_skipped`), dependency cycles (`dep_cycle`), parents marked done
 with pending leaves under them (`parent_done_leaf_pending`), duplicate issues,
 unparseable estimates, unknown or unreadable metadata, lines shaped like nodes
-that are not nodes, and parser warnings. The kinds are listed in the schema
-doc's "Report kinds" table.
+that are not nodes, parser warnings, and an actuals file that could not be
+used (`actuals_unavailable`, one per project). The kinds are listed in the
+schema doc's "Report kinds" table.
 
 ## Ready leaves (`--ready`)
 
 `--ready` lists the leaves you could start now, across every project, instead
-of writing the document. It builds the same document in memory and fills its
+of writing the document. It builds the same document in memory, without
+actuals, and fills its
 readiness fields by the rule below; the document itself carries them too.
 
 <!-- editor: tests/test_portfolio.py::test_command_doc_defines_ready requires

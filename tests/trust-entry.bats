@@ -140,7 +140,7 @@ _lib() {
   while IFS= read -r f; do
     f="${f#"$PLUGIN_ROOT/scripts/"}"
     found+=("${f%.sh}")
-  done < <(grep -rlE --include='*.sh' '^trust_(entry_check(_devdoc)?|doctor_block) "' "$PLUGIN_ROOT/scripts" | sort)
+  done < <(grep -rlE --include='*.sh' '^trust_(entry_check(_devdoc)?|doctor_block) "' "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/libexec" | sort)
   want="$(printf '%s\n' "${TRUST_ENTRY_POINTS[@]}" | sort)"
   missing="$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "${found[@]}" | sort))"
   extra="$(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "${found[@]}" | sort))"
@@ -159,14 +159,27 @@ _lib() {
     f="${f#"$PLUGIN_ROOT/scripts/"}"
     hits+=("${f%.sh}")
   done < <(grep -lE 'BACKEND_DIR|scripts/issue|scripts/code|backend_sh|/\$backend\.sh|/\$\{backend\}\.sh|gh (api|pr|issue|auth)' \
-             "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh | sort)
+             "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh "$PLUGIN_ROOT"/libexec/*.sh | sort)
   # positive control: the sweep sees known dispatchers.
   [[ " ${hits[*]} " == *" pull "* && " ${hits[*]} " == *" wbs-init "* ]] || { echo "sweep found: ${hits[*]}" >&2; return 1; }
   stray="$(comm -23 <(printf '%s\n' "${hits[@]}") <(printf '%s\n' "${TRUST_ENTRY_POINTS[@]}" init | sort))"
   [ -z "$stray" ] || { echo "dispatches but is not an entry point: $stray" >&2; return 1; }
 }
 
-@test "entry-points: each refuses with 9 when whoami is a trusted id" {
+# #932, the one exemption to "wrote nothing": in an unattended session
+# (DEVAGENT_UNATTENDED set, CLAUDE_CODE_SESSION_ID a UUID) every script that
+# sources scripts/lib/paths.sh moves $DA_HOME/state/watchdog/<session id>/script
+# before it can refuse, so a refusal may leave that one empty file and nothing
+# else. It is a progress mark for the launcher's watchdog, not issue state.
+# `_refusals unattended` runs the matrix in such a session and allows exactly
+# that path.
+SID=0f8fad5b-d9cb-469f-a165-70867728950e
+
+# _refusals [unattended]
+_refusals() {
+  local unattended="${1:-}" marked=0 tree
+  local -a session=()
+  [ -z "$unattended" ] || session=(env DEVAGENT_UNATTENDED=1 "CLAUDE_CODE_SESSION_ID=$SID")
   _wid
   _lib
   export DEVAGENT_DEVDOC_DIR="$DEVDOC" DEVAGENT_ISSUE_BACKEND_DIR="$PLUGIN_ROOT/scripts/issue"
@@ -175,8 +188,22 @@ _lib() {
   for ep in "${TRUST_ENTRY_POINTS[@]}"; do
     _argv_for "$ep" || { echo "no argv for $ep" >&2; fails=$((fails + 1)); continue; }
     rm -f "$GH_STUB_ARGV_LOG"
+    rm -rf "$DA_HOME/state/watchdog"
     before="$(_snap)"
-    run --separate-stderr "$PLUGIN_ROOT/scripts/$ep.sh" "${ARGS[@]}"
+    run --separate-stderr "${session[@]}" "$PLUGIN_ROOT/scripts/$ep.sh" "${ARGS[@]}"
+    if [ -n "$unattended" ]; then
+      # The exemption, exactly: nothing, or the one empty file. Then it is
+      # removed, so the snapshots compare everything else.
+      tree="$(cd "$DA_HOME/state" && find watchdog 2>/dev/null | sort | xargs)"
+      case "$tree" in
+        "") ;;
+        "watchdog watchdog/$SID watchdog/$SID/script")
+          marked=$((marked + 1))
+          [ ! -s "$DA_HOME/state/watchdog/$SID/script" ] || { echo "$ep: script is not empty" >&2; fails=$((fails + 1)); } ;;
+        *) echo "$ep: left under state/watchdog: $tree" >&2; fails=$((fails + 1)) ;;
+      esac
+      rm -rf "$DA_HOME/state/watchdog"
+    fi
     after="$(_snap)"
     if [ "$status" -ne 9 ] || [[ "$stderr" != *"trust: account github:1001 is in trusted_approvers"* ]]; then
       echo "$ep: rc=$status stderr=$stderr" >&2
@@ -197,21 +224,23 @@ _lib() {
       fails=$((fails + 1))
     fi
   done
+  # Every entry point sources paths.sh before its check, so each left the mark.
+  if [ -n "$unattended" ] && [ "$marked" -ne "${#TRUST_ENTRY_POINTS[@]}" ]; then
+    echo "only $marked of ${#TRUST_ENTRY_POINTS[@]} left the mark" >&2
+    fails=$((fails + 1))
+  fi
   [ "$fails" -eq 0 ]
 }
 
-# #962: hold.sh reads the unattended marker to choose ask or hold; the loop
-# above runs it with the marker unset, this case with it set.
-@test "entry-points: hold refuses with 9 and writes nothing with the marker set" {
-  _wid
-  _argv_for hold
-  : > "$BATS_TEST_TMPDIR/q.md"
-  local before
-  before="$(_snap)"
-  DEVAGENT_UNATTENDED=1 run --separate-stderr "$PLUGIN_ROOT/scripts/hold.sh" "${ARGS[@]}"
-  [ "$status" -eq 9 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
-  [[ "$stderr" == *"trust: account github:1001 is in trusted_approvers"* ]]
-  [ "$(_snap)" = "$before" ]
+@test "entry-points: each refuses with 9 when whoami is a trusted id" {
+  _refusals
+  [ ! -e "$DA_HOME/state/watchdog" ]
+}
+
+# #962: hold.sh reads the unattended marker to choose ask or hold, so this
+# matrix is also its marker-set refusal; the one above is its ask-mode one.
+@test "entry-points: the same refusals in an unattended session leave state/watchdog/<id>/script and nothing else (#932)" {
+  _refusals unattended
 }
 
 @test "file: project derived from devdoc_dir; zero or two matches refuse 9" {

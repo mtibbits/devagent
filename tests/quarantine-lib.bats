@@ -317,3 +317,150 @@ _v_setup() {
   [ "$status" -eq 0 ]
   [ "$output" = PASS ]
 }
+
+# ---- #923: the detail line ----------------------------------------------------
+
+QKEY="github:github.com/acme/widgets#7"
+
+# _drive_guard: quarantine_guard under `set -euo pipefail`, as an entry point.
+_drive_guard() {
+  run --separate-stderr bash -c '
+    set -euo pipefail
+    for l in paths io config state active trust quarantine; do source "$PLUGIN_ROOT/scripts/lib/$l.sh"; done
+    trust_entry_check "drive" wid
+    quarantine_guard "drive" wid
+    echo PROCEED'
+}
+
+@test "marker: a detail line round-trips (#923)" {
+  _lib
+  local d
+  for d in 'body line 3 U+202E' 'body line 3 U+202E (+1 more)' 'label line 1 U+202E' \
+           'comment:12 line 1 U+202E' 'body line 2 0xFF' 'title line 1 U+E0041'; do
+    quarantine_marker_write "$D" "$QKEY" chars 2026-11-02T10:00:00Z 41 "$d"
+    [ "$(sed -n 5p "$D/QUARANTINE")" = "detail: $d" ] || { echo "detail '$d' not on line 5" >&2; return 1; }
+    [ "$(sed -n 6p "$D/QUARANTINE")" = "" ]
+    [ "$(tail -n +7 "$D/QUARANTINE")" = "$(quarantine_message "$QKEY")" ]
+    quarantine_marker_read "$D"
+    [ "$QM_DETAIL" = "$d" ] || { echo "detail '$d' read back as '$QM_DETAIL'" >&2; return 1; }
+    [ "$QM_REASON" = chars ]
+    [ "$QM_SEQ" = 41 ]
+  done
+}
+
+@test "marker: without a detail the bytes are #714's (#923)" {
+  _lib
+  quarantine_marker_write "$D" "$QKEY" steering 2026-11-02T10:00:00Z 41
+  { printf 'devagent-quarantine 1\nkey %s\nreason steering\nevent 2026-11-02T10:00:00Z 41\n\n' "$QKEY"
+    quarantine_message "$QKEY"; } > "$BATS_TEST_TMPDIR/want"
+  cmp "$D/QUARANTINE" "$BATS_TEST_TMPDIR/want"
+  quarantine_marker_write "$D" "$QKEY" steering 2026-11-02T10:00:00Z 41 ''
+  cmp "$D/QUARANTINE" "$BATS_TEST_TMPDIR/want"
+  quarantine_marker_read "$D"
+  [ "$QM_DETAIL" = "" ]
+}
+
+@test "marker: a malformed detail is neither written nor read (#923)" {
+  _lib
+  local d
+  for d in 'body line 0 U+202E' 'SENTINEL' 'body line 1 U+202e' 'body line 1 U+202E ' 'notes line 1 U+202E'; do
+    quarantine_marker_write "$D" "$QKEY" chars 2026-11-02T10:00:00Z 41 "$d"
+    [ "$(sed -n 5p "$D/QUARANTINE")" = "" ] || { echo "detail '$d' was written" >&2; return 1; }
+  done
+  printf 'devagent-quarantine 1\nkey %s\nreason chars\nevent ? ?\ndetail: SENTINEL x\n\n' "$QKEY" > "$D/QUARANTINE"
+  quarantine_marker_read "$D"
+  [ "$QM_DETAIL" = "" ]
+  run --separate-stderr quarantine_print "$D"
+  [[ "$output" != *SENTINEL* ]]
+  [ "${lines[-1]}" = "Reason: chars" ]
+}
+
+@test "print: the detail follows Reason (#923)" {
+  _lib
+  quarantine_marker_write "$D" "$QKEY" chars 2026-11-02T10:00:00Z 41 'body line 3 U+202E (+1 more)'
+  run --separate-stderr quarantine_print "$D"
+  [ "$status" -eq 0 ]
+  [ "${lines[-2]}" = "Reason: chars" ]
+  [ "${lines[-1]}" = "detail: body line 3 U+202E (+1 more)" ]
+}
+
+@test "verdict: a source's detail is carried; any other second line is no verdict (#923)" {
+  _v_setup
+  _det_src() { printf 'chars\ndetail: label line 1 U+202E\n'; }
+  QUARANTINE_SOURCES=(_det_src _rec_src)
+  run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'QUARANTINE chars\ndetail: label line 1 U+202E')" ]
+  [ ! -e "$BATS_TEST_TMPDIR/rec.log" ]
+  _junk_src() { printf 'chars\njunk\n'; }
+  QUARANTINE_SOURCES=(_junk_src)
+  run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+  _bad_det_src() { printf 'chars\ndetail: SENTINEL x\n'; }
+  QUARANTINE_SOURCES=(_bad_det_src)
+  run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+}
+
+@test "verdict: a third line is no verdict (#923)" {
+  _v_setup
+  _three_src() { printf 'chars\ndetail: body line 1 U+202E\ndetail: body line 2 U+202E\n'; }
+  QUARANTINE_SOURCES=(_three_src)
+  run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+}
+
+@test "verdict: split sets QV_TOKEN and QV_DETAIL (#923)" {
+  _lib
+  quarantine_verdict_split "QUARANTINE steering"
+  [ "$QV_TOKEN" = steering ]
+  [ "$QV_DETAIL" = "" ]
+  quarantine_verdict_split "$(printf 'QUARANTINE chars\ndetail: body line 3 U+202E (+2 more)')"
+  [ "$QV_TOKEN" = chars ]
+  [ "$QV_DETAIL" = "body line 3 U+202E (+2 more)" ]
+}
+
+@test "marker: an empty or unset QUARANTINE_DETAIL_RE accepts no detail (#923)" {
+  _v_setup
+  local how
+  for how in unset empty; do
+    if [ "$how" = unset ]; then unset QUARANTINE_DETAIL_RE; else QUARANTINE_DETAIL_RE=''; fi
+    quarantine_marker_write "$D" "$QKEY" chars 2026-11-02T10:00:00Z 41 'SENTINEL x'
+    [ "$(sed -n 5p "$D/QUARANTINE")" = "" ] || { echo "$how: written" >&2; return 1; }
+    printf 'devagent-quarantine 1\nkey %s\nreason chars\nevent ? ?\ndetail: SENTINEL x\n\n' "$QKEY" > "$D/QUARANTINE"
+    quarantine_marker_read "$D"
+    [ "$QM_DETAIL" = "" ] || { echo "$how: read back" >&2; return 1; }
+    _det_src() { printf 'chars\ndetail: SENTINEL x\n'; }
+    QUARANTINE_SOURCES=(_det_src)
+    run --separate-stderr quarantine_verdict wid "$D" "$BENIGN"
+    [ "$status" -eq 3 ] || { echo "$how: verdict rc $status" >&2; return 1; }
+    [ "$output" = "" ]
+  done
+}
+
+@test "decide: a first-sight tracker quarantine rewrites under set -u (#923)" {
+  qf_policy separate
+  qf_ev 2026-11-02T10:00:00Z 5 2002 user labeled
+  [ ! -e "$D/QUARANTINE" ]
+  _drive_guard
+  [ "$status" -eq 11 ]
+  [[ "$stderr" != *"unbound variable"* ]]
+  [ "$(sed -n 3p "$D/QUARANTINE")" = "reason tracker" ]
+  [ "$(sed -n 5p "$D/QUARANTINE")" = "" ]
+}
+
+@test "marker: the guard's refresh keeps the detail (#923)" {
+  qf_policy separate
+  qf_ev 2026-11-02T10:00:00Z 5 2002 user labeled
+  qf_ev 2026-11-02T11:00:00Z 9 2002 user labeled
+  _lib
+  quarantine_marker_write "$D" "$QKEY" chars 2026-11-02T10:00:00Z 5 'body line 3 U+202E'
+  _drive_guard
+  [ "$status" -eq 11 ]
+  [ "$(sed -n 3p "$D/QUARANTINE")" = "reason chars" ]
+  [ "$(sed -n 4p "$D/QUARANTINE")" = "event 2026-11-02T11:00:00Z 9" ]
+  [ "$(sed -n 5p "$D/QUARANTINE")" = "detail: body line 3 U+202E" ]
+}

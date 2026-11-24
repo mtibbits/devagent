@@ -19,7 +19,7 @@
 # file below (measured at baseline 090d1a5; tests-only, so identical at HEAD).
 #
 #   file                          body   floor  ceiling
-#   agents/preship-verifier.md    7524   3800   9500   (re-pinned by #660)
+#   agents/preship-verifier.md   10034   5000  12600   (re-pinned by #1097: rule 1a, a criterion a required CI check meets; floor 50 %, ceiling 126 %)
 #   agents/redteam-reviewer.md    5407   2600   6800
 #   agents/plan-improver.md       6130   3000   7700
 #   commands/preship.md          11763   5900  14700   (re-pinned by #1122: the preflight, its calls in preship-preflight.sh)
@@ -37,7 +37,7 @@ REPO="${BATS_TEST_DIRNAME}/.."
 # skills/ entries are curated (only the heavy per-invocation files qualify — most
 # commands are thin, most skills are not per-invocation prompts).
 _ROWS=(
-  "agents/preship-verifier.md:3800:9500"
+  "agents/preship-verifier.md:5000:12600"
   "agents/redteam-reviewer.md:2600:6800"
   "agents/plan-improver.md:3000:7700"
   "commands/preship.md:5900:14700"
