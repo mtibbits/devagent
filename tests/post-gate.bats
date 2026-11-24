@@ -16,7 +16,7 @@ setup() {
 
 # The gate suites. Each calls pg_setup in setup(); a file joins this list in the
 # task that creates it.
-PG_SUITES=(post-gate.bats)
+PG_SUITES=(post-gate.bats post-gate-names.bats post-gate-modes.bats)
 
 # _usage <args…>: the call is a usage fault: exit 2, nothing on stdout, and no
 # `post-gate:` line.
@@ -26,22 +26,6 @@ _usage() {
   [ -z "$output" ] || { echo "stdout for: $*" >&2; return 1; }
   [ -z "$(pg_gate_lines)" ] || { echo "a post-gate line for: $*" >&2; return 1; }
   [[ "$stderr" == *"post-gate.sh: usage:"* ]] || { echo "no usage line for: $*: $stderr" >&2; return 1; }
-}
-
-# _holds <check> <cause…>: the last run held with exactly this line, as the
-# only hold, and exited the leak-held code.
-_holds() {
-  local check="$1"; shift
-  [ "$status" -eq "$(pg_held)" ] || { echo "rc=$status, want leak-held; stderr: $stderr" >&2; return 1; }
-  [ "$(pg_gate_lines | grep -c ' hold ')" -eq 1 ] || { echo "holds: $stderr" >&2; return 1; }
-  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: $check hold $*" ] || { echo "want '$check hold $*', got: $stderr" >&2; return 1; }
-}
-
-# _passes <check>: the last run exited 0 with that check's pass line as its
-# only gate line.
-_passes() {
-  [ "$status" -eq 0 ] || { echo "rc=$status; stderr: $stderr" >&2; return 1; }
-  [ "$(pg_gate_lines)" = "post-gate: $1 pass" ] || { echo "want '$1 pass', got: $stderr" >&2; return 1; }
 }
 
 _review() { pg_run "$PG" check review "${PG_COMMON[@]}" --record "$RECORD" "$@"; }
@@ -65,6 +49,24 @@ _review() { pg_run "$PG" check review "${PG_COMMON[@]}" --record "$RECORD" "$@";
   [ "$(DA_HOME="$DA_HOME" python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/config.toml" paths.denylist_path)" = "$PG_LIST" ]
   [ "$PG_LIST" != "$HOME/.config/denylist.txt" ]
   [ -z "${GH_HOST+x}" ]
+}
+
+@test "fixture: the canary fires when the default path is read" {
+  # No [paths] denylist_path: the gate falls back to ~/.config/denylist.txt,
+  # which under pg_setup's HOME holds only the canary — and every fixture post
+  # carries the canary on line 1. A test that reads the default path by
+  # mistake therefore sees this hold instead of a pass.
+  pg_post
+  # control: under the fixture config the post is clean.
+  pg_names --no-record
+  pg_passes names
+  PG_PATHS=none pg_config
+  pg_names --no-record
+  pg_holds names names-hit hits=1 lines=1
+  # and a recording run records the default path it read.
+  pg_names
+  pg_holds names names-hit hits=1 lines=1
+  [ "$(cat "$PG_RECORDED")" = "$(pg_resolved "$HOME/.config/denylist.txt")" ]
 }
 
 @test "fixture: pg_run refuses a line outside the contract and a sentinel on stderr" {
@@ -142,9 +144,9 @@ ROWS
   _usage check review --project gamma --issue Issue-7 --file "$POST" "${rec[@]}"    # not a configured project
   # control: the same call without a fault passes, also for a capture.
   _review
-  _passes review
+  pg_passes review
   pg_run "$PG" check review --project alpha --capture 2026-11-24-some-slug --file "$POST" "${rec[@]}"
-  _passes review
+  pg_passes review
 }
 
 @test "exit: a hold exits trust_exit_code leak-held" {
@@ -283,34 +285,34 @@ _hash() { "$PG" hash "$@" "$POST"; }
 @test "review: a matching record with Blocking (0) passes" {
   pg_post; pg_record
   _review
-  _passes review
+  pg_passes review
   [ -z "$output" ]
   # a CRLF record parses: one trailing CR is dropped from each line.
   sed -i $'s/$/\r/' "$RECORD"
   grep -q $'\r$' "$RECORD"
   _review
-  _passes review
+  pg_passes review
   # a record whose last line has no newline is still read.
   printf 'Reviewed-sha256: %s\n### Blocking (0)' "$("$PG" hash "$POST")" > "$RECORD"
   _review
-  _passes review
+  pg_passes review
 }
 
 @test "review: no record, and a record without Reviewed-sha256, hold review-missing" {
   pg_post
   _review
-  _holds review review-missing
+  pg_holds review review-missing
   pg_record
   sed -i '/^Reviewed-sha256:/d' "$RECORD"
   _review
-  _holds review review-missing
+  pg_holds review review-missing
   pg_record
   sed -i '/^### Blocking/d' "$RECORD"
   _review
-  _holds review review-missing
+  pg_holds review review-missing
   : > "$RECORD"
   _review
-  _holds review review-missing
+  pg_holds review review-missing
 }
 
 @test "review: a malformed record holds review-missing" {
@@ -320,61 +322,61 @@ _hash() { "$PG" hash "$@" "$POST"; }
   # _rec <sha-line…> -- <blocking-line…>
   _write() { printf '%s\n' '# Red-team' "$@" > "$RECORD"; }
   _write "Reviewed-sha256: $sha" "Reviewed-sha256: $sha" '### Blocking (0)'      # two hash lines
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: ${sha:0:63}" '### Blocking (0)'                        # 63 digits
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: ${sha^^}" '### Blocking (0)'                           # upper-case hex
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: $sha" '### Blocking (0)' '### Blocking (0)'            # two headings
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: $sha" '### Blocking (N)'                               # the template's literal
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: $sha trailing" '### Blocking (0)'
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256:$sha" '### Blocking (0)'                                # no space
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: $sha" '### Blocking (00)'                              # not a plain count
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: $sha" '### Blocking (0) open'
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   _write "Reviewed-sha256: $sha" '### Blocking (1234567890)'                      # more than 9 digits
-  _review; _holds review review-missing
+  _review; pg_holds review review-missing
   # control: the well-formed twin passes.
   _write "Reviewed-sha256: $sha" '### Blocking (0)'
-  _review; _passes review
+  _review; pg_passes review
 }
 
 @test "review: a post edited after its review holds review-stale" {
   pg_post; pg_record
   echo 'One more line.' >> "$POST"
   _review
-  _holds review review-stale
+  pg_holds review review-stale
   # stale is reported before blocking.
   pg_post; pg_record "$POST" "$RECORD" 3
   echo 'One more line.' >> "$POST"
   _review
-  _holds review review-stale
+  pg_holds review review-stale
 }
 
 @test "review: Blocking (1) holds review-blocking" {
   pg_post; pg_record "$POST" "$RECORD" 1
   _review
-  _holds review review-blocking
+  pg_holds review review-blocking
   pg_record "$POST" "$RECORD" 12
   _review
-  _holds review review-blocking
+  pg_holds review review-blocking
 }
 
 @test "review: a record path that is a directory holds gate-error" {
   pg_post
   mkdir "$RECORD"
   _review
-  _holds review gate-error review-unreadable
+  pg_holds review gate-error review-unreadable
   # a post that cannot be read cannot be hashed.
   rmdir "$RECORD"; pg_record
   rm "$POST"
   _review
-  _holds review gate-error file-unreadable
+  pg_holds review gate-error file-unreadable
 }
 
 @test "review: a mode-000 record holds gate-error" {
@@ -384,7 +386,7 @@ _hash() { "$PG" hash "$@" "$POST"; }
   chmod 000 "$RECORD"
   _review
   chmod 600 "$RECORD"
-  _holds review gate-error review-unreadable
+  pg_holds review gate-error review-unreadable
 }
 
 @test "review: core-redissue's documented shape parses" {
@@ -401,14 +403,14 @@ _hash() { "$PG" hash "$@" "$POST"; }
   }
   _shape 0
   _review
-  _passes review
+  pg_passes review
   _shape 2
   _review
-  _holds review review-blocking
+  pg_holds review review-blocking
   # as documented, with no hash line, it is not a record the gate accepts.
   printf '%s\n' "$shape" > "$RECORD"
   _review
-  _holds review review-missing
+  pg_holds review review-missing
 }
 
 @test "review --draft: a draft reviewed before the URL append passes after it" {
@@ -416,12 +418,12 @@ _hash() { "$PG" hash "$@" "$POST"; }
   pg_record --draft
   _draft 'Parent epic: 2026-11-08-some-epic (https://github.com/acme/widgets/issues/925)'
   _review --draft
-  _passes review
+  pg_passes review
   # without --draft the same pair is stale.
   _review
-  _holds review review-stale
+  pg_holds review review-stale
   # and --draft does not excuse any other edit.
   echo 'More.' >> "$POST"
   _review --draft
-  _holds review review-stale
+  pg_holds review review-stale
 }

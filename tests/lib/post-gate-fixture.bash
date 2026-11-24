@@ -144,3 +144,31 @@ pg_run() {
 
 # pg_gate_lines: the `post-gate:` lines of $stderr, in order.
 pg_gate_lines() { grep '^post-gate:' <<<"$stderr" || true; }
+
+# pg_holds <check> <cause…>: the last run held with exactly this line, as its
+# only hold and its last gate line, and exited the leak-held code.
+pg_holds() {
+  local check="$1"; shift
+  [ "$status" -eq "$(pg_held)" ] || { echo "rc=$status, want leak-held; stderr: $stderr" >&2; return 1; }
+  [ "$(pg_gate_lines | grep -c ' hold ')" -eq 1 ] || { echo "holds: $stderr" >&2; return 1; }
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: $check hold $*" ] || { echo "want '$check hold $*', got: $stderr" >&2; return 1; }
+}
+
+# pg_passes <check>: the last run exited 0 with that check's pass line as its
+# only gate line.
+pg_passes() {
+  [ "$status" -eq 0 ] || { echo "rc=$status; stderr: $stderr" >&2; return 1; }
+  [ "$(pg_gate_lines)" = "post-gate: $1 pass" ] || { echo "want '$1 pass', got: $stderr" >&2; return 1; }
+}
+
+# pg_names [<flags>…]: the names check on the fixture post.
+pg_names() { pg_run "$PG" check names "${PG_COMMON[@]}" "$@"; }
+
+# pg_resolved <path>: the spelling the gate records for <path>.
+pg_resolved() { printf '%s/%s\n' "$(cd "$(dirname "$1")" && pwd -P)" "$(basename "$1")"; }
+
+# pg_probe <verb> <args…>: tests/helpers/notify_probe.py on the notifications file.
+pg_probe() { python3 -X utf8 "$PLUGIN_ROOT/tests/helpers/notify_probe.py" "$@"; }
+
+# pg_notify_count: the lines of the notifications file (0 when there is none).
+pg_notify_count() { if [ -e "$PG_NOTIFY" ]; then pg_probe count "$PG_NOTIFY"; else printf 0; fi; }
