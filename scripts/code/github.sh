@@ -56,7 +56,7 @@ EOF
 GH_ISSUE_MRS_BATCH=50
 GH_ISSUE_MRS_MAX_PAGES=50
 # shellcheck disable=SC2016  # GraphQL, not shell
-GH_TL_FRAGMENT='fragment P on IssueTimelineItemsConnection { totalCount pageInfo{hasNextPage endCursor} nodes{ ... on CrossReferencedEvent { source { __typename ... on PullRequest { number title body state isDraft createdAt mergedAt repository{nameWithOwner} } } } } }'
+GH_TL_FRAGMENT='fragment P on IssueTimelineItemsConnection { totalCount pageInfo{hasNextPage endCursor} nodes{ ... on CrossReferencedEvent { source { __typename ... on PullRequest { number title body state isDraft createdAt mergedAt url baseRefName repository{nameWithOwner} } } } } }'
 
 # _im_fail <errfile> <what>: report gh's last stderr line; exit 3 for auth, else 1.
 _im_fail() {
@@ -198,6 +198,7 @@ issue_mrs() {
                        elif .state == "MERGED" then "merged"
                        else error("unrecognised PR state \(.state)") end),
                draft: (.isDraft == true), created: .createdAt, merged: .mergedAt,
+               url: .url, base: .baseRefName,
                title: (.title // ""), body: (.body // "")}]}' "$recs" > "$tmp/norm"; then
         echo "code/github.sh: issue-mrs: unrecognised PR record" >&2
         exit 5
@@ -209,12 +210,17 @@ issue_mrs() {
 # --- mr-checks (#782) --------------------------------------------------------
 # Optional §9.2 verb: the PR's state, its head SHA as the forge reports it, and
 # one line per de-duplicated check, in rollup order (TAB-separated):
-#   state  open|merged|closed
-#   head   <40-hex>
-#   pass|pending  <name>  <link>
-#   fail          <name>  <link>  <CONCLUSION>
+#   state    open|merged|closed
+#   head     <40-hex>
+#   pass     <name>  <link>  <CONCLUSION>
+#   pending  <name>  <link>
+#   fail     <name>  <link>  <CONCLUSION>
 # <link> is `-` when the check has none: TAB is IFS whitespace, so an empty field
 # would collapse and shift <CONCLUSION> into it on the reader's side.
+# <CONCLUSION> is the check run's conclusion (a commit status: its state), so a
+# pass line says which it was: SUCCESS, SKIPPED or NEUTRAL (#1097; a required
+# check is `success` only on pass + SUCCESS, lib/ci.sh ci_required_eval). An empty
+# one prints `-` too, which the reader takes as no conclusion.
 # One `gh pr view --json headRefOid,state,statusCheckRollup` call, one jq filter.
 # Exit: 0 ok; 1 bad args, gh missing or failed, jq missing (never 2: 2 and 78
 # mean "no verb"); 5 an unrecognised record or non-JSON. On a non-zero exit the
@@ -226,6 +232,7 @@ issue_mrs() {
 # collapse into one.
 # shellcheck disable=SC2016  # jq, not shell
 GH_MR_CHECKS_JQ='def clean: tostring | gsub("[\t\r\n]"; " ");
+def dash: if . == "" then "-" else . end;
 def bucket:
   if .__typename == "StatusContext" then
     {"SUCCESS":"pass","PENDING":"pending","EXPECTED":"pending",
@@ -249,8 +256,9 @@ def bucket:
     | sort_by(._i) | .[]
     | (bucket // error("unrecognised check \(.name // .context): \(.__typename) \(.status // .state) \(.conclusion // "")")) as $b
     | $b + "\t" + ((.name // .context) | clean) + "\t"
-      + ((.detailsUrl // .targetUrl // "") | clean | if . == "" then "-" else . end)
-      + (if $b == "fail" then "\t" + ((.conclusion // .state // "") | clean) else "" end) )'
+      + ((.detailsUrl // .targetUrl // "") | clean | dash)
+      + (if $b == "fail" or $b == "pass"
+         then "\t" + ((.conclusion // .state // "") | clean | dash) else "" end) )'
 
 mr_checks() {
     local url="$1" rc=0

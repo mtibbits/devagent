@@ -52,7 +52,7 @@ _names() { sed -e "s|^$PLUGIN_ROOT/scripts/||" -e 's|\.sh$||' | sort; }
   found="$(MSYS_NO_PATHCONV=1 grep -lE "$GUARD_RE" "$PLUGIN_ROOT"/scripts/*.sh "$PLUGIN_ROOT"/scripts/capture/*.sh "$PLUGIN_ROOT"/libexec/*.sh | _names)"
   want="$(printf '%s\n' "${QUARANTINE_GUARD_POINTS[@]}" | sort)"
   [ "$found" = "$want" ] || { diff <(echo "$want") <(echo "$found") >&2; false; }
-  [ "${#QUARANTINE_GUARD_POINTS[@]}" -eq 44 ]   # #1122: claims-check, preship-preflight
+  [ "${#QUARANTINE_GUARD_POINTS[@]}" -eq 45 ]   # #1122: claims-check, preship-preflight; #1097: preship-deferred
 }
 
 @test "census: every script calling issue_context_dir|issue_dir_for|active_resolve_issue is guarded or on the reader allow-list" {

@@ -714,9 +714,11 @@ def test_main_huge_step_number_still_writes(tmp_path, monkeypatch, capsys, low_i
 
 
 def test_step_row_re_twins_tracker():
-    # The name-less half must stay wbs-tracker.py's ROW_RE (checklist.sh:67).
+    # Both capture the step name (portfolio positionally, wbs-tracker.py as
+    # `name`, #734); with the name group normalised the two are one rule
+    # (checklist.sh:67).
     tracker = _load("wbs_tracker_for_portfolio_tests", LIB / "wbs-tracker.py")
-    assert pf.STEP_ROW_RE.pattern.replace("([A-Za-z][A-Za-z0-9_-]*)", "[A-Za-z][A-Za-z0-9_-]*") \
+    assert pf.STEP_ROW_RE.pattern.replace("([A-Za-z]", "(?P<name>[A-Za-z]") \
         == tracker.ROW_RE.pattern
 
 

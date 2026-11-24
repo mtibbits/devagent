@@ -36,6 +36,7 @@ Implements workflow step 0 per spec §6.3.
   `pull.sh: pulled <repo>#<n> into <dir>`, goes to stderr. A failed or
   refused pull prints nothing on stdout.
 - Existing `checklist.md` is preserved; `issue.md` is overwritten on refetch
+  (under a trust policy, only after the floor passes: see below)
 
 ## Per-issue tier (#537)
 
@@ -89,6 +90,71 @@ line in the body or in a tracker comment never steers. Scaffold-only, like
 existing marker is never stomped, and the post-scaffold path is hand-editing it
 (`--retier` stays template-only).
 
+## Under a trust policy (#715)
+
+With a trust policy in scope (spec §3.8), pull checks the ticket before it
+writes or prints any of it:
+
+1. **Staging.** It fetches into a staging dir under devAgent's state
+   directory, `<devagent_home>/state/staging/<project>.<id>.XXXXXX/` (mode
+   0700, never inside this project's `devdoc_dir`; spec §3.3). The backend's
+   stderr is discarded, never shown. Every exit but KILL removes the dir; a
+   fetch or render child still running at TERM can leave a file there until
+   the next trusted pull's 60-minute sweep.
+2. **The render.** It writes the candidate `issue.md` there in the fetch
+   layout: title, header and body as fetched, and the comments reduced to one
+   line, `Comments not rendered under trust: N`. A control byte in the title or
+   a header value becomes `<U+00HH>`. A body that itself holds the comments
+   trailer (blank, `---`, blank, `## Comments (n)`) is cut there, so the
+   workflow reads less than the tracker shows, never more (until #953).
+3. **The floor.** Two checks run on the candidate, before anything reads it:
+   - `steering`: every key line of a body `## Workflow flags` block (fenced and
+     commented blocks do not count) and every `tier:*` label must be listed in
+     the policy's `allowed_steering`. An unknown key, an empty value or an
+     unrecognised `tier:*` label can never be listed.
+   - `size`: the candidate's length in bytes must not exceed `size_cap`
+     (default 65536, at most 2147483647). Title, header and body all count.
+4. **The verdict.** A failing check quarantines the ticket (exit 6, the first
+   failing check's token in the marker). The staging dir is removed first, so
+   a first pull leaves only the `QUARANTINE` marker, and a re-pull of an issue
+   in work leaves its old `issue.md` byte-identical. On PASS the candidate
+   becomes `issue.md`, the pull's first devdoc write, and the scaffold reads
+   that file.
+
+`allowed_steering` takes exact strings from a closed set (`<tier>` is one of
+`tier_allowlist`, `<model>` one of `model_token_allowlist`, both in
+`scripts/lib/flags.sh`); any other entry refuses the policy (exit 9):
+
+| Entry | Steers |
+|---|---|
+| `tier: <tier>` | the checklist template (`oneshot` and `research` too) |
+| `tier: <model>-checking` | the checking model (the #561 shim) |
+| `research: required`, `spike: required` | the optional checklist rows |
+| `implementation-model: <model>`, `checking-model: <model>` | the step models |
+| `tier:impl-<model>`, `tier:check-<model>`, `tier:<model>-checking` | the forge labels |
+
+A body entry matches only a body-shaped entry and a label only a label-shaped
+one, so a label named `tier: oneshot` never matches the body entry. A sample:
+
+```toml
+allowed_steering = [
+  "tier: standard",
+  "research: required",
+  "tier:check-fable",
+  "tier:impl-fable",
+]
+size_cap = 65536
+```
+
+**Quiet before PASS.** Until the floor passes, pull prints no ticket byte:
+the floor's diagnostics name a known key, a body line number, a label's
+position or a byte count, and end with what the operator can do. Each check
+prints at most 20 of them, then `<check>: <n> more not shown`. The remedy
+for `steering` is to drop the flag or label from the ticket, or to list the
+entry; for `size`, to shorten the ticket or raise `size_cap`. Either way a
+trusted approver then releases the quarantine. A release without one of those
+fixes quarantines again on the next pull, until #953 records the approved text.
+
 ## Exit codes
 
 Under a trust policy (#711) pull can refuse before it fetches anything. A
@@ -113,6 +179,13 @@ Consumer action per code:
 - `9` → stop polling: the host needs fixing, and a retry will refuse again.
 - `10` → retry later: a check could not run (network, rate limit, 5xx). Under trust a missing or inaccessible issue also reads 10 (the `events` read cannot tell a 404 from an outage; its detail carries the backend's message), so bound the retries per ticket.
 - `11` → skip the ticket; a human must release it.
+- `1` under a trust policy, with nothing written (the staging dir could not
+  be created, the fetch failed, the fetched text is not in the fetch layout,
+  there was no quarantine verdict, or `issue.md` could not be written) → skip
+  the ticket and surface it to the operator; do not retry in a loop. The
+  fetch-failure message gives the backend script's path and a command that
+  re-runs its `fetch` by hand with stdout discarded, so the operator sees its
+  stderr and no ticket text.
 
 With no trust policy on the host and no quarantine marker in the issue dir, none of these codes is emitted.
 

@@ -76,6 +76,12 @@ command; the script reads them from files, and a reason from a file you write.
    It persists HEAD as `preship_pin_head` and prints its SHA; paste that SHA
    into the `<INPUTS>` diff spec as text (no shell variable survives the
    verifier's turn, Issue-578).
+2b. **Required checks (#1097)**, as its own Bash call:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" <project>`.
+   It prints the CI checks the project requires, one name per line. On a
+   non-zero exit print its stderr verbatim and STOP before any dispatch: the
+   list could not be read, which is never "no required checks". When it prints
+   nothing, the dispatch is unchanged.
 3. **Dispatch** per the contract below. The checker authors the artifact and
    returns it; it cannot write files.
 4. **Write the returned body to `<issue-dir>/preship.md` VERBATIM.** Do not
@@ -106,6 +112,8 @@ verbatim, substituting this step's per-step deltas:
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md`,
   `mr.md`, and the latest-dated review/redmr artifacts, plus the diff spec
   `<baseline_sha>..<SHA>`, `<SHA>` being step 2a's printed SHA, literally.
+  Only when step 2b printed a required check, also the absolute path of
+  `imPlan.md`, named as where the verifier's rule 1a finds a test's name.
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — This step resolves no template.
 - **`<CLASS>`** (rung-6 dispatch-lint class) — `--class preship`.
 - **`<REJECT-SLUG>`** (rung-6 rejected-artifact slug) — `preship`.
@@ -143,6 +151,17 @@ or a `preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, l
 stop, and a failed post-ship preship that marked mergetoall `[!]`, need
 `/devagent:unstuck`. With `merge_forward` `verify = "ci"`, a merge-forward git
 made itself may use `preship-verified-head.sh forward` instead (#1125, see mergemr).
+
+With `required_checks` set (#1097), rule 15 also stops on a required check:
+`required check not successful on head …`; `required check not reported on head …`
+after the grace; and `head <sha7> merges only when every required check is successful …`,
+which rule 12 raises under rule 15's number when it cannot turn auto-merge off or the
+PR is in a merge queue. A passing `record` clears each of
+them, as it clears red CI; mergemr reads the checks again on its next run. It never
+clears rule 20 (`CI NOT CHECKED`: the code backend cannot report checks, so the
+operator checks and merges the PR by hand) or rule 21 (a self-certifying diff,
+which only the operator acknowledges, in `<issue-dir>/.devagent-selfcert-ack`);
+`commands/mergemr.md` describes both.
 
 ## Zero-diff (artifact-only) issues
 

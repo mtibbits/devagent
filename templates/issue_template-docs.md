@@ -13,6 +13,7 @@
 ## Acceptance criteria
 - [ ] All listed files updated
 - [ ] Links/examples verified
+<!-- required-checks: capture fills this in when the project declares required CI checks -->
 
 <!-- Optional per-issue `## Workflow flags` (spec §6.3). To use, add an
      UNCOMMENTED block before this section: a "## Workflow flags" heading line

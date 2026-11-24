@@ -45,6 +45,14 @@ ship_as_draft = false
 # A [project.<name>] value wins; any other value stops step 20 on every run.
 # merge_method = "squash"
 # merge_checks = "required"
+# required_checks / required_checks_paths (#1097): set per project under
+# [project.<name>], never here: there is no [defaults] layer, and either key here
+# stops step 20. required_checks names the CI checks step 20 merges only on
+# success; required_checks_paths lists more paths (besides .github/workflows/)
+# whose change makes a PR self-certifying, an operator-only stop. Set them on every
+# host that runs step 20; docs/configuration.md "Required CI checks" has the rest.
+# The commented sample is in [project.{{PROJECT}}] below.
+
 # The no-progress watchdog (#932): a launcher asks `scripts/watchdog.sh check
 # <project> <issue>` whether an unattended session made progress; these keys are
 # its limits (spec §7.3; docs/configuration.md "Watchdog limits"). Integer
@@ -112,6 +120,9 @@ fork_first       = false
 ship_as_draft    = false
 default_baseline = "origin/{{DEFAULT_BRANCH}}"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
+# required_checks (#1097): CI checks step 20 merges only on success (see [defaults] above).
+# required_checks = ["Git Bash tagged files"]
+# required_checks_paths = ["scripts/ci/"]
 # Session isolation (#240): state is keyed by ISSUE, not by session — a
 # session is identified by its issue pin. Two concurrent sessions on this
 # project pin one issue each (export DEVAGENT_ACTIVE_ISSUE=Issue-N per

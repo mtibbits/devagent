@@ -101,3 +101,25 @@ qf_ev() {
 
 # qf_calls: the stub's call log, verbs only (gh-stub lines keep their argv).
 qf_calls() { cut -d' ' -f1 "$QB_DIR/calls"; }
+
+# qf_ticket <body-json> [<labels-json>] [<comments-json>] [<title-json>]: the
+# ticket pull's fetch serves, through the gh-stub knobs (#715). Each argument is
+# JSON exactly as the knob takes it (a JSON string, or a JSON array); an empty
+# or absent argument leaves that knob's default.
+qf_ticket() {
+  export GH_STUB_BODY_JSON="$1"
+  if [ -n "${2:-}" ]; then export GH_STUB_LABELS_JSON="$2"; fi
+  if [ -n "${3:-}" ]; then export GH_STUB_COMMENTS_JSON="$3"; fi
+  if [ -n "${4:-}" ]; then export GH_STUB_TITLE_JSON="$4"; fi
+}
+
+# qf_claude_stub: a `claude` on PATH that appends its argv to $QB_DIR/claude.calls
+# and exits 0, so a test can assert no screener call was made (the file absent).
+qf_claude_stub() {
+  mkdir -p "$STUB_BIN"
+  cat > "$STUB_BIN/claude" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${QB_DIR:?}/claude.calls"
+STUB
+  chmod +x "$STUB_BIN/claude"
+}

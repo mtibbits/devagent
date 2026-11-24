@@ -84,10 +84,10 @@ devAgent/
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
 │                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
-├── commands/                # one .md file per command-form slash command (57)
+├── commands/                # one .md file per command-form slash command (58)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 57 + 3 = the 60 slash commands
+│                            #   (SKILL.md + references/, #452) — 58 + 3 = the 61 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -102,9 +102,11 @@ devAgent/
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh,
 │   │                        #   check-step-pairings.py — #558 pairing census,
-│   │                        #   ci.sh — #782 MR CI read/line/gate,
+│   │                        #   ci.sh — #782 MR CI read/line/gate; #1097 required-check evaluation,
+│   │                        #   selfcert.sh — #1097 self-certifying-diff scan + ack reader,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
+│   │                        #   milestones.py — #734 milestone rows,
 │   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock + #1148 sync with origin,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
@@ -128,12 +130,15 @@ devAgent/
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
 │   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885; forward: #1125),
+│   │   required-checks.sh (#1097) — a project's required_checks, one per line,
+│   │   preship-deferred.sh (#1097) — the static half of a CI-deferred criterion (preship rule 1a),
 │   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
 │   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
 │   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
 │   │   watchdog.sh (#932) — the no-progress watchdog: `check` for a launcher, `heartbeat` for a session (§7.3),
-│   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
+│   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
+│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -205,6 +210,8 @@ all_prs_branch   = "dev/all-prs"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 # merge_method   = "squash"              # #885: how step 20 merges — squash | merge | rebase
 # merge_checks   = "required"            # #885: or "if-present" for a repo without CI (§6.3 row 20)
+# required_checks = ["Git Bash tagged files"]  # #1097: CI checks step 20 merges only on success
+# required_checks_paths = ["scripts/ci/"]      # #1097: more self-certifying paths
 
 [project.volk.permissions]
 push_mr            = true
@@ -275,6 +282,17 @@ fallback, read by `mergemr.sh` (step 20) and validated on every run whatever
 `merge_method` is `squash` (default), `merge` or `rebase`. `merge_checks` is `required`
 (default: no CI checks on the head after #782's grace is a `[!]` stop) or `if-present` (a repo
 without CI merges without checks). `ci_gate` (§7.2) does not apply to step 20.
+
+`required_checks` and `required_checks_paths` (#1097) are `[project.<name>]` keys with no
+`[defaults]` layer (either under `[defaults]` dies, as does `required_checks_paths` without
+`required_checks`), validated by `mergemr.sh` at start whatever `permissions.merge_mr` says.
+`required_checks` lists CI check names, compared byte for byte with an `mr-checks` line's
+`<name>`; step 20 merges only when each is `success` (a `pass` line with the conclusion
+`SUCCESS`, §9.2) at `verified_head`. `required_checks_paths` lists repo-relative files or
+directories which, with `.github/workflows/` and a removed or edited `gitbash` tag line, make
+a PR self-certifying (§6.3 row 20, rule 21). `scripts/required-checks.sh <project>` prints
+the list for a caller that cannot source `lib/config.sh`; a non-zero exit is "stop and
+report", never "no required checks".
 
 `[project.<name>.merge_forward]` (#1125) is per project, with no `[defaults]` layer:
 `verify` is `"ci"` or `"preship"` (absent = `"preship"`, today's behaviour), and
@@ -515,6 +533,22 @@ Adjacent state files:
 - `~/.claude/devagent/state/<project>.statusreport.toml` — `last_pin`, `last_pin_by`
 - `~/.claude/devagent/state/<project>.reaped.toml` — content hashes of items already reaped into captures (for idempotence)
 
+
+`~/.claude/devagent/state/staging/` (#715) holds a fetched ticket under a
+trust policy until pull's floor passes (§9.3): one
+`<project>.<issue_id>.XXXXXX/` dir per pull (mode 0700; the root too), with
+`fetch.raw` (deleted by the render, so comment text is on disk only while it
+runs) and the candidate `issue.md`. It is outside git and must
+not resolve inside the project's `devdoc_dir` (pull dies before creating
+anything if it does). Every exit removes the dir:
+
+| Exit path | Staging dir | Devdoc tree |
+|---|---|---|
+| PASS | the candidate is copied, then the dir removed | `mkdir -p` the issue dir, `issue.md.tmp`, `mv`: the pull's first devdoc write |
+| QUARANTINE | removed before the label write | pre-work: the marker only; in-work: old files untouched, slot cleared (#714) |
+| fetch failure, layout defect, no verdict, any die or refusal, INT, TERM | removed by pull's `trap staging_discard EXIT` | nothing written |
+| KILL, power loss | swept by the next trusted pull (dirs older than 60 minutes) | nothing written |
+
 ### 3.4 Secrets (`~/.claude/devagent/secrets/`)
 
 ```
@@ -542,6 +576,7 @@ Issue-676/
 ├── potholes-promotion.md   # #586/#611/#612: staged register ops (add/retire/amend), one `op:` block each with its `layer:`; drained by cleanup
 ├── .devagent-step-models  # optional: per-issue model steering — a bare token (checking steps, #291) or keyed `checking:`/`thinking:` lines (both classes, #561); §7.4
 ├── .devagent-oneshot-ack  # optional, oneshot tier only (#595): a non-empty reason that acknowledges the no-repo-diff boundary check as unmeasurable for this issue; cleanup then warns instead of refusing; persists across revisions
+├── .devagent-selfcert-ack  # optional (#1097): line 1 `<verified_head 40-hex> <reason>`, written by the operator only; acknowledges a self-certifying diff for that head (mergemr rule 21)
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
 ├── actualWork.md
@@ -550,6 +585,7 @@ Issue-676/
 │   ├── 2026-05-19-cppcheck.txt
 │   ├── 2026-05-19-clang-tidy.txt
 │   └── 2026-05-19-asan.txt
+├── evidence/                            # #1097: <YYYY-MM-DD>-gitbash-<stem>-<sha>.txt, a hand-run Git Bash transcript (line 1 the pinned head), the fallback preship rule 1a accepts
 ├── revisions/                           # populated by /devagent:revise
 │   └── r2/comments.md
 ├── STUCK                                # sentinel; present iff a step is [!]
@@ -681,7 +717,8 @@ account ids; never a login or display name), an empty `worker_identities` or
 `code_host_workers` and `trusted_reviewers`) without `single_identity = true`
 refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 `idlist` `["<backend>:<id>", …]`, `repolist` repo keys, `str`, `strlist`,
-`charlist` single code points, `bool`, `int` (non-negative), `provenance`
+`charlist` single code points, `steering` a list drawn from a closed set (#715,
+below), `bool`, `int` (non-negative, at most 2147483647), `provenance`
 `required`|`optional`, `approval` `{kind = "label"|"status", id}`,
 `size_classes` a table of non-negative ints, `trackers` `github.host`,
 `gitlab.api_url`, `jira.base_url`, `jira.project_key`, `hardening` a subset of
@@ -709,7 +746,7 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `provenance` | `provenance` | — |
 | `later_stages` | `strlist` | — |
 | `revoking` | `strlist` | `[]` |
-| `allowed_steering` | `strlist` | — |
+| `allowed_steering` | `steering` | `[]` |
 | `paths_deny` | `strlist` | — |
 | `paths_allow` | `strlist` | — |
 | `fixture_paths` | `strlist` | — |
@@ -718,7 +755,7 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `allowed_chars` | `charlist` | — |
 | `approval` | `approval` | — |
 | `size_classes` | `size_classes` | — |
-| `size_cap` | `int` | — |
+| `size_cap` | `int` | `65536` |
 | `approver_not_author` | `bool` | — |
 | `require_trusted_reporter` | `bool` | — |
 | `require_user_verification` | `bool` | `true` |
@@ -730,6 +767,16 @@ refuses. `keyring` is checked as a string only; #720 owns its format. Types:
 | `merge_mr` | `bool` | `false` |
 | `file` | `bool` | `false` |
 | `required_hardening` | `hardening` | `[]` |
+
+**`allowed_steering` and `size_cap` (#715).** The steering a ticket may carry
+past pull's floor (§9.3). Each `allowed_steering` entry is one exact string from
+a closed set, built from `tier_allowlist` (T) and `model_token_allowlist` (M) in
+`scripts/lib/flags.sh`: `tier: <T>`, `tier: <M>-checking`, `research: required`,
+`spike: required`, `implementation-model: <M>`, `checking-model: <M>`, and the
+label shapes `tier:impl-<M>`, `tier:check-<M>`, `tier:<M>-checking` (38 entries
+today). Any other entry refuses (exit 3 from the loader, so exit 9 at every
+entry point); the default `[]` allows nothing. `size_cap` is in bytes of the
+staged `issue.md`, default 65536, at most 2147483647.
 
 **Digest.** `sha256:` of the normalised policy (defaults applied, lists sorted
 and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
@@ -963,7 +1010,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
-| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
+| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate, and writes `issue.md` only on PASS (§9.3, #715) |
 | 1 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 2. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
 | 2 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
 | 3 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 2 and 4. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. `scripts/spike.sh` is a helper the command calls, not this row's entry point, so `next.sh` dispatches the row skill-backed (#812). |
@@ -980,10 +1027,10 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 14 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
 | 15 | `/devagent:review` | skill | `superpowers:requesting-code-review` (superpowers absent ⇒ the wrapper's own dispatched-review fallback + nudge, #541) |
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
-| 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149); main-session preflight (#1122): `preship-evidence.sh --attestable-exit` stops pre-dispatch; `claims-check.sh` reports stale `mr.md` claims for correction; never passes |
+| 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149); main-session preflight (#1122): `preship-evidence.sh --attestable-exit` stops pre-dispatch; `claims-check.sh` reports stale `mr.md` claims for correction; never passes; rule 1a (#1097): the verifier runs `preship-deferred.sh`, quotes its `self-certification warning:` line (it fails nothing), and verifies a criterion a required check meets at the merged head by its static half, recorded as `deferred to CI at merge: <check>`; a hand Git Bash transcript stands in only where `issue.md` says the job cannot exercise the behaviour or the backend has no `mr-checks`; `commands/preship.md` packages `imPlan.md` only for a project with `required_checks` |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream. On the local code backend (#1016) it pushes nothing, asks no `push_mr`, prints its plan at every ship and writes a local MR record (§9.2) |
 | 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_to_all_prs` only (#885 retired the `merge_mr` fallback; `doctor` warns on `merge_mr` without it); squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
-| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head` (a head `preship-verified-head.sh forward` re-recorded, #1125, only on green CI); otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
+| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head` (a head `preship-verified-head.sh forward` re-recorded, #1125, only on green CI); otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped; with `required_checks` set (#1097) it merges only when each is `success` at that head (rule 15 stops on one that ended otherwise or is not reported after the grace; a passing preship clears it), stops `[!]` `CI NOT CHECKED` where the code backend cannot report checks (rule 20) and on an unacknowledged self-certifying diff (rule 21, `.devagent-selfcert-ack`, operator only), both whatever `merge_mr` says save that rule 21 only reports on rule 8's `[?]` line under `merge_mr = false`; rule 12 turns forge auto-merge off while a required check is not `success` or a self-certifying diff is unacknowledged |
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
@@ -1128,6 +1175,7 @@ omits.
 | `/devagent:statusreport [project]` | Generates status report, advances pin, commits to devdoc |
 | `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
+| `/devagent:milestones [project] [--issue <issue-id> \| --all] [--json]` | Prints each issue's dated milestones (tracker opened/closed, linked MRs opened/merged, checklist steps, parks, revisions) and spans; read-only (see §13.5) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 **The devDoc not-pushed line (#1148).** After the project blocks (`--all`: after
@@ -1242,7 +1290,8 @@ After ship, the MR's CI status is reported, never waited for (#782):
   pending, unknown or `none` inside the grace prints `CI gate: holding step
   <N> (<name>) until CI finishes; nothing was marked` and a Resume line, and
   exits 0 with no `CHAIN:`. Step 20 (mergemr) is not held: it applies the CI
-  verdict itself (§6.3 row 20, `commands/mergemr.md` rules 15-17).
+  verdict itself (§6.3 row 20, `commands/mergemr.md` rules 15-17; with
+  `required_checks`, #1097, also rules 20 and 21).
 - **`ci_gate`** is `report`, `block` or `off` (`[project.<name>] ci_gate`,
   else `[defaults] ci_gate`); any other value stops `next` at its first
   in-window read. `off` makes no read at all and is the reviewed de-scope
@@ -3116,7 +3165,7 @@ Output, per requested id in request order (TAB-separated):
 
 ```
 issue  <id>  open|draft|merged|none|missing
-mr     <id>  <ref>  open|draft|merged|closed  <created>  <merged>|-
+mr     <id>  <ref>  open|draft|merged|closed  <created>  <merged>|-  [<url>|-  <base>|-]
 ```
 
 The `issue` line carries the aggregate of its `mr` lines: any open
@@ -3125,7 +3174,12 @@ non-draft MR gives `open`, else any draft `draft`, else any merged
 per-issue 404 and has no `mr` lines. One `mr` line follows per linked MR
 (`<ref>` is `owner/repo#N` or `group/project!N`), sorted by creation
 time, with UTC second-precision `YYYY-MM-DDTHH:MM:SSZ` created and merged
-timestamps (#734 reads them; `wbs update` does not).
+timestamps (`milestones` reads them; `wbs update` does not). The trailing
+`<url>` (the MR's `http(s)://` web URL) and `<base>` (its target branch)
+are optional as a pair (#734): GitHub (`url`, `baseRefName`, fetched in
+the same query) and GitLab (`web_url`, `target_branch`) always print
+them, a backend MAY omit both, and `-` means unknown; a line with one of
+the two is malformed. Readers accept the 6- and the 8-field form.
 `scripts/lib/mr-link.py` applies the link rule, prints this grammar and
 checks it, so the backends and `wbs update` share one predicate. Exit `0`
 is success; `78` (not implemented) and `2` (unknown verb) mean "no MR
@@ -3133,8 +3187,8 @@ lookup"; `1` is a transport or CLI failure or bad arguments (never `2`),
 `3` an authentication failure (HTTP 401/403) and `5` an unrecognised
 record, non-JSON, a repeated page cursor or a full GitLab page. Any exit
 but `0`, `2` and `78` aborts the `wbs update` MR phase (§13.2).
-`wbs update` is the verb's only caller today; #734 is expected to read the
-`mr` lines' timestamps.
+Three callers read the verb: `wbs update` and `mergemr` read the `issue`
+lines, and `milestones` (§13.5) reads the `mr` lines, URL and base included.
 
 `mr-checks` MAY be implemented (#782; GitHub does). It reports the MR's
 state, the head SHA as the forge reports it, and one line per check,
@@ -3144,12 +3198,19 @@ order (TAB-separated):
 ```
 state    open|merged|closed
 head     <40-hex>
-pass     <name>  <link>
+pass     <name>  <link>  <CONCLUSION>
 pending  <name>  <link>
 fail     <name>  <link>  <CONCLUSION>
 ```
 
-`<link>` is `-` when the check has none (an empty TAB field would collapse).
+`<link>` is `-` when the check has none (an empty TAB field would collapse),
+and an empty `<CONCLUSION>` is printed `-` as well.
+
+A `pass` line carries its conclusion (#1097), so a reader can tell a check
+that succeeded from one that was skipped. GitHub's `pass` conclusions are
+`SUCCESS`, `SKIPPED` and `NEUTRAL` (a commit status: its `state`). A backend
+MAY omit the field on `pass`; the line then passes as an ordinary check and
+is `no conclusion`, not success, as a required one.
 
 GitHub makes one `gh pr view --json headRefOid,state,statusCheckRollup`
 call. A not-yet-completed run counts as pending and outranks a completed
@@ -3314,7 +3375,72 @@ has an `origin`, a local ship never pushes, so a suite artifact's
 <comment body>
 ```
 
-`pull.sh` writes this verbatim to `<issue-dir>/issue.md`.
+`<title>` is one line: the github backend turns a CR or LF in it into a space
+(#715), so a title can never forge the header lines below it.
+
+With no trust policy in scope, `pull.sh` writes this verbatim to
+`<issue-dir>/issue.md`.
+
+#### Under a trust policy: the trust render and the floor (#715)
+
+In scope, pull fetches into `state/staging/` (§3.3), and `issue.md` is the
+trust render of the fetch (`scripts/lib/staging_render.py`), written only after
+the floor passes. The render keeps the fetch layout, so `flags_get`,
+`issue_labels` and `catchup` read it unchanged:
+
+```markdown
+# <repo>#<num> — <title>
+
+- State: …      (then Author, Labels, URL and, when fetched, Created)
+
+---
+
+<body, byte for byte>
+
+---
+
+## Comments (N)
+
+Comments not rendered under trust: N
+```
+
+- Lines end at LF; a layout line is matched without its trailing CRs, and each
+  line is copied with its own ending. For N > 0 the heading is followed by one
+  blank line and the count line, each with the heading's ending, and the file
+  ends there; for N = 0 the file ends with the heading line.
+- Strict header: line 1 starts `# <repo>#<num> — `; line 2 is blank; then
+  `- State:`, `- Author:`, `- Labels:`, `- URL:` and optionally `- Created:`, in
+  that order and nothing else; then blank, `---`, blank. Anything else is a
+  layout defect: pull dies and writes nothing.
+- The body ends at the first comments trailer: a line that is exactly
+  `## Comments (<digits>)` after blank, `---`, blank, searched from the first
+  body line (the header's own rule never counts). Comment text never enters
+  the file.
+- Each byte 0x00-0x1F or 0x7F in the title or a header value becomes
+  `<U+00HH>` (uppercase hex). Nothing else is rewritten.
+- Header values are measured, not truncated: `size_cap` counts every byte of
+  the candidate, and cutting the `- Labels:` line could hide a `tier:*` label
+  from the steering check.
+
+**Accepted residual (until #953's `issue-fields` read).** A body that itself
+holds the full trailer (blank, `---`, blank, `## Comments (n)`) is cut there:
+the workflow reads less than the tracker shows, never more, and the count is
+the body's number. `flags_get` has the same blind spot, so the steering the
+floor checks and the steering the scaffold applies agree. More than one
+trailer prints a fixed note after PASS. Rejected: quarantining on a second
+trailer (any commenter could then hold any ticket), and a second
+`comment-list` read to cut the exact suffix (a network read and a race path
+that #953 removes).
+
+The floor (`scripts/lib/floor.sh`, the first source of `quarantine_verdict`)
+runs `steering` then `size` on the candidate; every check runs, and the first
+failing token quarantines (exit 6). `steering` reads the body's live
+`## Workflow flags` key lines with `flags_enumerate` (the validate machine's
+quiet mode) and the `tier:*` labels with `issue_labels`, and requires each to be
+listed in `allowed_steering` (§3.8); `size` compares the candidate's bytes
+with `size_cap`. Until PASS pull prints no ticket byte, and each check prints
+at most 20 diagnostic lines, then a count of the rest (`FLOOR_SAY_MAX`), so a
+ticket's author cannot set how much the worker session reads.
 
 #### `mr-comments` output (code backends, #592)
 
@@ -4084,6 +4210,144 @@ instead of writing the document; the view writes nothing.
 
 <!-- editor: tests/test_portfolio_schema.py::test_spec_13_points_at_schema_doc
      requires this section to name docs/portfolio-schema.md. -->
+
+### 13.5 Milestones (#734)
+
+`/devagent:milestones [project] [--issue <issue-id> | --all] [--json]`
+(`scripts/milestones.sh`, core `scripts/lib/milestones.py`) prints one row
+per dated event of each issue in scope, then per-issue spans. It is
+read-only: no `WBS.md`, devdoc, state or tracker write. It adds no tracker
+or forge read path: it reads the tracker's `issue-list` (§9.1) and the code
+host's `issue-mrs` (§9.2), and the issues' `checklist.md` logs.
+
+**Grammar and exits.** `--issue <id>` and `--issue=<id>`; the id is one
+token of `[A-Za-z0-9_.-]` led by a letter or digit (the `wbs exclude` rule),
+checked before any path is built. Exit `2` (with `milestones: <why>` and
+the usage line on stderr, before any backend call): an unknown flag
+(`-x` or `--x`),
+an empty `--issue`, a bad token, `--issue` with `--all`, a second
+positional; also `--issue` naming no configured source (by `dir_prefix`,
+`parse_leaf`) and no `<devdoc>/<id>/checklist.md` (no backend call). Exit
+`1`: an unknown project, an unset or missing `devdoc_dir`, or a library
+failure. Exits `6`–`11`: trust refusals (`milestones` is a trust entry
+point). Exit `0`: the report printed, failed sources included. It is
+resolver-scope EXEMPT: the first output line names the project.
+
+**Scope.** Default: every `<devdoc>/*/checklist.md` issue plus every open
+`issue-list` record; `--all`: every record plus every checklist issue;
+`--issue`: the one issue. A checklist dir and a record that `parse_leaf`
+reads as the same source and record are one issue labelled with the
+record's `leaf_for` form (with the Jira key prefix `PROJ`, a dir
+`Issue-PROJ-12` and record `PROJ-12` are `Issue-12`); a dir that matches no record keeps its name, and a dir
+that names no configured source has checklist rows only. Issues sort by
+source (origin, fork, unmapped), then numeric id, then label.
+
+**Sources and rows.** Every row has `project`, `issue`, `event`, `at` and
+`source`.
+
+| Event | Source | `at` | Own keys |
+|---|---|---|---|
+| `opened` | `issue-list` `created` | `YYYY-MM-DD` | — |
+| `closed` | `issue-list` `closed` (closed records) | `YYYY-MM-DD` | `reason` (the `class`) |
+| `mr_opened` | each `issue-mrs` `mr` line | `created`, UTC `…Z` | `mr` (ref), `base` (or null) |
+| `mr_merged` | an `mr` line with `merged` | `merged`, UTC `…Z` | `mr`, `base` |
+| `step_done`, `step_note` | checklist log | log time + `Created:` offset | `step`, `revision`, `tz` |
+| `parked`, `resumed`, `revision_started` | checklist log | as above | `revision`, `tz` |
+| `log` | checklist log | as above (a date for a date-only line) | `name`, `revision`, `tz` |
+
+A tracker row's source is the record's `url`; an MR row's is the `mr`
+line's `<url>`, or its `<ref>` when the backend omitted the pair; a
+checklist row's is `<issue-dir>/checklist.md:<line>`. MRs are read only for
+a source whose backend is `github` or `gitlab` and equals
+`code_source.backend` (the `wbs update` rule), whatever its `issue-list`
+status, so a checklist issue keeps its MR rows when the tracker failed.
+
+**Checklist classification.** Only lines between `## Log` and the next
+`## ` heading are read (UTF-8 with replacement, LF split, a trailing CR
+dropped). Per dated line, in file order, the first match wins:
+
+1. `revise:` whose message is `revision N started…` or a retier
+   `retier: … (revision N)` is `revision_started` and sets the current
+   revision to N (a repeated start of the same N changes nothing);
+2. `park:` is `parked`; 3. `resume:` is `resumed`;
+4. a name that is a step row's name anywhere in the file
+   (`wbs-tracker.py` `ROW_RE`) is `step_done` the first time it appears in
+   the current revision, else `step_note`;
+5. any other `- YYYY-MM-DD HH:MM  <name>: …` line is `log` (the name runs to
+   the first colon, so `real-silicon (prior session)` is one name);
+6. a `- YYYY-MM-DD` line without a time is `log` with name `-` and a date
+   `at`.
+
+A dated line whose date or time is not a real one (`2026-02-30`, `24:00`)
+is skipped with
+`milestones: WARNING: <issue-dir>/checklist.md:<line>: unreadable time '<…>'; line skipped`
+on stderr; one typo never fails the report.
+
+The current revision starts at 1. When the revisions started (`{1}` plus
+every rule-1 N) differ from the `## Revision N` headings (a heading may
+carry trailing prose), the run prints
+`milestones: WARNING: <issue-dir>/checklist.md: revision starts logged {…} but ## Revision headings {…}`
+on stderr and still emits the rows.
+
+Two checklist dirs that name one issue (on Jira, `Issue-12` and
+`Issue-PROJ-12`) are not merged: the first in sort order is read, and each
+other prints
+`milestones: WARNING: <dir>/checklist.md: names the same issue as <first>/checklist.md; not read`
+on stderr.
+
+**`tz: assumed`.** Log lines carry no zone; each takes the offset of the
+checklist's first `Created:` line verbatim (`tz: assumed`), or none
+(`tz: unknown`, read as UTC). An assumed time can be wrong two ways: a line
+written on another machine in another zone, and a line written across a
+daylight-saving change on the same machine (one hour off).
+
+**Order and spans.** An issue's rows sort by UTC instant (a date is
+`00:00Z`; an unknown zone is UTC), ties in input order. Spans are whole UTC
+calendar days, `-` when an end is absent: `opened->merged` (to the earliest
+`mr_merged`), `opened->closed`, `first-step->closed` (from the earliest
+`step_done`); `parked` sums each `parked` → next `resumed` pair in days
+(`%.1fd`), ignoring a `resumed` with no open park and a `parked` while one
+is open, and appends `+open` for a trailing park; with none it is `0.0d`.
+A span is not clamped and can be negative (a checklist written after the
+issue closed, an MR merged before the issue was opened), and
+`opened->merged` takes the earliest merge into any base branch; the rows'
+`base` column says which.
+
+**Output.** Text: `milestones: <project> scope: <default|all|issue>`, one
+`missing: <source>: <detail>` line per missing source, one
+`<issue>\t<at>\t<event>\t<detail>\t<source>` line per row (detail: `-` for
+`opened`; the class for `closed`; `<ref> base=<base or ->` for MR rows;
+`<step> r<N> tz=<tz>` for step rows; `r<N> tz=<tz>` for parks and
+revision starts; `<name> r<N> tz=<tz>` for `log`), then `spans:` and
+`<issue>\topened->merged <d>\topened->closed <d>\tfirst-step->closed <d>\tparked <p>`
+per issue with rows. With no rows: the header, the `missing:` lines and
+`(no rows)`. `--json`: JSON Lines (UTF-8, LF), no spans; line 1
+`{"kind":"header","project":P,"scope":S,"missing":[{"source":…,"detail":…}]}`,
+then `{"kind":"row",…}` per row with exactly the keys above; with no rows,
+the header alone.
+
+**Missing sources.** `source` is `tracker`, `fork tracker` (listed only
+when a fork source is configured), `mr` or `fork mr` (per configured issue
+source); `detail` carries no source prefix:
+
+- tracker: `not configured`; `<backend> has no issue-list (no script|<cli>
+  not on PATH|exit 2|exit 78)`; `<backend> <repo> issue-list failed (exit
+  <rc>: <last stderr line>)`;
+- mr: `no code_source.backend`; `<cb> has no issue-mrs (…)`; `tracker
+  backend <b> is not the code backend <cb>; MRs not read` (Jira);
+  `<cb> <repo> issue-mrs failed (exit <rc>: <last stderr line>)`.
+
+Malformed `issue-list` or `issue-mrs` output (an `mr` timestamp that is not
+a real time included) is failed, with the parser's reason as the detail. Each failed source also prints one stderr line,
+`milestones: WARNING: <source>: <detail>; other sources still reported`;
+other sources still report and the exit stays `0`.
+
+**Cost.** One `issue-list` call per configured issue source, then one
+`issue-mrs` call per source with ids in scope: on GitHub ⌈N/50⌉ GraphQL
+calls plus one per further page of a truncated timeline, on GitLab N calls.
+devagent's default scope was about 700 ids (≈ 15 GraphQL batches) at #734's
+draft; the command doc gives the Bash call the longest tool timeout
+(600000 ms).
 
 ## 14. Status reports
 

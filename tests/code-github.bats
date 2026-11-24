@@ -398,7 +398,8 @@ _gql_page() {
         nodes: [{source: {__typename: "PullRequest", number: 7, title: "t",
           body: "Closes #1", state: "OPEN", isDraft: false,
           createdAt: "2026-07-01T00:00:00Z", mergedAt: null,
-          repository: {nameWithOwner: "acme/testproj"}}}]}}}}}'
+          repository: {nameWithOwner: "acme/testproj"},
+          url: "https://github.com/acme/testproj/pull/7", baseRefName: "master"}}]}}}}}'
 }
 
 # _gql_truncate <file>: alias i0 reports 2 cross-references, holds 1, has more.
@@ -424,9 +425,25 @@ _query_shape_ok() {
     _gql_serve 1 "$GQL_FIX/issue-mrs-links.json"
     _issue_mrs acme/testproj 6
     [ "$status" -eq 0 ]
-    [ "$output" = $'issue\t6\tmerged\nmr\t6\tacme/testproj#21\tmerged\t2026-06-10T04:11:31Z\t2026-06-10T04:27:27Z\nmr\t6\tacme/testproj#22\tclosed\t2026-06-11T09:00:00Z\t-' ]
+    [ "$output" = $'issue\t6\tmerged\nmr\t6\tacme/testproj#21\tmerged\t2026-06-10T04:11:31Z\t2026-06-10T04:27:27Z\thttps://github.com/acme/testproj/pull/21\tchore/shellcheck-scripts-review-followups\nmr\t6\tacme/testproj#22\tclosed\t2026-06-11T09:00:00Z\t-\thttps://github.com/acme/testproj/pull/22\tmaster' ]
     [[ "$output" != *"#99"* ]]
     [ "$(_gql_calls)" -eq 1 ]
+}
+
+@test "issue-mrs emits each PR's url and base branch (#734)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-links.json"
+    _issue_mrs acme/testproj 6
+    [ "$status" -eq 0 ]
+    grep -qxF $'mr\t6\tacme/testproj#21\tmerged\t2026-06-10T04:11:31Z\t2026-06-10T04:27:27Z\thttps://github.com/acme/testproj/pull/21\tchore/shellcheck-scripts-review-followups' <<<"$output"
+}
+
+@test "issue-mrs asks GraphQL for url and baseRefName (#734)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-links.json"
+    _issue_mrs acme/testproj 6
+    [ "$status" -eq 0 ]
+    sed -n 1p "$GH_STUB_ARGS_LOG" | grep -qF 'url baseRefName'
 }
 
 @test "issue-mrs resolves #N against the repository's canonical name, so a renamed repo still links (#704)" {
@@ -447,8 +464,8 @@ _query_shape_ok() {
     [ "$status" -eq 0 ]
     issues="$(grep '^issue' <<<"$output")"
     [ "$issues" = $'issue\t1\topen\nissue\t2\tdraft\nissue\t3\tmerged\nissue\t4\tnone\nissue\t5\tnone' ]
-    grep -qxF $'mr\t1\tacme/testproj#32\tdraft\t2026-07-01T00:00:02Z\t-' <<<"$output"
-    grep -qxF $'mr\t5\tacme/testproj#61\tclosed\t2026-07-01T00:00:01Z\t-' <<<"$output"
+    grep -qxF $'mr\t1\tacme/testproj#32\tdraft\t2026-07-01T00:00:02Z\t-\thttps://github.com/acme/testproj/pull/32\tmaster' <<<"$output"
+    grep -qxF $'mr\t5\tacme/testproj#61\tclosed\t2026-07-01T00:00:01Z\t-\thttps://github.com/acme/testproj/pull/61\tmaster' <<<"$output"
 }
 
 @test "a fork-repo PR \"Closes #5\" links the fork's 5, not upstream 5 (#704)" {
@@ -457,7 +474,7 @@ _query_shape_ok() {
     _gql_serve 2 "$GQL_FIX/issue-mrs-fork.json"
     _issue_mrs me/testproj-fork 5
     [ "$status" -eq 0 ]
-    [ "$output" = $'issue\t5\topen\nmr\t5\tme/testproj-fork#3\topen\t2026-08-01T12:00:00Z\t-' ]
+    [ "$output" = $'issue\t5\topen\nmr\t5\tme/testproj-fork#3\topen\t2026-08-01T12:00:00Z\t-\thttps://github.com/me/testproj-fork/pull/3\tmaster' ]
     _issue_mrs acme/testproj 5
     [ "$status" -eq 0 ]
     [ "$output" = $'issue\t5\tnone' ]
@@ -530,7 +547,7 @@ _query_shape_ok() {
     _gql_serve 1 "$GQL_FIX/issue-mrs-notfound.json" 1 "gh: Could not resolve to an Issue with the number of 9."
     _issue_mrs acme/testproj 6 9
     [ "$status" -eq 0 ]
-    [ "$output" = $'issue\t6\topen\nmr\t6\tacme/testproj#21\topen\t2026-06-10T04:11:31Z\t-\nissue\t9\tmissing' ]
+    [ "$output" = $'issue\t6\topen\nmr\t6\tacme/testproj#21\topen\t2026-06-10T04:11:31Z\t-\thttps://github.com/acme/testproj/pull/21\tmaster\nissue\t9\tmissing' ]
     rm -f "$GH_STUB_GRAPHQL_DIR"/*
     _gql_serve 1 "$GQL_FIX/issue-mrs-ratelimited.json" 1 "gh: API rate limit exceeded for user ID 1."
     _issue_mrs acme/testproj 6 9
@@ -550,7 +567,7 @@ _query_shape_ok() {
     _gql_serve 1 "$GQL_FIX/issue-mrs-timestamps.json"
     _issue_mrs acme/testproj 8
     [ "$status" -eq 0 ]
-    grep -qxF $'mr\t8\tacme/testproj#80\tmerged\t2026-10-07T03:24:16Z\t2026-10-07T05:00:59Z' <<<"$output"
+    grep -qxF $'mr\t8\tacme/testproj#80\tmerged\t2026-10-07T03:24:16Z\t2026-10-07T05:00:59Z\thttps://github.com/acme/testproj/pull/80\tmaster' <<<"$output"
 }
 
 @test "issue-mrs output passes mr-link.py check (#704)" {
@@ -615,7 +632,7 @@ _bucket_of() {
     done
     grep -qxF $'fail\tcr-action_required\thttps://github.com/acme/volk/actions/runs/1/job/86\tACTION_REQUIRED' <<<"$output"
     grep -qxF $'fail\tsc-error\thttps://ci.example/5\tERROR' <<<"$output"
-    grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80' <<<"$output"
+    grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80\tSUCCESS' <<<"$output"
 }
 
 @test "#782 mr-checks emits - for an empty link, so the conclusion keeps its own field" {
@@ -623,14 +640,14 @@ _bucket_of() {
     [ "$status" -eq 0 ]
     grep -qxF $'fail\tsc-nolink\t-\tFAILURE' <<<"$output"
     grep -qxF $'fail\tcr-nolink\t-\tCANCELLED' <<<"$output"
-    grep -qxF $'pass\tcr-pass-nolink\t-' <<<"$output"
+    grep -qxF $'pass\tcr-pass-nolink\t-\tSUCCESS' <<<"$output"
 }
 
 @test "#782 mr-checks keeps the latest run per workflow+name (CANCELLED then SUCCESS → one pass)" {
     _chk superseded
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 3 ]
-    [ "${lines[2]}" = $'pass\tlint\thttps://github.com/acme/volk/actions/runs/1/job/52' ]
+    [ "${lines[2]}" = $'pass\tlint\thttps://github.com/acme/volk/actions/runs/1/job/52\tSUCCESS' ]
 }
 
 @test "#782 a queued re-run outranks its completed FAILURE" {
@@ -700,6 +717,82 @@ _bucket_of() {
     [ "$status" -eq 2 ]
     run "$DEVAGENT_ROOT/scripts/code/gitlab.sh" mr-checks "$CHK_URL"
     [ "$status" -eq 2 ]
+}
+
+# ---- #1097: a pass line carries its conclusion --------------------------------
+# A required check is `success` only on pass + SUCCESS (lib/ci.sh
+# ci_required_eval), so the verb says which of its three passing conclusions a
+# line had.
+
+@test "#1097 mr-checks: pass lines carry SUCCESS, SKIPPED or NEUTRAL; pending lines stay three fields" {
+    _chk buckets
+    [ "$status" -eq 0 ]
+    grep -qxF $'pass\tcr-skipped\thttps://github.com/acme/volk/actions/runs/1/job/81\tSKIPPED' <<<"$output"
+    grep -qxF $'pass\tcr-neutral\thttps://github.com/acme/volk/actions/runs/1/job/82\tNEUTRAL' <<<"$output"
+    # a commit status has no conclusion: its state stands in
+    grep -qxF $'pass\tsc-success\thttps://ci.example/1\tSUCCESS' <<<"$output"
+    # every pass line, not only the three named: four fields, one of the three values
+    [ "$(awk -F'\t' '$1 == "pass" { print NF ":" $4 }' <<<"$output" | sort | tr '\n' ' ')" \
+        = "4:NEUTRAL 4:SKIPPED 4:SUCCESS 4:SUCCESS " ]
+    # every pending line: name and link, nothing after them (not even an empty field)
+    [ "$(grep -c $'^pending\t' <<<"$output")" -eq 3 ]
+    [ "$(awk -F'\t' '$1 == "pending" { print NF }' <<<"$output" | sort -u)" = 3 ]
+}
+
+@test "#1097 mr-checks: a pass line with no link keeps - and its conclusion" {
+    _chk nolink
+    [ "$status" -eq 0 ]
+    grep -qxF $'pass\tcr-pass-nolink\t-\tSUCCESS' <<<"$output"
+}
+
+@test "#1097 mr-checks: an empty conclusion prints -, on pass and fail alike" {
+    # No recorded body has this shape (a commit status carries no `conclusion` key);
+    # jq's `//` keeps an empty string, so this is the one way the field can be empty.
+    jq '.statusCheckRollup |= map(if .__typename == "StatusContext" then .conclusion = "" else . end)' \
+        "$GQL_FIX/mr-checks-buckets.json" > "$DEVAGENT_TMP/empty-conclusion.json"
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    GH_STUB_PR_CHECKS_FILE="$DEVAGENT_TMP/empty-conclusion.json" \
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-checks "$CHK_URL"
+    [ "$status" -eq 0 ]
+    grep -qxF $'pass\tsc-success\thttps://ci.example/1\t-' <<<"$output"
+    grep -qxF $'fail\tsc-failure\thttps://ci.example/4\t-' <<<"$output"
+    # a check run's own conclusion is untouched
+    grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80\tSUCCESS' <<<"$output"
+}
+
+@test "#1097 round trip: github.sh's own lines for the green fixture evaluate success, success, skipped" {
+    local l
+    _chk green
+    [ "$status" -eq 0 ]
+    # A code backend that replays what the verb just printed, so lib/ci.sh reads
+    # github.sh's own lines and not lines a test wrote by hand.
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/mr-checks.out"
+    mkdir -p "$DEVAGENT_TMP/code"
+    cat > "$DEVAGENT_TMP/code/replay.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = mr-checks ] || exit 2
+cat "$REPLAY_FILE"
+EOF
+    chmod +x "$DEVAGENT_TMP/code/replay.sh"
+    export REPLAY_FILE="$DEVAGENT_TMP/mr-checks.out" DEVAGENT_CODE_BACKEND_DIR="$DEVAGENT_TMP/code"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" \
+        "project.$TEST_PROJECT.code_source.backend" replay
+    for l in paths io config state active checklist log ci; do
+        # shellcheck source=/dev/null
+        source "$DEVAGENT_ROOT/scripts/lib/$l.sh"
+    done
+    ci_read "$TEST_PROJECT" Issue-1 "$CHK_URL"
+    [ "$CI_RESULT" = green ]
+    [ "$CI_LINE" = "CI PASSED: 3 checks on $CHK_URL (head a1b2c3d)" ]
+    ci_required_eval "bats shard 1 of 4" lint "Analyze (actions)"
+    [ "$RC_REPORT" = "bats shard 1 of 4: success; lint: success; Analyze (actions): skipped" ]
+    [ "$RC_OK" = 0 ]
+    [ "$RC_BAD" = "Analyze (actions) (skipped)" ]
+    # the two that ran, without the skipped one: nothing left to stop on
+    ci_required_eval "bats shard 1 of 4" lint
+    [ "$RC_REPORT" = "bats shard 1 of 4: success; lint: success" ]
+    [ "$RC_OK" = 1 ]
 }
 
 # --- mr-view (#885) -----------------------------------------------------------

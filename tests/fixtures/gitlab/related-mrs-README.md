@@ -11,7 +11,9 @@ Recorded response shapes for the GitLab `issue-mrs` verb, served by
   gitlab-org/cli (21 issues, among them #8597, whose related list carries
   !4013, an MR with no closing reference to it).
 - Fields kept (the verb reads `state`, `draft` / `work_in_progress`,
-  `references.full`, `title`, `description`, `created_at`, `merged_at`):
+  `references.full`, `title`, `description`, `created_at`, `merged_at`, and
+  since #734 `web_url` and `target_branch` for the `mr` line's
+  `<url>`/`<base>` pair):
   `id iid project_id title description state created_at updated_at merged_at
   closed_at target_branch source_branch draft work_in_progress references
   web_url`, in the recorded order. Timestamps keep the recorded millisecond

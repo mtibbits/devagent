@@ -13,6 +13,7 @@
 - [ ] <observable behavior 1>
 - [ ] <observable behavior 2>
 - [ ] Documentation updated
+<!-- required-checks: capture fills this in when the project declares required CI checks -->
 
 ## Out of scope
 <things this issue deliberately does NOT address>

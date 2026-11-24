@@ -45,3 +45,35 @@ SKILL="${REPO_ROOT:-$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)}/skills
   assert_file_grep "${SKILL}" "Propose model tiers"
   assert_file_grep "${SKILL}" "after the draft body is written"
 }
+
+# #1097: the required-check criterion.
+_rc_section() { awk '/^## Required CI checks/{f=1; print; next} f && /^## /{exit} f' "${SKILL}"; }
+
+@test "#1097 core-capture names required-checks.sh, the five cases and the criterion form" {
+  local t p
+  t="$(_rc_section | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$t" ] || { echo "no '## Required CI checks' section"; return 1; }
+  for p in 'scripts/required-checks.sh" "$DEVAGENT_PROJECT"' 'RECOMMENDATION' \
+           'drive-letter paths' 'MSYS path rewriting' 'native Windows python3' 'CRLF line endings' \
+           'no POSIX file modes' 'carries the `gitbash` tag' 'has no Git Bash skip' 'is green at the merged head' \
+           'does not apply'; do
+    [[ "$t" == *"$p"* ]] || { echo "the section lacks: $p"; return 1; }
+  done
+}
+
+@test "#1097 core-capture and core-scaffold treat a non-zero required-checks.sh exit as stop-and-report" {
+  local f t
+  for f in "${SKILL}" "${REPO_ROOT}/skills/core-scaffold/SKILL.md"; do
+    t="$(awk '/^## Required CI checks/{f=1; print; next} f && /^## /{exit} f' "$f" | tr '\n' ' ' | tr -s ' ')"
+    [[ "$t" == *'non-zero exit'*'stop and report its stderr'* ]] || { echo "$f: no stop-and-report"; return 1; }
+    [[ "$t" == *'never read it as "does not apply"'* ]] || { echo "$f: no never-read-as"; return 1; }
+  done
+}
+
+@test "#1097 core-capture and core-scaffold do not run required-checks.sh without DEVAGENT_PROJECT" {
+  local f t
+  for f in "${SKILL}" "${REPO_ROOT}/skills/core-scaffold/SKILL.md"; do
+    t="$(awk '/^## Required CI checks/{f=1; print; next} f && /^## /{exit} f' "$f" | tr '\n' ' ' | tr -s ' ')"
+    [[ "$t" == *'With no `DEVAGENT_PROJECT`'*'does not apply'*'do not run the call'* ]] || { echo "$f: no unset-project case"; return 1; }
+  done
+}

@@ -36,7 +36,10 @@ disk and state:
    `devdoc_dir` is the project's key in `~/.claude/devagent/config.toml`; an env-pinned session exports
    `DEVAGENT_ACTIVE_PROJECT` / `DEVAGENT_ACTIVE_ISSUE`, which take precedence).
 2. Read `<issue-dir>/issue.md` (the acceptance criteria under verification) and
-   `<issue-dir>/mr.md` (the claims you cross-check).
+   `<issue-dir>/mr.md` (the claims you cross-check). Only when the project has
+   required CI checks (#1097), also `<issue-dir>/imPlan.md`, for the test names
+   rule 1a asks for: that rule's first call prints the checks, and
+   `required checks: (none)` means it has none.
 3. Read the latest-dated `<issue-dir>/analysis/*-review.md` and `*-redmr.md`
    (the findings input).
 4. Get the push content: `branch` and `baseline_sha` from state, then work the
