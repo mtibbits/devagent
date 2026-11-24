@@ -1020,8 +1020,8 @@ Partly delivered. A requirement here that is not built yet starts with
   time, and copies them into the configured archive at cleanup.
 - EI-19: Session pins: devagent reads a per-session active-project pin and
   active-issue pin that take precedence over the shared pointer.
-- EI-20: Refusal exit codes: devagent's trust and quarantine refusals use
-  stable exit codes that a polling caller keys on.
+- EI-20: Refusal exit codes: devagent's trust, quarantine and leak-gate
+  refusals use stable exit codes that a polling caller keys on.
 - EI-21: Issue-body workflow flags and labels: devagent reads the tier,
   research, spike and model-steering keys from an issue body's
   `## Workflow flags` block, and model steering from the issue's labels.
@@ -1036,8 +1036,11 @@ Partly delivered. A requirement here that is not built yet starts with
 - EI-24: Actuals, calibration and forecast documents (planned): devagent
   writes per-issue cost, time and milestones, per-project calibration pairs,
   and forecasts with their inputs, for the portfolio and other tools to read.
-- EI-25: The operator's private name list (planned): devagent reads it by
-  path only, to scan tracker posts for private names before they are sent.
+- EI-25: The operator's private name list: devagent's leak gate reads it by
+  path only, from the user-level config, records the path it first read, and
+  scans a tracker comment for private names before the gated comment verb
+  posts it; and (planned) the same scan covers issue-body edits and capture
+  filings, and the health check reports the list's status.
 - EI-26: The public documentation site: devagent's onboarding pages,
   published from the repository.
 

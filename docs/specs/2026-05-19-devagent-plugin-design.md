@@ -109,7 +109,9 @@ devAgent/
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
 │   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
 │   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker,
-│   │                        #   notify.sh + _notify.py — #961 launcher notifications appender)
+│   │                        #   notify.sh + _notify.py — #961 launcher notifications appender,
+│   │                        #   post-gate.sh — #966 pre-post leak gate: run, check, hash, record-denylist,
+│   │                        #     denylist-status (§9.1 "Leak gate"))
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh;
 │   │                        #   local.sh — #1016 git only, no forge (§9.2)
@@ -159,6 +161,12 @@ devAgent/
 One file, all projects. Predictable location mirrors `~/.claude/settings.json`.
 
 ```toml
+# auto_post_owners = ["github:<login>"]  # #966: TOP-LEVEL key — it must stay above the first table header and is
+                                         #   ignored under any table, a [project.<name>] block included. The
+                                         #   trackers the leak gate (§9.1) passes without an owner lookup:
+                                         #   "github:<login>", "gitlab:<namespace>" or "jira:<KEY>". An entry
+                                         #   names an owner on every host of its backend. Default: none.
+
 [defaults]
 checklist_template = "standard"          # project default; a per-issue `tier:` key overrides — legal names live in the §6.3 tier table
 ship_as_draft      = false               # default; overridable per-project and per-invocation
@@ -167,8 +175,11 @@ ship_as_draft      = false               # default; overridable per-project and 
                                          #   dirty tree. Default off. A [project.<name>] git_guard
                                          #   value overrides this for the active project (#433).
 
-[paths]                                  # #611: GLOBAL top-level table (every project) — today one key
+[paths]                                  # #611: GLOBAL top-level table (every project) — two keys
 potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pothole register; absolute after ~ expansion; default none
+denylist_path = "~/.config/denylist.txt"   # #966: the leak gate's private-names list (§9.1); absolute after ~ expansion;
+                                           #   this value is the default. Read ONLY from this table, never from a
+                                           #   [project.<name>.paths] table.
 # [project.<name>.paths] may override potholes_workflow, and may add
 # potholes_domain_nouns = ["matter", "docket"]   # words that mark a line as domain content (the workflow layer refuses them)
 
@@ -334,10 +345,12 @@ Mutable. Out of git. One active issue per project.
 The directory `$(devagent_home)/state/` holds, per project, `<project>.toml`
 (this section), reap's `<project>.reaped.toml` and `/devagent:depends`'
 `<project>.depends.toml`; the global pointer `_active.toml`; each TOML file's
-`.lock` sidecar (`<name>.toml.lock`); and the launcher notifications file
+`.lock` sidecar (`<name>.toml.lock`); the launcher notifications file
 `notifications.jsonl`, its `notifications.jsonl.lock`, and any name a launcher
-rotated it to (§7.3, #961). Reap and depends follow `DEVAGENT_STATE_DIR` when it
-is set; everything else here follows `devagent_home`.
+rotated it to (§7.3, #961); and `post-gate-denylist-path`, one line holding the
+resolved path of the denylist the leak gate first read (§9.1, #966). Reap and
+depends follow `DEVAGENT_STATE_DIR` when it is set; everything else here
+follows `devagent_home`.
 
 ```toml
 active_issue   = "Issue-676"             # or "Issue-Fork-42"; null when idle
@@ -800,7 +813,11 @@ doctor lists `separate_identity`, `signatures` and `system_policy
 **Exit codes.** 9 is a host-level refusal (stop and fix the host; never retry
 or work around it), 10 asks for a retry; 6, 7 and 11 are emitted by #714's
 quarantine, and 8 is reserved for #719. The registry is `scripts/lib/refusals.sh`; `commands/pull.md`
-carries the table and each code's consumer action.
+carries the table and each code's consumer action. One row is not a trust
+refusal: `leak-held` (#966) is the leak gate's hold (§9.1), emitted by
+`post-gate.sh` and `post-comment` with or without a policy on the host and
+never by pull. It took the next free code when it landed; callers read a
+row's code by its id (`trust_exit_code <id>`) and never write the number.
 
 **doctor.** With a policy on the host, doctor's first global block reports the
 policy and digest, empty or shadowed locations, `whoami` per scope, the
@@ -2341,13 +2358,21 @@ state-class  <repo> <num>                                  → "<class>\t<reason
 events       <repo> <num> | --kinds <repo>                 → records, or "<kind>\t<coverage>" lines (MAY)
 comment-records <repo> <num>                               → one record per comment (MAY)
 whoami       <repo>                                        → the credential's account id (MAY)
+repo-owner   <repo>                                        → "<owner-id>\t<owner-login>" (MAY; #966)
+post-comment <repo> <num> --project <name> (--issue <issue-dir-name> | --capture <slug>) --file <post> --review <record>
+                                                           → the new comment's URL (MAY; #966, GitHub only)
 ```
 
 `events`, `comment-records` and `whoami` (#712) are optional and read-only:
 who changed an issue and when, its comments with ids that match the event
 records, and the configured credential's own account on the repository's
-host. Their record shapes are §9.3.1. With trust off no caller invokes them
-(a census test guards this). A caller reads exit 78 or 2 as "unsupported";
+host. Their record shapes are §9.3.1. With trust off the only caller is the
+leak gate (`scripts/lib/post-gate.sh`, #966), whose tracker check asks
+`whoami` to compare a repository owner's id with the account's before a post;
+its `whoami` call is on the allow-list of `tests/events-trust-off.bats`, the
+census test that keeps every other caller out. `repo-owner` and
+`post-comment` are that gate's two verbs, under "Leak gate" at the end of
+this section. A caller reads exit 78 or 2 as "unsupported";
 a backend that implements them never answers 2, and exits:
 
 | exit | meaning |
@@ -2548,6 +2573,341 @@ caller reads 2 as "no such verb"; a folder fault is always 1):
 | `state-exists` | the status exists | folder fault | wrong arguments | never | |
 
 `events`, `comment-records` and `whoami` exit 78.
+
+#### Leak gate (`scripts/lib/post-gate.sh`) and the gated comment verb — #966
+
+devagent writes a tracker comment only through `post-comment`, and
+`post-comment` writes only after the leak gate passes. The gate is a library
+and an executable in one file. `post.sh` (#927), the `edit-body` verb (#967)
+and the `file.sh` gate and `doctor` (#968) call it; this section is the
+contract they build on. Nothing in #966 calls `post-comment`: #927 makes the
+first post.
+
+```
+post-gate.sh run   <common> --repo <repo> --backend <name> --backend-script <path> --record <record> [--draft] [--names-file <records>] [--no-record]
+post-gate.sh check <permission|tracker|names|review> <common> [--repo <repo> --backend <name> --backend-script <path>] [--record <record> [--draft]] [--no-record]
+post-gate.sh hash [--draft] <file>
+post-gate.sh record-denylist --project <name> (--issue <issue-dir-name> | --capture <slug>) [--expect <path>]
+post-gate.sh denylist-status
+<common> = --project <name> (--issue <issue-dir-name> | --capture <slug>) --file <text>
+```
+
+**Grammar.** `--flag value` only (no `=` spelling), each flag at most once,
+no empty value. Anything else is usage: exit 2, with no `post-gate:` line.
+`check permission` needs `--repo` and `--backend`, `check tracker` also
+`--backend-script`, `check review` needs `--record`; `--draft` needs
+`--record`; `--names-file` belongs to `run` alone. `--project` and `--issue`
+or `--capture` name the caller's work item and are checked on every call by
+the notifications file's own rules (`notify_check`, §7.3): the project must be
+configured and the issue name or capture slug well-formed. A refusal there is
+usage too.
+
+**Lines.** `run` runs the four checks in the order `permission`, `tracker`,
+`names`, `review` and stops at the first that does not pass. Each check that
+ran prints one line on stderr, and nothing follows the first hold:
+
+```
+post-gate: <check> pass
+post-gate: <check> hold <cause>[ <detail>]
+```
+
+A run that holds at the second check, and three more holds as they render:
+
+```
+post-gate: permission pass
+post-gate: tracker hold unowned
+```
+
+```
+post-gate: names pass
+post-gate: names hold names-hit hits=2 lines=3,7
+post-gate: names hold denylist-empty roster-empty
+post-gate: permission hold push-mr project=<name>
+```
+
+Every line matches
+
+```
+^post-gate: (permission|tracker|names|review) (pass|hold (trust|push-mr|unowned|tracker-unavailable|names-hit|denylist-missing-unrecorded|denylist-missing|denylist-empty|denylist-moved|no-utf8-locale|review-missing|review-stale|review-blocking|gate-error)( .+)?)$
+```
+
+Callers key on `<check>` and `<cause>`; `<detail>` is for the log. No detail
+holds a denylist entry, text from `--file`, or a remedy a session could run.
+The 14 causes are the array `POST_GATE_CAUSES`:
+
+| Check | Cause | Detail | Meaning |
+|---|---|---|---|
+| `permission` | `trust` | | a trust policy is on the host and the project, or the target repository, is in its scope |
+| | `push-mr` | `project=<name>` | that project's `permissions.push_mr` is not true |
+| `tracker` | `unowned` | | the tracker's owner is neither listed nor the authenticated account |
+| | `tracker-unavailable` | | the owner or account lookup could not run |
+| `names` | `names-hit` | `hits=<n> lines=<l,…>` | `<n>` lines hold a private name; their numbers, ascending |
+| | `denylist-missing-unrecorded` | | no readable list, and no path was ever recorded |
+| | `denylist-missing` | | no readable list at the recorded path |
+| | `denylist-empty` | none, or `roster-empty` | the list has no entry, or none is left after the subtraction below |
+| | `denylist-moved` | | the configured path no longer names the recorded list |
+| | `no-utf8-locale` | | no UTF-8 locale is available for the scan |
+| `review` | `review-missing` | | no record, or one that does not parse |
+| | `review-stale` | | the text changed after its review |
+| | `review-blocking` | | the record counts a blocking finding |
+| any | `gate-error` | one token, below | the check could not run |
+
+`gate-error` carries one fixed detail per class (`POST_GATE_ERROR_DETAILS`),
+so the log says which thing to fix:
+
+| Detail | Raised by | Class |
+|---|---|---|
+| `config-unreadable` | any | `config.toml` cannot be read or parsed |
+| `repo-unkeyable` | `permission`, `tracker` | `<repo>` has no canonical key for the backend |
+| `owners-malformed` | `tracker` | `auto_post_owners` is not an array of well-formed entries |
+| `path-not-string` | `names` | `denylist_path` is a table or an array |
+| `path-not-absolute` | `names` | `denylist_path` is not absolute after `~` expansion (any other non-string value reads this way too) |
+| `record-malformed` | `names` | the recorded-path file is not one line holding an absolute path |
+| `file-unreadable` | `names`, `review` | `--file` or `--names-file` is not a readable regular file |
+| `names-file-malformed` | `names` | a `--names-file` record has no TAB or a number outside `^[1-9][0-9]{0,9}$` |
+| `invalid-utf8` | `names` | the list or the scanned text is not valid UTF-8 |
+| `notify-failed` | `names`, `record-denylist` | the audit line could not be written; nothing was recorded |
+| `record-failed` | `names`, `record-denylist` | the recorded-path file could not be replaced |
+| `scan-failed` | `names` | grep, the shared predicate or a list parser could not run |
+| `scan-disagree` | `names` | the predicate's verdict disagrees with the line finder |
+| `review-unreadable` | `review` | the record path exists and is not a readable regular file |
+| `list-missing` | `record-denylist` | no readable list to record |
+| `list-empty` | `record-denylist` | the list has no entry |
+
+`record-denylist` has one more line of its own, for a refusal that is not a
+gate check:
+
+```
+post-gate: record-denylist refused (unattended|expect-mismatch)
+```
+
+**Exits.** A hold exits the `leak-held` row of the exit table (§3.8), which
+every script reads by id (`trust_exit_code leak-held`).
+
+| Command | 0 | 1 | 2 | 5 | 9 | `leak-held` |
+|---|---|---|---|---|---|---|
+| `run`, `check` | pass | | usage | | a #713 refusal: a policy that fails to load, a scope that cannot be keyed | a hold |
+| `hash` | digest printed | the file cannot be read | usage | | | |
+| `record-denylist` | recorded | unattended, or `--expect` mismatch | usage | | | `names hold gate-error` |
+| `denylist-status` | one token printed | cannot tell | usage | | | |
+| `post-comment` | posted, URL printed | a wrong-host repo, an unreadable `--file`, or the POST failed | usage | `gh` exited 0 with no `html_url` | as `run` | a hold |
+| `repo-owner` | printed | bad arguments, a wrong-host repo, or a failed call | never | no numeric `owner.id` | | |
+
+Sourced, the script sets no shell option and prints nothing. Its public
+functions (`post_gate_run`, `post_gate_check`, one `post_gate_check_<name>`
+per check, `post_gate_hash`, `post_gate_record_denylist`,
+`post_gate_denylist_status`) turn xtrace off before any file content enters a
+variable, run the same under `set -euo pipefail`, and never set a trap: temp
+files go through `pg_tmp` onto one list that the entry point removes
+(`trap pg_cleanup EXIT`).
+
+**`post-comment`.** `scripts/issue/github.sh post-comment <repo> <num>
+--project <name> (--issue <issue-dir-name> | --capture <slug>) --file <post>
+--review <record>`, with `<num>` matching `^[1-9][0-9]{0,9}$`. The gate runs
+inside the verb, before any write, so a direct call meets the same gate as
+`post.sh`. In order: the grammar; the host (`<repo>` is `[HOST/]OWNER/REPO`,
+as for the read verbs above); a private snapshot of `--file`, removed on every
+exit; the full gate on the snapshot, with `--backend github` and the script's
+own path as `--backend-script`; then one
+`gh api --hostname <host> --method POST repos/<owner>/<repo>/issues/<num>/comments -F body=@-`
+with the snapshot on stdin and `GH_HOST` unset; then the answer's `html_url`,
+which must start `https://`, on stdout. The bytes gated are the bytes posted:
+a change to `--file` after the call starts reaches neither.
+
+What a caller may conclude from the exit:
+
+| Exit | The comment |
+|---|---|
+| 0 | was posted |
+| `leak-held` | was not posted; read the cause, and do not retry until it is fixed |
+| 9, 2 | was not posted |
+| 1 | was not posted if stderr has no `post-gate: review pass` line (the fault came before the write); after that line it is unknown, since `gh` can fail after the tracker took the comment |
+| 5 | was probably posted; never retry without looking at the issue |
+
+GitLab, JIRA, the custom stub and the disk backend have no `post-comment`:
+their unknown-verb exit 2 is, for the caller, a check that cannot run.
+
+**`repo-owner`.** `github.sh repo-owner <repo>` prints
+`<owner-id>\t<owner-login>` from one `repos/<owner>/<repo>` call on the
+repository's host, with `GH_HOST` unset. The id is a positive integer and the
+login matches `^[A-Za-z0-9][A-Za-z0-9_-]*$`, or the verb exits 5.
+
+**The `permission` check.** With a trust policy on the host (§3.8) it holds
+`trust` when the named project is in scope, or when any key the target
+repository can reach is one of the policy's `scopes`: the screened hash
+(#953) covers the issue body and every trusted comment, so a post there would
+read as drift (#718). A policy that fails to load refuses with exit 9, as at
+every entry point. With no policy, or with project and target both out of
+scope, the named project's `permissions.push_mr` decides, read through
+`permission_value` and never from the environment (`DA_YES` and the like open
+nothing). Any other configured project whose `issue_source` or
+`issue_source_fork` reaches a key the target reaches must have `push_mr` true
+as well, so one project's permission cannot open another's tracker. Keys are
+compared as `_trust_candidate_keys` builds them, never as raw strings: case, a
+host-qualified form or a URL do not hide a shared tracker. The check leaves
+the caller's trust state (`TRUST_IN_SCOPE` and the rest) as it found it.
+
+**The `tracker` check.** `auto_post_owners` is read only from the top level
+of the user config (§3.2), never from a `[project.<name>]` block, and every
+entry is checked first, for every backend:
+`^(github:[A-Za-z0-9][A-Za-z0-9_-]*|gitlab:[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*|jira:[A-Z][A-Z0-9_]*)$`.
+An entry names an owner on every host of its backend: the grammar has no host
+part, so `github:acme` also covers `ghe.example/acme/…`.
+
+- **GitHub.** The owner is the second path part of the repository's canonical
+  key. An entry `github:<owner>` (compared case-insensitively) passes with no
+  network call. Otherwise the owner's numeric id (`repo-owner`) must equal the
+  authenticated account's (`whoami`), both asked through the backend script
+  the caller names, the one it will write through, so both answer for the
+  host the write goes to. A non-zero exit or a malformed answer from either is
+  `tracker-unavailable`.
+- **GitLab.** The namespace (the canonical key's path minus the project) must
+  be listed as `gitlab:<namespace>`, compared lower-cased. A parent group does
+  not cover a subgroup.
+- **JIRA.** `<repo>`, the project key, must be listed as `jira:<KEY>`,
+  compared exactly.
+- **Any other backend** is `unowned`.
+
+Neither GitLab nor JIRA has `whoami` until #900, and neither makes a backend
+call here.
+
+**The `names` check.** The list is the file named by `[paths] denylist_path`
+in the user config (never a project block), default `~/.config/denylist.txt`.
+Every line is first stripped of a trailing CR and of leading and trailing
+whitespace. A blank line and a `#` line are not entries. A
+`# public: <name> <name>…` line lists names that are allowed on a tracker; it
+is split on whitespace (as `doctor` and the seed canary read the same
+grammar), so a public name cannot hold a space. Any other line is one entry.
+The first row that applies decides:
+
+1. the config cannot be read, `denylist_path` is not an absolute string, or
+   the recorded-path file is not one line: `gate-error`;
+2. a path is recorded and the configured one no longer names it:
+   `denylist-moved`. When both files exist they are compared by identity
+   (`-ef`), so a second spelling of one file (a `/./` segment, a symlinked
+   directory, on Windows another letter case or `C:/…` for `/c/…`) is not a
+   move; otherwise by resolved spelling (`<physical directory>/<name>`);
+3. the list is missing or cannot be read (a directory at the path included):
+   `denylist-missing` with a recorded path, else
+   `denylist-missing-unrecorded`. Moved comes first, so a config repointed to
+   a file that is not there reads as the move it is;
+4. the list has no entry: `denylist-empty`;
+5. none of `C.UTF-8`, `C.utf8`, `en_US.UTF-8`, `en_US.utf8` behaves as a
+   UTF-8 locale (the candidates are fixed; the ambient locale is never read):
+   `no-utf8-locale`;
+6. the list or the scanned text is not valid UTF-8: `gate-error`;
+7. no path is recorded yet: record it (below), unless `--no-record`;
+8. the scan.
+
+*The recorded path.* The first run on a machine that reaches row 7 writes the
+list's resolved path to `$(devagent_home)/state/post-gate-denylist-path`. It
+first runs `notify_check`, then appends a `notify` line through
+`notify_append` (§7.3) with the call's project and issue or capture, a null
+`step`, a null `question` and the detail `denylist path recorded`, and only
+then writes the record (a temp file and `mv`). If the line or the record
+cannot be written, nothing is recorded and the check holds `gate-error`.
+After that the gate never records again, so a re-recording after the record
+was deleted shows in the notifications file. The line is an audit record: it
+is written in interactive sessions too. Two first runs that race write two
+audit lines and one record. On Windows a `mv` onto a file another process
+holds open fails; that is a transient `gate-error record-failed`, and the
+next run records.
+
+*Re-recording.* `record-denylist` records the current resolved path and
+writes the same audit line, replacing the record whatever it holds (so a
+malformed record has a way out). It refuses with `gate-error` when the list
+is missing, unreadable or has no entry; with exit 1 in a session marked
+unattended (`devagent_unattended`); and with exit 1, recording nothing, when
+`--expect <path>` does not name the current list (the same identity rule; a
+path whose directory is missing matches nothing). #927 registers it as the
+action of the operator's `rerecord` answer.
+
+*Status.* `denylist-status` prints one token and never records anything:
+`absent` (`denylist-missing-unrecorded`), `missing` (`denylist-missing`),
+`moved` (`denylist-moved`), `empty` (`denylist-empty`, either form),
+`unrecorded` (a readable list with entries and no recorded path) or
+`present`. It exits 1 when row 1 cannot be told.
+
+*The roster* is the entries, minus the names of the projects in devagent's
+config (the operator allowed private project names on trackers on
+2026-10-17), minus every name on a `# public:` line; both subtractions
+compare whole lines, literally and case-insensitively. A roster left empty
+holds `denylist-empty roster-empty`: the gate never scans with nothing to
+look for.
+
+*The scan* uses the two matches of `potholes_private_name_hits`
+(`scripts/lib/potholes.sh`), both literal and case-insensitive, under the
+resolved UTF-8 locale: the citation form `(<name> Issue-` and the whole-word
+form. The verdict is that predicate's, read through its `--names-fd` mode, so
+no entry is ever in an argv; its output, which names entries, is discarded.
+The gate finds the hit lines itself with the same two matches and reports
+only `names-hit hits=<n> lines=<l,…>`: `<n>` distinct lines, their numbers
+ascending. A verdict that disagrees with the line finder is `gate-error`.
+With `--names-file <records>` (the full run only) the check scans the records
+in place of `--file`: one `<n><TAB><text>` record per line, `<n>` being the
+text's line number in `--file`, and hits are reported at those numbers.
+`edit-body` passes the lines its edit adds. No entry reaches stderr, a log, an
+artifact or the tracker, also under `bash -x`.
+
+**The `review` check.** The record is a Markdown file with one
+`Reviewed-sha256:` line and one `### Blocking (N)` heading, the shape
+`core-redissue` writes (a capture's `redteam.md` gains the hash line with
+#968):
+
+```
+# Red-team — <slug>
+
+Run: 2026-11-24 10:00
+
+Reviewed-sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+
+### Blocking (0)
+```
+
+The parse is strict. Lines are read with one trailing CR removed. Exactly one
+line starts `Reviewed-sha256:` and it matches
+`^Reviewed-sha256: ([0-9a-f]{64})$`; exactly one line starts `### Blocking (`
+and it matches `^### Blocking \((0|[1-9][0-9]{0,8})\)$`; anything else is
+`review-missing`, as is no file. A path that exists and is not a readable
+regular file is `gate-error`. A hash that differs from the text's is
+`review-stale` (any edit after the review); a count other than `0` is
+`review-blocking`. The script checks the record, not the review's claims.
+
+`post-gate.sh hash <file>` prints the value the check compares, so a reviewer
+writes exactly what the gate reads: `sha256sum` of the file's bytes,
+lower-case hex. `hash --draft` first removes the match of
+` \(https?://[^ ()]+\)$` from the first line outside a code fence that starts
+`Parent epic: ` (the fence rule is the WBS parser's, the one that reads parent
+lines), because crrf appends that URL after the review; a trailing CR counts
+as part of the line's end, and every other byte, the final newline or its
+absence included, is hashed unchanged. The check takes the same `--draft`.
+
+**Residuals (accepted).**
+
+- `auto_post_owners`, `denylist_path`, `push_mr` and the project list live in
+  config the model can write. A `[project.<name>]` table added for a
+  denylisted name removes that name from the roster. A record deleted and a
+  config repointed shows through the audit line. In an interactive session
+  nothing technically stops a model running `record-denylist`; the standing
+  answer (#927) forbids it and the audit line shows it. Preventing these is
+  the trust policy's job.
+- With trust off, a bare `gh` post typed by the model, or a direct call to a
+  backend verb that has no gate, bypasses the gate. #927 writes the rule that
+  forbids it.
+- The gate checks private names only. Secrets in an outward write are #936's,
+  under trust.
+- The scan is line-based and whole-word. It does not see an entry split
+  across a line wrap, or written with two spaces or a non-breaking space
+  between its words. `_` and digits are word constituents, so an entry `acme`
+  does not match `acme_api` or `acme2`. Whitespace is not normalised.
+- A multi-word entry cannot be made public, because a `# public:` line is
+  split on spaces.
+- A denylist that is a symbolic link is identified through the link: swapping
+  the link's target is not `denylist-moved`.
+- `denylist-status` says `present` or `unrecorded` for a list that row 5 or 6
+  would still hold on (no UTF-8 locale, invalid UTF-8); `check names` reports
+  those (#968's `doctor` may run both).
+- An `auto_post_owners` entry is host-blind, as above.
 
 ### 9.2 Code backend contract (`scripts/code/<backend>.sh`)
 

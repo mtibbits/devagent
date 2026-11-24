@@ -520,7 +520,8 @@ Backends are plain scripts; four issue backends ship out of the box
 GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
 **issue backend** implements `fetch`, `create`, `transition`, `state` and
 `comment-list`, and may implement `state-list`, `issue-list`,
-`state-exists`, `state-class`, `events`, `comment-records` and `whoami`:
+`state-exists`, `state-class`, `events`, `comment-records`, `whoami`,
+`repo-owner` and `post-comment`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -536,6 +537,8 @@ GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
 | `events` | `<repo> <num>`, or `--kinds <repo>` | one six-field record per change, or one `<kind>` TAB `<coverage>` line per kind (optional) |
 | `comment-records` | `<repo> <num>` | one six-field record per comment (optional) |
 | `whoami` | `<repo>` | the credential's account id on the repo's host (optional) |
+| `repo-owner` | `<repo>` | the repository owner's numeric id, a TAB, and the owner's login (optional; GitHub only) |
+| `post-comment` | `<repo> <num> --project <name> (--issue <issue-dir-name> \| --capture <slug>) --file <post> --review <record>` | the new comment's URL, after the leak gate passes (optional; GitHub only) |
 
 `transition` writes the tracker state the stage maps to: the
 `issue_workflow` value, unless a `github_labels` / `gitlab_labels` table
@@ -571,8 +574,12 @@ reads to build a new `WBS.md` from the tracker history, and what
 it those commands stop. `events`, `comment-records` and `whoami` are
 read-only records of who changed an issue and when, its comments with
 stable ids, and the configured credential's own account; GitHub implements
-them, GitLab and JIRA answer exit 2 until #900, and nothing reads them yet.
-See spec §9.1 and §9.3.1.
+them, and GitLab and JIRA answer exit 2 until #900. Under a trust policy the
+identity check reads `whoami` and the quarantine guard reads `events`; the
+leak gate asks `whoami` with trust off. `repo-owner` is the read verb beside
+it, and `post-comment` is the one write that goes through the leak gate (see
+"The leak gate" below). Only GitHub implements those two; the other backends
+answer exit 2. See spec §9.1 and §9.3.1.
 
 Every **code backend** implements `push-branch`, `create-mr`, `mr-state`,
 `mr-comments` and `merge-mr`, and may implement `issue-mrs`, `mr-checks`
@@ -636,6 +643,50 @@ tracker or forge, copy `scripts/issue/custom.sh` (and `scripts/code/custom.sh`
 for the forge half), implement each verb, point `backend = "<yourname>"` at
 it, and verify with a `tests/backend-<yourname>.bats` you write yourself —
 copy `tests/backend-contract.bats` as the starting point.
+
+## The leak gate
+
+A tracker comment is posted by `scripts/issue/github.sh post-comment`, and
+only after the leak gate, `scripts/lib/post-gate.sh`, passes inside that
+verb. Two keys configure the gate. Both are read only from the top level of
+`config.toml`; a copy in a `[project.<name>]` block is ignored.
+
+```toml
+auto_post_owners = ["github:<login>"]   # a top-level key: keep it above the first table header
+
+[paths]                                 # the top-level [paths] table
+denylist_path = "~/.config/denylist.txt"
+```
+
+- `auto_post_owners` is an array of strings, each `github:<login>`,
+  `gitlab:<namespace>` (the path before the project name, subgroups
+  included; a parent group does not cover a subgroup) or `jira:<KEY>`. A
+  listed tracker passes the gate's `tracker` check without a network call. A
+  GitHub tracker owned by the authenticated account needs no entry. An entry
+  names an owner on every host of its backend. Any other entry, or a value
+  that is not an array of strings, holds every post (`gate-error`).
+- `denylist_path` names the operator's private-names list, absolute after `~`
+  expansion; the default is `~/.config/denylist.txt`. One name per line; `#`
+  starts a comment; a `# public: <name> <name>` line lists names that may
+  appear on a tracker, split on spaces. Names of configured projects are
+  allowed too. The gate matches each remaining name case-insensitively as a
+  whole word, and never prints one.
+
+The gate records the list's resolved path in
+`~/.claude/devagent/state/post-gate-denylist-path` the first time it reads a
+usable list, and writes one audit line to the notifications file. If the
+configured path later names another file, every post holds (`denylist-moved`)
+until the operator runs:
+
+```sh
+bash scripts/lib/post-gate.sh record-denylist --project <name> --issue <issue-dir-name>
+```
+
+That command is refused in a session marked unattended.
+`bash scripts/lib/post-gate.sh denylist-status` prints `present`,
+`unrecorded`, `absent`, `missing`, `empty` or `moved` and changes nothing.
+The checks, their cause tokens, the review-record format and the exit codes
+are spec §9.1, "Leak gate".
 
 ## Templates (the §12 registry)
 

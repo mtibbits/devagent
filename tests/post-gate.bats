@@ -906,3 +906,119 @@ post-gate: review pass" ]
   _e hash "$BATS_TEST_TMPDIR/no-such-file"
   [ "$status" -eq 1 ]
 }
+
+# --- documentation ------------------------------------------------------------
+# The spec's §9.1 "Leak gate" section is the contract #927, #967 and #968 build
+# on; these rows hold its vocabulary equal to the script's.
+
+SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+
+# _between <file> <start-regex> <end-regex>: the lines from the first line that
+# matches <start-regex> up to (not including) the next line matching <end-regex>.
+_between() {
+  awk -v s="$2" -v e="$3" 'on && $0 ~ e { exit } !on && $0 ~ s { on = 1 } on { print }' "$1"
+}
+# _flat: stdin with every run of whitespace as one space.
+_flat() { tr -s '[:space:]' ' '; }
+_spec_91() { _between "$SPEC" '^### 9\.1 ' '^### 9\.2 '; }
+_spec_gate() { _between "$SPEC" '^#### Leak gate' '^### 9\.2 '; }
+# _has <needle>: stdin holds the literal <needle>.
+_has() { grep -qF -- "$1" || { echo "missing: $1" >&2; return 1; }; }
+
+@test "docs: §9.1 lists post-comment and repo-owner and names the leak gate as whoami's trust-off caller" {
+  local block flat
+  # the verb block is the section's first fenced block.
+  block="$(_spec_91 | awk '/^```/ { n++; next } n == 1 { print }')"
+  grep -qE '^whoami +<repo> ' <<<"$block"                       # control: the block is the verb list
+  grep -qE '^repo-owner +<repo> ' <<<"$block"
+  grep -qE '^post-comment +<repo> <num> --project <name> \(--issue <issue-dir-name> \| --capture <slug>\) --file <post> --review <record>' <<<"$block"
+  flat="$(_spec_91 | _flat)"
+  # the trust-off sentence names the one caller and where it is allow-listed.
+  _has 'With trust off the only caller is the leak gate (`scripts/lib/post-gate.sh`, #966)' <<<"$flat"
+  _has "its \`whoami\` call is on the allow-list of \`tests/events-trust-off.bats\`" <<<"$flat"
+  ! grep -qF 'With trust off no caller invokes them' <<<"$flat"
+  # the allow-list the sentence names does carry the file.
+  grep -qF "':!scripts/lib/post-gate.sh'" "$PLUGIN_ROOT/tests/events-trust-off.bats"
+}
+
+@test "docs: the spec's gate section carries the line format and every cause token" {
+  local gate flat t
+  local causes=(trust push-mr unowned tracker-unavailable names-hit denylist-missing-unrecorded
+    denylist-missing denylist-empty denylist-moved no-utf8-locale review-missing review-stale
+    review-blocking gate-error)
+  local details=(config-unreadable path-not-absolute path-not-string record-malformed invalid-utf8
+    notify-failed record-failed scan-failed scan-disagree owners-malformed review-unreadable
+    repo-unkeyable names-file-malformed file-unreadable list-missing list-empty)
+  gate="$(_spec_gate)"
+  [ "$(grep -c '' <<<"$gate")" -ge 60 ]                         # control: the section was found
+  flat="$(_flat <<<"$gate")"
+  # the script's two vocabularies are exactly the lists above …
+  run bash -c '. "$1"; printf "%s\n" "${POST_GATE_CAUSES[*]}" "${POST_GATE_ERROR_DETAILS[*]}"' _ "$PG"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "${causes[*]}" ]
+  [ "${lines[1]}" = "${details[*]}" ]
+  [ "${#causes[@]}" -eq 14 ]
+  # … the fixture's line check knows the same details …
+  [ "$PG_GATE_ERROR_DETAILS" = "$(IFS='|'; echo "${details[*]}")" ]
+  # … and the spec names every one, as code.
+  for t in "${causes[@]}" "${details[@]}" roster-empty; do
+    _has "\`$t\`" <<<"$flat"
+  done
+  # the two line forms, the contract regex verbatim, and rendered examples.
+  _has 'post-gate: <check> pass' <<<"$gate"
+  _has 'post-gate: <check> hold <cause>[ <detail>]' <<<"$gate"
+  _has "$PG_LINE_RE" <<<"$gate"
+  _has 'post-gate: record-denylist refused (unattended|expect-mismatch)' <<<"$gate"
+  _has 'post-gate: names pass' <<<"$gate"
+  _has 'post-gate: tracker hold unowned' <<<"$gate"
+  _has 'post-gate: names hold names-hit hits=2 lines=3,7' <<<"$gate"
+  _has 'post-gate: permission hold push-mr project=<name>' <<<"$gate"
+  # every rendered example in the section is a line the fixture's checker accepts.
+  stderr="$(grep -E '^post-gate: (permission|tracker|names|review) (pass|hold [a-z])' <<<"$gate" | grep -v '<' || true)"
+  [ "$(grep -c . <<<"$stderr")" -ge 4 ]
+  pg_lines_ok
+  # the grammar, the statuses, the record format and the exit id.
+  _has 'post-gate.sh run <common> --repo <repo> --backend <name> --backend-script <path> --record <record> [--draft] [--names-file <records>] [--no-record]' <<<"$flat"
+  _has 'post-gate.sh record-denylist --project <name> (--issue <issue-dir-name> | --capture <slug>) [--expect <path>]' <<<"$flat"
+  for t in absent missing moved empty unrecorded present; do _has "\`$t\`" <<<"$flat"; done
+  _has 'Reviewed-sha256: ' <<<"$gate"
+  _has '### Blocking (0)' <<<"$gate"
+  _has '`leak-held`' <<<"$flat"
+  _has 'state/post-gate-denylist-path' <<<"$flat"
+  ! grep -qE 'exit(s)? 12|code 12' <<<"$flat"                   # the id, never the number
+}
+
+@test "docs: README and docs/configuration.md name both verbs and both config keys, and no longer say whoami has no caller" {
+  local f t row
+  for f in "$PLUGIN_ROOT/README.md" "$PLUGIN_ROOT/docs/configuration.md"; do
+    for t in '`post-comment`' '`repo-owner`' auto_post_owners denylist_path post-gate.sh; do
+      grep -qF -- "$t" "$f" || { echo "$f lacks $t" >&2; false; }
+    done
+    # both verbs have a row in the issue-backend verb table.
+    grep -qE '^\| `repo-owner` +\| `<repo>`' "$f" || { echo "$f: no repo-owner row" >&2; false; }
+    grep -qE '^\| `post-comment` +\| `<repo> <num> --project' "$f" || { echo "$f: no post-comment row" >&2; false; }
+  done
+  row="$(grep -E '^\| `whoami` ' "$PLUGIN_ROOT/README.md")"
+  [ -n "$row" ]
+  [[ "$row" != *"no caller yet"* ]]
+  [[ "$row" == *"leak gate"* ]]
+  ! grep -qF 'nothing reads them yet' "$PLUGIN_ROOT/docs/configuration.md"
+  _flat < "$PLUGIN_ROOT/docs/configuration.md" | _has 'the leak gate asks `whoami` with trust off'
+}
+
+@test "docs: §3.1 names post-gate.sh, §3.2 both keys, §3.3 state/post-gate-denylist-path, §3.8 the leak-held id" {
+  _between "$SPEC" '^### 3\.1 ' '^### 3\.2 ' | _has 'post-gate.sh'
+  _between "$SPEC" '^### 3\.2 ' '^### 3\.3 ' | _has 'auto_post_owners = ["github:<login>"]'
+  _between "$SPEC" '^### 3\.2 ' '^### 3\.3 ' | _has 'denylist_path = "~/.config/denylist.txt"'
+  _between "$SPEC" '^### 3\.3 ' '^### 3\.4 ' | _flat | _has 'post-gate-denylist-path'
+  _between "$SPEC" '^### 3\.8 ' '^## 4\. ' | _flat | _has '`leak-held`'
+  # §7.3 already names the gate's audit line (#961 wrote it): still there.
+  _between "$SPEC" '^### 7\.3 ' '^### 7\.4 ' | _flat | _has 'the leak gate (#966), whose audit lines are written in interactive sessions too'
+  # the requirements file: the delivered half of EI-25, and the gate's code in EI-20.
+  local req
+  req="$(_flat < "$PLUGIN_ROOT/docs/requirements.md")"
+  _has 'EI-25: The operator'"'"'s private name list: devagent'"'"'s leak gate reads it by path only' <<<"$req"
+  _has 'EI-20: Refusal exit codes: devagent'"'"'s trust, quarantine and leak-gate refusals' <<<"$req"
+  grep -qE '^- \*\*Added: .*\(#966\)\.\*\*' "$PLUGIN_ROOT/changelog.d/966.md"
+  [ "$(grep -c '^- ' "$PLUGIN_ROOT/changelog.d/966.md")" -eq 1 ]
+}
