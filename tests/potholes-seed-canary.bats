@@ -70,6 +70,88 @@ _gate()    { _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha>
   for pub in $(_public); do run grep -qixF -- "$pub" <(_names); [ "$status" -eq 1 ]; done
 }
 
+# --- #966: names from a file descriptor, and one list grammar -------------------
+# The leak gate (scripts/lib/post-gate.sh) shares this predicate and both
+# parsers. Its roster is private, so the names arrive on a file descriptor and
+# never in an exec argv.
+
+# _planted: the control file of the test above, under $BATS_TEST_TMPDIR.
+_planted() {
+  planted="$BATS_TEST_TMPDIR/seed.md"
+  printf '%s\n' '- x (ZzqAcme Issue-3).' '- a zzqarmada of ships (Issue-4).' '- y (devagent Issue-5).' > "$planted"
+}
+
+@test "fd mode: same output and rc as the positional form on the planted control" {
+  _lib; _planted
+  run potholes_private_name_hits "$planted" zzqAcme zzqarmada zzqnowhere
+  [ "$status" -eq 1 ]
+  local want="$output"
+  [[ "$want" == *"zzqAcme citations=1 words=1"* ]]
+  [[ "$want" == *"zzqarmada citations=0 words=1"* ]]
+  # a blank line and a last name with no newline are read as the list parsers leave them.
+  run potholes_private_name_hits --names-fd 3 "$planted" 3< <(printf 'zzqAcme\n\nzzqarmada\nzzqnowhere')
+  [ "$status" -eq 1 ]
+  [ "$output" = "$want" ]
+  run potholes_private_name_hits --names-fd 3 "$planted" 3< <(printf '%s\n' zzqnowhere)
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run potholes_private_name_hits --names-fd 3 "$planted" 3< <(printf '')
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "fd mode: an unreadable file is rc 2" {
+  _lib; _planted
+  # control: with a readable file the same call is a hit (rc 1), so the rc 2
+  # below is about the file and not about the flag.
+  run potholes_private_name_hits --names-fd 3 "$planted" 3< <(printf '%s\n' zzqAcme)
+  [ "$status" -eq 1 ]
+  run potholes_private_name_hits --names-fd 3 "$BATS_TEST_TMPDIR/does-not-exist.md" 3< <(printf '%s\n' zzqAcme)
+  [ "$status" -eq 2 ]
+  # a descriptor that is not a number, or is not open, cannot be read either.
+  run potholes_private_name_hits --names-fd x "$planted"
+  [ "$status" -eq 2 ]
+  run potholes_private_name_hits --names-fd 7 "$planted"
+  [ "$status" -eq 2 ]
+}
+
+@test "fd mode: no name reaches an exec argv" {
+  _lib; _planted
+  local shim="$BATS_TEST_TMPDIR/shim" log="$BATS_TEST_TMPDIR/grep-argv.log" real
+  real="$(command -v grep)"
+  mkdir -p "$shim"
+  printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' \"\$*\" >> '$log'" "exec '$real' \"\$@\"" > "$shim/grep"
+  chmod +x "$shim/grep"
+  # control: the shim sees a name that IS passed in argv.
+  PATH="$shim:$PATH" grep -c zzqAcme "$planted" >/dev/null || true
+  "$real" -qi zzqacme "$log"
+  : > "$log"
+  PATH="$shim:$PATH" run potholes_private_name_hits --names-fd 3 "$planted" 3< <(printf '%s\n' zzqAcme zzqarmada)
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"zzqAcme citations=1"* ]]
+  [ -s "$log" ]
+  run "$real" -ciE 'zzqacme|zzqarmada' "$log"
+  [ "$output" = 0 ]
+}
+
+@test "parsers: a CRLF, indented copy of the list yields the same private and public names" {
+  _lib
+  local copy="$BATS_TEST_TMPDIR/crlf-list.txt"
+  # every line indented by a space and a TAB, ended by a space and CRLF.
+  sed -e $'s/^/ \t/' -e $'s/$/ \r/' "$FX" > "$copy"
+  grep -q $'\r$' "$copy"
+  [ "$(potholes_fixture_private_names "$copy")" = "$(potholes_fixture_private_names "$FX")" ]
+  [ "$(potholes_fixture_public "$copy")" = "$(potholes_fixture_public "$FX")" ]
+  [ "$(potholes_fixture_private_names "$copy" | wc -l)" -ge 1 ]
+  # a '# public:' line lists several names, split on whitespace by the caller.
+  [[ " $(potholes_fixture_public "$copy" | tr '\n' ' ') " == *" devagent "* ]]
+  [[ " $(potholes_fixture_public "$copy" | tr '\n' ' ') " == *" volk "* ]]
+  # a last line with no newline is still a name; an indented comment is not one.
+  printf ' # note\r\n# public: zzqpub1  zzqpub2 \r\n  zzqlast' > "$copy"
+  [ "$(potholes_fixture_private_names "$copy")" = "zzqlast" ]
+  [ "$(potholes_fixture_public "$copy")" = "zzqpub1  zzqpub2" ]
+}
+
 @test "seed carries no private project name (gated on the curated marker)" {
   _gate
   mapfile -t names < <(_names)
