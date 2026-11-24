@@ -69,7 +69,7 @@ at run time — `commands/analyze.md` says where it is recorded. The backend and
 scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (JIRA),
 as appropriate for your backend.
 `/devagent:doctor` checks `bash`, `git`, `python3` and `jq` and prints a remedy for
-each one it finds missing or too old (#986). `jq` is needed by the GitHub, GitLab and
+each one it finds missing (or, for `bash` and `python3`, too old) (#986). `jq` is needed by the GitHub, GitLab and
 Jira issue backends, the GitHub and GitLab code backends, the `git_guard` hook and a
 trust policy's `trackers` key; a project on the disk, local or custom backends with
 `git_guard` off runs without it.

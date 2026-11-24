@@ -464,8 +464,10 @@ trust_doctor_block() {
 # backend (the disk, local and custom backends call no jq), or git_guard on (the
 # hook parses its input with jq) — else SKIP. An unreadable config is WARN: the
 # need cannot be told. git_guard is read with tomllib, a superset of the hook's
-# bare-line gate, so it over-approximates and fails closed. The config is read only
-# when jq is absent, so a normal host pays no extra python3 spawn.
+# bare-line gate, so it over-approximates and fails closed. [defaults] git_guard
+# counts on its own too: with no active project (or one with no [project.*] table)
+# the hook falls back to it. The config is read only when jq is absent, so a
+# normal host pays no extra python3 spawn.
 check_prereq_jq() {
   local projects='' p field v hit=''
   if type -P jq >/dev/null 2>&1; then check "$PREREQ_LABEL_JQ" ok; return 0; fi
@@ -478,13 +480,17 @@ check_prereq_jq() {
     for field in issue_source.backend issue_source_fork.backend code_source.backend; do
       v="$(config_get_project_field "$p" "$field" 2>/dev/null || true)"; v="${v//$'\r'/}"
       case "$field:${v,,}" in
-        issue_source*:jira|*:github|*:gitlab) hit="$p ($field = $v)"; break 2 ;;
+        issue_source*:jira|*:github|*:gitlab) hit="project $p ($field = $v)"; break 2 ;;
       esac
     done
-    if [[ "$(doctor_git_guard_toml "$p")" == true ]]; then hit="$p (git_guard = true)"; break; fi
+    if [[ "$(doctor_git_guard_toml "$p")" == true ]]; then hit="project $p (git_guard = true)"; break; fi
   done <<<"${projects//$'\r'/}"
+  if [[ -z "$hit" && -f "$(config_path)" ]]; then
+    v="$(config_get_default git_guard 2>/dev/null || true)"
+    [[ "${v//$'\r'/}" == true ]] && hit='[defaults] git_guard = true'
+  fi
   if [[ -n "$hit" ]]; then
-    check "$PREREQ_LABEL_JQ" fail "not found on PATH; needed by project $hit; $(prereq_remedy jq)"
+    check "$PREREQ_LABEL_JQ" fail "not found on PATH; needed by $hit; $(prereq_remedy jq)"
   else
     check "$PREREQ_LABEL_JQ" skip "not found on PATH; nothing configured needs it (no GitHub, GitLab or Jira backend, git_guard off)"
   fi

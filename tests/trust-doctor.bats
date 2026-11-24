@@ -95,6 +95,19 @@ _doctor() { run --separate-stderr "$PLUGIN_ROOT/scripts/doctor.sh" volk; }
   [[ "$output" != *"config exists"* ]]
 }
 
+@test "doctor: a policy with trackers and no jq exits 9 before the prerequisites block" {
+  # #986: check_prereq_jq has no trackers leg because this refusal comes first;
+  # pin it, so relaxing the refusal shows up here rather than as a silent SKIP jq.
+  trust_fixture_policy "$POL" "$VOLK" 'worker_identities = ["github:1001"]' \
+    'trackers = { github = { host = "github.com" } }'
+  curated_path_without jq
+  run -1 type -P jq
+  _doctor
+  [ "$status" -eq 9 ] || { echo "$output $stderr" >&2; false; }
+  [[ "$stderr" == *"the policy sets trackers, which needs jq, and jq is not installed"* ]]
+  [[ "$output" != *"[prerequisites]"* ]]
+}
+
 @test "doctor: with a policy the trust block comes before the prerequisites block" {
   trust_fixture_policy "$POL" "$VOLK" 'worker_identities = ["github:1001"]'
   _doctor

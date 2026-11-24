@@ -162,7 +162,9 @@ prereq_python3() {
     rm -rf -- "$d"
     return 1
   fi
-  first="${out%%$'\n'*}"
+  # The probe prints one line, last: anything a sitecustomize or .pth printed to
+  # stdout comes before it. ($( ) already dropped the trailing newline.)
+  first="${out##*$'\n'}"
   [ -n "$first" ] || first='(no output)'
   re='^\(([0-9]{1,6}), ([0-9]{1,6})\)$'
   if ! [[ "$first" =~ $re ]]; then

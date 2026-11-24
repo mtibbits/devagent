@@ -133,6 +133,21 @@ _src_prereqs() {
   run prereq_version_ge 4.4 "$major.$minor"; [ "$status" -eq 0 ]
 }
 
+@test "prereqs: no bash 4.x-only construct before the gate (prereqs.sh, doctor.sh up to its first other library)" {
+  # The suite runs on bash 5, so a 4.x-only construct here would stay green while
+  # an old-bash host got a parse error instead of the FAIL row. Comments are skipped:
+  # prereqs.sh's header names the banned constructs.
+  local pre banned hits
+  pre="$(awk '/^source "\$PLUGIN_ROOT\/scripts\/lib\/paths.sh"/ { exit } { print }' "$PLUGIN_ROOT/scripts/doctor.sh")"
+  grep -q 'prereq_bash_gate' <<<"$pre"   # positive control: the cut kept the gate
+  banned='declare -[A-Za-z]*[Agn]|local -[A-Za-z]*n|\b(mapfile|readarray)\b|[,^]{1,2}\}|\[\[ -v |;;?&'
+  hits="$( { cat "$PLUGIN_ROOT/scripts/lib/prereqs.sh"; printf '%s\n' "$pre"; } \
+    | grep -v '^[[:space:]]*#' | grep -nE -- "$banned" || true)"
+  [ -z "$hits" ] || { printf 'bash 4.x-only construct before the gate:\n%s\n' "$hits" >&2; false; }
+  run grep -cE -- "$banned" <<<'x="${v,,}"'   # the pattern does catch a known construct
+  [ "$output" = 1 ]
+}
+
 # ---- integration: scripts/doctor.sh -------------------------------------------
 
 _doctor() { run --separate-stderr "$PLUGIN_ROOT/scripts/doctor.sh" "$@"; }
@@ -181,6 +196,7 @@ if [ "$code" = "$VER" ]; then
     garbage) echo hello ;;
     bigver) echo '(3, 1234567)' ;;
     stderr-noise) echo 'Error processing line 1 of /x/site-packages/broken.pth:' >&2; echo '(3, 12)' ;;
+    stdout-noise) echo 'sitecustomize: hello from site'; echo '(3, 12)' ;;
     *) echo "_py_stub: unknown mode $MODE" >&2; exit 2 ;;
   esac
   exit 0
@@ -278,6 +294,13 @@ _no_text() { if grep -qF -- "$1" <<<"$output"; then printf 'unexpected text: %s\
   _has_line "  OK   $PY_LABEL"
 }
 
+@test "doctor: a python3 whose sitecustomize prints to stdout before the version is OK" {
+  _py_stub "$STUBBIN" stdout-noise
+  _doctor volk
+  [ "$status" -eq 0 ] || { echo "$output $stderr" >&2; false; }
+  _has_line "  OK   $PY_LABEL"
+}
+
 @test "doctor: Python 3.9 with tomli only in the user site is OK, probed without -I from an empty directory" {
   _py_stub "$STUBBIN" v39-usersite
   _doctor volk
@@ -350,6 +373,20 @@ _cust_project() {  # _cust_project <name> [extra line]...
   _doctor cust
   [ "$status" -eq 1 ]
   _has_line '  FAIL jq — not found on PATH; needed by project cust (git_guard = true); install jq with your package manager'
+}
+
+@test "doctor: jq absent with [defaults] git_guard = true and every project off fails" {
+  _uname_stub Linux
+  # No active project: the hook falls back to [defaults], so the guard is on.
+  printf '%s\n' '[defaults]' 'checklist_template = "standard"' 'git_guard = true' > "$DA_HOME/config.toml"
+  _cust_project cust 'git_guard = false' '' '[project.cust.issue_source]' 'backend = "custom"' \
+    '' '[project.cust.code_source]' 'backend = "custom"'
+  unset DEVAGENT_ACTIVE_PROJECT
+  curated_path_without jq
+  run -1 type -P jq
+  _doctor
+  [ "$status" -eq 1 ]
+  _has_line '  FAIL jq — not found on PATH; needed by [defaults] git_guard = true; install jq with your package manager'
 }
 
 @test "doctor: jq absent with only custom, disk and local backends and git_guard off is SKIP and leaves the exit code unchanged" {
