@@ -47,7 +47,7 @@ _review() { pg_run "$PG" check review "${PG_COMMON[@]}" --record "$RECORD" "$@";
   [ "$(grep -c . "$HOME/.config/denylist.txt")" -eq 1 ]
   [ "$(cat "$HOME/.config/denylist.txt")" = "$PG_CANARY" ]
   # the config names another list, so the default path is read only by mistake.
-  [ "$(DA_HOME="$DA_HOME" python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/config.toml" paths.denylist_path)" = "$PG_LIST" ]
+  [ "$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/config.toml" paths.denylist_path)" = "$PG_LIST" ]
   [ "$PG_LIST" != "$HOME/.config/denylist.txt" ]
   [ -z "${GH_HOST+x}" ]
 }

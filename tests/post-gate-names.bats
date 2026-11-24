@@ -316,7 +316,7 @@ _state_listing() { (cd "$DA_HOME/state" && ls -la . | sed 1d | awk '{ print $1, 
   [ ! -e "$PG_RECORDED" ]
   [ -z "$(ls -A "$PG_NOTIFY")" ]
   # no temp file is left beside the record.
-  [ -z "$(cd "$DA_HOME/state" && ls -A | grep '^post-gate-denylist-path' || true)" ]
+  [ -z "$(compgen -G "$DA_HOME/state/post-gate-denylist-path*" || true)" ]
   # once the file can be written the next run records.
   rmdir "$PG_NOTIFY"
   pg_names
@@ -625,6 +625,7 @@ post-gate: names hold names-hit hits=1 lines=12" ]
   }
   _spelled "$dir/./denylist.txt"
   _spelled "$BATS_TEST_TMPDIR/home/../lists/denylist.txt"
+  # shellcheck disable=SC2088  # the literal ~ spelling is the input under test
   _spelled "~/../lists/denylist.txt"                       # ~ is $HOME, a sibling of lists/
   if is_git_bash; then
     _spelled "$(cygpath -m "$PG_LIST")"                    # C:/…

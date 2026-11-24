@@ -81,6 +81,7 @@ post-gate: review pass"
 # _ready: the clean post and its review record.
 _ready() { pg_post; pg_record; }
 # _post [<repo> [<num> [<flags>…]]]: post-comment on the fixture post.
+# shellcheck disable=SC2120  # called through `run _post …`, which shellcheck cannot see
 _post() {
   local repo="${1:-acme/widgets}" num="${2:-7}"
   if [ "$#" -ge 2 ]; then shift 2; else shift "$#"; fi
