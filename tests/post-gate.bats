@@ -936,7 +936,7 @@ _has() { grep -qF -- "$1" || { echo "missing: $1" >&2; return 1; }; }
   # the trust-off sentence names the one caller and where it is allow-listed.
   _has 'With trust off the only caller is the leak gate (`scripts/lib/post-gate.sh`, #966)' <<<"$flat"
   _has "its \`whoami\` call is on the allow-list of \`tests/events-trust-off.bats\`" <<<"$flat"
-  ! grep -qF 'With trust off no caller invokes them' <<<"$flat"
+  if grep -qF 'With trust off no caller invokes them' <<<"$flat"; then echo "the stale no-caller sentence is still there" >&2; false; fi
   # the allow-list the sentence names does carry the file.
   grep -qF "':!scripts/lib/post-gate.sh'" "$PLUGIN_ROOT/tests/events-trust-off.bats"
 }
@@ -985,7 +985,8 @@ _has() { grep -qF -- "$1" || { echo "missing: $1" >&2; return 1; }; }
   _has '### Blocking (0)' <<<"$gate"
   _has '`leak-held`' <<<"$flat"
   _has 'state/post-gate-denylist-path' <<<"$flat"
-  ! grep -qE 'exit(s)? 12|code 12' <<<"$flat"                   # the id, never the number
+  # the id, never the number.
+  if grep -qE 'exit(s)? 12|code 12' <<<"$flat"; then echo "the gate section writes the hold exit as a number" >&2; false; fi
 }
 
 @test "docs: README and docs/configuration.md name both verbs and both config keys, and no longer say whoami has no caller" {
@@ -1002,7 +1003,7 @@ _has() { grep -qF -- "$1" || { echo "missing: $1" >&2; return 1; }; }
   [ -n "$row" ]
   [[ "$row" != *"no caller yet"* ]]
   [[ "$row" == *"leak gate"* ]]
-  ! grep -qF 'nothing reads them yet' "$PLUGIN_ROOT/docs/configuration.md"
+  if grep -qF 'nothing reads them yet' "$PLUGIN_ROOT/docs/configuration.md"; then echo "docs/configuration.md still says nothing reads them" >&2; false; fi
   _flat < "$PLUGIN_ROOT/docs/configuration.md" | _has 'the leak gate asks `whoami` with trust off'
 }
 

@@ -91,7 +91,7 @@ _no_write() {
   [ ! -e "$GH_STUB_GATE_DIR/comment.posts" ] || { echo "a comment was posted" >&2; return 1; }
   [ ! -e "$GH_STUB_GATE_DIR/comment.body" ] || { echo "a body was written" >&2; return 1; }
   [ -z "$output" ] || { echo "stdout: $output" >&2; return 1; }
-  ! grep -qF -- '[--method] [POST]' "$GH_STUB_ARGV_LOG" 2>/dev/null || { echo "a POST was made" >&2; return 1; }
+  if grep -qF -- '[--method] [POST]' "$GH_STUB_ARGV_LOG" 2>/dev/null; then echo "a POST was made" >&2; return 1; fi
 }
 # _held <check> <cause…>: exit leak-held, that hold as the last gate line, only
 # pass lines before it, and no write.
@@ -342,7 +342,7 @@ SHIM
   [ "$status" -eq 0 ] || { echo "rc=$status: $stderr" >&2; false; }
   [ -e "$BATS_TEST_TMPDIR/shim-fired" ]
   # the file did change under the verb …
-  ! cmp -s "$POST" "$at_call"
+  if cmp -s "$POST" "$at_call"; then echo "the shim did not change the post file" >&2; false; fi
   grep -q "$PG_SENTINEL" "$POST"
   # … and what was gated and posted is the file as it was at the call.
   cmp "$at_call" "$GH_STUB_GATE_DIR/comment.body"

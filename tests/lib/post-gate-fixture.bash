@@ -12,6 +12,11 @@
 # Every private name here is synthesised and starts `zzq`, so pg_run can refuse
 # any stderr that holds one.
 
+# The globals set here are read by the suites that load this file, and
+# status / output / stderr are bats' own.
+# shellcheck shell=bash disable=SC2034,SC2154
+
+# shellcheck source=tests/lib/hermetic-env.bash
 . "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
 
 PG="$PLUGIN_ROOT/scripts/lib/post-gate.sh"
