@@ -150,6 +150,15 @@ _planted() {
   printf ' # note\r\n# public: zzqpub1  zzqpub2 \r\n  zzqlast' > "$copy"
   [ "$(potholes_fixture_private_names "$copy")" = "zzqlast" ]
   [ "$(potholes_fixture_public "$copy")" = "zzqpub1  zzqpub2" ]
+  # a UTF-8 BOM on line 1 is not part of the first line, whatever that line is.
+  printf '\xEF\xBB\xBFzzqfirst\r\nzzqlast\r\n' > "$copy"
+  [ "$(potholes_fixture_private_names "$copy")" = $'zzqfirst\nzzqlast' ]
+  printf '\xEF\xBB\xBF# public: zzqpub1\r\nzzqlast\r\n' > "$copy"
+  [ "$(potholes_fixture_private_names "$copy")" = "zzqlast" ]
+  [ "$(potholes_fixture_public "$copy")" = "zzqpub1" ]
+  # only line 1: the same bytes later in the file are kept.
+  printf 'zzqfirst\n\xEF\xBB\xBFzzqlast\n' > "$copy"
+  [ "$(potholes_fixture_private_names "$copy" | sed -n 2p)" = $'\xEF\xBB\xBFzzqlast' ]
 }
 
 @test "seed carries no private project name (gated on the curated marker)" {

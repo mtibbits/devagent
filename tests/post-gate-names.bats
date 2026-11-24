@@ -86,6 +86,10 @@ _state_listing() { (cd "$DA_HOME/state" && ls -la . | sed 1d | awk '{ print $1, 
   printf 'zzqother\n%s' "$PG_SENTINEL" > "$PG_LIST"
   pg_names
   pg_holds names names-hit hits=1 lines=1
+  # a UTF-8 BOM (Windows PowerShell 5.1's utf8) does not hide the first entry.
+  printf '\xEF\xBB\xBF%s\r\nzzqother\r\n' "$PG_SENTINEL" > "$PG_LIST"
+  pg_names
+  pg_holds names names-hit hits=1 lines=1
   # control: the same post under a list that lacks the name passes.
   printf 'zzqother\r\n' > "$PG_LIST"
   pg_names

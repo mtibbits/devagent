@@ -392,7 +392,7 @@ _pg_keys_meet() {
 
 _pg_permission() {
   local project="${PG_ARG[project]}" repo="${PG_ARG[repo]}" backend="${PG_ARG[backend],,}"
-  local cands key other section ob orepo okeys projects
+  local cands key other section ob orepo okeys projects frc
   # The caller's trust state is not this check's to change. permission_value
   # reads TRUST_IN_SCOPE and TRUST_VAL, so both are scoped to the check, as is
   # everything the trust setters fill. (trust_load unsets and re-declares
@@ -440,12 +440,15 @@ _pg_permission() {
     for section in issue_source issue_source_fork; do
       # The backend first: a built-in backend other than the target's cannot
       # name the target's tracker, and skipping it saves two config reads.
-      ob="$(config_get_project_field "$other" "$section.backend" 2>/dev/null || true)"
+      # rc 1 is an absent field; anything above is a config that cannot be read.
+      frc=0; ob="$(config_get_project_field "$other" "$section.backend" 2>/dev/null)" || frc=$?
+      if [ "$frc" -ge 2 ]; then _pg_hold permission gate-error config-unreadable; return; fi
       ob="${ob//$'\r'/}"
       ob="${ob,,}"
       [ -n "$ob" ] || continue
       if stage_map_builtin "$ob" && [ "$ob" != "$backend" ]; then continue; fi
-      orepo="$(config_get_project_field "$other" "$section.repo" 2>/dev/null || true)"
+      frc=0; orepo="$(config_get_project_field "$other" "$section.repo" 2>/dev/null)" || frc=$?
+      if [ "$frc" -ge 2 ]; then _pg_hold permission gate-error config-unreadable; return; fi
       orepo="${orepo//$'\r'/}"
       [ -n "$orepo" ] || continue
       # a source that cannot be keyed as the target's backend names no tracker of it.

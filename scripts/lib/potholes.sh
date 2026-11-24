@@ -338,12 +338,14 @@ potholes_show_union() {
 }
 
 # Fixture-list parsers shared by doctor, the suite canary and the leak gate
-# (scripts/lib/post-gate.sh, #966) — ONE grammar. Every line is first stripped
-# of a trailing CR and of leading and trailing whitespace. Then a blank line
+# (scripts/lib/post-gate.sh, #966) — ONE grammar. Line 1 is first stripped of
+# a UTF-8 BOM (Windows PowerShell 5.1 writes one; left on, it would hide the
+# first entry from every scan), then every line of a trailing CR and of leading
+# and trailing whitespace. Then a blank line
 # and a '#' line are not names; a '# public: <name> <name>…' line is the
 # allowlist, printed without its key, and every reader splits it on whitespace
 # (so a public name cannot hold a space); any other line is one private name.
-_POTHOLES_LIST_STRIP=(-e $'s/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+_POTHOLES_LIST_STRIP=(-e $'1s/^\xEF\xBB\xBF//' -e $'s/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 potholes_fixture_private_names() { sed "${_POTHOLES_LIST_STRIP[@]}" -e '/^$/d' -e '/^#/d' "$1"; }
 potholes_fixture_public()        { sed -n "${_POTHOLES_LIST_STRIP[@]}" -e 's/^# public:[[:space:]]*//p' "$1"; }
 

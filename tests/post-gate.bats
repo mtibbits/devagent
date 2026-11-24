@@ -587,6 +587,23 @@ _policy() { trust_fixture_policy "$HOME/.config/devagent/trust" "$@"; }
   _refused
 }
 
+@test "permission: another project's source that cannot be read holds gate-error config-unreadable" {
+  pg_post
+  _beta_source issue_source github acme/widgets true
+  # beta's source reads fail as a broken config would (rc 2); alpha's do not.
+  local script='
+    . "$1"; shift
+    eval "$(declare -f config_get_project_field | sed "1s/config_get_project_field/_real_field/")"
+    config_get_project_field() { if [ "$1" = beta ]; then return "$BETA_RC"; fi; _real_field "$@"; }
+    post_gate_check permission "$@"
+  '
+  BETA_RC=2 pg_run bash -c "$script" _ "$PG" --project alpha --issue Issue-7 --file "$POST" --repo acme/widgets --backend github
+  pg_holds permission gate-error config-unreadable
+  # control: an absent field (rc 1) is no source, as before.
+  BETA_RC=1 pg_run bash -c "$script" _ "$PG" --project alpha --issue Issue-7 --file "$POST" --repo acme/widgets --backend github
+  pg_passes permission
+}
+
 @test "permission: a repo that cannot be keyed holds gate-error" {
   pg_post
   _perm alpha 'not a repo'

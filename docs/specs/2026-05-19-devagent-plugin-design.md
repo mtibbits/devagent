@@ -2777,8 +2777,8 @@ call here.
 
 **The `names` check.** The list is the file named by `[paths] denylist_path`
 in the user config (never a project block), default `~/.config/denylist.txt`.
-Every line is first stripped of a trailing CR and of leading and trailing
-whitespace. A blank line and a `#` line are not entries. A
+Line 1 is first stripped of a UTF-8 BOM, then every line of a trailing CR
+and of leading and trailing whitespace. A blank line and a `#` line are not entries. A
 `# public: <name> <name>…` line lists names that are allowed on a tracker; it
 is split on whitespace (as `doctor` and the seed canary read the same
 grammar), so a public name cannot hold a space. Any other line is one entry.
