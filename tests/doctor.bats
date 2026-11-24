@@ -540,3 +540,33 @@ TOML
   [[ "$output" == *"  OK   project.volk.default_issue_source (fork)"* ]]
   [[ "$output" != *"WARN project.volk.default_issue_source"* ]]
 }
+
+# #932: the watchdog's limits. The per-value matrix is tests/watchdog-config.bats;
+# these two pin where the rows appear: [defaults] in the global block, which
+# aborts the per-project checks on a failure, and the project's keys under its own.
+_wd_set() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-int "$DA_HOME/config.toml" "$1" "$2"; }
+
+@test "doctor OKs the watchdog limits in [defaults] and in a project (#932)" {
+  _wd_set defaults.watchdog_no_progress_secs 900
+  _wd_set defaults.watchdog_silent_max_secs 1800
+  _wd_set project.volk.watchdog_telemetry_secs 60
+  _wd_set project.volk.analyze_silent_secs 1800
+  run "$PLUGIN_ROOT/scripts/doctor.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"  OK   defaults.watchdog_no_progress_secs"*"[project: volk]"*"  OK   project.volk.watchdog_telemetry_secs"* ]]
+  [[ "$output" == *"  OK   defaults.watchdog_silent_max_secs"* ]]
+  [[ "$output" == *"  OK   project.volk.analyze_silent_secs"* ]]
+}
+
+@test "doctor fails a [defaults] limit before the per-project checks and a project-level maximum under the project (#932)" {
+  _wd_set project.volk.watchdog_silent_max_secs 7200
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"[project: volk]"*"  FAIL project.volk.watchdog_silent_max_secs — the silent-window maximum is set in [defaults] only"* ]]
+  _wd_set defaults.watchdog_telemetry_secs 0
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"  FAIL defaults.watchdog_telemetry_secs — must be an integer number of seconds from 1 to 604800, got '0'"* ]]
+  [[ "$output" == *"aborting per-project checks"* ]]
+  [[ "$output" != *"[project: volk]"* ]]
+}

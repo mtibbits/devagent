@@ -32,6 +32,24 @@ task depends on WHICH unknown.
 - [ ] Task 1
 - [ ] Task 2
 
+## Declared silent windows
+
+Commands a task runs that legitimately print NOTHING for longer than the
+no-progress limit (`watchdog_no_progress_secs`, 20 minutes as shipped), so that
+an unattended session's watchdog does not read the silence as a stall (#932).
+One line per command; the step that runs it passes the window to the long-run
+wrapper as `--silent <window>`. A window is `<N>` or `<N>m` (minutes) or `<N>s`
+(seconds), and never above the operator's `watchdog_silent_max_secs`. `(none)`
+is the usual answer: a command that prints as it works needs no window.
+
+(none)
+
+<!-- Replace `(none)` with one line per command. Format:
+     - <command> | --silent <window> | why it cannot print
+     For example:
+     - cmake --build build --target bitstream | --silent 45m | the vendor tool prints only when synthesis ends
+     Kept COMMENTED so an un-edited template declares no window. -->
+
 ## Validation
 
 How will we verify the change works? (Tests, manual smoke, etc.)

@@ -57,3 +57,24 @@ expand_tilde() {
       printf '%s\n' "$p" ;;
   esac
 }
+
+# #932: script-entry heartbeat. In an unattended session, every script that
+# sources this file moves <session id>/script (scripts/lib/heartbeat.sh), one
+# of the progress sources `watchdog.sh check` reads. A script that must not
+# count as the session's progress sets _DEVAGENT_NO_ENTRY_BEAT before sourcing.
+# The statement leaves the sourcing script running, under `set -euo pipefail`,
+# in the cases tests/heartbeat.bats pins ("broken tail"), and in no others by
+# promise: heartbeat.sh missing (the -r test: sourcing a missing file ends a
+# POSIX-mode shell), heartbeat.sh with a syntax error, a heartbeat_touch that
+# reads an unbound variable (-u is off for the call and restored after it), an
+# unwritable state root (one warning), an absent session id, and this file
+# sourced by bare name (no directory to find heartbeat.sh in: nothing is written).
+if devagent_unattended && [[ -z "${_DEVAGENT_NO_ENTRY_BEAT:-}" && -r "${BASH_SOURCE[0]%/*}/heartbeat.sh" ]]; then
+  # shellcheck disable=SC1091,SC2015  # a runtime path; `|| true` is the point
+  case "$-" in
+    *u*) set +u
+         source "${BASH_SOURCE[0]%/*}/heartbeat.sh" 2>/dev/null && heartbeat_touch script || true
+         set -u ;;
+    *)   source "${BASH_SOURCE[0]%/*}/heartbeat.sh" 2>/dev/null && heartbeat_touch script || true ;;
+  esac
+fi
