@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -uo pipefail   # not -e: we want to accumulate failures, not abort
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/prereqs.sh
+source "$PLUGIN_ROOT/scripts/lib/prereqs.sh"   # #986: first — no dependencies, bash 3.2-safe
+declare -i ERRORS=0
+
+echo "devagent doctor — $(date -Iseconds)"
+# #986: the bash gate runs before any library loads (they need 4.4); git and
+# python3 are evaluated here too, and doctor_prereq_block prints the rows after
+# the trust block.
+prereq_bash_gate "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"
+prereq_git || true
+prereq_python3 || true
+
 source "$PLUGIN_ROOT/scripts/lib/paths.sh"
 source "$PLUGIN_ROOT/scripts/lib/io.sh"
 source "$PLUGIN_ROOT/scripts/lib/config.sh"
@@ -28,23 +40,8 @@ source "$PLUGIN_ROOT/scripts/lib/merge-forward.sh"  # #1125: check_merge_forward
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/ci.sh"   # #1125: _ci_key_resolve (merge_checks)
 
-declare -i ERRORS=0
-
-check() {
-  local label="$1" status="$2" detail="${3:-}"
-  case "$status" in
-    ok)   echo "  OK   $label" ;;
-    # skip: a check that does not apply on this platform (e.g. a POSIX
-    # mode audit on a filesystem that can't represent modes). Visible and
-    # non-fatal — never report a skipped 644/755 as a bare OK (#289).
-    skip) echo "  SKIP $label${detail:+ — $detail}" ;;
-    # warn: advisory only (#541 recommend-not-require) — visible, never
-    # counted in ERRORS, never flips doctor's exit code. NOT the auth-hook
-    # protocol's WARN (doctor_auth.sh), which deliberately maps to fail.
-    warn) echo "  WARN $label${detail:+ — $detail}" ;;
-    *)    echo "  FAIL $label${detail:+ — $detail}"; ERRORS=$((ERRORS + 1)) ;;
-  esac
-}
+# check <label> <status> [detail] lives in scripts/lib/prereqs.sh (#986), so the
+# bash gate can print through it before any other library loads.
 
 # Sets global _FIELD_VALUE; writes check output directly to stdout of calling shell.
 require_field() {
@@ -446,6 +443,8 @@ check_one_project() {
 # report as the first global block (ok lines carry their detail in the label,
 # since check prints no detail for ok); then any host-level refusal exits 9
 # (or 10) before the per-project checks. No policy: [ -e ] / [ -L ] only.
+# The [prerequisites] block (#986) follows it, so a host-level refusal on a
+# broken python3 exits 9 before that block prints.
 trust_doctor_block() {
   local f st label detail
   trust_locate_host || true
@@ -460,12 +459,71 @@ trust_doctor_block() {
   if (( TRUST_REPORT_RC != 0 )); then "${TRUST_REPORT_REFUSAL[@]}"; fi
 }
 
+# check_prereq_jq (#986): jq on PATH is OK. When it is absent, FAIL if anything
+# configured needs it — a GitHub/GitLab/Jira issue backend, a GitHub/GitLab code
+# backend (the disk, local and custom backends call no jq), or git_guard on (the
+# hook parses its input with jq) — else SKIP. An unreadable config is WARN: the
+# need cannot be told. git_guard is read with tomllib, a superset of the hook's
+# bare-line gate, so it over-approximates and fails closed. The config is read only
+# when jq is absent, so a normal host pays no extra python3 spawn.
+check_prereq_jq() {
+  local projects p v dg hit=''
+  if type -P jq >/dev/null 2>&1; then check "$PREREQ_LABEL_JQ" ok; return 0; fi
+  if [[ ! -f "$(config_path)" ]]; then
+    check "$PREREQ_LABEL_JQ" skip "not found on PATH; nothing configured needs it (no GitHub, GitLab or Jira backend, git_guard off)"
+    return 0
+  fi
+  if ! projects="$(config_list_projects 2>/dev/null)"; then
+    check "$PREREQ_LABEL_JQ" warn "not found on PATH; could not read the config to tell whether anything needs it"
+    return 0
+  fi
+  projects="${projects//$'\r'/}"
+  dg="$(config_get_default git_guard 2>/dev/null || true)"; dg="${dg//$'\r'/}"
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    v="$(config_get_project_field "$p" issue_source.backend 2>/dev/null || true)"; v="${v//$'\r'/}"
+    case "$v" in github|gitlab|jira) hit="$p (issue_source.backend = $v)"; break ;; esac
+    v="$(config_get_project_field "$p" issue_source_fork.backend 2>/dev/null || true)"; v="${v//$'\r'/}"
+    case "$v" in github|gitlab|jira) hit="$p (issue_source_fork.backend = $v)"; break ;; esac
+    v="$(config_get_project_field "$p" code_source.backend 2>/dev/null || true)"; v="${v//$'\r'/}"
+    case "$v" in github|gitlab) hit="$p (code_source.backend = $v)"; break ;; esac
+    v="$(config_get_project_field "$p" git_guard 2>/dev/null || true)"; v="${v//$'\r'/}"
+    [[ -n "$v" ]] || v="$dg"
+    if [[ "$v" == true ]]; then hit="$p (git_guard = true)"; break; fi
+  done <<<"$projects"
+  if [[ -n "$hit" ]]; then
+    check "$PREREQ_LABEL_JQ" fail "not found on PATH; needed by project $hit; $(prereq_remedy jq)"
+  else
+    check "$PREREQ_LABEL_JQ" skip "not found on PATH; nothing configured needs it (no GitHub, GitLab or Jira backend, git_guard off)"
+  fi
+}
+
+# doctor_prereq_block (#986): replay the rows prereqs.sh recorded before the
+# libraries loaded, stop when python3 is unusable (every later check needs it),
+# then add the config-reading jq row. git/jq FAILs are moved out of ERRORS into
+# PREREQ_ERRORS so they never trip the global-error abort — the per-project
+# checks still run — and are added back into the final verdict.
+PREREQ_ERRORS=0
+doctor_prereq_block() {
+  local before=$ERRORS
+  echo "[prerequisites]"
+  prereq_print
+  if [[ "$PREREQ_PY_OK" != 1 ]]; then
+    echo "$PREREQ_STOP_PYTHON3"
+    exit 1
+  fi
+  check_prereq_jq
+  echo
+  PREREQ_ERRORS=$((ERRORS - before))
+  ERRORS=$before
+}
+
 # ---- main ----------------------------------------------------------------
 
-echo "devagent doctor — $(date -Iseconds)"
 echo "home: $(devagent_home)"
 echo
 trust_doctor_block "doctor"
+doctor_prereq_block
 
 # Global checks
 if [[ -f "$(config_path)" ]]; then
@@ -639,6 +697,7 @@ else
 fi
 
 echo
+ERRORS=$((ERRORS + PREREQ_ERRORS))   # #986: git/jq FAILs, held out of the global abort
 if (( ERRORS == 0 )); then
   echo "OK ($(date -Iseconds))"
   exit 0
