@@ -256,12 +256,12 @@ post-gate: names pass" ]
   _usage acme/widgets 7 --project alpha --issue 'Issue 7' --file "$POST" --review "$RECORD"
 }
 
-@test "[gh post-comment] a wrong-host repo and an unreadable --file exit 1 before any gate line" {
+@test "[gh post-comment] a wrong-host repo and a missing gh or jq exit 2 before any gate line" {
   _ready
-  # _pre <args…>: exit 1 (a runtime condition, not usage), no gate line, no write.
+  # _pre <args…>: exit 2 (not posted, the call cannot run here), no gate line, no write.
   _pre() {
     pg_run "$PG_GITHUB" post-comment "$@"
-    [ "$status" -eq 1 ] || { echo "rc=$status for: $*: $stderr" >&2; return 1; }
+    [ "$status" -eq 2 ] || { echo "rc=$status for: $*: $stderr" >&2; return 1; }
     [ -z "$(pg_gate_lines)" ] || { echo "a gate line for: $*" >&2; return 1; }
     [ -n "$stderr" ]
     [ "$(pg_gh_calls)" -eq 0 ] || { echo "a gh call for: $*" >&2; return 1; }
@@ -270,21 +270,40 @@ post-gate: names pass" ]
   # a bare repo while GH_HOST names another host
   GH_HOST=ghe.example _pre acme/widgets 7 --project alpha --issue Issue-7 --file "$POST" --review "$RECORD"
   [[ "$stderr" == *"host-qualify the repo"* ]]
-  # a --file that is not there, and one that is a directory
-  _pre acme/widgets 7 --project alpha --issue Issue-7 --file "$BATS_TEST_TMPDIR/no-such-post.md" --review "$RECORD"
-  _pre acme/widgets 7 --project alpha --issue Issue-7 --file "$BATS_TEST_TMPDIR" --review "$RECORD"
+  # gh, then jq, missing from PATH: a PATH holding only what bash needs.
+  local bin="$BATS_TEST_TMPDIR/minpath" t
+  mkdir "$bin"
+  for t in bash cat sed grep env dirname basename mktemp rm tr cut sort python3 sha256sum mv; do
+    ln -s "$(command -v "$t")" "$bin/$t"
+  done
+  PATH="$bin" _pre acme/widgets 7 --project alpha --issue Issue-7 --file "$POST" --review "$RECORD"
+  [[ "$stderr" == *"gh not found on PATH"* ]]
+  ln -s "$(command -v gh)" "$bin/gh"
+  PATH="$bin" _pre acme/widgets 7 --project alpha --issue Issue-7 --file "$POST" --review "$RECORD"
+  [[ "$stderr" == *"jq not found on PATH"* ]]
 }
 
-@test "[gh post-comment] a mode-000 --file exits 1 before any gate line" {
+@test "[gh post-comment] an unreadable --file is held by the gate, never exit 1" {
+  _ready
+  # a --file that is not there, and one that is a directory: the gate holds
+  # names gate-error file-unreadable after permission and tracker pass.
+  _post_file() {
+    pg_run "$PG_GITHUB" post-comment acme/widgets 7 --project alpha --issue Issue-7 --file "$1" --review "$RECORD"
+  }
+  _post_file "$BATS_TEST_TMPDIR/no-such-post.md"
+  _held names gate-error file-unreadable
+  _post_file "$BATS_TEST_TMPDIR"
+  _held names gate-error file-unreadable
+}
+
+@test "[gh post-comment] a mode-000 --file is held by the gate, never exit 1" {
   skip_on_git_bash "chmod 000"
   skip_if_root
   _ready
   chmod 000 "$POST"
   pg_run "$PG_GITHUB" post-comment acme/widgets 7 --project alpha --issue Issue-7 --file "$POST" --review "$RECORD"
   chmod 600 "$POST"
-  [ "$status" -eq 1 ]
-  [ -z "$(pg_gate_lines)" ]
-  _no_write
+  _held names gate-error file-unreadable
 }
 
 @test "[gh post-comment] a failed POST exits 1; an answer without html_url exits 5" {

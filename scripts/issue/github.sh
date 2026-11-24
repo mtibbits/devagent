@@ -879,23 +879,24 @@ _gh_post_usage() {
 # In order:
 #   1. the grammar (`--flag value`, each flag once, no empty value; <num>
 #      matches ^[1-9][0-9]{0,9}$; <repo> is [HOST/]OWNER/REPO)        → exit 2
-#   2. the host: a bare repo while GH_HOST names another host         → exit 1
-#   3. a private snapshot of --file, removed on every exit; a --file
-#      that cannot be read                                            → exit 1
+#   2. the host: a bare repo while GH_HOST names another host, and gh
+#      and jq on PATH                                                 → exit 2
+#   3. a private snapshot of --file, removed on every exit
 #   4. the full gate on the SNAPSHOT (permission, tracker, names,
 #      review), so the bytes gated are the bytes posted → a hold exits
 #      `trust_exit_code leak-held`, a trust policy that fails to load 9,
-#      a work item the gate refuses 2
+#      a work item the gate refuses 2. A --file that cannot be copied
+#      goes to the gate as given, which holds names gate-error
+#      file-unreadable: every fault before the write is a hold or a 2.
 #   5. one `gh api --method POST …/issues/<num>/comments -F body=@-` with
 #      the snapshot on stdin, on <repo>'s host with GH_HOST unset → a
 #      failed call exits 1
 #   6. the answer's html_url, which must start https:// → else exit 5
-# A caller reads: 0 posted · leak-held, 9, 2 not posted · 1 not posted when
-# no `post-gate: review pass` line was printed, unknown after one (the POST
-# may have reached the tracker before gh failed) · 5 probably posted: never
-# retry without looking at the issue.
+# A caller reads: 0 posted · leak-held, 9, 2 not posted · 1 unknown (gh
+# failed after the gate passed; the POST may have reached the tracker) ·
+# 5 probably posted: never retry without looking at the issue.
 cmd_post_comment() {
-  local repo="${1:-}" num="${2:-}" key snap out url rc=0
+  local repo="${1:-}" num="${2:-}" key snap="" out url tool rc=0
   local -A opt=()
   local -a item=()
   if [ "$#" -lt 2 ]; then
@@ -947,31 +948,37 @@ cmd_post_comment() {
     return 2
   fi
   # Sets GT_HOST, GT_OWNER, GT_NAME: called bare. What is left to refuse is the
-  # wrong host, a runtime condition and not a usage fault.
-  _gh_target post-comment "$repo" || return 1
-  _need gh
-  _need jq
+  # wrong host. It and a missing tool exit 2, not 1: exit 1 is kept for a gh
+  # failure after the gate passed, the one exit whose comment is unknown.
+  _gh_target post-comment "$repo" || return 2
+  for tool in gh jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "github.sh: post-comment: $tool not found on PATH" >&2
+      return 2
+    fi
+  done
   # The gate, sourced in the verb (it sources every library it calls). This
   # verb owns the process's one EXIT trap; the gate's temp files and the
   # snapshot share one cleanup list.
   # shellcheck source=../lib/post-gate.sh
   source "${SCRIPT_DIR}/../lib/post-gate.sh"
   trap pg_cleanup EXIT
-  if [ ! -f "${opt[file]}" ] || [ ! -r "${opt[file]}" ]; then
-    echo "github.sh: post-comment: cannot read --file ${opt[file]}" >&2
-    return 1
+  if [ -f "${opt[file]}" ] && [ -r "${opt[file]}" ] && pg_tmp \
+    && cat -- "${opt[file]}" > "$PG_TMP"; then
+    snap="$PG_TMP"
   fi
-  pg_tmp || { echo "github.sh: post-comment: cannot create a temp file" >&2; return 1; }
-  snap="$PG_TMP"
-  if ! cat -- "${opt[file]}" > "$snap"; then
-    echo "github.sh: post-comment: cannot read --file ${opt[file]}" >&2
-    return 1
-  fi
-  # Bare (never in $( … )): the gate sets globals and a refusal exits 9.
-  post_gate_run --project "${opt[project]}" "${item[@]}" --file "$snap" \
+  # Bare (never in $( … )): the gate sets globals and a refusal exits 9. With
+  # no snapshot the gate reads --file as given and holds file-unreadable.
+  post_gate_run --project "${opt[project]}" "${item[@]}" --file "${snap:-${opt[file]}}" \
     --repo "$repo" --backend github --backend-script "${SCRIPT_DIR}/github.sh" \
     --record "${opt[review]}" || rc=$?
   if [ "$rc" -ne 0 ]; then return "$rc"; fi
+  if [ -z "$snap" ]; then
+    # the gate passed a --file that could not be copied (a temp-file failure,
+    # or the file changed under the call): nothing was posted.
+    echo "github.sh: post-comment: --file ${opt[file]} could not be copied to a private snapshot; nothing was posted" >&2
+    return "$(trust_exit_code leak-held)"
+  fi
   out="$(_gh_ev_call api --hostname "$GT_HOST" --method POST \
     "repos/$GT_OWNER/$GT_NAME/issues/$num/comments" -F body=@- < "$snap")" || return 1
   url="$(printf '%s' "$out" | jq -r '

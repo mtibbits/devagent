@@ -2690,7 +2690,7 @@ every script reads by id (`trust_exit_code leak-held`).
 | `hash` | digest printed | the file cannot be read | usage | | | |
 | `record-denylist` | recorded | unattended, or `--expect` mismatch | usage | | | `names hold gate-error` |
 | `denylist-status` | one token printed | cannot tell | usage | | | |
-| `post-comment` | posted, URL printed | a wrong-host repo, an unreadable `--file`, or the POST failed | usage | `gh` exited 0 with no `html_url` | as `run` | a hold |
+| `post-comment` | posted, URL printed | the POST failed after the gate passed | usage, a wrong-host repo, or `gh`/`jq` not on PATH | `gh` exited 0 with no `html_url` | as `run` | a hold, an unreadable `--file` among them |
 | `repo-owner` | printed | bad arguments, a wrong-host repo, or a failed call | never | no numeric `owner.id` | | |
 
 Sourced, the script sets no shell option and prints nothing. Its public
@@ -2705,8 +2705,10 @@ files go through `pg_tmp` onto one list that the entry point removes
 --review <record>`, with `<num>` matching `^[1-9][0-9]{0,9}$`. The gate runs
 inside the verb, before any write, so a direct call meets the same gate as
 `post.sh`. In order: the grammar; the host (`<repo>` is `[HOST/]OWNER/REPO`,
-as for the read verbs above); a private snapshot of `--file`, removed on every
-exit; the full gate on the snapshot, with `--backend github` and the script's
+as for the read verbs above) and `gh` and `jq` on PATH, each exit 2; a private
+snapshot of `--file`, removed on every exit; the full gate on the snapshot (a
+`--file` that cannot be copied goes to the gate as given, which holds
+`names gate-error file-unreadable`), with `--backend github` and the script's
 own path as `--backend-script`; then one
 `gh api --hostname <host> --method POST repos/<owner>/<repo>/issues/<num>/comments -F body=@-`
 with the snapshot on stdin and `GH_HOST` unset; then the answer's `html_url`,
@@ -2720,7 +2722,7 @@ What a caller may conclude from the exit:
 | 0 | was posted |
 | `leak-held` | was not posted; read the cause, and do not retry until it is fixed |
 | 9, 2 | was not posted |
-| 1 | was not posted if stderr has no `post-gate: review pass` line (the fault came before the write); after that line it is unknown, since `gh` can fail after the tracker took the comment |
+| 1 | is unknown: `gh` failed after the gate passed, and it can fail after the tracker took the comment. Every fault before the write exits `leak-held` or 2 |
 | 5 | was probably posted; never retry without looking at the issue |
 
 GitLab, JIRA, the custom stub and the disk backend have no `post-comment`:
