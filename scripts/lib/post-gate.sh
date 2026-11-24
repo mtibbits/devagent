@@ -55,6 +55,10 @@ source "$_PG_LIB/io.sh"
 source "$_PG_LIB/config.sh"
 # shellcheck source=scripts/lib/refusals.sh
 source "$_PG_LIB/refusals.sh"
+# shellcheck source=scripts/lib/trust.sh
+source "$_PG_LIB/trust.sh"
+# shellcheck source=scripts/lib/permission.sh
+source "$_PG_LIB/permission.sh"
 # shellcheck source=scripts/lib/notify.sh
 source "$_PG_LIB/notify.sh"
 # shellcheck source=scripts/lib/utf8-locale.sh
@@ -366,6 +370,105 @@ _pg_review() {
   _pg_pass review
 }
 
+# --- the permission check -----------------------------------------------------
+#
+# With a trust policy on the host (#713) the check holds `trust` when the named
+# project is in scope, or when any key the target repo can reach is one of the
+# policy's scopes: #953's screened hash covers the issue body and every trusted
+# comment, so a post there would trip #718's drift. A policy that fails to
+# load refuses as every entry point does (exit 9).
+#
+# With no policy, or with project and target both out of scope, the named
+# project's permissions.push_mr decides, read through permission_value and
+# never from the environment. Any OTHER configured project whose issue_source
+# or issue_source_fork reaches a key the target reaches must have push_mr true
+# as well (keys as _trust_candidate_keys builds them, never raw strings), so
+# one project's permission cannot open another's tracker.
+
+# _pg_keys_meet <keys-a> <keys-b>: 0 iff the two key lists (one per line) share a key.
+_pg_keys_meet() {
+  local a b
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    while IFS= read -r b; do
+      if [ "$a" = "$b" ]; then return 0; fi
+    done <<<"$2"
+  done <<<"$1"
+  return 1
+}
+
+_pg_permission() {
+  local project="${PG_ARG[project]}" repo="${PG_ARG[repo]}" backend="${PG_ARG[backend],,}"
+  local cands key other section ob orepo okeys projects
+  # The caller's trust state is not this check's to change. permission_value
+  # reads TRUST_IN_SCOPE and TRUST_VAL, so both are scoped to the check, as is
+  # everything the trust setters fill. (trust_load unsets and re-declares
+  # TRUST_ID and TRUST_VAL globally: under a policy those two end up holding
+  # the host's policy, which is what any caller's own load put there.)
+  local TRUST_IN_SCOPE=0
+  local -A TRUST_VAL=()
+  local TRUST_HOST=0 TRUST_DIR="" TRUST_SOURCE="" TRUST_USER_IGNORED="" TRUST_DEFECT=""
+  local TRUST_LOAD_ERR="" TRUST_DIGEST="" TRUST_FILE=""
+  local -a TRUST_EMPTY_DIRS=() TRUST_SCOPES=() TRUST_SCOPE_KEYS=() TRUST_SCOPE_BACKENDS=() TRUST_SCOPE_REPOS=()
+
+  # Setter-globals and refusals: called bare, never in $( … ).
+  trust_locate_host || refuse policy-defect "$TRUST_DIR" "$TRUST_DEFECT"
+  if [ "$TRUST_HOST" = 1 ]; then
+    trust_load
+    if trust_project_scope "$project"; then
+      _pg_hold permission trust
+      return
+    fi
+  fi
+  if ! cands="$(_trust_candidate_keys "$backend" "$repo" 2>/dev/null)" || [ -z "$cands" ]; then
+    _pg_hold permission gate-error repo-unkeyable
+    return
+  fi
+  if [ "$TRUST_HOST" = 1 ]; then
+    while IFS= read -r key; do
+      if [ -n "$key" ] && _trust_in_scopes "$key"; then
+        _pg_hold permission trust
+        return
+      fi
+    done <<<"$cands"
+  fi
+
+  # Out of scope, or no policy: the project's own gate, from its config.
+  if [ "$(permission_value "$project" push_mr)" != true ]; then
+    _pg_hold permission push-mr "project=$project"
+    return
+  fi
+  if ! projects="$(set -o pipefail; config_list_projects 2>/dev/null)"; then
+    _pg_hold permission gate-error config-unreadable
+    return
+  fi
+  while IFS= read -r other; do
+    if [ -z "$other" ] || [ "$other" = "$project" ]; then continue; fi
+    for section in issue_source issue_source_fork; do
+      # The backend first: a built-in backend other than the target's cannot
+      # name the target's tracker, and skipping it saves two config reads.
+      ob="$(config_get_project_field "$other" "$section.backend" 2>/dev/null || true)"
+      ob="${ob//$'\r'/}"
+      ob="${ob,,}"
+      [ -n "$ob" ] || continue
+      if stage_map_builtin "$ob" && [ "$ob" != "$backend" ]; then continue; fi
+      orepo="$(config_get_project_field "$other" "$section.repo" 2>/dev/null || true)"
+      orepo="${orepo//$'\r'/}"
+      [ -n "$orepo" ] || continue
+      # a source that cannot be keyed as the target's backend names no tracker of it.
+      okeys="$(_trust_candidate_keys "$backend" "$orepo" 2>/dev/null)" || continue
+      if _pg_keys_meet "$cands" "$okeys"; then
+        if [ "$(permission_value "$other" push_mr)" != true ]; then
+          _pg_hold permission push-mr "project=$other"
+          return
+        fi
+        break
+      fi
+    done
+  done <<<"$projects"
+  _pg_pass permission
+}
+
 # --- the names check ----------------------------------------------------------
 #
 # First match wins:
@@ -504,7 +607,7 @@ _pg_denylist_locate() {
     fi
   fi
   if [ ! -f "$PG_DL_PATH" ] || [ ! -r "$PG_DL_PATH" ]; then
-    PG_DL_STATE=missing-unrecorded
+    PG_DL_STATE="missing-unrecorded"
     [ -z "$PG_DL_RECORDED" ] || PG_DL_STATE=missing
     return 0
   fi
@@ -785,7 +888,8 @@ _pg_one() {
   case "$1" in
     review) _pg_review ;;
     names) _pg_names ;;
-    # Tasks 6 and 7 build these; until then they fail closed.
+    permission) _pg_permission ;;
+    # Task 7 builds the tracker check; until then it fails closed.
     *) _pg_hold "$1" gate-error not-built ;;
   esac
 }

@@ -9,6 +9,7 @@
 bats_require_minimum_version 1.5.0   # run --separate-stderr
 load 'lib/bats-helpers'
 load 'lib/post-gate-fixture'
+load 'lib/trust-fixture'
 
 setup() {
   pg_setup
@@ -426,4 +427,261 @@ _hash() { "$PG" hash "$@" "$POST"; }
   echo 'More.' >> "$POST"
   _review --draft
   pg_holds review review-stale
+}
+
+# --- the permission check -----------------------------------------------------
+# alpha: push_mr = true, github acme/widgets. beta: no permissions table (so
+# push_mr is false) and no issue source unless a test gives it one.
+
+# _perm [<project> [<repo> [<backend>]]]
+_perm() {
+  pg_run "$PG" check permission --project "${1:-alpha}" --issue Issue-7 --file "$POST" \
+    --repo "${2:-acme/widgets}" --backend "${3:-github}"
+}
+# _beta_source <section> <backend> <repo> [<push_mr>]: give beta one issue source.
+_beta_source() {
+  PG_EXTRA="[project.beta.$1]"$'\n'"backend = \"$2\""$'\n'"repo = \"$3\""
+  [ -z "${4:-}" ] || PG_EXTRA+=$'\n\n'"[project.beta.permissions]"$'\n'"push_mr = $4"
+  pg_config
+}
+# _policy [<toml-line>…]: a user-level trust policy under the test's HOME.
+_policy() { trust_fixture_policy "$HOME/.config/devagent/trust" "$@"; }
+
+@test "permission: push_mr true and no other project on the tracker passes" {
+  pg_post
+  _perm
+  pg_passes permission
+  [ -z "$output" ]
+  # another project on ANOTHER tracker does not matter, whatever its push_mr.
+  _beta_source issue_source github acme/gadgets
+  _perm
+  pg_passes permission
+  # nor does a source of another built-in backend with the same repo string.
+  _beta_source issue_source gitlab acme/widgets
+  _perm
+  pg_passes permission
+  # the check makes no backend call.
+  [ ! -e "$GH_STUB_ARGV_LOG" ]
+}
+
+@test "permission: push_mr false holds push-mr project=alpha" {
+  pg_post
+  PG_ALPHA_PUSH=false pg_config
+  _perm
+  pg_holds permission push-mr project=alpha
+  # beta has no permissions table at all.
+  _perm beta
+  pg_holds permission push-mr project=beta
+}
+
+@test "permission: another project on the same tracker with push_mr false holds push-mr project=beta" {
+  pg_post
+  local repo
+  for repo in acme/widgets Acme/Widgets github.com/acme/widgets https://github.com/acme/widgets.git; do
+    _beta_source issue_source github "$repo"
+    _perm
+    pg_holds permission push-mr project=beta || { echo "beta repo: $repo" >&2; false; }
+  done
+  _beta_source issue_source_fork github Acme/Widgets
+  _perm
+  pg_holds permission push-mr project=beta
+  # the target spelled differently reaches the same key.
+  _perm alpha https://github.com/ACME/widgets.git
+  pg_holds permission push-mr project=beta
+  # a custom backend's source naming the same repo counts as well.
+  _beta_source issue_source inhouse acme/widgets
+  _perm
+  pg_holds permission push-mr project=beta
+  # control: once beta's own gate is open the post passes.
+  _beta_source issue_source github Acme/Widgets true
+  _perm
+  pg_passes permission
+}
+
+@test "permission: DA_YES=1 and DEVAGENT_PERMISSION_PUSH_MR=true open nothing" {
+  pg_post
+  PG_ALPHA_PUSH=false pg_config
+  DA_YES=1 DEVAGENT_PERMISSION_PUSH_MR=true _perm
+  pg_holds permission push-mr project=alpha
+  _beta_source issue_source github acme/widgets
+  DA_YES=1 DEVAGENT_PERMISSION_PUSH_MR=true _perm
+  pg_holds permission push-mr project=beta
+}
+
+@test "permission: under a trust policy an in-scope project holds trust" {
+  pg_post
+  _policy
+  _perm
+  pg_holds permission trust
+  # the policy decides before push_mr is read: a closed config gate reads trust too.
+  PG_ALPHA_PUSH=false pg_config
+  _perm
+  pg_holds permission trust
+  # in scope through its fork source, whatever the target.
+  PG_ALPHA_REPO=other/thing PG_EXTRA=$'[project.alpha.issue_source_fork]\nbackend = "github"\nrepo = "acme/widgets"' pg_config
+  _perm alpha other/elsewhere
+  pg_holds permission trust
+  [ ! -e "$GH_STUB_ARGV_LOG" ]
+}
+
+@test "permission: under a trust policy an out-of-scope project naming a scoped repo holds trust" {
+  pg_post
+  _policy
+  # beta has no issue source, so it is out of scope; its own gate is open.
+  PG_EXTRA=$'[project.beta.permissions]\npush_mr = true' pg_config
+  local repo
+  for repo in acme/widgets github.com/acme/widgets https://github.com/Acme/Widgets.git; do
+    _perm beta "$repo"
+    pg_holds permission trust || { echo "target: $repo" >&2; false; }
+  done
+  # control: the same project to an unscoped repo is not held by trust.
+  _perm beta acme/gadgets
+  pg_passes permission
+}
+
+@test "permission: under a policy with project and target out of scope, push_mr decides" {
+  pg_post
+  _policy 'scopes = ["github:github.com/other/thing"]' 'worker_identities = ["github:1001"]'
+  _perm
+  pg_passes permission
+  PG_ALPHA_PUSH=false pg_config
+  _perm
+  pg_holds permission push-mr project=alpha
+  # the cross-project rule still applies out of scope.
+  _beta_source issue_source github Acme/Widgets
+  _perm
+  pg_holds permission push-mr project=beta
+}
+
+@test "permission: a policy that fails to load exits 9 with the #713 refusal line" {
+  pg_post
+  local pol="$HOME/.config/devagent/trust"
+  # _refused: exit 9, the refusal line, no post-gate line, nothing on stdout.
+  _refused() {
+    [ "$status" -eq 9 ] || { echo "rc=$status: $stderr" >&2; return 1; }
+    [ -z "$output" ]
+    [ -z "$(pg_gate_lines)" ] || { echo "$stderr" >&2; return 1; }
+    [[ "$stderr" == *"post-gate.sh: trust: policy "*" — host-level refusal (exit 9): stop and fix the host; do not retry or work around it" ]] \
+      || { echo "$stderr" >&2; return 1; }
+  }
+  mkdir -p "$pol"
+  printf 'scopes = [\n' > "$pol/policy.toml"                 # not TOML
+  _perm
+  _refused
+  printf 'scopes = ["github:github.com/acme/widgets"]\nno_such_key = 1\n' > "$pol/policy.toml"
+  _perm
+  _refused
+  # a location defect: the trust location is a dangling link.
+  rm -rf "$pol"
+  ln -s "$BATS_TEST_TMPDIR/no-such-target" "$pol"
+  if [ -L "$pol" ] && [ ! -e "$pol" ]; then
+    _perm
+    _refused
+    [[ "$stderr" == *"dangling link"* ]]
+  fi
+  # the full run refuses the same way, before any check line.
+  rm -f "$pol"; mkdir -p "$pol"
+  printf 'scopes = [\n' > "$pol/policy.toml"
+  pg_record
+  pg_run "$PG" run "${PG_COMMON[@]}" --repo acme/widgets --backend github --backend-script "$PG_GITHUB" --record "$RECORD"
+  _refused
+}
+
+@test "permission: a repo that cannot be keyed holds gate-error" {
+  pg_post
+  _perm alpha 'not a repo'
+  pg_holds permission gate-error repo-unkeyable
+  _perm alpha acme
+  pg_holds permission gate-error repo-unkeyable
+  # a JIRA key needs the policy's tracker host; with no policy it has no key.
+  _perm alpha PROJ jira
+  pg_holds permission gate-error repo-unkeyable
+  # a backend with no canonical key
+  _perm alpha acme/widgets inhouse
+  pg_holds permission gate-error repo-unkeyable
+  # under a policy too
+  _policy
+  _perm beta 'not a repo'
+  pg_holds permission gate-error repo-unkeyable
+}
+
+@test "permission: the check leaves the caller's trust state as it found it" {
+  pg_post
+  # A caller that ran trust_entry_check holds TRUST_IN_SCOPE and the policy's
+  # gates; permission_value reads both. The check must not overwrite them.
+  run --separate-stderr bash -euo pipefail -c '
+    . "$1"; shift
+    TRUST_IN_SCOPE=1
+    declare -gA TRUST_VAL=([push_mr]=true [marker]=kept)
+    post_gate_check permission "$@" || exit 70
+    echo "in_scope=$TRUST_IN_SCOPE marker=${TRUST_VAL[marker]:-lost} push_mr=$(permission_value alpha push_mr)"
+  ' _ "$PG" --project alpha --issue Issue-7 --file "$POST" --repo acme/widgets --backend github
+  [ "$status" -eq 0 ] || { echo "rc=$status $stderr" >&2; false; }
+  [ "$output" = "in_scope=1 marker=kept push_mr=true" ]
+  [ "$stderr" = "post-gate: permission pass" ]
+  # and inside the check the caller's in-scope flag did not make it read the
+  # policy's gate in place of the project's.
+  PG_ALPHA_PUSH=false pg_config
+  pg_run bash -c '
+    . "$1"; shift
+    TRUST_IN_SCOPE=1
+    declare -gA TRUST_VAL=([push_mr]=true)
+    post_gate_check permission "$@"
+  ' _ "$PG" --project alpha --issue Issue-7 --file "$POST" --repo acme/widgets --backend github
+  pg_holds permission push-mr project=alpha
+}
+
+# --- every cause, once, under the options github.sh runs with ------------------
+
+@test "sweep: each cause holds the same way under bash -euo pipefail" {
+  pg_post; pg_record
+  local c=("${PG_COMMON[@]}") t=(--repo acme/widgets --backend github) other="$BATS_TEST_TMPDIR/lists/other.txt"
+  _e() { pg_run bash -euo pipefail "$PG" "$@"; }
+  # control: each check passes there.
+  _e check permission "${c[@]}" "${t[@]}";           pg_passes permission
+  _e check names "${c[@]}" --no-record;              pg_passes names
+  _e check review "${c[@]}" --record "$RECORD";      pg_passes review
+  # permission: push-mr, gate-error, trust
+  PG_ALPHA_PUSH=false pg_config
+  _e check permission "${c[@]}" "${t[@]}";           pg_holds permission push-mr project=alpha
+  pg_config
+  _e check permission "${c[@]}" --repo 'not a repo' --backend github
+  pg_holds permission gate-error repo-unkeyable
+  _policy
+  _e check permission "${c[@]}" "${t[@]}";           pg_holds permission trust
+  rm -rf "$HOME/.config/devagent"
+  # names: the hit, the five denylist causes, gate-error
+  printf 'has %s\n' "$PG_SENTINEL" > "$POST"
+  _e check names "${c[@]}" --no-record;              pg_holds names names-hit hits=1 lines=1
+  pg_post
+  mv "$PG_LIST" "$PG_LIST.away"
+  _e check names "${c[@]}";                          pg_holds names denylist-missing-unrecorded
+  pg_resolved "$PG_LIST" > "$PG_RECORDED"
+  _e check names "${c[@]}";                          pg_holds names denylist-missing
+  rm "$PG_RECORDED"
+  printf '# nothing\n' > "$PG_LIST"
+  _e check names "${c[@]}";                          pg_holds names denylist-empty
+  mv "$PG_LIST.away" "$PG_LIST"
+  printf '%s\n' "$PG_SENTINEL" > "$other"
+  pg_resolved "$other" > "$PG_RECORDED"
+  _e check names "${c[@]}";                          pg_holds names denylist-moved
+  printf 'a\nb\n' > "$PG_RECORDED"
+  _e check names "${c[@]}";                          pg_holds names gate-error record-malformed
+  rm "$PG_RECORDED"
+  pg_run bash -euo pipefail -c '. "$1"; shift; utf8_locale_is_utf8() { return 1; }; post_gate_check names "$@"' _ "$PG" "${c[@]}"
+  pg_holds names no-utf8-locale
+  # review: missing, stale, blocking, gate-error
+  _e check review "${c[@]}" --record "$BATS_TEST_TMPDIR/no-record.md"
+  pg_holds review review-missing
+  pg_record "$POST" "$RECORD" 2
+  _e check review "${c[@]}" --record "$RECORD";      pg_holds review review-blocking
+  echo more >> "$POST"
+  _e check review "${c[@]}" --record "$RECORD";      pg_holds review review-stale
+  _e check review "${c[@]}" --record "$BATS_TEST_TMPDIR"
+  pg_holds review gate-error review-unreadable
+  # usage and hash keep their exits there as well.
+  _e check review "${c[@]}"
+  [ "$status" -eq 2 ]
+  _e hash "$BATS_TEST_TMPDIR/no-such-file"
+  [ "$status" -eq 1 ]
 }
