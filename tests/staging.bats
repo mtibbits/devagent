@@ -528,7 +528,6 @@ body line 3 U+202E" ]
   _render5
   [ "$status" -eq 0 ]
   [ "$(cat "$OUT.mixed.json")" = '[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]}]' ]
-  { printf '# DIAG923 grep:'; LC_ALL=C grep -c $'\r' "$OUT.mixed.json" | od -An -c | tr -s ' \n' ' '; printf ' rc=%s\n' "${PIPESTATUS[0]}"; } >&3 || true
   [ "$(tr -cd '\r' < "$OUT.mixed.json" | wc -c)" -eq 0 ]   # byte count: no locale, no $(...) CR-stripping
   [ "$(wc -l < "$OUT.mixed.json" | tr -d ' ')" = 1 ]
   _fetch '"Plain body."'
