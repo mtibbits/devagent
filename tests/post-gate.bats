@@ -1,0 +1,427 @@
+#!/usr/bin/env bats
+# #966: the pre-post leak gate, scripts/lib/post-gate.sh — the fixture, the
+# grammar, the line format, `hash` and the `review` check (Task 4), then the
+# `permission` and `tracker` checks and the docs. The `names` check has its own
+# files (tests/post-gate-names.bats, tagged for Git Bash, and
+# tests/post-gate-modes.bats); post-comment is tests/issue-github-post.bats.
+# Every test drives the real entry point under pg_setup's DA_HOME and HOME.
+
+bats_require_minimum_version 1.5.0   # run --separate-stderr
+load 'lib/bats-helpers'
+load 'lib/post-gate-fixture'
+
+setup() {
+  pg_setup
+}
+
+# The gate suites. Each calls pg_setup in setup(); a file joins this list in the
+# task that creates it.
+PG_SUITES=(post-gate.bats)
+
+# _usage <args…>: the call is a usage fault: exit 2, nothing on stdout, and no
+# `post-gate:` line.
+_usage() {
+  pg_run "$PG" "$@"
+  [ "$status" -eq 2 ] || { echo "rc=$status for: $*" >&2; echo "$stderr" >&2; return 1; }
+  [ -z "$output" ] || { echo "stdout for: $*" >&2; return 1; }
+  [ -z "$(pg_gate_lines)" ] || { echo "a post-gate line for: $*" >&2; return 1; }
+  [[ "$stderr" == *"post-gate.sh: usage:"* ]] || { echo "no usage line for: $*: $stderr" >&2; return 1; }
+}
+
+# _holds <check> <cause…>: the last run held with exactly this line, as the
+# only hold, and exited the leak-held code.
+_holds() {
+  local check="$1"; shift
+  [ "$status" -eq "$(pg_held)" ] || { echo "rc=$status, want leak-held; stderr: $stderr" >&2; return 1; }
+  [ "$(pg_gate_lines | grep -c ' hold ')" -eq 1 ] || { echo "holds: $stderr" >&2; return 1; }
+  [ "$(pg_gate_lines | tail -n 1)" = "post-gate: $check hold $*" ] || { echo "want '$check hold $*', got: $stderr" >&2; return 1; }
+}
+
+# _passes <check>: the last run exited 0 with that check's pass line as its
+# only gate line.
+_passes() {
+  [ "$status" -eq 0 ] || { echo "rc=$status; stderr: $stderr" >&2; return 1; }
+  [ "$(pg_gate_lines)" = "post-gate: $1 pass" ] || { echo "want '$1 pass', got: $stderr" >&2; return 1; }
+}
+
+_review() { pg_run "$PG" check review "${PG_COMMON[@]}" --record "$RECORD" "$@"; }
+
+@test "fixture: every gate suite runs under pg_setup" {
+  local f loaded
+  for f in "${PG_SUITES[@]}"; do
+    [ -f "$PLUGIN_ROOT/tests/$f" ] || { echo "missing suite $f" >&2; false; }
+    grep -qE "^load 'lib/post-gate-fixture'" "$PLUGIN_ROOT/tests/$f" || { echo "$f does not load the fixture" >&2; false; }
+    awk '/^setup\(\) \{/ { on = 1 } on && /^  pg_setup$/ { hit = 1 } on && /^\}/ { exit } END { exit !hit }' \
+      "$PLUGIN_ROOT/tests/$f" || { echo "$f: setup() does not call pg_setup" >&2; false; }
+  done
+  # the reverse: a suite that loads the fixture is on the list.
+  loaded="$(cd "$PLUGIN_ROOT/tests" && grep -lE "^load 'lib/post-gate-fixture'" -- *.bats | sort | tr '\n' ' ')"
+  [ "$loaded" = "$(printf '%s\n' "${PG_SUITES[@]}" | sort | tr '\n' ' ')" ] || { echo "loaders: $loaded" >&2; false; }
+  [[ "$DA_HOME" == "$BATS_TEST_TMPDIR"/* ]]
+  [[ "$HOME" == "$BATS_TEST_TMPDIR"/* ]]
+  [ "$(grep -c . "$HOME/.config/denylist.txt")" -eq 1 ]
+  [ "$(cat "$HOME/.config/denylist.txt")" = "$PG_CANARY" ]
+  # the config names another list, so the default path is read only by mistake.
+  [ "$(DA_HOME="$DA_HOME" python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/config.toml" paths.denylist_path)" = "$PG_LIST" ]
+  [ "$PG_LIST" != "$HOME/.config/denylist.txt" ]
+  [ -z "${GH_HOST+x}" ]
+}
+
+@test "fixture: pg_run refuses a line outside the contract and a sentinel on stderr" {
+  # the checker can fail: each row is one stderr the contract forbids.
+  local row
+  while IFS= read -r row; do
+    stderr="$row"
+    run pg_lines_ok
+    [ "$status" -ne 0 ] || { echo "accepted: $row" >&2; false; }
+  done <<'ROWS'
+post-gate: names hold no-such-cause
+post-gate: names hold names-hit hits=0 lines=1
+post-gate: names hold names-hit hits=1 lines=zzqsentinel
+post-gate: names hold gate-error
+post-gate: names hold gate-error some-new-detail
+post-gate: review pass with detail
+post-gate: scan pass
+post-gate: permission hold push-mr
+note: the text held ZZQsentinel
+ROWS
+  while IFS= read -r row; do
+    stderr="$row"
+    run pg_lines_ok
+    [ "$status" -eq 0 ] || { echo "refused: $row" >&2; false; }
+  done <<'ROWS'
+post-gate: names pass
+post-gate: names hold names-hit hits=2 lines=3,7
+post-gate: permission hold push-mr project=alpha
+post-gate: names hold denylist-empty
+post-gate: names hold denylist-empty roster-empty
+post-gate: tracker hold gate-error owners-malformed
+post-gate: record-denylist refused unattended
+some other tool: a line that is not the gate's
+ROWS
+}
+
+@test "usage: each grammar fault exits 2 with no post-gate line" {
+  pg_post; pg_record
+  local c=("${PG_COMMON[@]}") rec=(--record "$RECORD")
+  _usage
+  _usage bogus
+  _usage check
+  _usage check bogus "${c[@]}" "${rec[@]}"                                          # an unknown check
+  _usage check review "${c[@]}" "${rec[@]}" --bogus x                               # an unknown flag
+  _usage check review "${c[@]}" "${rec[@]}" stray                                   # a stray word
+  _usage check review --project=alpha --issue Issue-7 --file "$POST" "${rec[@]}"    # --flag=value
+  _usage check review --project "" --issue Issue-7 --file "$POST" "${rec[@]}"       # an empty value
+  _usage check review "${c[@]}" "${rec[@]}" --file "$POST"                          # a repeated flag
+  _usage check review "${c[@]}" "${rec[@]}" --draft --draft                         # a repeated switch
+  _usage check review "${c[@]}" "${rec[@]}" --capture some-slug                     # both --issue and --capture
+  _usage check review --project alpha --file "$POST" "${rec[@]}"                    # neither
+  _usage check review --project alpha --issue Issue-7 "${rec[@]}"                   # no --file
+  _usage check review --issue Issue-7 --file "$POST" "${rec[@]}"                    # no --project
+  _usage check review "${c[@]}" --record                                            # a flag with no value
+  _usage check review "${c[@]}"                                                     # review needs --record
+  _usage check review "${c[@]}" --draft                                             # --draft needs --record
+  _usage check permission "${c[@]}" --backend github                                # permission needs --repo
+  _usage check permission "${c[@]}" --repo acme/widgets                             # … and --backend
+  _usage check tracker "${c[@]}" --repo acme/widgets --backend github               # tracker needs --backend-script
+  _usage check names "${c[@]}" --names-file "$POST"                                 # --names-file is run's
+  _usage run "${c[@]}" --repo acme/widgets --backend github --backend-script "$PG_GITHUB"   # run needs --record
+  _usage run "${c[@]}" "${rec[@]}"                                                  # … and the tracker flags
+  _usage hash
+  _usage hash --draft
+  _usage hash "$POST" "$POST"
+  _usage hash --bogus "$POST"
+  _usage record-denylist --project alpha
+  _usage record-denylist --project alpha --issue Issue-7 --file "$POST"
+  _usage denylist-status extra
+  # the work item is checked on every call, by the notifications file's rules.
+  _usage check review --project alpha --issue 'Issue 7' --file "$POST" "${rec[@]}"
+  _usage check review --project alpha --issue '-7' --file "$POST" "${rec[@]}"
+  _usage check review --project alpha --capture 'a/b' --file "$POST" "${rec[@]}"
+  _usage check review --project alpha --capture '.hidden' --file "$POST" "${rec[@]}"
+  _usage check review --project gamma --issue Issue-7 --file "$POST" "${rec[@]}"    # not a configured project
+  # control: the same call without a fault passes, also for a capture.
+  _review
+  _passes review
+  pg_run "$PG" check review --project alpha --capture 2026-11-24-some-slug --file "$POST" "${rec[@]}"
+  _passes review
+}
+
+@test "exit: a hold exits trust_exit_code leak-held" {
+  pg_post
+  local held
+  held="$(pg_held)"
+  [[ "$held" =~ ^[0-9]+$ ]]
+  [ "$held" -ge 12 ]
+  _review                      # no record: a hold
+  [ "$status" -eq "$held" ]
+  [ -z "$output" ]
+  # the number is written nowhere in the script: it is read from the registry.
+  run grep -nE "(exit|return)[[:space:]]+$held\b" "$PG"
+  [ "$status" -eq 1 ]
+  grep -q 'trust_exit_code leak-held' "$PG"
+}
+
+@test "source: sourcing post-gate.sh sets no shell option and prints nothing" {
+  run --separate-stderr bash -c 'before="$-:$(set +o)"; . "$1"; [ "$before" = "$-:$(set +o)" ] && echo same' _ "$PG"
+  [ "$status" -eq 0 ]
+  [ "$output" = same ]
+  [ -z "$stderr" ]
+  # and it loads under the options github.sh runs with.
+  run --separate-stderr bash -euo pipefail -c '. "$1"; echo "${#POST_GATE_CAUSES[@]}"' _ "$PG"
+  [ "$status" -eq 0 ]
+  [ "$output" = 14 ]
+  [ -z "$stderr" ]
+}
+
+# --- hash ---------------------------------------------------------------------
+
+@test "hash: prints sha256sum's digest of the file's bytes" {
+  printf 'line one\nline two\n' > "$POST"
+  pg_run "$PG" hash "$POST"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "${#lines[@]}" -eq 1 ]
+  [[ "$output" =~ ^[0-9a-f]{64}$ ]]
+  local want
+  want="$(sha256sum < "$POST")"
+  [ "$output" = "${want%% *}" ]
+  # bytes, not text: no final newline, a CR and a byte that is not UTF-8.
+  printf 'a\r\nb\xff' > "$POST"
+  want="$(sha256sum < "$POST")"
+  pg_run "$PG" hash "$POST"
+  [ "$output" = "${want%% *}" ]
+  # --draft on a file with no Parent epic line hashes the same bytes.
+  pg_run "$PG" hash --draft "$POST"
+  [ "$status" -eq 0 ]
+  [ "$output" = "${want%% *}" ]
+}
+
+# _draft <parent-epic-line>: a capture draft at $POST.
+_draft() {
+  printf '%s\n' '# Add a thing' '' "$1" '' '## Motivation' 'Because.' > "$POST"
+}
+_hash() { "$PG" hash "$@" "$POST"; }
+
+@test "hash --draft: the same value before and after \" (<url>)\" is appended to the Parent epic line" {
+  local before after url='https://github.com/acme/widgets/issues/925'
+  _draft 'Parent epic: 2026-11-08-some-epic'
+  before="$(_hash --draft)"
+  [[ "$before" =~ ^[0-9a-f]{64}$ ]]
+  _draft "Parent epic: 2026-11-08-some-epic ($url)"
+  after="$(_hash --draft)"
+  [ "$after" = "$before" ]
+  # without --draft the appended URL is an edit like any other.
+  [ "$(_hash)" != "$before" ]
+  # http as well as https, and a CRLF draft: the CR stays, the URL goes.
+  _draft 'Parent epic: 2026-11-08-some-epic (http://tracker.example/i/9)'
+  [ "$(_hash --draft)" = "$before" ]
+  printf '# T\r\n\r\nParent epic: e\r\n' > "$POST"
+  before="$(_hash --draft)"
+  printf '# T\r\n\r\nParent epic: e (%s)\r\n' "$url" > "$POST"
+  [ "$(_hash --draft)" = "$before" ]
+}
+
+@test "hash --draft: any other edit changes the value" {
+  local base url='https://github.com/acme/widgets/issues/925' h
+  _draft 'Parent epic: 2026-11-08-some-epic'
+  base="$(_hash --draft)"
+  # a body edit
+  _draft 'Parent epic: 2026-11-08-some-epic'; echo 'More.' >> "$POST"
+  [ "$(_hash --draft)" != "$base" ]
+  # a parenthesis on that line that is not a URL, or is not at its end
+  _draft 'Parent epic: 2026-11-08-some-epic (see the epic)'
+  [ "$(_hash --draft)" != "$base" ]
+  _draft "Parent epic: 2026-11-08-some-epic ($url) and more"
+  [ "$(_hash --draft)" != "$base" ]
+  _draft "Parent epic: 2026-11-08-some-epic ($url with space)"
+  [ "$(_hash --draft)" != "$base" ]
+  # a URL appended to a SECOND Parent epic line: only the first is the key
+  printf '%s\n' '# Add a thing' '' 'Parent epic: 2026-11-08-some-epic' 'Parent epic: other' > "$POST"
+  h="$(_hash --draft)"
+  printf '%s\n' '# Add a thing' '' 'Parent epic: 2026-11-08-some-epic' "Parent epic: other ($url)" > "$POST"
+  [ "$(_hash --draft)" != "$h" ]
+  # the final newline removed
+  _draft 'Parent epic: 2026-11-08-some-epic'
+  printf '%s' "$(cat "$POST")" > "$POST.tmp" && mv "$POST.tmp" "$POST"
+  [ "$(_hash --draft)" != "$base" ]
+  # a fenced example above the real line: the example is not the key, so a URL
+  # appended to it is an edit, and one appended to the real line is not.
+  printf '%s\n' '# T' '' '```' 'Parent epic: example' '```' '' 'Parent epic: real' > "$POST"
+  h="$(_hash --draft)"
+  printf '%s\n' '# T' '' '```' "Parent epic: example ($url)" '```' '' 'Parent epic: real' > "$POST"
+  [ "$(_hash --draft)" != "$h" ]
+  printf '%s\n' '# T' '' '```' 'Parent epic: example' '```' '' "Parent epic: real ($url)" > "$POST"
+  [ "$(_hash --draft)" = "$h" ]
+}
+
+@test "hash: an unreadable file exits 1 with empty stdout" {
+  pg_run "$PG" hash "$BATS_TEST_TMPDIR/no-such-file"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  pg_run "$PG" hash --draft "$BATS_TEST_TMPDIR/no-such-file"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  pg_run "$PG" hash "$BATS_TEST_TMPDIR"          # a directory
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "hash: a mode-000 file exits 1 with empty stdout" {
+  skip_on_git_bash "chmod 000"
+  skip_if_root
+  pg_post
+  chmod 000 "$POST"
+  pg_run "$PG" hash "$POST"
+  chmod 600 "$POST"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+# --- the review check ---------------------------------------------------------
+
+@test "review: a matching record with Blocking (0) passes" {
+  pg_post; pg_record
+  _review
+  _passes review
+  [ -z "$output" ]
+  # a CRLF record parses: one trailing CR is dropped from each line.
+  sed -i $'s/$/\r/' "$RECORD"
+  grep -q $'\r$' "$RECORD"
+  _review
+  _passes review
+  # a record whose last line has no newline is still read.
+  printf 'Reviewed-sha256: %s\n### Blocking (0)' "$("$PG" hash "$POST")" > "$RECORD"
+  _review
+  _passes review
+}
+
+@test "review: no record, and a record without Reviewed-sha256, hold review-missing" {
+  pg_post
+  _review
+  _holds review review-missing
+  pg_record
+  sed -i '/^Reviewed-sha256:/d' "$RECORD"
+  _review
+  _holds review review-missing
+  pg_record
+  sed -i '/^### Blocking/d' "$RECORD"
+  _review
+  _holds review review-missing
+  : > "$RECORD"
+  _review
+  _holds review review-missing
+}
+
+@test "review: a malformed record holds review-missing" {
+  pg_post
+  local sha row
+  sha="$("$PG" hash "$POST")"
+  # _rec <sha-line…> -- <blocking-line…>
+  _write() { printf '%s\n' '# Red-team' "$@" > "$RECORD"; }
+  _write "Reviewed-sha256: $sha" "Reviewed-sha256: $sha" '### Blocking (0)'      # two hash lines
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: ${sha:0:63}" '### Blocking (0)'                        # 63 digits
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: ${sha^^}" '### Blocking (0)'                           # upper-case hex
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: $sha" '### Blocking (0)' '### Blocking (0)'            # two headings
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: $sha" '### Blocking (N)'                               # the template's literal
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: $sha trailing" '### Blocking (0)'
+  _review; _holds review review-missing
+  _write "Reviewed-sha256:$sha" '### Blocking (0)'                                # no space
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: $sha" '### Blocking (00)'                              # not a plain count
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: $sha" '### Blocking (0) open'
+  _review; _holds review review-missing
+  _write "Reviewed-sha256: $sha" '### Blocking (1234567890)'                      # more than 9 digits
+  _review; _holds review review-missing
+  # control: the well-formed twin passes.
+  _write "Reviewed-sha256: $sha" '### Blocking (0)'
+  _review; _passes review
+}
+
+@test "review: a post edited after its review holds review-stale" {
+  pg_post; pg_record
+  echo 'One more line.' >> "$POST"
+  _review
+  _holds review review-stale
+  # stale is reported before blocking.
+  pg_post; pg_record "$POST" "$RECORD" 3
+  echo 'One more line.' >> "$POST"
+  _review
+  _holds review review-stale
+}
+
+@test "review: Blocking (1) holds review-blocking" {
+  pg_post; pg_record "$POST" "$RECORD" 1
+  _review
+  _holds review review-blocking
+  pg_record "$POST" "$RECORD" 12
+  _review
+  _holds review review-blocking
+}
+
+@test "review: a record path that is a directory holds gate-error" {
+  pg_post
+  mkdir "$RECORD"
+  _review
+  _holds review gate-error review-unreadable
+  # a post that cannot be read cannot be hashed.
+  rmdir "$RECORD"; pg_record
+  rm "$POST"
+  _review
+  _holds review gate-error file-unreadable
+}
+
+@test "review: a mode-000 record holds gate-error" {
+  skip_on_git_bash "chmod 000"
+  skip_if_root
+  pg_post; pg_record
+  chmod 000 "$RECORD"
+  _review
+  chmod 600 "$RECORD"
+  _holds review gate-error review-unreadable
+}
+
+@test "review: core-redissue's documented shape parses" {
+  pg_post
+  local skill="$PLUGIN_ROOT/skills/core-redissue/SKILL.md" shape sha
+  # the fenced example under "## Output", as the skill documents it.
+  shape="$(awk '/^## Output/ { on = 1 } on && /^```markdown$/ { f = 1; next } f && /^```$/ { exit } f { print }' "$skill")"
+  grep -qxF '### Blocking (N)' <<<"$shape"
+  grep -qF 'Verdict: ' <<<"$shape"
+  sha="$("$PG" hash "$POST")"
+  # _shape <n>: the documented shape with a count and the hash line added.
+  _shape() {
+    { sed "s/^### Blocking (N)\$/### Blocking ($1)/" <<<"$shape"; printf '\nReviewed-sha256: %s\n' "$sha"; } > "$RECORD"
+  }
+  _shape 0
+  _review
+  _passes review
+  _shape 2
+  _review
+  _holds review review-blocking
+  # as documented, with no hash line, it is not a record the gate accepts.
+  printf '%s\n' "$shape" > "$RECORD"
+  _review
+  _holds review review-missing
+}
+
+@test "review --draft: a draft reviewed before the URL append passes after it" {
+  _draft 'Parent epic: 2026-11-08-some-epic'
+  pg_record --draft
+  _draft 'Parent epic: 2026-11-08-some-epic (https://github.com/acme/widgets/issues/925)'
+  _review --draft
+  _passes review
+  # without --draft the same pair is stale.
+  _review
+  _holds review review-stale
+  # and --draft does not excuse any other edit.
+  echo 'More.' >> "$POST"
+  _review --draft
+  _holds review review-stale
+}
