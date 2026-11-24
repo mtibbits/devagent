@@ -84,10 +84,10 @@ devAgent/
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
 │                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
-├── commands/                # one .md file per command-form slash command (58)
+├── commands/                # one .md file per command-form slash command (59)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 58 + 3 = the 61 slash commands
+│                            #   (SKILL.md + references/, #452) — 59 + 3 = the 62 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -96,6 +96,9 @@ devAgent/
 │                            #   must NOT gain an "agents" key — it REPLACES this default scan
 │                            #   rather than adding.
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
+├── libexec/                 # #932: long-run.sh, the long-run wrapper (§7.3). Outside scripts/ on purpose:
+│                            #   the `scripts/*` grants of every command and skill must not reach a
+│                            #   script that runs any command
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh,
 │   │                        #   check-step-pairings.py — #558 pairing census,
@@ -110,6 +113,13 @@ devAgent/
 │   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
 │   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker,
 │   │                        #   notify.sh + _notify.py — #961 launcher notifications appender,
+│   │                        #   heartbeat.sh — #932 per-session progress files (the one reader of the session id),
+│   │                        #   watchdog-limits.sh — #932 the watchdog's limits, the --silent window grammar, the --since time,
+│   │                        #   _longrun_pump.py — #932 the byte pump libexec/long-run.sh runs,
+│   │                        #   chars.py — #923 the pulled-text character check, escape and mixed-script record (one CLI),
+│   │                        #   chars_gen.py + chars_table.py — #923 the table generated from ucd/, and its drift check,
+│   │                        #   staging_layout.py — #923 fetch's issue.md layout, shared by the render and chars.py,
+│   │                        #   ucd/ — #923 the vendored Unicode 16.0.0 UCD files, LICENSE and SHA256SUMS,
 │   │                        #   post-gate.sh — #966 pre-post leak gate: run, check, hash, record-denylist,
 │   │                        #     denylist-status (§9.1 "Leak gate"))
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -132,8 +142,10 @@ devAgent/
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
 │   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
 │   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
+│   │   watchdog.sh (#932) — the no-progress watchdog: `check` for a launcher, `heartbeat` for a session (§7.3),
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
-│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans, ...
+│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans,
+│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -186,7 +198,9 @@ denylist_path = "~/.config/denylist.txt"   # #966: the leak gate's private-names
 [archive]                                # #731: GLOBAL top-level table — the durable transcript archive; absent = off
 transcripts_dir = "~/private/claude-transcripts"   # absolute after ~ expansion; required; refused inside a git work tree or inside <CLAUDE_CONFIG_DIR>/projects
 host_id         = "laptop"               # partition name [A-Za-z0-9._-]+, no "..", not "."; default hostname (+ "-wsl" under WSL)
-exclude         = ["*scratch*"]          # cwd-slug globs never archived; any other key is refused
+exclude         = ["*scratch*"]          # cwd-slug globs never archived
+actuals_max_age_hours = 24               # #735: cleanup rebuilds <devagent_home>/actuals.json when it is older; 0 < x <= 168; default 24
+# any other [archive] key is refused (so is a refused actuals_max_age_hours: the archiver stops until it is fixed)
 
 # #743: operator capacity, GLOBAL top-level table; absent = forecasting off (planned, #744).
 # devagent does not know the subscription's limits: every value here is an example.
@@ -543,8 +557,11 @@ Adjacent state files:
 `~/.claude/devagent/state/staging/` (#715) holds a fetched ticket under a
 trust policy until pull's floor passes (§9.3): one
 `<project>.<issue_id>.XXXXXX/` dir per pull (mode 0700; the root too), with
-`fetch.raw` (deleted by the render, so comment text is on disk only while it
-runs) and the candidate `issue.md`. It is outside git and must
+`fetch.raw` and `allow.json` (the policy's `allowed_chars`, #923; both deleted
+by the render, so comment text is on disk only while it runs), the candidate
+`issue.md`, and `issue.md.mixed.json`, the mixed-script record (#923) that a
+later verdict source (#717's screen) reads as `<candidate>.mixed.json`; the
+record is never promoted and goes with the dir. It is outside git and must
 not resolve inside the project's `devdoc_dir` (pull dies before creating
 anything if it does). Every exit removes the dir:
 
@@ -784,6 +801,13 @@ today). Any other entry refuses (exit 3 from the loader, so exit 9 at every
 entry point); the default `[]` allows nothing. `size_cap` is in bytes of the
 staged `issue.md`, default 65536, at most 2147483647.
 
+**`allowed_chars` (#923).** Single characters of the floor's `chars` set
+(§9.3) a ticket may carry, written as TOML escapes (`["\u200f"]`). The render
+writes each listed character as `<U+XXXX>` when its run of set characters is
+at most two long; a longer run, an unlisted character and invalid UTF-8 still
+quarantine. The default (absent) is the empty list: nothing passes. Its type,
+validation and default are #713's; the render reads it from `TRUST_VAL`.
+
 **Digest.** `sha256:` of the normalised policy (defaults applied, lists sorted
 and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
 and explicit defaults leave it unchanged and the location does not enter it.
@@ -1020,7 +1044,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
-| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate, and writes `issue.md` only on PASS (§9.3, #715) |
+| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate (`steering`, `size`, `chars`), and writes `issue.md` only on PASS (§9.3, #715, #923) |
 | 1 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 2. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
 | 2 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
 | 3 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 2 and 4. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. `scripts/spike.sh` is a helper the command calls, not this row's entry point, so `next.sh` dispatches the row skill-backed (#812). |
@@ -1044,7 +1068,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit devdoc and sync it with origin (#1148), clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731) |
+| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit devdoc and sync it with origin (#1148), clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731); inside the same gate, when `<devagent_home>/actuals.json` is stale, starts `actuals.sh --if-stale` detached and does not wait (#735) |
 
 **Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–24 top-to-bottom: 25 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
@@ -1186,6 +1210,7 @@ omits.
 | `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:milestones [project] [--issue <issue-id> \| --all] [--json]` | Prints each issue's dated milestones (tracker opened/closed, linked MRs opened/merged, checklist steps, parks, revisions) and spans; read-only (see §13.5) |
+| `/devagent:actuals [--archive DIR] [--project P] [--out PATH \| --stdout] [--if-stale]` | Builds `<devagent_home>/actuals.json`, the per-issue actuals (tokens, time, sessions, dated milestones) the portfolio reads (see §13.6) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 **The devDoc not-pushed line (#1148).** After the project blocks (`--all`: after
@@ -1493,10 +1518,569 @@ questions and notices follow the same rule; the leak gate's audit lines and
 every `answered` and `stuck` line are written in both. The marker is not a
 trust boundary: any process in the session can unset it. It stops accidents,
 not a deliberate bypass. Sessions are identified
-by Claude Code's `CLAUDE_CODE_SESSION_ID`; devagent defines no session-id
-function. devagent's test suite unsets the marker in its shared guard
+by Claude Code's `CLAUDE_CODE_SESSION_ID`. Its one reader is `heartbeat_dir` in
+`scripts/lib/heartbeat.sh` (#932), which takes the id only when it is a UUID
+(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`) and lower-cases it
+before it builds a path; no other script tests the variable
+(`tests/heartbeat.bats`: `absent and malformed ids write and print nothing`,
+`an upper-case id writes under the lower-case directory`). devagent's test
+suite unsets the marker in its shared guard
 (`tests/lib/hermetic-env.bash`) and in `SUITE_CHILD_UNSET`, so an unattended
-session that runs the suite runs its attended paths.
+session that runs the suite runs its attended paths; the guard also unsets
+`CLAUDE_CODE_SESSION_ID` and `DEVAGENT_WATCHDOG_TRANSCRIPT`
+(`tests/hermetic-env.bats`).
+
+**The script-entry mark (#932).** In a marked session whose
+`CLAUDE_CODE_SESSION_ID` is a UUID, every devagent script that sources
+`scripts/lib/paths.sh` moves the mtime of the empty file
+`$(devagent_home)/state/watchdog/<session id>/script` as it starts, before any
+check of its own. This is the one exemption to "a refusal writes nothing": a
+trust refusal (exit 9) or a quarantine refusal (exit 11) in a marked session
+may leave that file and nothing else. It is a progress mark for the watchdog,
+not issue state, and it is never written in an unmarked session
+(`tests/trust-entry.bats` and `tests/quarantine-entry.bats`: `… the same
+refusals in an unattended session leave state/watchdog/<id>/script and nothing
+else (#932)`; `tests/heartbeat.bats`: `a devagent script call moves script in
+an unattended session`, `the same call with no marker creates no
+state/watchdog directory`).
+
+The mark is the last statement of `paths.sh`. It runs when the marker is set,
+`_DEVAGENT_NO_ENTRY_BEAT` is empty and `heartbeat.sh` is readable beside
+`paths.sh` (a `-r` test, because sourcing a missing file ends a POSIX-mode
+shell); `set -u`, when on, is switched off around the call and restored after
+it. It sets no shell option and prints nothing on stdout (`sourcing paths.sh
+with the marker set leaves set +o and shopt -p unchanged`, `sourcing paths.sh
+twice, and from a function, writes one file and prints nothing`). It leaves the
+sourcing script running under `bash -euo pipefail` in the seven cases
+`tests/heartbeat.bats` names `broken tail: …`, and in no others by promise:
+`heartbeat.sh` missing, with and without `POSIXLY_CORRECT=1`; `heartbeat.sh`
+with a syntax error; a `heartbeat_touch` that reads an unbound variable; an
+unwritable state root (one warning on stderr); an absent session id; and
+`paths.sh` sourced by bare name. That last case writes nothing at all: a
+script that runs `source paths.sh` and lets `PATH` find it gives the statement
+no directory to find `heartbeat.sh` in, so it refreshes nothing. No devagent
+script sources it that way.
+
+Two scripts opt out by setting `_DEVAGENT_NO_ENTRY_BEAT` before they source
+`paths.sh`, unexported: `scripts/watchdog.sh` (a launcher's poll is not the
+session's progress) and `libexec/long-run.sh` (its start is not progress; the
+command's output is), so a devagent script run as the wrapped command still
+counts its own entry (`tests/watchdog-check.bats`: `check and heartbeat do not
+move script, and check writes nothing`; `tests/long-run.bats`: `long-run.sh
+does not move script`). Seven top-level scripts never reach `paths.sh` and so
+never move the file: `archive-transcripts.sh`, `build-docs-site.sh`,
+`cost-report.sh`, `install-git-hooks.sh`, `lessons-lint.sh`,
+`lessons-lint-corpus.sh` and `wbs.sh`. Their return still grows the session's
+transcript, which is a progress source of its own.
+
+#### The no-progress watchdog (#932)
+
+A launcher can ask whether one unattended session made progress within a
+limit, and act on the answer itself. devagent's half is detection only:
+`scripts/watchdog.sh check` answers, `scripts/watchdog.sh heartbeat` and the
+long-run wrapper `libexec/long-run.sh` record progress, and nothing here kills
+a process, writes to devDoc or appends to the notifications file (the kill
+record and the `stuck` line arrive with #972). Every writer is a silent no-op
+unless the marker is set and `CLAUDE_CODE_SESSION_ID` is a UUID, so an attended
+session gets no state directory (`tests/heartbeat.bats`: `no marker writes no
+state/watchdog/<id>/ directory`, `absent and malformed ids write and print
+nothing`). The facts about Claude Code below were measured on 2.1.329,
+2026-11-20, and each is marked "(measured)"; they are not promises Claude Code
+makes.
+
+**What counts as progress.** Progress is a file's mtime. `check` reads seven
+sources for the one session it is asked about:
+
+| Source | File | Moved by |
+|---|---|---|
+| `transcript` | `<projects>/<slug>/<id>.jsonl` | Claude Code, one append per record (measured) |
+| `subagent-transcript` | the newest file under `<projects>/<slug>/<id>/` | a subagent's transcript in `<id>/subagents/`, which grows while the parent's file stands still (measured) |
+| `wrap` | `state/watchdog/<id>/wrap.<run>` | the output of one command run under `libexec/long-run.sh` |
+| `beat` | `state/watchdog/<id>/beat` | `watchdog.sh heartbeat` |
+| `dispatch` | `state/watchdog/<id>/dispatch` | `next.sh`, when it dispatches a step |
+| `script` | `state/watchdog/<id>/script` | any devagent script that sources `paths.sh` (the script-entry mark above); `born-red.sh` also moves it once per classified row |
+| `since` | none: the `--since` time | the launcher |
+
+The session is the one the transcript's file name carries; `check` does not
+read `CLAUDE_CODE_SESSION_ID`, and it reads `state/watchdog/<id>/` for that id
+only, so another session's files never count (`tests/watchdog-check.bats`:
+`another session's directory does not keep this one ok`). The pins, one per
+source: `transcript growth alone is ok at T+limit-1 and stalled at T+limit+5`;
+`a newer file under <id>/subagents keeps a silent parent ok`; `a real heartbeat
+alone is ok at T+limit-1 and stalled at T+limit+5`; `a planted script, dispatch
+and wrap file each count, and only for their own time`; `a real where.sh call
+is a progress source for check`; `no transcript, old --since: stalled`
+(`tests/watchdog-check.bats`); `a wrap file the real wrapper left is a progress
+source for check` (`tests/long-run.bats`); `dispatch records v1, project,
+issue, step number and name` (`tests/watchdog-dispatch.bats`); `born-red moves
+script once per row (#932)` (`tests/born-red.bats`).
+
+**`check`.**
+
+```
+watchdog.sh check <project> <issue> [--transcript <path>] [--since <ISO time>] [--now <epoch>]
+```
+
+| Exit | Stdout | Stderr | Meaning |
+|---|---|---|---|
+| 0 | `ok` | | some source moved within its allowance |
+| 3 | `stalled no-progress limit=<L>s age=<A>s last=<source> at=<YYYY-MM-DDTHH:MM:SSZ>[ silent-window=expired]` | | no source did; the line names the newest one |
+| 2 | | `watchdog: usage: <message>` | the call is wrong |
+| 1 | | `watchdog: error: <message>` | cannot determine: never `ok`, never `stalled` |
+
+Stdout carries exactly one line on exits 0 and 3 and nothing otherwise, and
+every stderr line starts `watchdog: ` (`stdout is empty and every stderr line
+starts "watchdog: " on exits 1 and 2`). A launcher keys on the exit code and,
+for exit 3, on the `key=value` fields, never on the prose after `watchdog:`.
+`check` is stateless and writes nothing (`check and heartbeat do not move
+script, and check writes nothing`), so any number of launchers may ask at any
+rate. All test names in this subsection are in `tests/watchdog-check.bats`
+unless another file is named.
+
+- `<project>` and `<issue>` match `^[A-Za-z0-9_-]+$`; `<issue>` is the issue's
+  directory name, such as `Issue-12`. Anything else, wrong arity, an unknown
+  option or an empty option value exits 2 (`wrong arity, a bad project or issue
+  name and a bad --now each exit 2`; `a name that is not <uuid>.jsonl, an
+  unknown flag and an empty --transcript value each exit 2`).
+- The transcript path comes from `--transcript`, else from
+  `DEVAGENT_WATCHDOG_TRANSCRIPT`; the flag wins, and with neither the call
+  exits 2 (`the env variable supplies the transcript and the flag wins`). The
+  file name must be `<session id>.jsonl`, the id a UUID in either case
+  (`an upper-case uuid reads the lower-case directory`). Where `cygpath`
+  exists the path goes through `cygpath -u`, so a Windows launcher may pass
+  `C:\…\<id>.jsonl` (`a C:\…\<uuid>.jsonl path is judged`; `a path with a space
+  is judged`). The variable is for a launcher that cannot quote such a path on
+  a command line and runs one session per environment. **A launcher that runs
+  several sessions passes `--transcript` on every call**: a variable inherited
+  by the wrong poll would judge the wrong session, and the flag cannot be
+  inherited.
+- `--since` is the time the launcher started the session, or resumed it:
+  `YYYY-MM-DDTHH:MM:SS`, an optional fraction, and a zone, `Z` or `±HH:MM`. No
+  zone, or a time that is not a real instant, exits 2 (`--since without a zone
+  exits 2`). It is a progress source like the others, allowed the limit. It
+  covers the seconds before the transcript exists (`a fresh --since is ok`),
+  and a launcher that resumes an old session passes the resume time for the
+  same reason: until the resumed session writes, every other source is as old
+  as the session's last stop.
+- `--now` (`^[0-9]{1,12}$`, epoch seconds) replaces the clock. The tests and
+  the fixture launcher use it; a real launcher leaves it out.
+- Exit 1, cannot determine, in these cases: the project is not in the config
+  (`an unknown project exits 1`); the config cannot be parsed (`an unparseable
+  config exits 1`); `watchdog_no_progress_secs` or `watchdog_silent_max_secs`
+  is malformed or a table (`a malformed or table-typed limit exits 1, never a
+  default`); there is no transcript at the path and no `--since`
+  (`no transcript, no --since: exit 1`); the transcript exists but cannot be
+  stat'ed; every source's time is more than 60 s ahead of now (`every candidate
+  in the future exits 1`); or the session's `dispatch` file holds a `v1` record
+  for another project or issue than the one asked about, in which case the
+  message names both (`a dispatch record for another issue exits 1`). An empty
+  `dispatch` file and a record of another version are not a mismatch. **Exit 1
+  is the launcher's case to own**: it means the question could not be answered,
+  and a launcher that treats it as `ok` hides a stall, while one that treats it
+  as `stalled` kills a healthy session over a config typo.
+- Each source is allowed the project's `watchdog_no_progress_secs`
+  (`a project limit overrides [defaults] for that project's check`). A source
+  more than 60 s ahead of now is dropped, not trusted (`a future-dated file is
+  ignored`). The answer is `ok` when any remaining source's age is within its
+  allowance; otherwise `stalled`, naming the newest source, and on equal times
+  the one earlier in this order: `transcript`, `subagent-transcript`, `wrap`,
+  `beat`, `dispatch`, `script`, `since` (`on equal times the earlier source in
+  the list is named`; `the stalled line names the limit, the source and its
+  time`).
+- A launcher that polls every `P` seconds sees exit 3 no later than the limit
+  plus `P` after the last progress (`the fixture launcher sees exit 3 no later
+  than the limit plus one poll`; the model launcher is
+  `tests/fixtures/watchdog/launcher.sh`).
+
+**The launcher's recipe.** The launcher chooses the session id, so it knows
+the transcript's name before the session starts:
+
+```sh
+id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+DEVAGENT_UNATTENDED=1 claude -p "/devagent:next <project> --auto" --session-id "$id" &
+# add DEVAGENT_WATCHDOG_WRAP=1 only once the launcher grants the wrapper's rule
+# (see "The permission rule a launcher needs" below)
+
+# each poll:
+transcript="$(ls ~/.claude/projects/*/"$id".jsonl 2>/dev/null)"
+bash "<plugin_root>/scripts/watchdog.sh" check <project> <issue> \
+  --transcript "${transcript:-$HOME/.claude/projects/pending/$id.jsonl}" --since "$since"
+```
+
+Measured: a session started with `--session-id <uuid>` exports that id to its
+Bash commands as `CLAUDE_CODE_SESSION_ID`, a dispatched subagent's commands see
+the parent's id, and the transcript is
+`~/.claude/projects/<slug>/<uuid>.jsonl`, with subagent transcripts in
+`~/.claude/projects/<slug>/<uuid>/subagents/agent-<n>.jsonl`. `<slug>` is the
+launch directory with every non-alphanumeric character replaced by `-`; the
+glob avoids depending on that rule. The transcript does not exist for the first
+8-10 s of a session, which is the window `--since` covers: until the glob
+matches, the launcher passes any path whose file name is `<uuid>.jsonl`
+(`no transcript, old --since: stalled`). **Transcript persistence must stay
+on**: under `claude --no-session-persistence`, or any setting that stops
+Claude Code writing the transcript, `check` has only devagent's own files and `--since`, and a session that is
+thinking or running a subagent reads `stalled`. On Windows the launcher may set
+`DEVAGENT_WATCHDOG_TRANSCRIPT` to the `C:\…` path instead of quoting it, under
+the one-session rule above.
+
+**State.** Everything devagent writes for the watchdog is under
+`$(devagent_home)/state/watchdog/` (`DA_HOME` moves it:
+`tests/heartbeat.bats`, `DA_HOME moves the state under $DA_HOME/state/watchdog`;
+nothing goes to devDoc: `tests/long-run.bats`, `the log is under
+$DA_HOME/state/watchdog/logs, nothing under the devDoc fixture`). `<id>` is
+the session id, lower-cased; `<run>` is `<start epoch>-<wrapper pid>`:
+
+```
+state/watchdog/
+├── <id>/script               empty; mtime = the last devagent script entry
+├── <id>/dispatch             one line: v1 <project> <issue> <step number> <step name>
+├── <id>/beat                 empty; mtime = the last `watchdog.sh heartbeat`
+├── <id>/beat.window          one line, <seconds>; only while a --silent gap is open
+├── <id>/wrap.<run>           empty; mtime = that wrapped run's last output
+├── <id>/wrap.<run>.window    one line, <seconds>; only while a --silent run lives
+└── logs/
+    ├── <id>.<run>.log        a --merge run: both streams, in the command's order
+    ├── <id>.<run>.out.log    a two-stream run: stdout …
+    ├── <id>.<run>.err.log    … and stderr
+    ├── no-session.<run>.log, .out.log, .err.log
+    │                         the same, for an attended run or one with no valid id
+    └── <log>.1               that log's previous <cap> bytes
+```
+
+For example, after one dispatch, one `--merge` run and one heartbeat in session
+`0f8fad5b-d9cb-469f-a165-70867728950e`:
+
+```
+state/watchdog/0f8fad5b-d9cb-469f-a165-70867728950e/beat
+state/watchdog/0f8fad5b-d9cb-469f-a165-70867728950e/dispatch
+state/watchdog/0f8fad5b-d9cb-469f-a165-70867728950e/script
+state/watchdog/0f8fad5b-d9cb-469f-a165-70867728950e/wrap.1795211063-621392
+state/watchdog/logs/0f8fad5b-d9cb-469f-a165-70867728950e.1795211063-621392.log
+```
+
+The empty case is no `<id>/` directory at all: an attended session, a session
+that has not yet run a devagent script, or one whose id is not a UUID. `check`
+then judges by the transcript, its subagent directory and `--since` alone (`a
+session with no state directory is stalled after the limit`). Every file is
+one writer's: a refresh is a builtin redirect into the session's own directory,
+with no lock and no read, so forty concurrent writers all land and none can
+erase another's record (`tests/heartbeat.bats`: `forty concurrent touches of
+distinct names all land`, `a touch leaves dispatch and a .window alone`). A
+write that fails prints one `heartbeat: warning: cannot write <path>` line on
+stderr and the script carries on (`an unwritable state root warns once and
+returns 0`). The `dispatch` line's first word is its version; a reader ignores
+a record whose version it does not know, and an empty file (a writer between
+its truncate and its line) means "ask again".
+
+Retention: at each start the wrapper removes, best-effort and silently, log
+files older than 14 days and session directories in which nothing is newer than
+14 days, never the directory of the session it runs in (`tests/long-run.bats`:
+`logs and session directories older than 14 days are pruned at start`). A
+machine on which no wrapped command runs prunes nothing. To clean up by hand,
+with no unattended session running, remove the directory; every writer
+re-creates what it needs:
+
+```sh
+rm -rf ~/.claude/devagent/state/watchdog
+```
+
+**The session's explicit mark.**
+
+```
+watchdog.sh heartbeat [--silent <window>]
+```
+
+prints `ok` and exits 0. In a marked session it moves `beat`; without the
+marker or a valid id it writes nothing and still exits 0 (`heartbeat with no
+marker exits 0 and writes nothing`). `--silent <window>` declares one gap of up
+to that long, ended by the next `heartbeat` (`a plain heartbeat ends the
+window`). It is for a stretch of work that is neither a devagent script nor a
+command the wrapper can run.
+
+**The long-run wrapper.** A running tool call appends nothing to the
+transcript, and a background command's output reaches it only with the
+notification at its end (measured). So a long command reads as silence unless
+it runs under the wrapper:
+
+```
+long-run.sh [--silent <window>] [--merge] [--project <name>] [--every <secs>] [--log-cap <bytes>] [--] <command> [<arg>...]
+```
+
+The command's bytes reach the caller unchanged and as they are written, its
+stdin is its own, and the exit code is the command's (`tests/long-run.bats`:
+`--merge output is byte-identical to the command run directly with 2>&1`,
+`separate streams are each byte-identical`, `binary bytes without a final
+newline pass unchanged`, `stdin reaches the command`, `exit codes 0, 3 and 127
+pass through`). A byte pump in the data path (`scripts/lib/_longrun_pump.py`)
+moves `wrap.<run>` for the bytes it carries, at most once per `--every` seconds
+(default 5; 0 = every chunk), and never to an earlier time (`a running wrapped
+command keeps check ok beside a two-hour-old transcript`, `chunks.sh reports
+refreshes=3 under --every 0 and refreshes=2 under --every 3600`, `the pump
+never moves a heartbeat file earlier: two hours ahead stays`). The wrapper's own
+start is not progress and it does not move `script`; only the command's output
+counts (`the wrapper's own lines and another run's output do not move this
+run's file`, `long-run.sh does not move script`). The rest of this paragraph's
+test names are in `tests/long-run.bats` too.
+
+- Options end at `--` or at the first word that does not start with `--`
+  (`the command runs without --`). Leading `NAME=value` words are the command's
+  environment (`NAME=value words reach the command`). The command is a program
+  found on `PATH`; a pipeline, a `cd … &&` chain, a loop, a shell function or a
+  builtin goes in as `bash -c '<the whole line>'`. It must finish: the wrapper
+  returns when the command and everything that still holds its output have
+  ended, so a server, a watcher or `tail -f` is not wrapped.
+- `--merge` is for a caller that reads both streams as one (it would have
+  written `2>&1`): the command's stderr joins its stdout in one pipe, so their
+  order stays the command's. Without it each stream has its own pump.
+- A usage error exits 2 with `long-run: usage: <message>` before the command
+  starts (`an unknown flag exits 2`, `no command exits 2`, `--every and
+  --log-cap out of range exit 2`). After that the wrapper never fails a run: a
+  limit it cannot read is the shipped constant and one warning, and without a
+  `python3` that runs the pump the command runs unwrapped after one warning,
+  its output neither logged nor counted (`python3 absent from PATH: output and
+  exit code unchanged, one warning`, `a python3 that cannot run: the command
+  runs unwrapped, one warning`). Every line the wrapper prints itself goes to
+  stderr and starts `long-run: `.
+- Logs. One writer per file, because Windows emulates `O_APPEND` as a seek and
+  a write and two appenders to one file overwrite each other (2 of 100
+  two-stream runs lost log lines on Git Bash before the split, measured
+  2026-11-20). So a `--merge` run writes `<id>.<run>.log`, a
+  two-stream run writes `.out.log` and `.err.log`, and two runs of one session
+  never share a file (`concurrent runs of one session write separate logs`).
+  Each log reads alone: first line `start`, then that stream's bytes with a
+  `quiet` line where a gap ended, the pump's `closed` line, last line `end`
+  (`each run's log starts with its start line and ends with its end line`):
+
+  ```
+  [long-run] start <ISO-UTC> run=<run> cmd=<command basename>
+  [long-run] quiet <gap>s > <threshold>s ended <ISO-UTC> run=<run>
+  [long-run] closed <stdout|stderr|merged> <ISO-UTC> run=<run> longest-gap=<gap>s refreshes=<n>
+  [long-run] end <ISO-UTC> run=<run> rc=<rc>
+  ```
+
+  No log passes `--log-cap` bytes (default 5242880; at least 1000000). The
+  pump keeps 256 bytes of the cap for the wrapper's `end` line; at that point
+  the log is renamed to `<log>.1`, and if the rename fails (a reader holds the
+  file open on Windows) it is emptied in place instead (`the log and .log.1
+  each stay within the cap`, `a failed rotation keeps the log within the cap`,
+  `the pump leaves room under the cap for the wrapper's end line`).
+  A log holds the command's complete output, including output the caller
+  discards (a leg sent to `/dev/null` is still logged), so the log directory is
+  created `0700` and each log `0600` (`logs are private to the user`, checked
+  where file modes are real).
+- The `quiet` line. `<threshold>` is the project's `watchdog_telemetry_secs`,
+  or the declared window when that is larger; the project is `--project`, else
+  `DEVAGENT_ACTIVE_PROJECT`, else `[defaults]` (`the interval's project is
+  --project, else DEVAGENT_ACTIVE_PROJECT, else [defaults]`). A gap longer than
+  the threshold writes one `quiet` line **when the gap ends**, before the bytes
+  that ended it (`a gap longer than the interval logs exactly one quiet line
+  and the run finishes`). A run that is killed or still silent has no `quiet`
+  line for its last gap; `check` is what sees that one. An attended run writes
+  no `quiet` line.
+- Attended. Without the marker, or without a valid id, the wrapper still runs
+  the command through the pump and still writes its log, as `no-session.<run>…`;
+  it creates no `<id>/` directory. Attended means no heartbeat, not no log
+  (`no marker: no state/watchdog/<id>/ directory, identical bytes and exit
+  code, the log exists`, `no valid id: the log is no-session.<run>.log`).
+
+**The wrapping line.** In a marked session whose launcher also sets
+`DEVAGENT_WATCHDOG_WRAP` (any non-empty value), `next.sh` prints one line
+straight after its `dispatch:` header; in any other session it prints nothing
+(`tests/watchdog-dispatch.bats`: `the wrapping line follows the header and
+names the wrapper path and the project's interval`, `no marker: no wrapping
+line and no state/watchdog directory`, `marked but not opted in: the dispatch
+is recorded and no wrapping line`). The opt-in is separate from the marker
+because the line asks for a command form that only the launcher's own rule
+lets through (below): a launcher that sets the marker under a narrow
+allowlist, and has not granted that rule, would otherwise have its sessions'
+long commands denied, and the eval saw models stop there rather than run the
+command unwrapped. `<interval>` is the project's
+`watchdog_telemetry_secs`; a value that cannot be read prints the shipped 180
+and one warning, and the dispatch goes on (`a malformed interval prints the
+line with 180 s and one warning, and next exits as before`):
+
+```
+long-run: this session is watched for progress; with the Bash tool (not PowerShell), run any command that finishes (not servers, watchers or `tail -f`) and may take longer than <interval> s, in the foreground or the background, as: bash "<plugin_root>/libexec/long-run.sh" <command> [args]   (for a pipeline, a `cd … &&` chain or a loop: bash "<plugin_root>/libexec/long-run.sh" bash -c '<the whole line>'; if the plan's `## Declared silent windows` names this command, put `--silent <window>` before it)
+```
+
+The sentence has one home, `dispatch_wrap_line` in `scripts/next.sh`, and the
+test pins its facts, not its words (`the wrapping line says how to wrap: the
+Bash tool, commands that finish, the declared-window flag`). This wording was
+measured on Claude Code 2.1.329, 2026-11-20, through `claude -p
+"/devagent:next <project>"` with both the Bash and PowerShell tools offered:
+long commands wrapped in 14 of 15 runs (haiku) and 15 of 15 (opus), no service
+wrapped in 3 of 3, `--silent` passed for a declared command in 3 of 3, and no
+wrap issued through PowerShell (42 sessions in all). A rewording needs
+that eval again. In those runs the models put most wrapped commands in the
+background and wrote every chain, pipeline and `VAR=1` command as `bash -c
+'<the whole line>'`.
+
+`<plugin_root>` is printed in the form Claude Code expands
+`${CLAUDE_PLUGIN_ROOT}` to on Windows, `C:/…` (`cygpath -m`), so that a
+permission rule written from the line matches the command the model issues
+(`the wrapping line prints a C:/ root on Git Bash`).
+
+**The permission rule a launcher needs.** The wrapper is at `libexec/`, outside
+`scripts/`, on purpose. Every devagent command and skill grants
+`Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*")` and
+`Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`, and in a Bash rule `*`
+matches any text, `/` included, so a wrapper anywhere under `scripts/` would
+turn those grants into "run any command" (Claude Code's permission
+documentation, read 2026-11-20). The match is also on the text alone: `..` is
+not resolved. Measured on 2.1.330, 2026-11-23, with only those two grants
+allowed: `bash "<plugin_root>/scripts/../libexec/long-run.sh" echo …` ran with
+no prompt, while `bash "<plugin_root>/libexec/long-run.sh" echo …` was denied.
+So the wrapper refuses, exit 2 before the command runs, when the path it was
+started by has a `.` or `..` segment (`tests/long-run.bats`: `a path through
+scripts/.. or with a . segment is refused before the command runs (the grant
+matches it as text)`): the grants can reach it only in a spelling it will not
+run. A launcher that wants its sessions to wrap without a prompt adds one rule
+of its own:
+
+```
+Bash(bash "<plugin_root>/libexec/long-run.sh" *)
+```
+
+with `<plugin_root>` spelled exactly as the wrapping line prints it. **Granting
+this rule is the same as allowing every command**: the wrapper runs `bash -c
+'<anything>'`. A launcher grants it only where it would grant `Bash(*)`, and
+sets `DEVAGENT_WATCHDOG_WRAP` only once it has.
+Measured on 2.1.329, 2026-11-20, with the rule as the only one that could match
+the wrapper: wrapped calls ran (2 of 2); with it removed Claude Code answered
+`This command requires approval` (2 of 2). Also measured, with the rule
+present: `cd "<dir>" && bash "<plugin_root>/libexec/long-run.sh" …` is a form
+the models issue often, and it ran (those sessions also allowed `cd *`);
+Claude Code itself refuses
+`cd … && bash "<plugin_root>/libexec/long-run.sh" … > <file> 2>&1` ("Commands
+that change directories and write via output redirection require explicit
+approval"); and `… | tee <file>` needs its own `tee` rule. A session does not
+need either: the wrapper already keeps the log.
+
+**Silent windows.** A command that prints nothing for longer than the limit
+declares it: `--silent <window>` on the wrapper, or on `heartbeat`. `<window>`
+is `<N>` or `<N>m` (minutes, exactly N × 60 s) or `<N>s` (seconds), `N`
+matching `^[1-9][0-9]{0,5}$` (`tests/watchdog-config.bats`: `window grammar: 1
+is 60, 2m is 120, 90s is 90; 0, 1h, 1.5 and seven digits are refused`).
+
+- The window is stored in seconds in the source's `.window` file, written
+  before the source's own file is touched, and that source's allowance becomes
+  `max(limit, window)`. It stretches that source only
+  (`tests/watchdog-check.bats`: `a wrap file's own window stretches that run
+  only`).
+- A wrapped run's window is a per-gap allowance for the life of the run: output
+  moves `wrap.<run>` and the window stays, and the wrapper removes the
+  `.window` file when the command ends (`tests/long-run.bats`: `--silent 1
+  under maximum 60 writes a 60 window, removed when the run ends`, `output and
+  a script call during the run move their own files and keep the window`).
+  A killed wrapper leaves its window behind; it expires by its own age, once
+  (`a wrap file and window left by a killed wrapper are ok at T+window-1 and
+  stalled, silent-window=expired, at T+window+1`). `heartbeat --silent` is one
+  gap, ended by the next `heartbeat` (`tests/watchdog-check.bats`: `heartbeat
+  --silent 1 (limit 30 by config) is ok at T+59 and stalled,
+  silent-window=expired, at T+61`).
+- The maximum is the operator's: `watchdog_silent_max_secs`, `[defaults]` only.
+  A window above it is refused, exit 2, before anything is written or run, with
+  the script's own prefix and the text `--silent <text> exceeds the
+  silent-window maximum of <M> s; declare a shorter window (the maximum is
+  operator-set and is not changed from a session)`
+  (`tests/watchdog-check.bats`: `--silent above the maximum exits 2 and writes
+  no window`; `tests/long-run.bats`: `--silent 2 under maximum 60 exits 2 and
+  the command never runs`). A `.window` file holding more than the maximum, or
+  anything that is not seconds, is ignored by `check`
+  (`tests/watchdog-check.bats`: `an over-maximum window planted in the file is
+  ignored`).
+- `silent-window=expired` on a `stalled` line means the named source had a
+  valid window file when it was judged. A window on any other source does not
+  tag the line (`tests/watchdog-check.bats`: `a stale window on another source
+  does not tag the stalled line`).
+- A plan names such commands under `## Declared silent windows`
+  (`templates/imPlan_template.md`; `tests/template.bats`: `imPlan_template
+  carries the Declared silent windows section (#932)`), and the wrapping line tells
+  the session to pass the flag for them.
+
+**Limits.** Four config keys, integer seconds from 1 to 604800, resolved
+project, then `[defaults]`, then the shipped value; `docs/configuration.md` has
+the table and the doctor rules. `watchdog_no_progress_secs` (1200),
+`watchdog_telemetry_secs` (180) and `watchdog_silent_max_secs` (3600,
+`[defaults]` only) are pinned by `tests/watchdog-config.bats`: `shipped
+defaults are 1200, 180 and 3600 seconds`. Who fails on a bad value differs by
+caller, and on purpose: `check` exits 1; `next.sh`, the wrapper and `heartbeat`
+warn and use the shipped value, since they must never fail a run; `doctor`
+names the value.
+
+**devagent's own long runs.** `run-suite.sh` runs its bats and pytest captures
+under the wrapper with `--merge`, and the artifact is the same with the marker
+set and unset; the wrapper sits outside the suite's `env -u` list, so it sees
+the marker and the suite's children do not (`tests/run-suite.bats`:
+`run-suite's artifact lines are identical with the marker set and unset
+(#932)`, `an unattended run-suite leaves a wrap file and its suite children see
+no marker (#932)`). `analyze-sanitizers.sh` and `analyze-static.sh` run every
+leg under it in the stream shape the leg had, with `timeout` still the command,
+so a kill still records `timed out` (`tests/analyze-sanitizers.bats`: `a
+timed-out analyze leg still records "timed out >Ns" under the wrapper (#932)`).
+Attended runs take the same path, so an attended `run-suite` or analyze run
+leaves `no-session.*` logs and no heartbeat (`tests/analyze-sanitizers.bats`:
+`an attended run opens no window and creates no session directory (#932)`,
+`attended sanitizer artifacts are unchanged (#932)`;
+`tests/analyze-static.bats`: `attended static artifact is unchanged (#932)`).
+
+Every analyze leg declares a silent window, resolved once before any leg:
+`analyze_silent_secs`, or `min(analyze_timeout, watchdog_silent_max_secs)` when
+that key is unset, so a leg its own budget allows is never `stalled` at the
+shipped limits (`tests/analyze-sanitizers.bats`: `unset analyze_silent_secs:
+the legs declare min(analyze timeout, maximum) (#932)`;
+`tests/watchdog-config.bats`: `unset analyze_silent_secs derives
+min(analyze_timeout, maximum)`). An `analyze_silent_secs` above the maximum
+fails step 13 before any leg runs, in an attended session too, and `doctor`
+fails the same config (`tests/analyze-sanitizers.bats`: `analyze_silent_secs
+above the maximum fails before any leg runs (#932)`;
+`tests/analyze-static.bats`: `analyze_silent_secs above the maximum fails
+before the configure or the analyzer runs (#932)`; `tests/watchdog-config.bats`:
+`doctor fails analyze_silent_secs above the maximum and passes it equal`). A
+value that cannot be read warns once and the derived window stands in
+(`tests/analyze-sanitizers.bats`: `a malformed analyze_silent_secs warns once
+and the legs take the derived window (#932)`).
+
+How those commands write, measured 2026-11-20: `bats --tap` writes one line per finished test and `pytest -q` one
+byte, so the longest gap is the longest single test; `cmake` configure, a
+Makefile build and `ctest` flush per line into a pipe, so a leg's longest
+silence is its longest single compile or test (6.0 s for a test that sleeps 6 s
+silently). A plain `python3` program block-buffers into a pipe and writes
+everything at exit; `PYTHONUNBUFFERED=1` makes it stream, and the static leg
+runs `static_analysis_diff.py` with it set (`tests/analyze-static.bats`: `an
+unattended static run declares the window on both legs and unbuffers the
+analyzer (#932)`). **The static leg's cadence is not measured** (no `scan-build`
+on the measuring hosts). The analyzer captures its children's output, so a
+phase is silent until it ends, and its child budgets allow about 840 s of
+silence in one phase (120 + 600 + 120 s, read from the code). The declared
+window covers that. Treat 840 s as the lower bound for
+`watchdog_no_progress_secs`, and for an `analyze_silent_secs` set by hand, on a
+project that runs the static leg: below it, a healthy leg can read `stalled`
+wherever the window does not apply.
+
+**What the watchdog does not see.**
+
+- A dispatched subagent does not see the wrapping line: `next.sh` prints it to
+  the session that called it. The subagent's commands do carry the parent's
+  session id (measured), so a devagent script it runs moves `script`, a command
+  it wraps moves a `wrap` file, and its own transcript counts as
+  `subagent-transcript`; but a long command it runs unwrapped is silent for as
+  long as the tool call lasts. A step that dispatches a subagent to run long
+  commands puts the wrapping rule in the brief.
+- WSL from a Windows session: wrap on the Windows side, with `wsl.exe` as the
+  command (`bash "<plugin_root>/libexec/long-run.sh" wsl.exe bash -lc
+  '<line>'`). The pump then runs beside the session and writes to the
+  session's own devagent home. A wrapper started inside WSL has another home
+  (a home shared between WSL and Windows is not supported) and may not carry
+  the marker or the id, so `check` would not see it. Run once by hand on
+  2026-11-20 (exit code and output passed through); no test pins it.
+- The seven scripts that never reach `paths.sh`, named under the script-entry
+  mark above, and any program that is not a devagent script: they count only
+  through the transcript or the wrapper.
+- A `quiet` line for a run killed in the middle of a gap; a per-step wall-clock
+  ceiling. Neither exists.
+
 
 ### 7.4 Step model tiers (`step_models`)
 
@@ -3186,7 +3770,7 @@ has an `origin`, a local ship never pushes, so a suite artifact's
 With no trust policy in scope, `pull.sh` writes this verbatim to
 `<issue-dir>/issue.md`.
 
-#### Under a trust policy: the trust render and the floor (#715)
+#### Under a trust policy: the trust render and the floor (#715, #923)
 
 In scope, pull fetches into `state/staging/` (§3.3), and `issue.md` is the
 trust render of the fetch (`scripts/lib/staging_render.py`), written only after
@@ -3200,7 +3784,7 @@ the floor passes. The render keeps the fetch layout, so `flags_get`,
 
 ---
 
-<body, byte for byte>
+<body, byte for byte, except #923's <U+XXXX> escape>
 
 ---
 
@@ -3221,8 +3805,24 @@ Comments not rendered under trust: N
   `## Comments (<digits>)` after blank, `---`, blank, searched from the first
   body line (the header's own rule never counts). Comment text never enters
   the file.
-- Each byte 0x00-0x1F or 0x7F in the title or a header value becomes
-  `<U+00HH>` (uppercase hex). Nothing else is rewritten.
+- #923: in the title, the `State`, `Author` and `Labels` values and the body,
+  each character of the `chars` set that `allowed_chars` lists, in a run of at
+  most two set characters, becomes `<U+XXXX>` (four to six upper-case hex
+  digits). `URL`, `Created` and the layout lines are not touched.
+- Then each byte 0x00-0x1F or 0x7F in the title or a header value becomes
+  `<U+00HH>` (uppercase hex; #715). Nothing else is rewritten. So a C0 control
+  or DEL in a header is visible and never a `chars` hit; in the body it is.
+- The render writes `<candidate>.mixed.json` (§3.3) from the unescaped title
+  and body: one entry per mixed-script word,
+  `[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]}]`, or `[]`
+  (compact JSON, ASCII, sorted keys, LF). A word is a maximal run of general
+  category L* or M* on one line; each character contributes its
+  Script_Extensions (its Script when it has none), a set of only Common or
+  Inherited is ignored, and UTS #39 section 5.1's augmentation applies (Han
+  adds Hanb, Jpan, Kore; Hiragana and Katakana add Jpan; Hangul adds Kore;
+  Bopomofo adds Hanb). The word is mixed when a character is not ignored and
+  the intersection is empty; `word_scripts` lists the sorted distinct Script
+  values of its characters, Common and Inherited included.
 - Header values are measured, not truncated: `size_cap` counts every byte of
   the candidate, and cutting the `- Labels:` line could hide a `tier:*` label
   from the steering check.
@@ -3238,14 +3838,52 @@ trailer (any commenter could then hold any ticket), and a second
 that #953 removes).
 
 The floor (`scripts/lib/floor.sh`, the first source of `quarantine_verdict`)
-runs `steering` then `size` on the candidate; every check runs, and the first
-failing token quarantines (exit 6). `steering` reads the body's live
+runs `steering`, `size` then `chars` on the candidate; every check runs, and
+the first failing token quarantines (exit 6). `steering` reads the body's live
 `## Workflow flags` key lines with `flags_enumerate` (the validate machine's
 quiet mode) and the `tier:*` labels with `issue_labels`, and requires each to be
 listed in `allowed_steering` (§3.8); `size` compares the candidate's bytes
 with `size_cap`. Until PASS pull prints no ticket byte, and each check prints
 at most 20 diagnostic lines, then a count of the rest (`FLOOR_SAY_MAX`), so a
 ticket's author cannot set how much the worker session reads.
+
+**`chars` (#923).** The set is Bidi_Control (PropList.txt) and
+Default_Ignorable_Code_Point (DerivedCoreProperties.txt), with general category
+Cf, Cn and Cs, and Cc other than U+0009, U+000A and U+000D
+(DerivedGeneralCategory.txt), at Unicode 16.0.0: 822,080 code points. Co
+(private use) is outside it. `scripts/lib/chars.py` scans the title, body and
+the `Labels`, `State` and `Author` values of the candidate with the empty
+allowlist, since the render already escaped what `allowed_chars` lets through.
+- Lines: a field's bytes end a line at an LF together with every CR directly
+  before it, or else at a lone CR; U+000C, U+0085, U+2028 and U+2029 never end
+  a line. Each line is decoded strictly as UTF-8; one that does not decode is
+  one hit, `0xHH` (its first invalid byte), and its other characters are not
+  scanned.
+- Hits: a run is a maximal sequence of set code points on one line; a set code
+  point is passable when it is allowlisted and its run is at most two long;
+  every other set code point is a hit, `U+XXXX`. Scanning the escape with the
+  empty allowlist gives the hits of scanning the text with the allowlist.
+- The detail: the first hit in field order title, body, label, state, author
+  (comments, by id, last: #953), then ` (+N more)`, N counting every further
+  hit in every field. It matches `QUARANTINE_DETAIL_RE` (`scripts/lib/refusals.sh`),
+  `<field> line <n> <U+XXXX|0xHH>[ (+N more)]`, the one grammar of its three
+  carriers: `floor_run`'s second stdout line `detail: <detail>`, which
+  `quarantine_verdict` repeats after `QUARANTINE chars`; the marker's optional
+  line 5; and `quarantine_print`, after `Reason:`. Any other second line is no
+  verdict; an unset or empty regex accepts no detail.
+- `chars` prints its own remedy lines (edit the text, remove the label, or list
+  the character; a release without a fix quarantines again on every pull) and
+  never the "until #953" line: #953's human PASS does not override it.
+- Residual: `- URL:` and `- Created:` are not scanned or escaped; both are
+  tracker-generated on every in-scope backend.
+- The data pin: the six UCD files (`scripts/lib/ucd/`, with the Unicode
+  licence and `SHA256SUMS`) generate `scripts/lib/chars_table.py`
+  (`chars_gen.py write`); the runtime reads only the table and never
+  `unicodedata`, so the answer does not move with the Python that runs it.
+  `chars_gen.py check`, under the suite, holds the table equal to the files
+  and the files to their sums. A version bump replaces the files and the sums
+  together, regenerates, re-pins the counts in `tests/test_chars.py` from an
+  independent derivation, and names the version in the changelog.
 
 #### `mr-comments` output (code backends, #592)
 
@@ -4007,6 +4645,9 @@ cross-field invariants I1–I17; the checker's exit 0 alone is not correctness.
 Since schema 1.2 (#890) the document also publishes each leaf's planned
 `models`, from its `thinking`/`checking` keys, else the project's
 `step_models`; it records the plan, not the model a step ran on.
+Since schema 1.3 (#735) it also carries actuals: each IssueEntry's `actuals`
+slot, an optional project `actuals` field and a top-level `actuals`, copied
+from `<devagent_home>/actuals.json` (§13.6).
 
 #727 fills the readiness fields (`ready`, `ready_via_parent_row`,
 `depends_on[].resolved`) by the rule in `commands/portfolio.md`, and
@@ -4153,6 +4794,41 @@ calls plus one per further page of a truncated timeline, on GitLab N calls.
 devagent's default scope was about 700 ids (≈ 15 GraphQL batches) at #734's
 draft; the command doc gives the Bash call the longest tool timeout
 (600000 ms).
+
+### 13.6 Actuals (#735)
+
+`/devagent:actuals [--archive DIR] [--project P] [--out PATH | --stdout] [--if-stale]`
+(`scripts/actuals.sh`, core `scripts/lib/actuals.py`) builds one versioned JSON
+document, `<devagent_home>/actuals.json`, that joins per `(project, issue)` what
+`cost-report.sh` charges (tokens in input-token equivalents with raw per-model
+counts beside them, agent and operator time, the sessions they came from) with
+the rows `milestones.sh --all --json` reports (§13.5). It reuses both producers'
+machine output: one cost-report `collect()` pass, read as the same row
+objects cost-report's `--json` prints, and one milestones run per project (up
+to 6 at once).
+It writes no devdoc, state or tracker; the document goes owner-only under
+`devagent_home`, and an `--out` under a project's dirs or inside a git work tree
+is refused. Every source consulted is a `sources` row, `ok` or `missing`; a
+missing source never fails the build, and a project whose milestones source is
+missing has null (not empty) milestones. Output is sorted and byte-identical
+over unchanged inputs apart from `generated_at`. The file carries its own
+`actuals_version` (MAJOR.MINOR, the portfolio's version rules); a new minor
+ships with a portfolio schema minor.
+
+The portfolio (§13.4) only reads the file: it never runs a build. It copies
+each row's object unchanged into the matching slot and field, and when the
+file is missing, unreadable, unusable or more than 7 days older than the
+document it leaves them null with one `actuals_unavailable` entry per project.
+Cleanup refreshes the file inside its `[archive]` gate: an age check against
+`[archive].actuals_max_age_hours` (default 24, at most 168), and when stale a
+detached `actuals.sh --if-stale` it does not wait for; the next close warns
+once when that run failed, timed out, or wrote a document missing a source the
+file it replaced had (a tracker outage; exit 4). The rebuild's files sit beside
+the document in `devagent_home`: `actuals-rebuild.log` (its output; a failed
+run's log is kept as `actuals-rebuild.log.1`), `actuals-rebuild.pid` and
+`actuals-rebuild.status` (its exit status). Estimates (#736) and
+forecasts (#742) read the same file. The command doc is `commands/actuals.md`;
+the slot shapes are `docs/portfolio-schema.md`, "Actuals".
 
 ## 14. Status reports
 

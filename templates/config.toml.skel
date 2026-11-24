@@ -62,6 +62,26 @@ ship_as_draft = false
 # host that runs step 20; docs/configuration.md "Required CI checks" has the rest.
 # The commented sample is in [project.{{PROJECT}}] below.
 
+# The no-progress watchdog (#932): a launcher asks `scripts/watchdog.sh check
+# <project> <issue>` whether an unattended session made progress; these keys are
+# its limits (spec §7.3; docs/configuration.md "Watchdog limits"). Integer
+# SECONDS, 1 to 604800; the values shown are the shipped ones. An attended
+# session uses only the maximum, for step 13's analyze_silent_secs (below).
+# /devagent:doctor checks them, and fails any other key that starts
+# `watchdog_`, so a misspelt key cannot silently mean the default.
+# watchdog_no_progress_secs: no progress for this long reads `stalled`. A
+#   [project.<name>] value wins. Keep it at 840 or more on a project whose step
+#   13 runs the static analyzer (its phases can be silent for about that long).
+# watchdog_telemetry_secs: the "may take longer than … s" of the wrapping line
+#   next prints in an unattended session, and the gap above which the long-run
+#   wrapper logs a `quiet` line. A [project.<name>] value wins.
+# watchdog_silent_max_secs: the longest silent window a session may declare
+#   (`--silent`). [defaults] ONLY: a project-level key is never read and doctor
+#   fails it.
+# watchdog_no_progress_secs = 1200
+# watchdog_telemetry_secs = 180
+# watchdog_silent_max_secs = 3600
+
 # Shared WORKFLOW pothole register (#611): one absolute path, read by every
 # project as a union with the plugin seed and the project's own
 # <devdoc>/templates/potholes.md. Global table; a [project.<name>.paths]
@@ -89,6 +109,7 @@ ship_as_draft = false
 # transcripts_dir = "/home/me/private/claude-transcripts"   # absolute (~ expands); required
 # host_id = "laptop"            # [A-Za-z0-9._-]+, no "..", not "."; default the hostname (+ "-wsl" under WSL)
 # exclude = ["*scratch*"]       # cwd-slug globs never archived (case-insensitive)
+# actuals_max_age_hours = 24   # cleanup rebuilds <devagent_home>/actuals.json when it is older; 0 < x <= 168
 
 # Operator capacity (#743): what you can give devagent each week, in one shared
 # table plus an optional table per project. scripts/capacity.sh reads it and a
@@ -152,6 +173,14 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # static build dirs are keyed per project+issue (build-<project>-<issue>[-<tag>]/)
 # so concurrent chains sharing a source tree never collide; cleanup removes them.
 # analyze_timeout = 1800
+#
+# analyze_silent_secs (#932): the silent window, in SECONDS, each analyze leg
+# declares to the no-progress watchdog, so a leg that prints nothing for a while
+# is not read as a stalled session. Unset, it is min(analyze_timeout,
+# watchdog_silent_max_secs): 1800 with both at their shipped values. It must not
+# exceed watchdog_silent_max_secs: above it, step 13 stops before any leg runs
+# (attended too) and doctor fails the config. Also valid in [defaults].
+# analyze_silent_secs = 1800
 
 # suite_jobs: run bats test FILES N at a time in run-suite.sh (`bats --jobs N
 # --no-parallelize-within-files`; tests inside one file still run in order).

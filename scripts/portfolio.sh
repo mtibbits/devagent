@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.2,
+# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.3,
 # docs/portfolio-schema.md) over every configured project's WBS.md.
 # Usage: portfolio.sh [--out PATH | --ready]
 #
-# --ready (#727) builds the same document in memory and prints one TSV line
-# per ready leaf (project, issue, est, text) instead of writing it.
+# --ready (#727) builds the same document in memory, without actuals, and
+# prints one TSV line per ready leaf (project, issue, est, text) instead of
+# writing it.
 #
 # Read-only over every devdoc: it writes the one document and nothing else (no
 # WBS.md, no state, no devdoc file); under --ready it writes nothing at all.
@@ -80,9 +81,30 @@ while (( $# > 0 )); do
 done
 [[ -n "$ready" && -n "$out" ]] && usage_error "--ready writes no document; drop --out"
 
+# #735: the document now carries session ids, cwd slugs and unassigned working
+# directories (the actuals slots), so an --out inside any git work tree is
+# refused, as actuals.sh refuses its own. Fail closed: the nearest existing
+# ancestor must be outside every repository by git's own answer.
+_out_outside_git() {
+  local anc err rc=0
+  anc="$(dirname -- "$1")"
+  while [[ ! -d "$anc" && "$anc" != "$(dirname -- "$anc")" ]]; do anc="$(dirname -- "$anc")"; done
+  err="$(unset "${!GIT_@}"; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 LC_ALL=C \
+          GIT_DISCOVERY_ACROSS_FILESYSTEM=1 "${DEVAGENT_GIT:-git}" -C "$anc" rev-parse --is-inside-work-tree \
+          2>&1 >/dev/null)" || rc=$?
+  (( rc == 0 )) && usage_error "--out is inside a git work tree ($anc); the document lists session ids and working directories"
+  (( rc == 128 )) && [[ "$err" == *"not a git repository"* ]] && return 0
+  usage_error "cannot tell whether --out ($anc) is inside a git work tree (${err:-rc $rc}); refusing"
+}
+[[ -n "$out" ]] && _out_outside_git "$out"
+
 config_load
 # The manifest is this script's alone: an inherited PORTFOLIO_* var would fill a gap.
 unset "${!PORTFOLIO_@}"
+# #735: build copies <devagent_home>/actuals.json (scripts/actuals.sh) into the
+# actuals slots; it only reads the file.
+PORTFOLIO_ACTUALS="$(devagent_home)/actuals.json"
+export PORTFOLIO_ACTUALS
 list="$(config_list_projects)" || die "cannot list the projects in $(config_path)"
 if [[ -n "$ready" ]]; then
   args=(ready)

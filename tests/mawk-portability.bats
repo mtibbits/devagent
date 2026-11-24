@@ -53,7 +53,7 @@ teardown() { teardown_tmp_devagent_home; }
   # illustrates the anti-pattern must use the bare-letter form "match(s, r, arr)"
   # (no /regex/ literal) to stay clear of the guard — the convention the
   # checklist.sh doc comments already follow.
-  run grep -rnE 'match\([^,]+, */[^/]*/, *[A-Za-z_]' "$PLUGIN_ROOT/scripts"
+  run grep -rnE 'match\([^,]+, */[^/]*/, *[A-Za-z_]' "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/libexec"   # #932: libexec is a code root too
   if [ "$status" -eq 0 ]; then
     echo "gawk-only 3-arg match() capture form (mawk parse-errors) found:" >&2
     echo "$output" >&2

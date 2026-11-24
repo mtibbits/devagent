@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **61 slash commands** driving a **25-step workflow** (22 mandatory steps + 3 optional), works against
+provides **62 slash commands** driving a **25-step workflow** (22 mandatory steps + 3 optional), works against
 GitHub, GitLab, and JIRA issue trackers and GitHub and GitLab code forges (JIRA
 is tracker-only; pair it with either forge), and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
@@ -182,6 +182,7 @@ All commands live under the `/devagent:` namespace.
 | `statusreport` | Generate a per-project status report and advance the report pin |
 | `portfolio` | Write one portfolio JSON document over every configured project's WBS, with a parse report, or list every project's ready leaves with `--ready` (read-only) |
 | `milestones` | Print each issue's dated milestones (opened, MRs, steps, parks, closed) and spans from the tracker, linked MRs and checklists (read-only) |
+| `actuals` | Build the per-issue actuals document (tokens, time, sessions and dated milestones per issue) that the portfolio reads |
 
 ### Checklist primitives
 Low-level building blocks the workflow commands use; you rarely call them
@@ -190,7 +191,7 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 
 > The 25 numbered step commands above (22 mandatory + the optional `1 research`,
 > `3 spike`, and `19 mergetoall` steps), plus `next` / `revise` / `comments`, together with the tables in this
-> section, are the full set of 61 slash commands (58 commands + 3 user-invocable
+> section, are the full set of 62 slash commands (59 commands + 3 user-invocable
 > skills — `next`, `capture`, `ship`; #452).
 
 ## Concurrent sessions
@@ -226,6 +227,25 @@ bash scripts/lib/notify.sh --rotate <new-name>
 
 which renames it under the appender's lock. The line format, the events, the
 exit codes and the reader rules are the launcher contract in spec §7.3.
+
+A launcher can also ask whether a session it started is still making progress
+(#932):
+
+```sh
+bash scripts/watchdog.sh check <project> <issue> --transcript <path> --since <launch time>
+```
+
+prints `ok` (exit 0) or one `stalled no-progress …` line (exit 3); exit 1 means
+it could not tell, and exit 2 a wrong call. It kills nothing and writes
+nothing. In an unattended session whose launcher also sets
+`DEVAGENT_WATCHDOG_WRAP`, `next` tells the session to run long commands under
+`libexec/long-run.sh`, so that their output counts as progress. Granting that
+wrapper a permission rule is the same as allowing every command, which is why
+no devagent command or skill grants it, and a launcher sets
+`DEVAGENT_WATCHDOG_WRAP` only once it has granted it. The limits are four optional config
+keys (`docs/configuration.md`, "Watchdog limits"); the progress sources, the
+transcript recipe, the state layout and the permission rule are in spec §7.3,
+"The no-progress watchdog".
 
 ## Posting to a tracker: the leak gate
 
@@ -731,8 +751,9 @@ passes no `--filter-tags`.
 
 Every test file must be hermetic: one stray `export DEVAGENT_ACTIVE_ISSUE=…` in a
 developer's shell must not change a verdict. `tests/lib/hermetic-env.bash` is the
-single home for that — it unsets the #240 session pins and a launcher's
-`DEVAGENT_UNATTENDED` marker, and neutralizes a hostile global gitconfig, `TZ`, and
+single home for that — it unsets the #240 session pins, a launcher's
+`DEVAGENT_UNATTENDED` marker, and the watchdog's `CLAUDE_CODE_SESSION_ID`,
+`DEVAGENT_WATCHDOG_TRANSCRIPT` and `DEVAGENT_WATCHDOG_WRAP`, and neutralizes a hostile global gitconfig, `TZ`, and
 locale. How a file gets it depends on its shape:
 
 - A file that `load`s a setup layer (`load 'lib/bats-helpers'`, `load 'helpers/fixtures'`)

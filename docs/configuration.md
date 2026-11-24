@@ -35,6 +35,12 @@ merge_checks = "required"   # the default: step 20 merges only on green CI and s
                             # [!] when the PR has no checks. A repo without CI sets
                             # merge_checks = "if-present". Both keys also work per
                             # project; a bad value stops step 20 on every run.
+# The no-progress watchdog (#932), optional: see "Watchdog limits" below.
+# Integer seconds, 1 to 604800. The values shown are the shipped ones.
+# watchdog_no_progress_secs = 1200   # a session with no progress for this long reads stalled
+# watchdog_telemetry_secs = 180      # the wrapping line's "longer than"; the quiet-note threshold
+# watchdog_silent_max_secs = 3600    # the longest silent window a session may declare;
+                                     # [defaults] only, never per project
 
 # Operator capacity (#743), optional: see "Capacity" below.
 # devagent does not know the subscription's limits: every value here is an example.
@@ -64,6 +70,10 @@ suite_jobs       = 1                           # bats test files run N at a time
                                                # needs GNU parallel on PATH; raise only after
                                                # auditing the suite at file granularity
                                                # (README "Parallel bats")
+# watchdog_no_progress_secs = 1800             # optional (#932): this project's limits; see
+# watchdog_telemetry_secs = 300                # "Watchdog limits" below. Examples, not defaults.
+# analyze_silent_secs = 2400                   # the silent window each analyze leg declares; unset =
+                                               # min(analyze_timeout, watchdog_silent_max_secs)
 # evidence_platforms = ["os=Linux fs=ext4 modes=posix"]
                                                # optional (#654): platforms whose suite evidence
                                                # THIS config's preship accepts; any other fails
@@ -513,6 +523,87 @@ checks and prints a `[capacity]` header, then:
 
 `doctor <project>` does not run it.
 
+## Watchdog limits
+
+A launcher can ask `scripts/watchdog.sh check <project> <issue>` whether an
+unattended session made progress (#932; the contract is spec §7.3, "The
+no-progress watchdog"). Four keys set its limits. None is required: a config
+with none of them runs on the shipped values. An attended session uses only
+the two that bound an analyze leg's window, `analyze_silent_secs` and
+`watchdog_silent_max_secs`.
+
+| Key | Shipped | `[defaults]` | `[project.<name>]` | What it is |
+|---|---|---|---|---|
+| `watchdog_no_progress_secs` | 1200 (20 min) | yes | overrides | A session none of whose progress sources moved for longer than this reads `stalled` (exit 3). |
+| `watchdog_telemetry_secs` | 180 (3 min) | yes | overrides | The interval in the dispatch wrapping line ("may take longer than … s"), and the gap above which the long-run wrapper logs a `quiet` line. |
+| `watchdog_silent_max_secs` | 3600 (60 min) | yes | **no** | The longest silent window a session may declare with `--silent`. Operator-set: a session cannot raise it. |
+| `analyze_silent_secs` | none | yes | overrides | The silent window every step-13 analyze leg declares. Unset, it is `min(analyze_timeout, watchdog_silent_max_secs)`: 1800 s with both at their shipped values. |
+
+Every value is an integer number of seconds from 1 to 604800 (7 days); a quoted
+integer reads like a bare one. A value is resolved project first, then
+`[defaults]`, then the shipped value, and a malformed value is never replaced
+by the next scope or by the shipped value without a word: it is reported
+(`tests/watchdog-config.bats`: `shipped defaults are 1200, 180 and 3600
+seconds`, `[defaults] overrides each constant`, `a project overrides the limit,
+the interval and analyze_silent_secs`, `a quoted integer and the range ends 1
+and 604800 resolve`, `a malformed value returns 2, not a default or the next
+scope`, `unset analyze_silent_secs derives min(analyze_timeout, maximum)`).
+
+`/devagent:doctor` checks the keys in `[defaults]` and in each project, and
+prints nothing for a key that is absent (`doctor passes a config with none of
+the keys`). It fails:
+
+- a value that is not an integer from 1 to 604800, such as `0`, `-5`, `1.5`,
+  `"abc"` or `604801`, and a table where a value belongs (`doctor fails 0, -5,
+  1.5, "abc", 604801 and a 19-digit value for each key`, `doctor fails a table
+  where a limit belongs`);
+- `watchdog_silent_max_secs` in a project table, whatever it holds: the
+  maximum is read from `[defaults]` only, and a project-level key is never read
+  (`a project-level maximum is ignored by the resolver and failed by doctor`);
+- `analyze_silent_secs` above the maximum; equal to it passes (`doctor fails
+  analyze_silent_secs above the maximum and passes it equal`);
+- any other key that starts `watchdog_`, as unknown, so a misspelt limit cannot
+  silently mean the shipped value (`doctor fails a misspelt watchdog_ key`).
+
+What a bad value does at run time depends on who reads it. `watchdog.sh check`
+exits 1, "cannot determine", and never answers from a default
+(`tests/watchdog-check.bats`: `a malformed or table-typed limit exits 1, never
+a default`). `next.sh`, the long-run wrapper and `watchdog.sh heartbeat` print
+one warning and use the shipped value, because they must not fail a run
+(`tests/watchdog-dispatch.bats`: `a malformed interval prints the line with 180
+s and one warning, and next exits as before`). Step 13 is the exception:
+`analyze_silent_secs` above the maximum stops it before any leg runs, attended
+or not (`tests/analyze-sanitizers.bats`: `analyze_silent_secs above the maximum
+fails before any leg runs (#932)`), while a value that cannot be read warns
+once and the derived window stands in (`a malformed analyze_silent_secs warns
+once and the legs take the derived window (#932)`).
+
+Choosing values:
+
+- `watchdog_no_progress_secs` is how long a healthy session may show nothing.
+  A session shows progress through its transcript, its subagents' transcripts,
+  devagent's own scripts and any command run under the wrapper, so the limit
+  has to cover only the longest stretch with none of those: one long model
+  turn, or one long command run unwrapped. On a project whose step 13 runs the
+  static analyzer, keep it at 840 s or more. The analyzer captures its
+  children's output and its child budgets allow about 840 s of silence in one
+  phase (an estimate read from the code; the leg's real cadence is not
+  measured). The window the leg declares covers that silence, and the limit
+  should not be what a healthy leg depends on.
+- Raise `analyze_silent_secs` for a suite with one test that runs silently for
+  longer than the derived window; it cannot pass `watchdog_silent_max_secs`,
+  so raise that first.
+- `watchdog_silent_max_secs` bounds how long any one declared silence can hide
+  a real stall. A window is declared per command (`--silent 45m`, `--silent
+  90s`; a bare number is minutes), in a plan's `## Declared silent windows`
+  section or on the command line; one above the maximum is refused before the
+  command starts.
+
+The keys set limits only. What a launcher does about `stalled` is the
+launcher's, and the watchdog's state lives under
+`$(devagent_home)/state/watchdog/` (layout, retention and clean-up in spec
+§7.3).
+
 ## The backend verb contract
 
 Backends are plain scripts; four issue backends ship out of the box
@@ -722,6 +813,15 @@ default the hostname with `-wsl` under WSL) and `exclude` (cwd-slug globs).
 reads it. The archive holds everything a session read, so a `transcripts_dir`
 inside a git work tree or inside `~/.claude/projects` is refused; keep it on
 private storage.
+
+`actuals_max_age_hours` (#735, default 24, a number with 0 < x <= 168) is the
+age after which cleanup, inside the same `[archive]` gate, rebuilds
+`<devagent_home>/actuals.json` (`/devagent:actuals`, read by the portfolio);
+168 is the portfolio's 7-day stale line. Any other value refuses the whole
+`[archive]` table, as an unknown key does. A plugin older than #735 does not
+know the key, so it refuses the table and archiving stops (cleanup warns and
+continues): set the key only after every install that reads this config is
+upgraded.
 
 The plugin's own `templates/potholes.md` is a curated public excerpt (#613): at
 most 100 entries, 25 per section, citing devagent issues only. Its line-1

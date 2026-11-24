@@ -71,7 +71,8 @@ _pull_staged() {
   case "$rc:$verdict" in
     "0:QUARANTINE "*)
       staging_discard
-      quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "${verdict#QUARANTINE }" ;;
+      quarantine_verdict_split "$verdict"
+      quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "$QV_TOKEN" "$QV_DETAIL" ;;
     0:PASS) ;;
     *) die "no quarantine verdict for ${repo}#${num} (exit $rc); nothing was written" ;;
   esac
@@ -159,7 +160,8 @@ quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
     local verdict
     verdict="$(quarantine_verdict "$project" "$issue_dir")"
     if [[ "$verdict" == "QUARANTINE "* ]]; then
-      quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "${verdict#QUARANTINE }"
+      quarantine_verdict_split "$verdict"
+      quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "$QV_TOKEN" "$QV_DETAIL"
     fi
   fi
 

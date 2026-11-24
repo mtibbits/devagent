@@ -27,6 +27,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 # shellcheck source=lib/python-interp.sh
 . "$DEVAGENT_ROOT/scripts/lib/python-interp.sh"
+# shellcheck source=lib/heartbeat.sh
+. "$DEVAGENT_ROOT/scripts/lib/heartbeat.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -234,6 +236,10 @@ _classify_row() {  # file name base head
     fi
   fi
   printf '%s :: "%s" | %s | head=%s\n' "$file" "$name" "$tag" "$head" >> "$rows_tmp"
+  # #932: a classified row is progress. This script's own test runs are short
+  # and many, so they are not wrapped; the session's script heartbeat moves
+  # here instead (a no-op in an attended session; it never fails the run).
+  heartbeat_touch script
 }
 
 # ---- execute: baseline (worktree) then HEAD (source tree) -------------------

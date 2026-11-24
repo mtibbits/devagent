@@ -11,6 +11,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+# shellcheck source=lib/watchdog-limits.sh
+. "$DEVAGENT_ROOT/scripts/lib/watchdog-limits.sh"
 
 : "${DEVAGENT_PYTHON:=python3}"
 
@@ -49,6 +51,18 @@ build_dir="$(config_get_project_field "$project" build_dir 2>/dev/null || true)"
 timeout_budget="${DEVAGENT_ANALYZE_TIMEOUT:-$(config_get_project_field "$project" analyze_timeout 2>/dev/null || true)}"
 : "${timeout_budget:=1800}"
 
+# #932: every leg below runs under libexec/long-run.sh, so that its output is the
+# session's progress, and declares one silent window, resolved here, ONCE, before
+# any leg. A window set above the maximum fails the step before anything runs
+# (doctor fails the same config); one that cannot be read warns once and the
+# derived window stands in.
+_silent_rc=0
+watchdog_analyze_window "$project" "$timeout_budget" || _silent_rc=$?
+[ "$_silent_rc" -eq 0 ] || die "analyze-static: $WATCHDOG_ANALYZE_NOTE. No leg was run."
+[ -z "$WATCHDOG_ANALYZE_NOTE" ] || warn "analyze-static: $WATCHDOG_ANALYZE_NOTE"
+watchdog_long_run_argv "$project" --silent "${WATCHDOG_ANALYZE_SECS}s"
+long_run=("${WATCHDOG_LONG_RUN[@]}")
+
 # #275: ensure the analyze build dir carries a test-inclusive compile database so
 # the static analyzers actually see test-only TUs. Reconfigure in place (idempotent,
 # fast) with two benign additive flags. Guard on CMakeLists.txt so non-CMake projects
@@ -56,7 +70,9 @@ timeout_budget="${DEVAGENT_ANALYZE_TIMEOUT:-$(config_get_project_field "$project
 # py's existing "compile_commands.json not found" handling rather than aborting analyze.
 : "${DEVAGENT_CMAKE:=cmake}"
 if [ -f "$source_dir/CMakeLists.txt" ]; then
-    if ! timeout -k 10 "$timeout_budget" "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build_dir" \
+    # #932: two streams, as before: stdout to /dev/null, stderr to the caller.
+    if ! "${long_run[@]}" -- \
+            timeout -k 10 "$timeout_budget" "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build_dir" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DENABLE_TESTING=ON >/dev/null; then
         echo "warning: analyze-static.sh: cmake configure of $build_dir failed; compile_commands.json may be stale/absent and static analysis incomplete or vacuous — verify the build dir's generator/source matches" >&2
     fi
@@ -65,5 +81,12 @@ fi
 mkdir -p "$issue_dir/analysis"
 out="$issue_dir/analysis/$(date_tag)-static.txt"
 
-"$DEVAGENT_PYTHON" "$DEVAGENT_ROOT/static_analysis_diff.py" --repo "$source_dir" "$baseline" "$build_dir" \
+# #932: two streams, as before: the analyzer's stdout is the artifact, and its
+# progress lines stay on stderr, where they are written flushed.
+# PYTHONUNBUFFERED=1 (the wrapper runs a leading NAME=value through env) makes
+# its stdout reach the pipe as it is written rather than at exit. The analyzer
+# captures its children's output, so a phase is silent until it ends: that is
+# what the window above is for (Issue-932 R2-U2: this leg's cadence is unmeasured).
+"${long_run[@]}" -- \
+    PYTHONUNBUFFERED=1 "$DEVAGENT_PYTHON" "$DEVAGENT_ROOT/static_analysis_diff.py" --repo "$source_dir" "$baseline" "$build_dir" \
     | tee "$out"
