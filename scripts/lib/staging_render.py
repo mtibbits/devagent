@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """staging_render.py — the trust render of a fetched ticket (#715).
 
-Run as `python3 -I -X utf8 staging_render.py <raw> <out> <repo> <num>`
+Run as `python3 -I -X utf8 staging_render.py <raw> <out> <repo> <num> [<allow-file>]`
 (scripts/lib/staging.sh staging_render). <raw> is the backend's `fetch`
 output; <out> receives the candidate issue.md that pull's floor checks and
-staging_promote installs byte for byte. Bytes in, bytes out.
+staging_promote installs byte for byte, and <out>.mixed.json the mixed-script
+record (#923). <allow-file> holds the trust policy's allowed_chars as a JSON
+array (chars.load_allowlist); four arguments mean the empty allowlist. Bytes
+in, bytes out.
 
 Fetch's layout is kept, so flags_get, issue_labels and catchup read the
 candidate unchanged:
@@ -37,9 +40,17 @@ Rules:
   blank, all of them at or after the first body line. The search starts at
   the first body line, so the header's own rule is never a predecessor.
   Everything after that heading (the comment text) is dropped.
-- Each byte 0x00-0x1F or 0x7F in the title or a header value becomes
-  `<U+00HH>` (uppercase hex). Nothing else is rewritten; other characters
-  are #923's.
+- #923: each allowlisted set character whose run is at most two long, in the
+  title and the State, Author and Labels values and in the body, becomes
+  `<U+XXXX>` (chars.chars_escape_bytes); every other character is left for
+  the floor's `chars` check. `URL`, `Created` and the layout lines are not
+  touched.
+- Then each byte 0x00-0x1F or 0x7F in the title or a header value becomes
+  `<U+00HH>` (uppercase hex; #715). Nothing else is rewritten.
+- <out>.mixed.json: chars.mixed_record_bytes over the unescaped title, then
+  the body, as compact JSON plus LF (`[]` when no word is mixed). It is
+  written after the candidate and before the `trailers` line, and lives and
+  dies with the staged file (staging.sh).
 
 The embedded-layout edge, an accepted residual until #953's issue-fields read:
 a body that itself holds the full trailer (blank, `---`, blank,
@@ -52,8 +63,9 @@ and rejected, so neither is re-proposed: quarantining on a second trailer
 to cut the exact suffix (a network read and a race path that #953 deletes).
 
 Stdout: `trailers <k>` (k = every trailer-shaped heading after the header,
-comments included; pull notes k > 1 after PASS). Exit 0 ok · 2 usage · 3
-layout defect, whose stderr is exactly one of `line 1`, `line 2`,
+comments included; pull notes k > 1 after PASS). Exit 0 ok · 2 usage · 4 a
+malformed allow file, or chars.py cannot load (both streams empty, nothing
+written) · 3 layout defect, whose stderr is exactly one of `line 1`, `line 2`,
 `header line <n>`, `header keys`, `no header rule`, `no comments heading` —
 never a ticket byte. Both streams are written as bytes with b"\\n"
 (trust_policy.py's rule), so a CRLF host never adds a CR.
@@ -61,101 +73,88 @@ never a ticket byte. Both streams are written as bytes with b"\\n"
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import sys
 
-HEADER_KEYS = (b"State", b"Author", b"Labels", b"URL")
-OPTIONAL_KEY = b"Created"
-HEADER_LINE = re.compile(rb"- ([A-Za-z]+):")
-HEADING = re.compile(rb"## Comments \(([0-9]{1,9})\)")
+
+def _sibling(name: str):
+    """Load scripts/lib/<name>.py by absolute path (never through sys.path:
+    the script runs under `python3 -I`)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name + ".py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+try:
+    _chars = _sibling("chars")
+except Exception:  # noqa: BLE001 - main() reports exit 4
+    _chars = None
+# The layout chars.py loaded, so both read one module (main() exits 4 first
+# when it is missing).
+_layout = _chars._L if _chars is not None else None
 CONTROL = re.compile(rb"[\x00-\x1f\x7f]")
-
-
-class Layout(Exception):
-    """The fetched text is not in fetch's layout; rc 3."""
+CHARS_KEYS = (b"State", b"Author", b"Labels")
 
 
 def _escape(b: bytes) -> bytes:
     return CONTROL.sub(lambda m: b"<U+%04X>" % m.group(0)[0], b)
 
 
-def _split(data: bytes) -> list:
-    """[(content, ending)]: content without its trailing CRs, ending = those
-    CRs plus the LF (b"" for a last line with no LF)."""
-    parts = data.split(b"\n")
-    lines = []
-    for i, p in enumerate(parts):
-        last = i == len(parts) - 1
-        if last and p == b"":
-            break
-        c = p.rstrip(b"\r")
-        lines.append((c, p[len(c):] + (b"" if last else b"\n")))
-    return lines
-
-
-def _is_trailer(lines: list, i: int, body: int) -> bool:
-    return (i - 3 >= body and HEADING.fullmatch(lines[i][0]) is not None
-            and lines[i - 1][0] == b"" and lines[i - 2][0] == b"---" and lines[i - 3][0] == b"")
-
-
-def render(data: bytes, repo: bytes, num: bytes) -> tuple:
-    """(candidate bytes, trailer count)."""
-    lines = _split(data)
+def render(data: bytes, repo: bytes, num: bytes, allow=frozenset()) -> tuple:
+    """(candidate bytes, trailer count, mixed-script record entries)."""
+    lines = _layout._split(data)
     prefix = b"# " + repo + b"#" + num + " — ".encode()
     if not lines or not lines[0][0].startswith(prefix):
-        raise Layout("line 1")
-    if len(lines) < 2 or lines[1][0] != b"":
-        raise Layout("line 2")
-    out = [prefix + _escape(lines[0][0][len(prefix):]) + lines[0][1], lines[1][0] + lines[1][1]]
-    keys = []
-    i = 2
-    while i < len(lines) and lines[i][0] != b"":
-        m = HEADER_LINE.match(lines[i][0])
-        if m is None:
-            raise Layout(f"header line {i + 1}")
-        keys.append(m.group(1))
-        head = m.group(0)
-        out.append(head + _escape(lines[i][0][len(head):]) + lines[i][1])
-        i += 1
-    if tuple(keys) not in (HEADER_KEYS, HEADER_KEYS + (OPTIONAL_KEY,)):
-        raise Layout("header keys")
-    if i + 2 >= len(lines) or lines[i][0] != b"" or lines[i + 1][0] != b"---" or lines[i + 2][0] != b"":
-        raise Layout("no header rule")
-    body = i + 3
-    first = None
-    count = 0
-    for j in range(body, len(lines)):
-        if _is_trailer(lines, j, body):
-            count += 1
-            if first is None:
-                first = j
-    if first is None:
-        raise Layout("no comments heading")
-    out += [c + e for c, e in lines[i:first + 1]]
-    n = int(HEADING.fullmatch(lines[first][0]).group(1))
+        raise _layout.Layout("line 1")
+    body, first, count = _layout.layout(lines)
+    title = lines[0][0][len(prefix):]
+    out = [prefix + _escape(_chars.chars_escape_bytes(title, allow)) + lines[0][1], lines[1][0] + lines[1][1]]
+    for c, e in lines[2:body - 3]:
+        m = _layout.HEADER_LINE.match(c)
+        head, value = m.group(0), c[len(m.group(0)):]
+        if m.group(1) in CHARS_KEYS:
+            value = _chars.chars_escape_bytes(value, allow)
+        out.append(head + _escape(value) + e)
+    text = b"".join(c + e for c, e in lines[body:first - 3])
+    out += [c + e for c, e in lines[body - 3:body]]
+    out.append(_chars.chars_escape_bytes(text, allow))
+    out += [c + e for c, e in lines[first - 3:first + 1]]
+    record = _chars.mixed_record_bytes("title", title) + _chars.mixed_record_bytes("body", text)
+    n = int(_layout.HEADING.fullmatch(lines[first][0]).group(1))
     if n > 0:
         eol = lines[first][1] or b"\n"
         if not lines[first][1]:
             out[-1] += eol
         out.append(eol + b"Comments not rendered under trust: " + str(n).encode("ascii") + eol)
-    return b"".join(out), count
+    return b"".join(out), count, record
 
 
 def main(argv: list) -> int:
-    if len(argv) != 4:
-        sys.stderr.buffer.write(b"usage: staging_render.py <raw> <out> <repo> <num>\n")
+    if len(argv) not in (4, 5):
+        sys.stderr.buffer.write(b"usage: staging_render.py <raw> <out> <repo> <num> [<allow-file>]\n")
         return 2
-    raw, out, repo, num = argv
+    raw, out, repo, num = argv[:4]
+    if _chars is None or _chars.LOAD_ERROR is not None:
+        return 4
+    try:
+        allow = _chars.load_allowlist(argv[4] if len(argv) == 5 else None)
+    except ValueError:
+        return 4
     with open(raw, "rb") as fh:
         data = fh.read()
     try:
-        text, count = render(data, os.fsencode(repo), os.fsencode(num))
-    except Layout as e:
+        text, count, record = render(data, os.fsencode(repo), os.fsencode(num), allow)
+    except _layout.Layout as e:
         sys.stderr.buffer.write(str(e).encode("ascii") + b"\n")
         return 3
     with open(out, "wb") as fh:
         fh.write(text)
+    with open(out + ".mixed.json", "wb") as fh:
+        fh.write(_chars.record_json(record))
     sys.stdout.buffer.write(b"trailers " + str(count).encode("ascii") + b"\n")
     return 0
 

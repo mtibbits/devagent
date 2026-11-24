@@ -14,8 +14,11 @@
 # (older than 60 minutes, judged by age: a recorded PID can be reused).
 #
 # Layout: $(devagent_home)/state/staging/<project>.<issue_id>.XXXXXX/ (0700),
-# holding fetch.raw (deleted by staging_render, so comment text is on disk
-# only while the render runs) and issue.md (the candidate).
+# holding fetch.raw and allow.json (the policy's allowed_chars; both deleted by
+# staging_render, so comment text is on disk only while the render runs),
+# issue.md (the candidate) and issue.md.mixed.json (#923's mixed-script record,
+# read by later verdict sources as "<candidate>.mixed.json"; it lives and dies
+# with the candidate: promote copies only issue.md, then removes the dir).
 #
 # Source-only file: do not execute directly. Uses the caller's die().
 
@@ -67,26 +70,40 @@ staging_discard() {
   return 0
 }
 
-# staging_render <repo> <num>: render STAGE_RAW into STAGE_MD (staging_render.py),
-# then delete STAGE_RAW. SETTER-GLOBAL STAGE_TRAILERS (the script's
+# staging_render <repo> <num>: render STAGE_RAW into STAGE_MD and
+# STAGE_MD.mixed.json (staging_render.py), with the policy's allowed_chars
+# (TRUST_VAL[allowed_chars] when TRUST_VAL is an associative array holding the
+# key, else `[]`) in allow.json — never in argv or the environment — then
+# delete STAGE_RAW and allow.json. SETTER-GLOBAL STAGE_TRAILERS (the script's
 # `trailers <k>`, accepted only as 1-9 digits) and STAGE_REASON (the script's
 # stderr, kept only when it is exactly one of its six fixed layout reasons, else
-# empty: anything else could carry ticket bytes). Returns the script's exit, or
-# 3 when it exits 0 without a well-formed token.
+# empty: anything else could carry ticket bytes). Returns the script's exit (4:
+# a malformed allowed_chars, or chars.py cannot load), or 3 when it exits 0
+# without a well-formed token or without the record, or allow.json cannot be
+# written.
 # shellcheck disable=SC2034  # setter-globals
 staging_render() {
-  local repo="$1" num="$2" rc=0 out reason="" err="$STAGE_DIR/render.err"
+  local repo="$1" num="$2" rc=0 out reason="" err="$STAGE_DIR/render.err" allow="$STAGE_DIR/allow.json"
+  local chars='[]'
   local reasons='^(line [12]|header line [0-9]{1,9}|header keys|no header rule|no comments heading)$'
   STAGE_TRAILERS="" STAGE_REASON=""
-  out="$(python3 -I -X utf8 "$_STAGING_LIB_DIR/staging_render.py" "$STAGE_RAW" "$STAGE_MD" "$repo" "$num" \
+  # Under `set -u` an undeclared TRUST_VAL, and a declared one without the key,
+  # are both unbound-variable errors unless guarded so.
+  if [[ "$(declare -p TRUST_VAL 2>/dev/null)" == "declare -A"* ]]; then chars="${TRUST_VAL[allowed_chars]:-[]}"; fi
+  if ! printf '%s' "$chars" > "$allow"; then
+    rm -f "$STAGE_RAW" "$allow"
+    return 3
+  fi
+  out="$(python3 -I -X utf8 "$_STAGING_LIB_DIR/staging_render.py" "$STAGE_RAW" "$STAGE_MD" "$repo" "$num" "$allow" \
     2> "$err")" || rc=$?
   [ "$rc" -eq 0 ] || reason="$(head -c 32 "$err")"
-  rm -f "$STAGE_RAW" "$err"
+  rm -f "$STAGE_RAW" "$err" "$allow"
   if [ "$rc" -ne 0 ]; then
     if [[ "$reason" =~ $reasons ]]; then STAGE_REASON="$reason"; fi
     return "$rc"
   fi
   [[ "$out" =~ ^trailers\ ([0-9]{1,9})$ ]] || return 3
+  [ -f "$STAGE_MD.mixed.json" ] || return 3
   STAGE_TRAILERS="${BASH_REMATCH[1]}"
 }
 
