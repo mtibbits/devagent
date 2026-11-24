@@ -6,7 +6,10 @@
 # "block"` gates every post-ship step. Nothing here waits for CI. ci_read_view
 # (#885) reads the superset verb `mr-view` through the same fetch and parser for
 # the merge step (mergemr.sh), and merge_checks_resolve/merge_method_resolve validate
-# that step's two config keys.
+# that step's two config keys. Both reads keep each check line's name and state, and
+# ci_required_eval (#1097) judges a project's required checks by them.
+# ci_checks_capable (#1097) says beforehand, without a call, whether the backend can
+# report checks at all (preship-deferred.sh).
 #
 # Every ci_* function is a SETTER-GLOBAL: call it bare, never as $(...) (register
 # Issue-282; ci_gate_resolve's die must exit the caller, Issue-120). Expects
@@ -128,6 +131,16 @@ _ci_call() {
   return 0
 }
 
+# _ci_backend <project>: sets _CI_BACKEND to the project's code backend, CR-stripped
+# (empty when it names none), and _CI_SCRIPT to that backend's script. The one place
+# both are worked out, so the read (_ci_fetch) and the answer given beforehand
+# (ci_checks_capable) are about the same file.
+_ci_backend() {
+  _CI_BACKEND="$(config_get_project_field "$1" code_source.backend 2>/dev/null || true)"
+  _CI_BACKEND="${_CI_BACKEND//$'\r'/}"
+  _CI_SCRIPT="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/$_CI_BACKEND.sh"
+}
+
 # _ci_fetch <project> <url> <verb> <knob> <default>: one bounded read of the code
 # backend's <verb> on <url> (_ci_call). Sets _CI_OUT to its stdout and returns 0; on
 # any failure sets CI_RESULT/CI_LINE (notchecked or unknown) and _CI_REASON (the bare
@@ -135,9 +148,8 @@ _ci_call() {
 _ci_fetch() {
   local project="$1" url="$2" verb="$3" knob="$4" def="$5" backend script last
   _CI_OUT=""; _CI_REASON=""
-  backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
-  backend="${backend//$'\r'/}"
-  script="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/$backend.sh"
+  _ci_backend "$project"
+  backend="$_CI_BACKEND" script="$_CI_SCRIPT"
   # #1016: the local code backend has no CI; it is never asked.
   if code_backend_is_local "$backend"; then
     CI_RESULT=notapplicable; CI_LINE="CI not applicable: local code backend"; _CI_REASON="local code backend"
@@ -173,6 +185,57 @@ _ci_fetch() {
   return 1
 }
 
+# A `case` arm whose pattern list names mr-checks, alone or between `|`: the
+# backend's verb table, as written.
+_CI_CHECKS_ARM_RE='^[[:space:]]*\(?([^()]*\|[[:space:]]*)?mr-checks([[:space:]]*\|[^()]*)?\)'
+# What a not-implemented arm does: exits 78 itself or through backend-common.sh.
+_CI_NOT_IMPL_RE='(^|[^[:alnum:]_])(exit[[:space:]]+78|bc_die_not_implemented)([^[:alnum:]_]|$)'
+
+# ci_checks_capable <project> (#1097): whether the project's code backend can report a
+# PR's checks, decided WITHOUT calling it: it is asked before ship, by a script that
+# must not make a backend call (preship-deferred.sh is not a trust entry point). The
+# answer is _ci_fetch's own class for an mr-checks read, as far as the backend's
+# script shows it beforehand:
+#   no   the local backend (_ci_fetch never asks it: notapplicable); no backend named;
+#        or a script whose verb table has no arm for mr-checks (it answers exit 2, no
+#        such verb) or whose arm is a not-implemented stub (exit 78). These are the
+#        reads _ci_fetch calls notchecked or notapplicable: mergemr's CI NOT CHECKED stop.
+#   yes  the verb table has an arm for mr-checks that is not such a stub.
+# Sets CI_CAPABLE (yes|no) and CI_CAPABLE_BACKEND (the backend's name, `(none)` when
+# the project names none) and returns 0. Returns 1 with CI_CAPABLE empty and
+# CI_CAPABLE_WHY set when the script is not there to read: a broken install, which
+# _ci_fetch reports as unknown, never as notchecked.
+# The verb table is read as text, never run: a `case` arm naming mr-checks
+# (_CI_CHECKS_ARM_RE) up to its `;;`, a stub when a line of it matches
+# _CI_NOT_IMPL_RE. Comment lines are not read. tests/preship-deferred-parse.bats holds the
+# answer equal to each shipped backend's own exit code for `mr-checks` with no URL.
+# A setter-global: call it bare or in a condition.
+# shellcheck disable=SC2034  # CI_CAPABLE* are the return channel — read by preship-deferred.sh
+ci_checks_capable() {
+  local line arm=0 found=0 stub=0
+  CI_CAPABLE=""; CI_CAPABLE_WHY=""
+  _ci_backend "$1"
+  CI_CAPABLE_BACKEND="${_CI_BACKEND:-(none)}"
+  if code_backend_is_local "$_CI_BACKEND" || [ -z "$_CI_BACKEND" ]; then
+    CI_CAPABLE=no
+    return 0
+  fi
+  if [ ! -x "$_CI_SCRIPT" ] || [ ! -r "$_CI_SCRIPT" ]; then
+    CI_CAPABLE_WHY="$_CI_BACKEND.sh not found or not executable"
+    return 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line//$'\r'/}"
+    [[ ! "$line" =~ ^[[:space:]]*# ]] || continue
+    if [ "$arm" -eq 0 ] && [[ "$line" =~ $_CI_CHECKS_ARM_RE ]]; then arm=1; found=1; fi
+    [ "$arm" -eq 1 ] || continue
+    [[ ! "$line" =~ $_CI_NOT_IMPL_RE ]] || stub=1
+    [[ "$line" != *";;"* ]] || arm=0
+  done <"$_CI_SCRIPT"
+  if [ "$found" -eq 1 ] && [ "$stub" -eq 0 ]; then CI_CAPABLE=yes; else CI_CAPABLE=no; fi
+  return 0
+}
+
 # _ci_view_kind <kind> <field> <field2>: stores one mr-view singleton in its MV_*
 # global; returns 1 when the value is not one the grammar allows.
 _ci_view_kind() {
@@ -199,20 +262,26 @@ _ci_view_kind() {
 # Any other kind is bad: CI UNKNOWN "unrecognised <verb> output". In view mode a
 # missing, invalid or repeated singleton leaves the CI result standing but sets
 # MV_ERR (MV_OK stays 0).
+# Each pass/pending/fail line is also kept (#1097), its name in CI_CHECK_NAME[i] and
+# its state in CI_CHECK_STATE[i]: `pass:<CONCLUSION>`, `pending` or
+# `fail:<CONCLUSION>`, the conclusion empty when the line has none or prints `-`. A
+# pass line's conclusion changes neither CI_RESULT nor CI_LINE. A bad body keeps no
+# line. The caller empties both arrays first.
 _ci_parse() {
   local project="$1" issue="$2" url="$3" verb="$4" mode="$5" out="$_CI_OUT"
-  local state="" head="" b name link concl item n=0 bad=0 mv_bad="" k
+  local state="" head="" b name link concl c item n=0 bad=0 mv_bad="" k
   local -a pend=() fails=()
   local -A seen=()
   out="${out//$'\r'/}"
   while IFS=$'\t' read -r b name link concl; do
+    c="$concl"; [ "$c" != - ] || c=""                    # `-` = no conclusion (§9.2)
     case "$b" in
       state) state="$name" ;;
       head)  head="$name" ;;
-      pass)  n=$((n + 1)) ;;
-      pending) n=$((n + 1)); pend+=("$name") ;;
+      pass)  n=$((n + 1)); CI_CHECK_NAME+=("$name"); CI_CHECK_STATE+=("pass:$c") ;;
+      pending) n=$((n + 1)); pend+=("$name"); CI_CHECK_NAME+=("$name"); CI_CHECK_STATE+=(pending) ;;
       fail)
-        n=$((n + 1)); item="$name"
+        n=$((n + 1)); item="$name"; CI_CHECK_NAME+=("$name"); CI_CHECK_STATE+=("fail:$c")
         case "$concl" in FAILURE|ERROR|'') ;; *) item+=" [$concl]" ;; esac
         case "$link" in ''|-) ;; *) item+=" $link" ;; esac   # `-` = no link (§9.2)
         fails+=("$item") ;;
@@ -242,6 +311,7 @@ _ci_parse() {
   case "$state" in open|merged|closed) ;; *) bad=1 ;; esac
   [[ "$head" =~ ^[0-9a-f]{40}$ ]] || bad=1
   if [ "$bad" -eq 1 ]; then
+    CI_CHECK_NAME=(); CI_CHECK_STATE=()
     _ci_unknown "$url" "unrecognised $verb output"
     return 0
   fi
@@ -274,10 +344,12 @@ _ci_parse() {
 # backend's mr-checks, bounded by DEVAGENT_CI_READ_SECS (default 20). Never dies;
 # returns 0. notapplicable is the local code backend (#1016), which is not called.
 # A failed or unparseable read is `unknown`, never `none` or `green` (register
-# Issue-243): the gate holds on it.
+# Issue-243): the gate holds on it. Also sets CI_CHECK_NAME / CI_CHECK_STATE (#1097,
+# _ci_parse), one entry per check line, emptied first: a read that fails or is
+# unparseable keeps no line, its own or an earlier read's.
 ci_read() {
   local project="$1" issue="$2" url="$3"
-  CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""
+  CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""; CI_CHECK_NAME=(); CI_CHECK_STATE=()
   _ci_fetch "$project" "$url" mr-checks DEVAGENT_CI_READ_SECS 20 || return 0
   _ci_parse "$project" "$issue" "$url" mr-checks strict
 }
@@ -301,12 +373,13 @@ ci_read() {
 #   MV_CLOSES         array of owner/name#n, one per closing reference
 #   MV_TRAILERS       array of distinct Signed-off-by:/Co-authored-by: lines
 #   MV_COMMITS_TOTAL MV_COMMITS_READ   the PR's commit count; the commits read
-# Every MV_* is reset first, so a failed read never shows an earlier read's values.
+# Every MV_* is reset first, and CI_CHECK_NAME / CI_CHECK_STATE as ci_read does, so a
+# failed read never shows an earlier read's values.
 # Never dies; returns 0. A setter-global: call it bare.
 # shellcheck disable=SC2034  # MV_* are the return channel — read by mergemr.sh
 ci_read_view() {
   local project="$1" issue="$2" url="$3"
-  CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""
+  CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""; CI_CHECK_NAME=(); CI_CHECK_STATE=()
   MV_OK=0; MV_ERR=""; MV_DRAFT=""; MV_BASE=""; MV_MERGEABLE=""; MV_MERGESTATE=""
   MV_AUTOMERGE=""; MV_QUEUE=""; MV_NUMBER=""; MV_TITLE=""; MV_MERGECOMMIT=""
   MV_CLOSES=(); MV_TRAILERS=(); MV_COMMITS_TOTAL=""; MV_COMMITS_READ=""
@@ -316,6 +389,55 @@ ci_read_view() {
   fi
   _ci_parse "$project" "$issue" "$url" mr-view view
   [ "$CI_RESULT" != unknown ] || MV_ERR="${MV_ERR:-$_CI_REASON}"
+  return 0
+}
+
+# ci_required_eval [<name>...] (#1097): judges each required check <name> by the lines
+# the last ci_read / ci_read_view kept. Every line whose name is <name> byte for byte
+# counts (two workflows can share a job name), and a name is one of:
+#   bad      a `fail` line, or a `pass` line whose conclusion is not SUCCESS. Its
+#            detail is the first such line's conclusion in lower case (`cancelled`,
+#            `skipped`, `neutral`), `no conclusion` for a pass line without one (only
+#            pass + SUCCESS is success, so it fails closed) and `failure` for a fail
+#            line without one (as CI FAILED reads it)
+#   pending  no bad line, at least one `pending` line
+#   success  at least one line, every one pass + SUCCESS
+#   missing  no line
+# Sets, each reset first:
+#   RC_OK       1 when every <name> is success (also with no names), else 0
+#   RC_BAD      `<name> (<detail>); …`
+#   RC_PENDING  `<name>; …`
+#   RC_MISSING  `<name>; …`
+#   RC_REPORT   `<name>: <state>; …`, every name, a bad one by its detail
+# all in argument order. After a read that failed there are no lines, so every name
+# is missing: CI_RESULT tells that apart from a check that did not report. Never
+# fails. A setter-global: call it bare.
+# shellcheck disable=SC2034  # RC_* are the return channel — read by mergemr.sh
+ci_required_eval() {
+  local name i st state detail d
+  RC_OK=1; RC_BAD=""; RC_PENDING=""; RC_MISSING=""; RC_REPORT=""
+  for name in "$@"; do
+    state=missing; detail=""
+    for i in ${CI_CHECK_NAME[@]+"${!CI_CHECK_NAME[@]}"}; do
+      [ "${CI_CHECK_NAME[$i]}" = "$name" ] || continue
+      st="${CI_CHECK_STATE[$i]:-}"
+      case "$st" in
+        pass:SUCCESS) [ "$state" != missing ] || state=success; continue ;;
+        pending)      [ "$state" = bad ] || state=pending; continue ;;
+        pass:)        d="no conclusion" ;;
+        fail:)        d=failure ;;
+        *)            d="${st#*:}"; d="${d,,}" ;;
+      esac
+      [ "$state" = bad ] || { state=bad; detail="$d"; }
+    done
+    case "$state" in
+      success) ;;
+      pending) RC_OK=0; RC_PENDING+="${RC_PENDING:+; }$name" ;;
+      missing) RC_OK=0; RC_MISSING+="${RC_MISSING:+; }$name" ;;
+      *)       RC_OK=0; RC_BAD+="${RC_BAD:+; }$name ($detail)"; state="$detail" ;;
+    esac
+    RC_REPORT+="${RC_REPORT:+; }$name: $state"
+  done
   return 0
 }
 
@@ -335,23 +457,25 @@ ci_report() {
   ( log_append "$issue_dir" ci "$key — $CI_LINE" ) 2>/dev/null || true
 }
 
+# _ci_grace_over (#1097): the one test for "past the grace bound". Returns 0 when
+# CI_SEEN_AT is all digits and at least DEVAGENT_CI_GRACE_SECS (default 120) seconds
+# old, else 1: an empty or garbled CI_SEEN_AT is never past it. Sets _CI_SECS to the
+# bound, for the caller's message. A predicate: call it in a condition, never bare.
+_ci_grace_over() {
+  _ci_secs DEVAGENT_CI_GRACE_SECS 120
+  [[ "${CI_SEEN_AT:-}" =~ ^[0-9]+$ ]] && (( $(date +%s) - 10#$CI_SEEN_AT >= _CI_SECS ))
+}
+
 # ci_verdict: sets CI_VERDICT from ci_read's CI_RESULT — red; hold (pending, unknown,
 # or none inside DEVAGENT_CI_GRACE_SECS, default 120 s, of CI_SEEN_AT: checks may not
-# have registered yet); else proceed. An empty or garbled CI_SEEN_AT holds, and so does
-# an unrecognised result (fail closed).
+# have registered yet, _ci_grace_over); else proceed. An empty or garbled CI_SEEN_AT
+# holds, and so does an unrecognised result (fail closed).
 # shellcheck disable=SC2034  # CI_VERDICT is the return channel — read by next.sh/mergetoall.sh
 ci_verdict() {
   case "${CI_RESULT:-}" in
     red) CI_VERDICT=red ;;
     pending|unknown) CI_VERDICT=hold ;;
-    none)
-      _ci_secs DEVAGENT_CI_GRACE_SECS 120
-      if [[ "${CI_SEEN_AT:-}" =~ ^[0-9]+$ ]] \
-         && (( $(date +%s) - 10#$CI_SEEN_AT >= _CI_SECS )); then
-        CI_VERDICT=proceed
-      else
-        CI_VERDICT=hold
-      fi ;;
+    none) if _ci_grace_over; then CI_VERDICT=proceed; else CI_VERDICT=hold; fi ;;
     green|notchecked|notapplicable|merged|closed) CI_VERDICT=proceed ;;
     *) CI_VERDICT=hold ;;
   esac

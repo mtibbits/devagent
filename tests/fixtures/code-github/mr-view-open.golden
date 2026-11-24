@@ -1,8 +1,8 @@
 state	open
 head	a1b2c3d4e5f60718293a4b5c6d7e8f9012345678
-pass	bats shard 1 of 4	https://github.com/acme/volk/actions/runs/1/job/31
-pass	lint	https://github.com/acme/volk/actions/runs/1/job/32
-pass	Analyze (actions)	https://github.com/acme/volk/actions/runs/1/job/33
+pass	bats shard 1 of 4	https://github.com/acme/volk/actions/runs/1/job/31	SUCCESS
+pass	lint	https://github.com/acme/volk/actions/runs/1/job/32	SUCCESS
+pass	Analyze (actions)	https://github.com/acme/volk/actions/runs/1/job/33	SKIPPED
 draft	false
 base	main
 mergeable	MERGEABLE

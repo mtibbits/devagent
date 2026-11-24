@@ -99,7 +99,8 @@ devAgent/
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh,
 │   │                        #   check-step-pairings.py — #558 pairing census,
-│   │                        #   ci.sh — #782 MR CI read/line/gate,
+│   │                        #   ci.sh — #782 MR CI read/line/gate; #1097 required-check evaluation,
+│   │                        #   selfcert.sh — #1097 self-certifying-diff scan + ack reader,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
 │   │                        #   milestones.py — #734 milestone rows,
@@ -123,6 +124,8 @@ devAgent/
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
 │   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885; forward: #1125),
+│   │   required-checks.sh (#1097) — a project's required_checks, one per line,
+│   │   preship-deferred.sh (#1097) — the static half of a CI-deferred criterion (preship rule 1a),
 │   │   claims-check.sh (#1122) — the read-only claims half of the preship preflight,
 │   │   preship-preflight.sh (#1122) — every call the preflight makes,
 │   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
@@ -203,6 +206,8 @@ all_prs_branch   = "dev/all-prs"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 # merge_method   = "squash"              # #885: how step 20 merges — squash | merge | rebase
 # merge_checks   = "required"            # #885: or "if-present" for a repo without CI (§6.3 row 20)
+# required_checks = ["Git Bash tagged files"]  # #1097: CI checks step 20 merges only on success
+# required_checks_paths = ["scripts/ci/"]      # #1097: more self-certifying paths
 
 [project.volk.permissions]
 push_mr            = true
@@ -273,6 +278,17 @@ fallback, read by `mergemr.sh` (step 20) and validated on every run whatever
 `merge_method` is `squash` (default), `merge` or `rebase`. `merge_checks` is `required`
 (default: no CI checks on the head after #782's grace is a `[!]` stop) or `if-present` (a repo
 without CI merges without checks). `ci_gate` (§7.2) does not apply to step 20.
+
+`required_checks` and `required_checks_paths` (#1097) are `[project.<name>]` keys with no
+`[defaults]` layer (either under `[defaults]` dies, as does `required_checks_paths` without
+`required_checks`), validated by `mergemr.sh` at start whatever `permissions.merge_mr` says.
+`required_checks` lists CI check names, compared byte for byte with an `mr-checks` line's
+`<name>`; step 20 merges only when each is `success` (a `pass` line with the conclusion
+`SUCCESS`, §9.2) at `verified_head`. `required_checks_paths` lists repo-relative files or
+directories which, with `.github/workflows/` and a removed or edited `gitbash` tag line, make
+a PR self-certifying (§6.3 row 20, rule 21). `scripts/required-checks.sh <project>` prints
+the list for a caller that cannot source `lib/config.sh`; a non-zero exit is "stop and
+report", never "no required checks".
 
 `[project.<name>.merge_forward]` (#1125) is per project, with no `[defaults]` layer:
 `verify` is `"ci"` or `"preship"` (absent = `"preship"`, today's behaviour), and
@@ -556,6 +572,7 @@ Issue-676/
 ├── potholes-promotion.md   # #586/#611/#612: staged register ops (add/retire/amend), one `op:` block each with its `layer:`; drained by cleanup
 ├── .devagent-step-models  # optional: per-issue model steering — a bare token (checking steps, #291) or keyed `checking:`/`thinking:` lines (both classes, #561); §7.4
 ├── .devagent-oneshot-ack  # optional, oneshot tier only (#595): a non-empty reason that acknowledges the no-repo-diff boundary check as unmeasurable for this issue; cleanup then warns instead of refusing; persists across revisions
+├── .devagent-selfcert-ack  # optional (#1097): line 1 `<verified_head 40-hex> <reason>`, written by the operator only; acknowledges a self-certifying diff for that head (mergemr rule 21)
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
 ├── actualWork.md
@@ -564,6 +581,7 @@ Issue-676/
 │   ├── 2026-05-19-cppcheck.txt
 │   ├── 2026-05-19-clang-tidy.txt
 │   └── 2026-05-19-asan.txt
+├── evidence/                            # #1097: <YYYY-MM-DD>-gitbash-<stem>-<sha>.txt, a hand-run Git Bash transcript (line 1 the pinned head), the fallback preship rule 1a accepts
 ├── revisions/                           # populated by /devagent:revise
 │   └── r2/comments.md
 ├── STUCK                                # sentinel; present iff a step is [!]
@@ -1005,10 +1023,10 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 14 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
 | 15 | `/devagent:review` | skill | `superpowers:requesting-code-review` (superpowers absent ⇒ the wrapper's own dispatched-review fallback + nudge, #541) |
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
-| 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149); main-session preflight (#1122): `preship-evidence.sh --attestable-exit` stops pre-dispatch; `claims-check.sh` reports stale `mr.md` claims for correction; never passes |
+| 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149); main-session preflight (#1122): `preship-evidence.sh --attestable-exit` stops pre-dispatch; `claims-check.sh` reports stale `mr.md` claims for correction; never passes; rule 1a (#1097): the verifier runs `preship-deferred.sh`, quotes its `self-certification warning:` line (it fails nothing), and verifies a criterion a required check meets at the merged head by its static half, recorded as `deferred to CI at merge: <check>`; a hand Git Bash transcript stands in only where `issue.md` says the job cannot exercise the behaviour or the backend has no `mr-checks`; `commands/preship.md` packages `imPlan.md` only for a project with `required_checks` |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream. On the local code backend (#1016) it pushes nothing, asks no `push_mr`, prints its plan at every ship and writes a local MR record (§9.2) |
 | 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_to_all_prs` only (#885 retired the `merge_mr` fallback; `doctor` warns on `merge_mr` without it); squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
-| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head` (a head `preship-verified-head.sh forward` re-recorded, #1125, only on green CI); otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
+| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head` (a head `preship-verified-head.sh forward` re-recorded, #1125, only on green CI); otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped; with `required_checks` set (#1097) it merges only when each is `success` at that head (rule 15 stops on one that ended otherwise or is not reported after the grace; a passing preship clears it), stops `[!]` `CI NOT CHECKED` where the code backend cannot report checks (rule 20) and on an unacknowledged self-certifying diff (rule 21, `.devagent-selfcert-ack`, operator only), both whatever `merge_mr` says save that rule 21 only reports on rule 8's `[?]` line under `merge_mr = false`; rule 12 turns forge auto-merge off while a required check is not `success` or a self-certifying diff is unacknowledged |
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
@@ -1269,7 +1287,8 @@ After ship, the MR's CI status is reported, never waited for (#782):
   pending, unknown or `none` inside the grace prints `CI gate: holding step
   <N> (<name>) until CI finishes; nothing was marked` and a Resume line, and
   exits 0 with no `CHAIN:`. Step 20 (mergemr) is not held: it applies the CI
-  verdict itself (§6.3 row 20, `commands/mergemr.md` rules 15-17).
+  verdict itself (§6.3 row 20, `commands/mergemr.md` rules 15-17; with
+  `required_checks`, #1097, also rules 20 and 21).
 - **`ci_gate`** is `report`, `block` or `off` (`[project.<name>] ci_gate`,
   else `[defaults] ci_gate`); any other value stops `next` at its first
   in-window read. `off` makes no read at all and is the reviewed de-scope
@@ -2617,12 +2636,19 @@ order (TAB-separated):
 ```
 state    open|merged|closed
 head     <40-hex>
-pass     <name>  <link>
+pass     <name>  <link>  <CONCLUSION>
 pending  <name>  <link>
 fail     <name>  <link>  <CONCLUSION>
 ```
 
-`<link>` is `-` when the check has none (an empty TAB field would collapse).
+`<link>` is `-` when the check has none (an empty TAB field would collapse),
+and an empty `<CONCLUSION>` is printed `-` as well.
+
+A `pass` line carries its conclusion (#1097), so a reader can tell a check
+that succeeded from one that was skipped. GitHub's `pass` conclusions are
+`SUCCESS`, `SKIPPED` and `NEUTRAL` (a commit status: its `state`). A backend
+MAY omit the field on `pass`; the line then passes as an ordinary check and
+is `no conclusion`, not success, as a required one.
 
 GitHub makes one `gh pr view --json headRefOid,state,statusCheckRollup`
 call. A not-yet-completed run counts as pending and outranks a completed

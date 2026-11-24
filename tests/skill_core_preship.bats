@@ -213,3 +213,68 @@ PF='bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-preflight.sh"'
   local unrel; unrel="$(sed -n '/^## \[Unreleased\]/,$p' "$root/CHANGELOG.md")"
   [[ "$unrel" == *'scripts/claims-check.sh'* ]] && [[ "$unrel" == *'--attestable-exit'* ]] && [[ "$unrel" == *'(#1122)'* ]]
 }
+
+# ---- #1097: imPlan.md as a verifier input, and the post-ship stops ------------------
+# Rule 1a (agents/preship-verifier.md) takes a test's name from issue.md, else imPlan.md.
+# The verifier's inputs have two homes: <INPUTS> in the wrapper and the fork's own input
+# list in core-preship. imPlan.md joins each only for a project with required checks, so
+# every other project's dispatch is what it was.
+
+# _flat <awk program> <file> - the lines the program selects, whitespace-normalised.
+_flat() { awk "$1" "$2" | tr -s '[:space:]' ' '; }
+RC_CALL='bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" <project>'
+
+@test "#1097 preship dispatch packages imPlan.md only for a project with required checks" {
+  local inputs step s2 p pin b disp
+  # the wrapper's step: one call, after the head pin and before the dispatch
+  step="$(_flat '/^2b[.] /{f=1} /^3[.] /{f=0} f' "$CMD")"
+  [ -n "$step" ] || { echo "no step 2b in $CMD" >&2; return 1; }
+  pin="$(_line_of '2a. **Pin the head')"
+  b="$(_line_of '2b. **Required checks')"
+  disp="$(_line_of '3. **Dispatch**')"
+  [ "$pin" -lt "$b" ]
+  [ "$b" -lt "$disp" ]
+  [[ "$step" == *"\`$RC_CALL\`"* ]] || { echo "step 2b lacks the call: $RC_CALL" >&2; return 1; }
+  grep -qF 'usage: required-checks.sh <project>' "$BATS_TEST_DIRNAME/../scripts/required-checks.sh"   # the call's arity is the script's
+  # a list that could not be read stops the wrapper; it is never an empty list (devagent Issue-713)
+  for p in 'non-zero' 'STOP' 'before any dispatch' 'never "no required checks"' 'prints nothing'; do
+    [[ "$step" == *"$p"* ]] || { echo "step 2b lacks: $p" >&2; return 1; }
+  done
+  # <INPUTS>: imPlan.md under that condition, and no other change to the list
+  inputs="$(_flat '/^- [*][*]`<INPUTS>`[*][*]/{f=1; print; next} f && /^- [*][*]`</{exit} f' "$CMD")"
+  [ -n "$inputs" ]
+  [[ "$inputs" == *'the absolute paths of `issue.md`, `mr.md`, and the latest-dated review/redmr artifacts, plus the diff spec `<baseline_sha>..<SHA>`'* ]]
+  [[ "$inputs" == *'Only when step 2b printed a required check'*'`imPlan.md`'* ]] || { echo "<INPUTS> does not name imPlan.md under the condition: $inputs" >&2; return 1; }
+  [ "$(grep -c 'imPlan\.md' "$CMD")" -eq "$(awk '/^2b[.] /{f=1} /^3[.] /{f=0} f; /^- [*][*]`<INPUTS>`[*][*]/{g=1; print; next} g && /^- [*][*]`</{g=0} g' "$CMD" | grep -c 'imPlan\.md')" ]   # named nowhere unconditionally
+  # the fork's list (core-preship step 2): the same condition, read off rule 1a's own first line
+  s2="$(_flat '/^2[.] /{f=1} /^3[.] /{f=0} f' "$SKILL/SKILL.md")"
+  [[ "$s2" == *'`<issue-dir>/issue.md`'*'`<issue-dir>/mr.md`'* ]]
+  [[ "$s2" == *'Only when'*'`<issue-dir>/imPlan.md`'* ]] || { echo "core-preship step 2 does not name imPlan.md under a condition: $s2" >&2; return 1; }
+  [[ "$s2" == *'`required checks: (none)`'* ]]
+  [ "$(grep -c 'imPlan\.md' "$SKILL/SKILL.md")" -eq "$(awk '/^2[.] /{f=1} /^3[.] /{f=0} f' "$SKILL/SKILL.md" | grep -c 'imPlan\.md')" ]
+  # and that line is the one the verifier's rule and the script both spell
+  grep -qF '`required checks: (none)`' "$AGENT"
+  grep -qF "printf 'required checks: (none)\n'" "$BATS_TEST_DIRNAME/../scripts/preship-deferred.sh"
+}
+
+@test "#1097 re-verifying after ship: a passing preship clears a required-check stop, never rule 20 or 21" {
+  local t p mm vh
+  mm="$BATS_TEST_DIRNAME/../scripts/mergemr.sh"; vh="$BATS_TEST_DIRNAME/../scripts/preship-verified-head.sh"
+  t="$(_flat '/^## Re-verifying after ship$/{f=1; next} /^## /{f=0} f' "$CMD")"
+  [ -n "$t" ]
+  # rule 15's required-check stops, each by the text mergemr stops with
+  for p in 'required check not successful on head' 'required check not reported on head' \
+           'merges only when every required check is successful'; do
+    [[ "$t" == *"$p"* ]] || { echo "the section lacks: $p" >&2; return 1; }
+    grep -qF -- "$p" "$mm" || { echo "mergemr.sh does not stop with: $p" >&2; return 1; }
+  done
+  [[ "$t" == *'as it clears red CI'* ]]
+  # the two operator-only stops, and each one's exit
+  for p in 'rule 20' '`CI NOT CHECKED`' 'by hand' 'rule 21' '`<issue-dir>/.devagent-selfcert-ack`' 'never clears'; do
+    [[ "$t" == *"$p"* ]] || { echo "the section lacks: $p" >&2; return 1; }
+  done
+  grep -qF '_stop 20 "CI NOT CHECKED: ' "$mm"
+  grep -qF '_stop 21 "self-certifying diff' "$mm"
+  # what `record` clears is the script's own list: rule 15 is in it, 20 and 21 are not
+  grep -qF "clear_mergemr_stop preship '^(mergemr rule (10|11|14|15): |mergemr rule 17: head [0-9a-f]{7} was recorded by forward |preship: )'" "$vh"
+}

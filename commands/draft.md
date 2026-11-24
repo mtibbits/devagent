@@ -81,6 +81,9 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    the count is still against `default_baseline`. A "0 named inputs found" line
    means derive inputs by hand. (This `## Pre-plan inputs` block is the shared home
    for premise-freshness checks; #286's pothole register appends here.)
+   When the issue carries a CI-deferred Git Bash criterion (#1097: a required
+   check is green at the merged head), the plan names the tagged test file and the
+   test, so the preship verifier's rule 1a can find them when `issue.md` does not.
 
    **Declare the plan's bets — `## Load-bearing unknowns` (#536).** Fill the plan's
    `## Load-bearing unknowns` section: one entry per assumption the plan's SHAPE depends on,

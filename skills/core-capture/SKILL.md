@@ -2,6 +2,7 @@
 name: core-capture
 description: Decide whether a captured idea is one issue, one epic, or several epics; pick a subtype; emit a structured handoff for capture.sh. Triggers when /devagent:capture is invoked.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-capture
@@ -55,6 +56,21 @@ CHILDREN:
 ```
 
 The slash command parses this block and calls `capture.sh` per row.
+
+## Required CI checks (#1097)
+
+With no `DEVAGENT_PROJECT` the section does not apply: do not run the call. Otherwise,
+for an issue, run
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/required-checks.sh" "$DEVAGENT_PROJECT"`.
+Exit 0 with no output: the section does not apply. **A non-zero exit: stop and
+report its stderr; never read it as "does not apply"** (devagent Issue-713).
+Otherwise it printed the project's required checks, one per line. When the
+behaviour differs under Git Bash (drive-letter paths, MSYS path rewriting, a
+native Windows python3, CRLF line endings, no POSIX file modes), `RECOMMENDATION`
+asks for this criterion, `<check name>` taken from the printed list:
+`` `tests/<file>.bats` carries the `gitbash` tag, `<test name>` has no Git Bash skip, and `<check name>` is green at the merged head ``.
+`capture.sh` also writes it into the draft as a comment. A listed name proves only
+that the project requires the check, not that the check runs the tagged files.
 
 ## Anti-patterns
 

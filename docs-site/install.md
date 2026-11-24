@@ -3,12 +3,14 @@
 
 ## Prerequisites
 
-**Supported platforms.** devAgent is developed and tested on **Linux**, including WSL on Windows.
-Native Git Bash on Windows can run the plugin.
-macOS is currently untested: the scripts assume GNU coreutils (`stat -c`, GNU `sed -i`, `readlink -f`).
+**Supported platforms.** Linux, or Windows with Git Bash.
+WSL is for contributors to devAgent itself.
+macOS is untested.
+Running Claude Code inside WSL counts as Linux.
 
 - [Claude Code](https://claude.com/claude-code) **2.1.223** (earlier versions are untested).
 - `git` ≥ 2.29.
+- On native Windows: Git for Windows, for its Git Bash.
 - `bash` ≥ 4.4.
 - `python3` ≥ 3.11.
 - `jq`.

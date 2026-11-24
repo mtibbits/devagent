@@ -444,3 +444,175 @@ _view_without() {
   ci_verdict
   [ "$CI_VERDICT" = proceed ]
 }
+
+# ---- #1097: each line's conclusion; required checks --------------------------
+
+# _bar <words...>: the words joined by `|` (nothing for no words).
+_bar() { local IFS='|'; printf '%s' "$*"; }
+
+# _reads_as <result> <line> <bucket-lines...>: ci_read of that body gives exactly both.
+_reads_as() {
+  local want_r="$1" want_l="$2"; shift 2
+  _out "$@"
+  ci_read volk Issue-676 "$URL"
+  [ "$CI_RESULT" = "$want_r" ] || { echo "result '$CI_RESULT', want '$want_r'"; return 1; }
+  [ "$CI_LINE" = "$want_l" ] || { echo "line '$CI_LINE', want '$want_l'"; return 1; }
+}
+
+# _rc_is <ok> <bad> <pending> <missing> <report>: ci_required_eval's five globals.
+_rc_is() {
+  [ "$RC_OK" = "$1" ] || { echo "RC_OK='$RC_OK', want '$1'"; return 1; }
+  [ "$RC_BAD" = "$2" ] || { echo "RC_BAD='$RC_BAD', want '$2'"; return 1; }
+  [ "$RC_PENDING" = "$3" ] || { echo "RC_PENDING='$RC_PENDING', want '$3'"; return 1; }
+  [ "$RC_MISSING" = "$4" ] || { echo "RC_MISSING='$RC_MISSING', want '$4'"; return 1; }
+  [ "$RC_REPORT" = "$5" ] || { echo "RC_REPORT='$RC_REPORT', want '$5'"; return 1; }
+}
+
+@test "#1097 a pass line with a conclusion reads as today" {
+  local at="$URL (head a1b2c3d)" tab=$'\t' c p
+  for c in '' SUCCESS; do                               # three fields, then four
+    p=$'pass\tGit Bash tagged files\thttps://x/1'"${c:+$tab$c}"
+    _reads_as green   "CI PASSED: 2 checks on $at" "$p" $'pass\tbuild\thttps://x/2'
+    _reads_as pending "CI PENDING: 1 of 2 checks still running on $at: build" "$p" $'pending\tbuild\thttps://x/2'
+    _reads_as red     "CI FAILED: $at: build [CANCELLED] https://x/2" "$p" $'fail\tbuild\thttps://x/2\tCANCELLED'
+  done
+  # any other conclusion a pass line can carry, and `-` for none: one passing check
+  for c in SKIPPED NEUTRAL -; do
+    _reads_as green "CI PASSED: 1 checks on $at" $'pass\tbuild\t-\t'"$c"
+  done
+  # the merge step's read (mr-view) takes the same lines through the same parser
+  _view_out $'pass\tGit Bash tagged files\thttps://x/9\tSUCCESS'
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 1 ]
+  [ "$CI_RESULT" = green ]
+  [ "$CI_LINE" = "CI PASSED: 2 checks on $at" ]
+}
+
+@test "#1097 required eval: one row per state" {
+  _out $'pass\tGit Bash tagged files\thttps://x/1\tSUCCESS' $'pending\tbuild\thttps://x/2' \
+       $'fail\tdeploy\thttps://x/3\tCANCELLED' $'pass\tdocs\thttps://x/4\tSKIPPED' \
+       $'pass\tcodeql\t-\tNEUTRAL' $'pass\tlint\thttps://x/6' $'pass\tsc\t-\t-' \
+       $'fail\tnightly\thttps://x/8'
+  ci_read volk Issue-676 "$URL"
+  # what the read keeps of each line: its name, and its bucket with the conclusion
+  [ "$(_bar "${CI_CHECK_NAME[@]}")" = "Git Bash tagged files|build|deploy|docs|codeql|lint|sc|nightly" ]
+  [ "$(_bar "${CI_CHECK_STATE[@]}")" = "pass:SUCCESS|pending|fail:CANCELLED|pass:SKIPPED|pass:NEUTRAL|pass:|pass:|fail:" ]
+  ci_required_eval "Git Bash tagged files"; _rc_is 1 "" "" "" "Git Bash tagged files: success"
+  ci_required_eval build;   _rc_is 0 "" build "" "build: pending"
+  ci_required_eval deploy;  _rc_is 0 "deploy (cancelled)" "" "" "deploy: cancelled"
+  ci_required_eval docs;    _rc_is 0 "docs (skipped)" "" "" "docs: skipped"
+  ci_required_eval codeql;  _rc_is 0 "codeql (neutral)" "" "" "codeql: neutral"
+  ci_required_eval lint;    _rc_is 0 "lint (no conclusion)" "" "" "lint: no conclusion"   # three fields
+  ci_required_eval sc;      _rc_is 0 "sc (no conclusion)" "" "" "sc: no conclusion"       # `-`
+  ci_required_eval absent;  _rc_is 0 "" "" absent "absent: missing"
+  # a fail line that names no conclusion is a plain failure, as CI FAILED reads it
+  ci_required_eval nightly; _rc_is 0 "nightly (failure)" "" "" "nightly: failure"
+  # several names: each list in the order given, the report naming every one
+  ci_required_eval absent sc "Git Bash tagged files" build deploy gone
+  _rc_is 0 "sc (no conclusion); deploy (cancelled)" build "absent; gone" \
+    "absent: missing; sc: no conclusion; Git Bash tagged files: success; build: pending; deploy: cancelled; gone: missing"
+  # each call starts clean; with no names there is nothing to fail
+  ci_required_eval "Git Bash tagged files"
+  _rc_is 1 "" "" "" "Git Bash tagged files: success"
+  ci_required_eval
+  _rc_is 1 "" "" "" ""
+}
+
+@test "#1097 required eval: two lines of one name" {
+  # Two workflows can share a job name, so every line of the name counts, in either
+  # order: a bad line outranks a pending one, a pending one a successful one.
+  _out $'pass\tsk-last\t-\tSUCCESS'     $'pass\tsk-last\t-\tSKIPPED' \
+       $'pass\tsk-first\t-\tSKIPPED'    $'pass\tsk-first\t-\tSUCCESS' \
+       $'pass\tpend-last\t-\tSUCCESS'   $'pending\tpend-last\t-' \
+       $'pending\tpend-first\t-'        $'pass\tpend-first\t-\tSUCCESS' \
+       $'pass\tboth ok\t-\tSUCCESS' \
+       $'fail\tfail-first\t-\tTIMED_OUT' $'pending\tfail-first\t-' \
+       $'pending\tfail-last\t-'         $'fail\tfail-last\t-\tFAILURE' \
+       $'pass\tbare-last\t-\tSUCCESS'   $'pass\tbare-last\t-' \
+       $'pass\ttwo-bad\t-\tSKIPPED'     $'fail\ttwo-bad\t-\tCANCELLED' \
+       $'pass\tboth ok\t-\tSUCCESS'
+  ci_read volk Issue-676 "$URL"
+  ci_required_eval sk-last;    _rc_is 0 "sk-last (skipped)" "" "" "sk-last: skipped"
+  ci_required_eval sk-first;   _rc_is 0 "sk-first (skipped)" "" "" "sk-first: skipped"
+  ci_required_eval pend-last;  _rc_is 0 "" pend-last "" "pend-last: pending"
+  ci_required_eval pend-first; _rc_is 0 "" pend-first "" "pend-first: pending"
+  ci_required_eval "both ok";  _rc_is 1 "" "" "" "both ok: success"
+  ci_required_eval fail-first; _rc_is 0 "fail-first (timed_out)" "" "" "fail-first: timed_out"
+  ci_required_eval fail-last;  _rc_is 0 "fail-last (failure)" "" "" "fail-last: failure"
+  ci_required_eval bare-last;  _rc_is 0 "bare-last (no conclusion)" "" "" "bare-last: no conclusion"
+  # two bad lines: the first one read gives the detail
+  ci_required_eval two-bad;    _rc_is 0 "two-bad (skipped)" "" "" "two-bad: skipped"
+}
+
+@test "#1097 required eval: names match whole and case-sensitively" {
+  _out $'pass\tlint (3.12)\thttps://x/1\tSUCCESS' $'pass\tLint\thttps://x/2\tSUCCESS'
+  ci_read volk Issue-676 "$URL"
+  ci_required_eval lint
+  _rc_is 0 "" "" lint "lint: missing"
+  # a name is text, never a pattern
+  ci_required_eval 'lint*' 'lint (3.1?)' '[Ll]int'
+  _rc_is 0 "" "" "lint*; lint (3.1?); [Ll]int" "lint*: missing; lint (3.1?): missing; [Ll]int: missing"
+  ci_required_eval 'lint (3.12)' Lint
+  _rc_is 1 "" "" "" "lint (3.12): success; Lint: success"
+}
+
+@test "#1097 required eval: a failed read keeps no lines of the read before it" {
+  local ok=$'pass\tlint\thttps://x/1\tSUCCESS'
+  _out "$ok"
+  ci_read volk Issue-676 "$URL"
+  ci_required_eval lint
+  _rc_is 1 "" "" "" "lint: success"
+  CI_STUB_RC=1 CI_STUB_ERR='gh: HTTP 502' ci_read volk Issue-676 "$URL" 2>/dev/null
+  [ "$CI_RESULT" = unknown ]
+  [ "${#CI_CHECK_NAME[@]}" -eq 0 ]
+  [ "${#CI_CHECK_STATE[@]}" -eq 0 ]
+  ci_required_eval lint
+  _rc_is 0 "" "" lint "lint: missing"
+  # the merge step's read, the same; so does a backend without the verb
+  _view_out
+  ci_read_view volk Issue-676 "$URL"
+  ci_required_eval lint
+  _rc_is 0 "lint (no conclusion)" "" "" "lint: no conclusion"
+  CI_STUB_RC=2 ci_read_view volk Issue-676 "$URL"
+  [ "$CI_RESULT" = notchecked ]
+  ci_required_eval lint
+  _rc_is 0 "" "" lint "lint: missing"
+  # a body the parser rejects keeps none of its own lines either
+  _out "$ok" $'skipped\tdocs\thttps://x/2'
+  ci_read volk Issue-676 "$URL"
+  [ "$CI_RESULT" = unknown ]
+  [ "${#CI_CHECK_NAME[@]}" -eq 0 ]
+  ci_required_eval lint
+  _rc_is 0 "" "" lint "lint: missing"
+  # and a good read after a failed one is read in full
+  _out "$ok"
+  ci_read volk Issue-676 "$URL"
+  ci_required_eval lint
+  _rc_is 1 "" "" "" "lint: success"
+}
+
+@test "#1097 _ci_grace_over: inside, outside, empty and garbled CI_SEEN_AT" {
+  local rc now; now="$(date +%s)"
+  export DEVAGENT_CI_GRACE_SECS=600
+  CI_SEEN_AT="$now";            rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 1 ]
+  [ "$_CI_SECS" = 600 ]
+  CI_SEEN_AT="$((now - 1000))"; rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 0 ]
+  CI_SEEN_AT="$((now - 600))";  rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 0 ]   # at the bound
+  CI_SEEN_AT="";                rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 1 ]
+  CI_SEEN_AT="12x";             rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 1 ]
+  unset CI_SEEN_AT;             rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 1 ]
+  # the bound is the knob's default when it is unset
+  unset DEVAGENT_CI_GRACE_SECS
+  CI_SEEN_AT="$((now - 60))";   rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 1 ]
+  [ "$_CI_SECS" = 120 ]
+  CI_SEEN_AT="$((now - 121))";  rc=0; _ci_grace_over || rc=$?; [ "$rc" -eq 0 ]
+  # ci_verdict's none arm asks this predicate: "past the bound" has one definition
+  CI_RESULT=none; CI_SEEN_AT="12x"
+  _ci_grace_over() { return 0; }
+  ci_verdict
+  [ "$CI_VERDICT" = proceed ]
+  CI_SEEN_AT="$((now - 1000))"
+  _ci_grace_over() { return 1; }
+  ci_verdict
+  [ "$CI_VERDICT" = hold ]
+}
