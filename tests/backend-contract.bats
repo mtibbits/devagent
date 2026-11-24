@@ -106,11 +106,11 @@ run_backend_suite() {
   for f in "${BATS_DIR}/../scripts/issue/"*.sh; do
     n=$((n + 1))
     b="$(basename "$f")"
+    # github.sh's own post-comment rows live in tests/issue-github-post.bats,
+    # under a scratch DA_HOME; never run it here against the real config.
+    [ "$b" != github.sh ] || continue
     run "$f" post-comment acme/widgets 7 --project p --issue Issue-7 --file /dev/null --review /dev/null
-    case "$b" in
-      github.sh) continue ;;
-      *) [ "$status" -eq 2 ] || { echo "$b post-comment: status $status" >&2; false; } ;;
-    esac
+    [ "$status" -eq 2 ] || { echo "$b post-comment: status $status" >&2; false; }
     run "$f" repo-owner acme/widgets
     [ "$status" -eq 2 ] || [ "$status" -eq 78 ] || { echo "$b repo-owner: status $status" >&2; false; }
   done

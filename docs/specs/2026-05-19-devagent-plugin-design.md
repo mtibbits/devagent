@@ -2906,6 +2906,11 @@ absence included, is hashed unchanged. The check takes the same `--draft`.
   across a line wrap, or written with two spaces or a non-breaking space
   between its words. `_` and digits are word constituents, so an entry `acme`
   does not match `acme_api` or `acme2`. Whitespace is not normalised.
+  A letter-suffixed form is a different word (`acme` does not match
+  `acmes` or `acmeco`); an entry that starts or ends with punctuation
+  (`@acme`) needs a non-word character beside it (`x@acme` is missed); and
+  Unicode is not normalised, so an NFD spelling of an NFC entry is missed.
+  List each form that must be held.
 - A multi-word entry cannot be made public, because a `# public:` line is
   split on spaces.
 - A denylist that is a symbolic link is identified through the link: swapping

@@ -256,7 +256,7 @@ post-gate: names pass" ]
   _usage acme/widgets 7 --project alpha --issue 'Issue 7' --file "$POST" --review "$RECORD"
 }
 
-@test "[gh post-comment] a wrong-host repo and a missing gh or jq exit 2 before any gate line" {
+@test "[gh post-comment] a wrong-host repo, a missing gh or jq, or no snapshot exit 2 before any gate line" {
   _ready
   # _pre <args…>: exit 2 (not posted, the call cannot run here), no gate line, no write.
   _pre() {
@@ -281,6 +281,9 @@ post-gate: names pass" ]
   ln -s "$(command -v gh)" "$bin/gh"
   PATH="$bin" _pre acme/widgets 7 --project alpha --issue Issue-7 --file "$POST" --review "$RECORD"
   [[ "$stderr" == *"jq not found on PATH"* ]]
+  # a readable --file that cannot be snapshotted (no usable TMPDIR): exit 2, no gate run.
+  TMPDIR="$BATS_TEST_TMPDIR/no-such-dir" _pre acme/widgets 7 --project alpha --issue Issue-7 --file "$POST" --review "$RECORD"
+  [[ "$stderr" == *"private snapshot"* ]]
 }
 
 @test "[gh post-comment] an unreadable --file is held by the gate, never exit 1" {

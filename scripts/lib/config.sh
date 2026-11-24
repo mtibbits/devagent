@@ -54,9 +54,9 @@ worktree_root_rule() {
 }
 
 # config_get_global_path <key> — #611: the top-level [paths] table. Global,
-# every-project file paths; today the only consumer is potholes_workflow (the
-# shared workflow register). Tilde-expanded like project paths.*; rc from
-# config_get (1 = absent) so callers' `|| true` keep working.
+# every-project file paths: potholes_workflow (the shared workflow register)
+# and denylist_path (the leak gate, #966). Tilde-expanded like project
+# paths.*; rc from config_get (1 = absent) so callers' `|| true` keep working.
 config_get_global_path() {
   local key="$1" val
   [[ -n "$key" ]] || { echo "config_get_global_path: key required" >&2; return 2; }

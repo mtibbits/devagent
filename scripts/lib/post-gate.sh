@@ -133,7 +133,8 @@ _pg_pass() { printf 'post-gate: %s pass\n' "$1" >&2; }
 _pg_hold() {
   printf 'post-gate: %s hold %s%s\n' "$1" "$2" "${3:+ $3}" >&2
   # The hold exit, read from the registry by id: no script writes the number.
-  [ -n "${_PG_HELD:-}" ] || _PG_HELD="$(trust_exit_code leak-held)" || _PG_HELD=1
+  # A failed lookup falls back to 2, a "not posted" exit, never 1 (unknown).
+  [ -n "${_PG_HELD:-}" ] || _PG_HELD="$(trust_exit_code leak-held)" || _PG_HELD=2
   return "$_PG_HELD"
 }
 

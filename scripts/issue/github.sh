@@ -881,13 +881,14 @@ _gh_post_usage() {
 #      matches ^[1-9][0-9]{0,9}$; <repo> is [HOST/]OWNER/REPO)        → exit 2
 #   2. the host: a bare repo while GH_HOST names another host, and gh
 #      and jq on PATH                                                 → exit 2
-#   3. a private snapshot of --file, removed on every exit
+#   3. a private snapshot of a readable --file, removed on every exit;
+#      a snapshot that cannot be made                                 → exit 2
 #   4. the full gate on the SNAPSHOT (permission, tracker, names,
 #      review), so the bytes gated are the bytes posted → a hold exits
 #      `trust_exit_code leak-held`, a trust policy that fails to load 9,
-#      a work item the gate refuses 2. A --file that cannot be copied
-#      goes to the gate as given, which holds names gate-error
-#      file-unreadable: every fault before the write is a hold or a 2.
+#      a work item the gate refuses 2. An unreadable --file goes to the
+#      gate as given, which holds names gate-error file-unreadable:
+#      every fault before the write is a hold or a 2.
 #   5. one `gh api --method POST …/issues/<num>/comments -F body=@-` with
 #      the snapshot on stdin, on <repo>'s host with GH_HOST unset → a
 #      failed call exits 1
@@ -963,8 +964,11 @@ cmd_post_comment() {
   # shellcheck source=../lib/post-gate.sh
   source "${SCRIPT_DIR}/../lib/post-gate.sh"
   trap pg_cleanup EXIT
-  if [ -f "${opt[file]}" ] && [ -r "${opt[file]}" ] && pg_tmp \
-    && cat -- "${opt[file]}" > "$PG_TMP"; then
+  if [ -f "${opt[file]}" ] && [ -r "${opt[file]}" ]; then
+    if ! pg_tmp || ! cat -- "${opt[file]}" > "$PG_TMP"; then
+      echo "github.sh: post-comment: cannot copy --file ${opt[file]} to a private snapshot; nothing was posted" >&2
+      return 2
+    fi
     snap="$PG_TMP"
   fi
   # Bare (never in $( … )): the gate sets globals and a refusal exits 9. With
@@ -974,10 +978,10 @@ cmd_post_comment() {
     --record "${opt[review]}" || rc=$?
   if [ "$rc" -ne 0 ]; then return "$rc"; fi
   if [ -z "$snap" ]; then
-    # the gate passed a --file that could not be copied (a temp-file failure,
-    # or the file changed under the call): nothing was posted.
-    echo "github.sh: post-comment: --file ${opt[file]} could not be copied to a private snapshot; nothing was posted" >&2
-    return "$(trust_exit_code leak-held)"
+    # the gate passed a --file that was unreadable a moment before: it changed
+    # under the call, and there is no snapshot to post.
+    echo "github.sh: post-comment: --file ${opt[file]} changed under the call; nothing was posted" >&2
+    return 2
   fi
   out="$(_gh_ev_call api --hostname "$GT_HOST" --method POST \
     "repos/$GT_OWNER/$GT_NAME/issues/$num/comments" -F body=@- < "$snap")" || return 1
