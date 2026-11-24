@@ -84,10 +84,10 @@ devAgent/
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
 │                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
-├── commands/                # one .md file per command-form slash command (58)
+├── commands/                # one .md file per command-form slash command (59)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 58 + 3 = the 61 slash commands
+│                            #   (SKILL.md + references/, #452) — 59 + 3 = the 62 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -131,7 +131,8 @@ devAgent/
 │   │   changelog.py (#1127) — repository maintenance, not a command: check, preview, release,
 │   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
-│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans, ...
+│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans,
+│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -175,7 +176,9 @@ potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pot
 [archive]                                # #731: GLOBAL top-level table — the durable transcript archive; absent = off
 transcripts_dir = "~/private/claude-transcripts"   # absolute after ~ expansion; required; refused inside a git work tree or inside <CLAUDE_CONFIG_DIR>/projects
 host_id         = "laptop"               # partition name [A-Za-z0-9._-]+, no "..", not "."; default hostname (+ "-wsl" under WSL)
-exclude         = ["*scratch*"]          # cwd-slug globs never archived; any other key is refused
+exclude         = ["*scratch*"]          # cwd-slug globs never archived
+actuals_max_age_hours = 24               # #735: cleanup rebuilds <devagent_home>/actuals.json when it is older; 0 < x <= 168; default 24
+# any other [archive] key is refused (so is a refused actuals_max_age_hours: the archiver stops until it is fixed)
 
 # #743: operator capacity, GLOBAL top-level table; absent = forecasting off (planned, #744).
 # devagent does not know the subscription's limits: every value here is an example.
@@ -1027,7 +1030,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit devdoc and sync it with origin (#1148), clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731) |
+| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit devdoc and sync it with origin (#1148), clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731); inside the same gate, when `<devagent_home>/actuals.json` is stale, starts `actuals.sh --if-stale` detached and does not wait (#735) |
 
 **Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–24 top-to-bottom: 25 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
@@ -1169,6 +1172,7 @@ omits.
 | `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:milestones [project] [--issue <issue-id> \| --all] [--json]` | Prints each issue's dated milestones (tracker opened/closed, linked MRs opened/merged, checklist steps, parks, revisions) and spans; read-only (see §13.5) |
+| `/devagent:actuals [--archive DIR] [--project P] [--out PATH \| --stdout] [--if-stale]` | Builds `<devagent_home>/actuals.json`, the per-issue actuals (tokens, time, sessions, dated milestones) the portfolio reads (see §13.6) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 **The devDoc not-pushed line (#1148).** After the project blocks (`--all`: after
@@ -3636,6 +3640,9 @@ cross-field invariants I1–I17; the checker's exit 0 alone is not correctness.
 Since schema 1.2 (#890) the document also publishes each leaf's planned
 `models`, from its `thinking`/`checking` keys, else the project's
 `step_models`; it records the plan, not the model a step ran on.
+Since schema 1.3 (#735) it also carries actuals: each IssueEntry's `actuals`
+slot, an optional project `actuals` field and a top-level `actuals`, copied
+from `<devagent_home>/actuals.json` (§13.6).
 
 #727 fills the readiness fields (`ready`, `ready_via_parent_row`,
 `depends_on[].resolved`) by the rule in `commands/portfolio.md`, and
@@ -3782,6 +3789,41 @@ calls plus one per further page of a truncated timeline, on GitLab N calls.
 devagent's default scope was about 700 ids (≈ 15 GraphQL batches) at #734's
 draft; the command doc gives the Bash call the longest tool timeout
 (600000 ms).
+
+### 13.6 Actuals (#735)
+
+`/devagent:actuals [--archive DIR] [--project P] [--out PATH | --stdout] [--if-stale]`
+(`scripts/actuals.sh`, core `scripts/lib/actuals.py`) builds one versioned JSON
+document, `<devagent_home>/actuals.json`, that joins per `(project, issue)` what
+`cost-report.sh` charges (tokens in input-token equivalents with raw per-model
+counts beside them, agent and operator time, the sessions they came from) with
+the rows `milestones.sh --all --json` reports (§13.5). It reuses both producers'
+machine output: one cost-report `collect()` pass, read as the same row
+objects cost-report's `--json` prints, and one milestones run per project (up
+to 6 at once).
+It writes no devdoc, state or tracker; the document goes owner-only under
+`devagent_home`, and an `--out` under a project's dirs or inside a git work tree
+is refused. Every source consulted is a `sources` row, `ok` or `missing`; a
+missing source never fails the build, and a project whose milestones source is
+missing has null (not empty) milestones. Output is sorted and byte-identical
+over unchanged inputs apart from `generated_at`. The file carries its own
+`actuals_version` (MAJOR.MINOR, the portfolio's version rules); a new minor
+ships with a portfolio schema minor.
+
+The portfolio (§13.4) only reads the file: it never runs a build. It copies
+each row's object unchanged into the matching slot and field, and when the
+file is missing, unreadable, unusable or more than 7 days older than the
+document it leaves them null with one `actuals_unavailable` entry per project.
+Cleanup refreshes the file inside its `[archive]` gate: an age check against
+`[archive].actuals_max_age_hours` (default 24, at most 168), and when stale a
+detached `actuals.sh --if-stale` it does not wait for; the next close warns
+once when that run failed, timed out, or wrote a document missing a source the
+file it replaced had (a tracker outage; exit 4). The rebuild's files sit beside
+the document in `devagent_home`: `actuals-rebuild.log` (its output; a failed
+run's log is kept as `actuals-rebuild.log.1`), `actuals-rebuild.pid` and
+`actuals-rebuild.status` (its exit status). Estimates (#736) and
+forecasts (#742) read the same file. The command doc is `commands/actuals.md`;
+the slot shapes are `docs/portfolio-schema.md`, "Actuals".
 
 ## 14. Status reports
 

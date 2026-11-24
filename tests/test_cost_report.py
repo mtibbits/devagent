@@ -1032,7 +1032,7 @@ def test_cli_archive_missing_or_empty(tmp_path):
     assert run.stderr.strip() == f"cost-report: no transcript dir under {root} or archive {empty}"
 
 
-JSON_KEYS = {"calls", "issue", "main", "peak_context", "project", "sessions", "sources", "subagents", "total"}
+JSON_KEYS = {"calls", "issue", "main", "peak_context", "project", "raw", "sessions", "sources", "subagents", "total"}
 
 
 def test_cli_json_shape(tmp_path):
@@ -1226,6 +1226,16 @@ GOLDEN_JSON = (
 )
 
 
+def _without_raw(stdout):
+    """--json lines with the #735 "raw" key dropped, re-serialised as cost-report does: the pre-#735 bytes."""
+    out = []
+    for ln in stdout.splitlines():
+        o = json.loads(ln)
+        o.pop("raw")
+        out.append(json.dumps(o, sort_keys=True) + "\n")
+    return "".join(out)
+
+
 def test_cli_output_without_time_is_unchanged(tmp_path):
     d = _time_fixture(tmp_path / "timefix")
     full = _cli("--transcripts", d)
@@ -1234,7 +1244,7 @@ def test_cli_output_without_time_is_unchanged(tmp_path):
     assert (full.returncode, summary.returncode, js.returncode) == (0, 0, 0)
     assert full.stdout.replace(str(d), "<DIR>") == GOLDEN_FULL
     assert summary.stdout == GOLDEN_SUMMARY
-    assert js.stdout == GOLDEN_JSON
+    assert _without_raw(js.stdout) == GOLDEN_JSON
 
 
 # Task 3: one test per rule AC (defaults 5 / 60 / 15 min).
@@ -1454,9 +1464,9 @@ def test_time_subagent_copy_torn_mid_read_does_not_hide_a_good_copy(tmp_path, mo
     alone = _times([y])[(NP, NI)]
     real = cr.load
 
-    def torn(path, markers=cr.MARKERS):
+    def torn(path, markers=cr.MARKERS, skipped=None):
         """x's subagent file fails after two records (an I/O error mid-read)."""
-        for i, d in enumerate(real(path, markers)):
+        for i, d in enumerate(real(path, markers, skipped)):
             if i == 2 and path.name.startswith("agent-") and path.parent.parent.parent.name == "x":
                 raise OSError("torn")
             yield d
@@ -1807,7 +1817,7 @@ def test_cli_output_without_overhead_is_unchanged(tmp_path):
     assert [r.returncode for r in runs] == [0, 0, 0, 0], [r.stderr for r in runs]
     assert runs[0].stdout.replace(str(d), "<DIR>") == GOLDEN_OVH_FULL
     assert runs[1].stdout == GOLDEN_OVH_SUMMARY
-    assert runs[2].stdout == GOLDEN_OVH_JSON
+    assert _without_raw(runs[2].stdout) == GOLDEN_OVH_JSON
     assert runs[3].stdout == GOLDEN_OVH_TIME_SUMMARY
 
 
@@ -2149,7 +2159,7 @@ OVH_SUMMARY = [
     "(unassigned) /work/devdoc: 0.5M input-token equivalents over 2 session(s), 2 calls, peak context 524K "
     "(main 0.5M, subagents 0.0M)",
 ]
-OVH_JSON_KEYS = {"calls", "cwd", "main", "peak_context", "project", "rules", "sessions", "sources", "subagents", "total"}
+OVH_JSON_KEYS = {"calls", "cwd", "main", "peak_context", "project", "raw", "rules", "sessions", "sources", "subagents", "total"}
 
 
 def _lbl(line):
@@ -2289,3 +2299,157 @@ def test_overhead_launched_subagent_without_launch_cwd_uses_its_own(tmp_path):
     ov = _collect_ov(d)[2]
     assert sum(r.sub for r in ov[("project", "beta")].steps.values()) == 50
     assert _ov(ov)["(unassigned) (no cwd)"] == (1, 1.0, (0, 0, 1))
+
+
+# --- Issue-735: raw per-model token counts in --json --------------------------
+# Every expected count is a literal from the fixture; the weights are written
+# here, not read from cr.WEIGHTS (pothole: two sides sharing a source).
+
+W735 = {"input": 1.0, "cache_read": 0.1, "cache_write_5m": 1.25, "cache_write_1h": 2.0, "output": 5.0}
+RAW_ORDER = ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output")
+
+
+def _mcall(mid, usage, model, *tool_uses):
+    """_call with message.model set (None leaves it absent)."""
+    rec = _call(mid, usage, *tool_uses)
+    if model is not None:
+        rec["message"]["model"] = model
+    return rec
+
+
+def _raw(model, inp=0, read=0, w5=0, w1=0, out=0):
+    return {"cache_read": read, "cache_write_1h": w1, "cache_write_5m": w5, "input": inp, "model": model,
+            "output": out}
+
+
+def _weighted(raw):
+    return sum(W735[k] * r[k] for r in raw for k in RAW_ORDER)
+
+
+def test_raw_counts_agree_with_call_cost():
+    split = _usage(inp=1, read=10, w5=4, w1=2, out=1)
+    nosplit = {"cache_creation_input_tokens": 4}
+    nones = {"input_tokens": None, "cache_read_input_tokens": None, "cache_creation_input_tokens": 8,
+             "cache_creation": {"ephemeral_5m_input_tokens": 8, "ephemeral_1h_input_tokens": None},
+             "output_tokens": 2}
+    assert cr.RAW_CLASSES == RAW_ORDER
+    assert cr.raw_counts(split) == (1, 10, 4, 2, 1)
+    assert cr.raw_counts(nosplit) == (0, 0, 4, 0, 0)
+    assert cr.raw_counts(nones) == (0, 0, 8, 0, 2)
+    # pre-#735 literals of call_cost: 1 + 1 + 5 + 4 + 5, 4 * 1.25, 8 * 1.25 + 2 * 5
+    assert [cr.call_cost(u) for u in (split, nosplit, nones)] == [16.0, 5.0, 20.0]
+    for u in (split, nosplit, nones):
+        assert sum(W735[k] * n for k, n in zip(RAW_ORDER, cr.raw_counts(u))) == cr.call_cost(u)
+
+
+def _two_model_session(d):
+    _write(d / "S.jsonl", [
+        *_dispatch("n1", "alpha", "Issue-4", 9, "implement", "d0"),
+        _mcall("m1", _usage(inp=10, out=2), "claude-a", _tool("a1", "Agent", description="x", model="opus")),
+        _mcall("m2", _usage(read=30, w5=4), "claude-a"),
+    ])
+    _subagent(d / "S.jsonl", "agent-a1", "a1", [
+        _mcall("s1", _usage(read=100, w1=4), "claude-b"),
+        _mcall("s2", _usage(out=1), "claude-b"),
+    ])
+
+
+def test_cli_json_raw_two_models(tmp_path):
+    """AC2: main calls on model A and a subagent on model B give two raw entries summing to total."""
+    d = tmp_path / "s"
+    _two_model_session(d)
+    run = _cli("--transcripts", d, "--json")
+    assert run.returncode == 0, run.stderr
+    (o,) = [json.loads(ln) for ln in _lines(run.stdout)]
+    assert (o["project"], o["issue"]) == ("alpha", "Issue-4")
+    assert o["raw"] == [_raw("claude-a", inp=10, read=30, w5=4, out=2), _raw("claude-b", read=100, w1=4, out=1)]
+    # 10 + 3 + 5 + 10 = 28 main; 10 + 8 + 5 = 23 sub
+    assert (o["main"], o["subagents"], o["total"]) == (28.0, 23.0, 51.0)
+    assert _weighted(o["raw"]) == o["total"]
+    assert list(o["raw"][0]) == sorted(o["raw"][0])
+
+
+def test_cli_json_raw_counted_once(tmp_path):
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    recs = _sid([*_dispatch("n1", "alpha", "Issue-4", 9, "implement", "d0"),
+                 _mcall("m1", _usage(inp=3, out=1), "claude-a", _tool("a1", "Agent", description="x"))], "S")
+    _write(root / "c--src-x" / "S.jsonl", recs, mtime=1_000_000)
+    _subagent(root / "c--src-x" / "S.jsonl", "agent-a1", "a1", [
+        _mcall("s1", _usage(out=1), "claude-b"),
+        _mcall("s1", _usage(out=5), "claude-b"),   # a growing usage under one id: the last counts
+    ])
+    a = tmp_path / "store"
+    for h in ("h1", "h2"):
+        _gz(a / h / "c--src-x" / "S.jsonl.gz", recs, mtime=1_000_000)
+    run = _cli("--archive", a, "--all-dirs", "--json")
+    assert run.returncode == 0, run.stderr
+    (o,) = [json.loads(ln) for ln in _lines(run.stdout)]
+    assert o["raw"] == [_raw("claude-a", inp=3, out=1), _raw("claude-b", out=5)]
+    assert o["total"] == 33.0
+
+
+def test_cli_json_raw_unknown_model(tmp_path):
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [
+        *_dispatch("n1", "alpha", "Issue-4", 9, "implement", "d0"),
+        _mcall("m1", _usage(inp=7), None, _tool("a1", "Agent", description="x", model="opus")),
+        _mcall("m2", _usage(inp=1), ""),
+        _mcall("m3", _usage(inp=2), 42),
+    ])
+    run = _cli("--transcripts", d, "--json")
+    assert run.returncode == 0, run.stderr
+    (o,) = [json.loads(ln) for ln in _lines(run.stdout)]
+    assert o["raw"] == [_raw("(unknown)", inp=10)]
+
+
+def test_cli_json_raw_skips_all_zero_model(tmp_path):
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [
+        *_dispatch("n1", "alpha", "Issue-4", 9, "implement", "d0"),
+        _mcall("m1", _usage(inp=7), "claude-a"),
+        _mcall("m2", _usage(), "<synthetic>"),
+    ])
+    run = _cli("--transcripts", d, "--json")
+    (o,) = [json.loads(ln) for ln in _lines(run.stdout)]
+    assert o["calls"] == 2
+    assert o["raw"] == [_raw("claude-a", inp=7)]
+
+
+def test_overhead_json_raw_sums_to_start_pair(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [
+        _in(_mcall("c1", _usage(inp=1), "claude-a"), "/work/alpha"),
+        _in(_mcall("c2", _usage(out=2), "claude-b", _tool("a1", "Agent", description="x")), "/work/beta"),
+        _in(_mcall("c3", _usage(read=10), "claude-a"), "/home/op"),
+    ])
+    _subagent(d / "S.jsonl", "agent-a1", "a1", [_in(_mcall("s1", _usage(w5=4), "claude-b"), "/work/beta")])
+    ovh = _cli("--transcripts", d, "--overhead", "--json")
+    assert ovh.returncode == 0, ovh.stderr
+    objs = [json.loads(ln) for ln in _lines(ovh.stdout)]
+    assert [(o["project"], o["raw"]) for o in objs] == [
+        ("alpha", [_raw("claude-a", inp=1)]),
+        ("beta", [_raw("claude-b", w5=4, out=2)]),
+        ("(unassigned)", [_raw("claude-a", read=10)]),
+    ]
+    (pair,) = [json.loads(ln) for ln in _lines(_cli("--transcripts", d, "--json").stdout)]
+    assert pair["raw"] == [_raw("claude-a", inp=1, read=10), _raw("claude-b", w5=4, out=2)]
+    assert _weighted(pair["raw"]) == pair["total"] == 17.0
+
+
+def test_collect_fills_skipped(tmp_path, capsys):
+    """#735: collect(skipped=) receives (path, message) for each skipped or truncated file; stderr unchanged."""
+    d = tmp_path / "d"
+    _write(d / "A.jsonl", [*_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"), _call("c1", _usage(inp=1))])
+    (d / "broken.jsonl").mkdir(parents=True)
+    (d / "A" / "subagents" / "agent-bad.jsonl").mkdir(parents=True)
+    t = d / "T.jsonl.gz"
+    t.write_bytes(gzip.compress(b'{"usage": 1}\n' * 40)[:-12])
+    got: list = []
+    rows, _ = cr.collect([d], None, skipped=got)
+    assert sum(r.calls for r in rows[("alpha", "Issue-4")].values()) == 1
+    err = [ln[len("cost-report: "):] for ln in capsys.readouterr().err.splitlines()]
+    assert sorted(m for _, m in got) == sorted(err)
+    assert sorted(p for p, _ in got) == sorted(str(x) for x in (d / "A" / "subagents" / "agent-bad.jsonl",
+                                                               d / "broken.jsonl", t))
+    assert {m.split(" ", 1)[0] for _, m in got} == {"skipped", "truncated"}

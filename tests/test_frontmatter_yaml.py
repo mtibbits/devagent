@@ -166,8 +166,8 @@ def test_bash_grant_is_the_canonical_pair(path):
 
 def test_canonical_pair_canary_is_not_vacuous():
     # The canary above returns early on grant-less files; prove the subject
-    # set is the full 72 Bash-grant carriers (57 commands, mergemr #885,
-    # portfolio #726 and milestones #734 included, + 3 user-invocable skills + the 12 call-bearing
+    # set is the full 73 Bash-grant carriers (58 commands, mergemr #885,
+    # portfolio #726, milestones #734 and actuals #735 included, + 3 user-invocable skills + the 12 call-bearing
     # core-* skills, #584; core-capture and core-scaffold #1097), so a glob/layout
     # change cannot silently empty it (#439). DELIBERATE EQUALITY PIN, not a
     # floor — update the count when adding/removing a grant carrier.
@@ -180,8 +180,8 @@ def test_canonical_pair_canary_is_not_vacuous():
         fm = yaml.safe_load(text.split("---", 2)[1]) or {}
         if "Bash" in str(fm.get("allowed-tools") or ""):
             n += 1
-    assert n == 72, (
-        f"expected 72 Bash-grant carriers, found {n} — deliberate pin: if you "
+    assert n == 73, (
+        f"expected 73 Bash-grant carriers, found {n} — deliberate pin: if you "
         f"added/removed a grant-carrying command or skill on purpose, update "
         f"this count (see #548)"
     )

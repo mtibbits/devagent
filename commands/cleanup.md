@@ -327,4 +327,29 @@ storage; a `transcripts_dir` inside a git work tree or inside
 `~/.claude/projects` is refused. `cost-report --archive <transcripts_dir>` reads
 it, every host partition at once, counting each API call once.
 
+**Actuals rebuild (#735).** Inside the same `[archive]` gate, after the
+archive run, cleanup checks the age of `<devagent_home>/actuals.json` (one
+interpreter, no network). While it is a usable document younger than
+`[archive].actuals_max_age_hours` (default 24) cleanup says nothing. When it is
+older, missing or unusable, cleanup starts `actuals.sh --if-stale` in the
+background, prints `rebuilding actuals.json in the background (log:
+<devagent_home>/actuals-rebuild.log)` and does not wait: a build makes one
+milestones run per project (about a minute of tracker calls), longer than a
+close may take. The background run is bounded (15 minutes where `timeout`
+exists) and its pid is in `actuals-rebuild.pid`; a stale close that finds
+it still running starts no second one (a pid file older than the bound is
+ignored: its pid may have been reused). A refused `actuals_max_age_hours` or an
+unreadable config prints `cleanup: actuals rebuild failed (non-fatal)` and the
+close completes. A background build that fails says why in its log and
+records its exit status in `actuals-rebuild.status`; the next close prints
+`cleanup: the last actuals rebuild failed (exit N; log: …log.1)` (or `timed
+out`) and keeps that log as `actuals-rebuild.log.1`, and a stale close starts
+another. A build that wrote the file but lost a source the old file had (a
+tracker outage: exit 4) is reported the same way at the next close, fresh or
+not: `cleanup: the last actuals rebuild wrote actuals.json without a source the
+file it replaced had (log: …log.1)`; that file stays until it ages out or
+`/devagent:actuals` rebuilds it. Until a build succeeds the portfolio keeps reading the last
+good file while it is under 7 days old, then reports it as unavailable
+(`/devagent:actuals` runs a build by hand).
+
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup.sh" $ARGUMENTS`
