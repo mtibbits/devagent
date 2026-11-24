@@ -42,13 +42,52 @@ _exit_rows() {
   done
 }
 
-@test "registry: codes are unique and in 6..11" {
+# _codes_contiguous: stdin one code per line -> 0 iff they are unique and, sorted,
+# equal 6, 7, ... with no gap (#966: the range grows by one per registered row).
+_codes_contiguous() {
+  local codes n
+  codes="$(cat)"
+  n="$(grep -c . <<<"$codes")" || return 1
+  [ "$(sort <<<"$codes" | uniq -d)" = "" ] || return 1
+  [ "$(sort -n <<<"$codes" | tr '\n' ' ')" = "$(seq 6 $((5 + n)) | tr '\n' ' ')" ]
+}
+
+@test "registry: codes are unique and contiguous from 6" {
   # shellcheck source=/dev/null
   source "$REFUSALS"
-  local codes
-  codes="$(trust_exit_table | _exit_rows | cut -d'|' -f1)"
-  [ "$(sort <<<"$codes" | uniq -d)" = "" ]
-  [ "$(sort -n <<<"$codes" | tr '\n' ' ')" = "6 7 8 9 10 11 " ]
+  trust_exit_table | _exit_rows | cut -d'|' -f1 | _codes_contiguous
+  # the checker can fail: a gap, and a duplicate.
+  run _codes_contiguous <<<$'6\n7\n9'
+  [ "$status" -ne 0 ]
+  run _codes_contiguous <<<$'6\n7\n7'
+  [ "$status" -ne 0 ]
+  run _codes_contiguous <<<$'6\n7\n8'
+  [ "$status" -eq 0 ]
+}
+
+@test "registry: the leak-held row" {
+  # shellcheck source=/dev/null
+  source "$REFUSALS"
+  local code row
+  code="$(trust_exit_code leak-held)"
+  [[ "$code" =~ ^[0-9]+$ ]]
+  [ "$code" -ge 12 ]
+  row="$(trust_exit_table | _exit_rows | grep -E '^[0-9]+[|]leak-held[|]')"
+  [ "$row" = "$code|leak-held|refused by the leak gate: nothing was posted|#966" ] || { echo "$row" >&2; false; }
+}
+
+@test "registry: trust_exit_code maps an id to its code" {
+  # shellcheck source=/dev/null
+  source "$REFUSALS"
+  run trust_exit_code host
+  [ "$status" -eq 0 ]
+  [ "$output" = 9 ]
+  run trust_exit_code quarantine-refused
+  [ "$status" -eq 0 ]
+  [ "$output" = 11 ]
+  run trust_exit_code no-such-id
+  [ "$status" -eq 1 ]
+  [ "$output" = "" ]
 }
 
 @test "registry: refuse prints the exact template and exits 9" {
