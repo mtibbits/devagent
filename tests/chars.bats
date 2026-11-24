@@ -30,7 +30,8 @@ _cand() {
   [ "$output" = "hits 0" ]
   _chars scan body "$T/hit" > "$T/out" 2> "$T/err"
   [ "$(cat "$T/out")" = "$(printf 'hits 2\nbody line 1 U+202E\nbody line 2 U+200B')" ]
-  [ "$(LC_ALL=C grep -c $'\r' "$T/out")" = 0 ]
+  { printf '# DIAG923 grep:'; LC_ALL=C grep -c $'\r' "$T/out" | od -An -c | tr -s ' \n' ' '; printf ' rc=%s\n' "${PIPESTATUS[0]}"; } >&3 || true
+  [ "$(tr -cd '\r' < "$T/out" | wc -c)" -eq 0 ]   # byte count: no locale, no $(...) CR-stripping
   [ ! -s "$T/err" ]
 }
 
