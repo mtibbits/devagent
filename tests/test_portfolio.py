@@ -306,7 +306,7 @@ def _example():
 
 
 def test_schema_version_matches_live_schema():
-    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.2"
+    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.3"
 
 
 def test_compat_both_directions():
@@ -795,7 +795,7 @@ def _multi(tmp_path):
 
 def _build(tmp_path):
     root, projects = _multi(tmp_path)
-    return root, pf.build_document(projects, GENERATED_AT)
+    return root, pf.build_document(projects, GENERATED_AT, None)
 
 
 @lru_cache(maxsize=None)
@@ -886,9 +886,11 @@ def test_kinds_all_planted(tmp_path):
     ready = _ready_build(tmp_path / "ready-build")
     models = _models_build(tmp_path / "models-build")
     _, tok = _tok_doc(tmp_path / "tok-build")  # #737: tests/fixtures/portfolio stays untouched
-    kinds = {r["kind"] for d in (doc, ready, models, tok) for r in d["parse_report"]}
+    unwired = pf.build_document([pf.ProjectInput("solo", None)], GENERATED_AT,
+                                str(tmp_path / "none" / "actuals.json"))  # #735
+    kinds = {r["kind"] for d in (doc, ready, models, tok, unwired) for r in d["parse_report"]}
     assert kinds == set(pf.KINDS)
-    assert len(pf.KINDS) == len(set(pf.KINDS)) == 21
+    assert len(pf.KINDS) == len(set(pf.KINDS)) == 22
 
 
 def _walk_lines(tree):
@@ -993,7 +995,7 @@ def test_issue_dir_fields(tmp_path):
 
 def test_build_deterministic(tmp_path):
     root, projects = _multi(tmp_path)
-    assert pf.build_document(projects, GENERATED_AT) == pf.build_document(projects, GENERATED_AT)
+    assert pf.build_document(projects, GENERATED_AT, None) == pf.build_document(projects, GENERATED_AT, None)
 
 
 def _tree_hashes(root):
@@ -1005,7 +1007,7 @@ def test_build_writes_nothing_under_devdocs(tmp_path):
     root, projects = _multi(tmp_path)
     before = _tree_hashes(root)
     assert before
-    pf.build_document(projects, GENERATED_AT)
+    pf.build_document(projects, GENERATED_AT, None)
     assert _tree_hashes(root) == before
     (root / "theta" / "WBS.md").write_bytes(b"# theta WBS changed\n")
     assert _tree_hashes(root) != before
@@ -1046,7 +1048,7 @@ def _ready_build(tmp_path):
     root = _ready_copy(tmp_path)
     projects = [pf.ProjectInput("rho", str(root / "rho")),
                 pf.ProjectInput("sigma", str(root / "sigma"))]
-    return pf.build_document(projects, GENERATED_AT)
+    return pf.build_document(projects, GENERATED_AT, None)
 
 
 def _by_marker(doc, project, marker):
@@ -1138,7 +1140,7 @@ def _solo_doc(root, body):
     devdoc.mkdir(parents=True)
     text = "# solo\n\n" + body
     (devdoc / "WBS.md").write_bytes(text.encode())
-    return text, pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
+    return text, pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT, None)
 
 
 def _one_leaf_doc(tmp_path, glyph):
@@ -1293,7 +1295,7 @@ def test_ready_lines_empty_extreme(tmp_path):
     _, projects = _multi(tmp_path)
     keep = [p for p in projects if p.name in ("theta", "delta")]
     assert [p.name for p in keep] == ["delta", "theta"]
-    assert pf.ready_lines(pf.build_document(keep, GENERATED_AT)) == []
+    assert pf.ready_lines(pf.build_document(keep, GENERATED_AT, None)) == []
 
 
 # The multi fixture's ready leaves, derived by hand from the rule: alpha's
@@ -1341,7 +1343,7 @@ def _models_build(tmp_path):
     shutil.copytree(MODELS, root)
     projects = [pf.ProjectInput(name, str(root / name), step_models=sm)
                 for name, sm in MODELS_CONFIG.items()]
-    return pf.build_document(projects, GENERATED_AT)
+    return pf.build_document(projects, GENERATED_AT, None)
 
 
 @pytest.fixture(scope="module")
@@ -1484,10 +1486,16 @@ def test_bad_model_messages_pinned():
                              "models.{cls} is null")
 
 
-def _manifest(monkeypatch, projects):
+# #735: build needs PORTFOLIO_ACTUALS; the default names a file that is absent.
+NO_ACTUALS = str(Path(os.sep) / "nonexistent-735" / "actuals.json")
+
+
+def _manifest(monkeypatch, projects, actuals=NO_ACTUALS):
     for k in [k for k in os.environ if k.startswith("PORTFOLIO_")]:
         monkeypatch.delenv(k)
     monkeypatch.setenv("PORTFOLIO_PROJECT_COUNT", str(len(projects)))
+    if actuals is not None:
+        monkeypatch.setenv("PORTFOLIO_ACTUALS", actuals)
     for i, (name, devdoc) in enumerate(projects):
         monkeypatch.setenv(f"PORTFOLIO_NAME_{i}", name)
         if devdoc is not None:
@@ -1525,7 +1533,7 @@ def test_main_self_check_exit_3(tmp_path, monkeypatch, capsys):
     _manifest(monkeypatch, [])
     broken = _example()
     _nset("n9", "id", "n1")(broken)
-    monkeypatch.setattr(pf, "build_document", lambda projects, generated_at: broken)
+    monkeypatch.setattr(pf, "build_document", lambda projects, generated_at, actuals: broken)
     out = tmp_path / "out" / "p.json"
     assert pf.main(["build", "--out", str(out)]) == pf.EXIT_SELF_CHECK == 3
     err = capsys.readouterr().err
@@ -1571,7 +1579,7 @@ def test_main_schema_major_mismatch_exits_3(tmp_path, monkeypatch, capsys):
     lines = capsys.readouterr().err.splitlines()
     assert len(lines) == 1
     assert lines[0].startswith(
-        'portfolio: self-check: schema: unsupported portfolio schema_version "1.2"')
+        'portfolio: self-check: schema: unsupported portfolio schema_version "1.3"')
 
 
 def test_main_writes_and_reports(tmp_path, monkeypatch, capsys):
@@ -1617,7 +1625,7 @@ def test_main_ready_self_check_exit_3(monkeypatch, capsys):
     _manifest(monkeypatch, [])
     broken = _example()
     _nset("n9", "id", "n1")(broken)
-    monkeypatch.setattr(pf, "build_document", lambda projects, generated_at: broken)
+    monkeypatch.setattr(pf, "build_document", lambda projects, generated_at, actuals: broken)
     assert pf.main(["ready"]) == pf.EXIT_SELF_CHECK == 3
     out, err = capsys.readouterr()
     assert out == ""
@@ -1632,6 +1640,7 @@ def _subprocess_env(root=None, projects=None):
     env = {k: v for k, v in os.environ.items()
            if not k.startswith("PORTFOLIO_") and k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
     env["PORTFOLIO_PROJECT_COUNT"] = str(len(projects))
+    env["PORTFOLIO_ACTUALS"] = NO_ACTUALS
     for i, (name, devdoc) in enumerate(projects):
         env.update({f"PORTFOLIO_NAME_{i}": name, f"PORTFOLIO_DEVDOC_{i}": str(devdoc)})
     return env
@@ -1868,7 +1877,7 @@ def _deny(monkeypatch, *targets):
 def test_unsearchable_devdoc_is_that_projects_status(tmp_path, monkeypatch):
     root, projects = _multi(tmp_path)
     _deny(monkeypatch, root / "alpha")
-    doc = pf.build_document(projects, GENERATED_AT)
+    doc = pf.build_document(projects, GENERATED_AT, None)
     alpha = _project(doc, "alpha")
     assert alpha["status"] == "unreadable"
     assert alpha["status_reason"] == "the devdoc dir could not be read: PermissionError: Permission denied"
@@ -1879,7 +1888,7 @@ def test_unsearchable_devdoc_is_that_projects_status(tmp_path, monkeypatch):
 def test_unstatable_wbs_is_unreadable_not_no_wbs(tmp_path, monkeypatch):
     root, projects = _multi(tmp_path)
     _deny(monkeypatch, root / "beta" / "WBS.md")
-    doc = pf.build_document(projects, GENERATED_AT)
+    doc = pf.build_document(projects, GENERATED_AT, None)
     beta = _project(doc, "beta")
     assert (beta["status"], beta["status_reason"]) == (
         "unreadable", "WBS.md could not be read: PermissionError: Permission denied")
@@ -1888,7 +1897,7 @@ def test_unstatable_wbs_is_unreadable_not_no_wbs(tmp_path, monkeypatch):
 def test_unstatable_issue_files_are_reported_not_absent(tmp_path, monkeypatch):
     root, projects = _multi(tmp_path)
     _deny(monkeypatch, root / "alpha" / "Issue-2", root / "alpha" / "Issue-1" / "checklist.md")
-    doc = pf.build_document(projects, GENERATED_AT)
+    doc = pf.build_document(projects, GENERATED_AT, None)
     msgs = [r["message"] for r in doc["parse_report"] if r["kind"] == "checklist_unreadable"]
     assert "Issue-1/checklist.md could not be read: PermissionError: Permission denied" in msgs
     assert "Issue-2/ could not be read: PermissionError: Permission denied" in msgs
@@ -1987,7 +1996,7 @@ def test_non_regular_issue_files_are_unreadable(tmp_path):
         expected += [
             ("checklist_unreadable", "Issue-2/checklist.md could not be read: not a regular file"),
             ("stuck_unreadable", "Issue-2/STUCK could not be read: not a regular file")]
-    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
     assert sorted(_report_of(doc, "checklist_unreadable", "stuck_unreadable")) == sorted(expected)
     assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
 
@@ -2002,7 +2011,7 @@ def test_issue_files_symlinked_to_regular_are_read(tmp_path):
         os.symlink(tmp_path / "real-stuck", devdoc / "Issue-1" / "STUCK")
     except (OSError, NotImplementedError):
         pytest.skip("symlinks unsupported")
-    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
     entry = doc["projects"][0]["issues"][0]
     assert _pick(entry)[:3] == ("open", 4, "scope")
     assert entry["stuck"]["step"] == "9 implement"
@@ -2021,7 +2030,7 @@ def test_noncanonical_issue_ids_are_not_followed(tmp_path):
     devdoc, text = _issue7_devdoc(tmp_path, "- [ ] a {issue: Issue-7.}\n- [ ] b {issue: issue-7}\n"
                                             "- [ ] c {issue: Issue-7}\n- [ ] d {issue: Issue-9}\n")
     line_a, line_b = _line_of(text, "{issue: Issue-7.}"), _line_of(text, "{issue: issue-7}")
-    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
     assert [(r["source_line"], r["message"]) for r in doc["parse_report"]
             if r["kind"] == "issue_not_id"] == [
         (line_a, "issue 'Issue-7.' ends in '.'; its issue dir is not read"),
@@ -2077,7 +2086,7 @@ def test_case_alias_is_not_followed_when_the_fs_resolves_it(tmp_path, monkeypatc
         except (OSError, NotImplementedError):
             pytest.skip("symlinks unsupported")
     _scandir_patch(monkeypatch, devdoc, omit=("issue-7",))
-    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
     entry = doc["projects"][0]["issues"][0]
     assert _pick(entry) == ("absent", None, None, None)
     assert _report_of(doc, "issue_not_id") == [
@@ -2089,7 +2098,7 @@ def test_unlistable_devdoc_fails_closed(tmp_path, monkeypatch):
     devdoc, _ = _issue7_devdoc(tmp_path, "- [ ] a {issue: Issue-7}\n- [ ] b {issue: Issue-8.}\n"
                                          "- [ ] c {issue: Issue-9}\n")
     _scandir_patch(monkeypatch, devdoc, raise_exc=PermissionError(13, "Permission denied"))
-    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
     msg = ("issue dir 'Issue-7' could not be verified: devdoc listing failed: "
            "PermissionError: Permission denied")
     assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == [
@@ -2142,7 +2151,240 @@ def test_one_bad_symlink_in_devdoc_does_not_fail_the_listing(tmp_path):
         os.symlink("loop", devdoc / "loop")
     except (OSError, NotImplementedError):
         pytest.skip("symlinks unsupported")
-    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT)
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
     assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == []
     entry = doc["projects"][0]["issues"][0]
     assert _pick(entry) == ("open", 2, "draft", {"step": "2 draft", "reason": None, "since": None})
+
+
+# --- #735: the actuals slot, the project field and the top-level object ---------
+
+def _slot(total):
+    return {"milestones": [{"at": "2026-11-01T10:00:00Z", "event": "opened", "source": "tracker"}],
+            "sessions": [{"cwd_slug": "-w-alpha", "host": "h1", "session": "S1"}],
+            "time": {"agent_busy_s": 1.0, "agent_wall_s": 1.0, "operator_s": 0.0, "operator_events": 0,
+                     "returns_after_absence": 0, "fallback_events": 0},
+            "tokens": {"main": total, "subagents": 0.0, "total": total,
+                       "raw": [{"model": "m", "input": int(total), "cache_read": 0, "cache_write_5m": 0,
+                                "cache_write_1h": 0, "output": 0}]}}
+
+
+ALPHA_OVERHEAD = {"overhead": {"rules": {"cwd": 1, "hint": 2},
+                               "sessions": [{"cwd_slug": "-w", "host": "local", "session": "S9"}],
+                               "tokens": {"main": 3.0, "subagents": 0.0, "total": 3.0, "raw": []}}}
+UNASSIGNED = [{"cwd": "/home/op", "sessions": [], "tokens": None}]
+
+
+def _actuals(at="2026-11-05T00:00:00Z", **changes):
+    doc = {"actuals_version": "1.0", "generated_at": at,
+           "inputs": {"archive": None, "hosts": ["local"], "project": None},
+           "issues": [{"project": "alpha", "issue": "Issue-1", "actuals": _slot(10.0)},
+                      {"project": "alpha", "issue": "Issue-3", "actuals": _slot(30.0)},
+                      {"project": "alpha", "issue": "Issue-999", "actuals": _slot(99.0)},
+                      {"project": "beta", "issue": "Issue-1", "actuals": _slot(11.0)},
+                      {"project": "nowhere", "issue": "Issue-1", "actuals": _slot(1.0)}],
+           "projects": [{"project": "alpha", "actuals": ALPHA_OVERHEAD},
+                        {"project": "gamma", "actuals": {"overhead": None}}],
+           "unassigned": UNASSIGNED, "sources": [],
+           "time_rule": {"attention_cap_s": 900.0, "idle_gap_s": 300.0, "tool_gap_s": 3600.0}}
+    doc.update(changes)
+    return doc
+
+
+def _write_actuals(path, doc):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(doc if isinstance(doc, str) else json.dumps(doc), encoding="utf-8")
+    return str(path)
+
+
+def _slots(doc):
+    return {(p["project"], e["issue"]): e["actuals"] for p in doc["projects"] for e in p["issues"]}
+
+
+def _unavailable(doc):
+    return [(r["project"], r["source_line"], r["message"]) for r in doc["parse_report"]
+            if r["kind"] == "actuals_unavailable"]
+
+
+def test_actuals_fill_slots_and_project_field(tmp_path):
+    """AC6: each slot and project field is its row's object; the top level carries the file's three fields."""
+    _, projects = _multi(tmp_path)
+    path = _write_actuals(tmp_path / "a" / "actuals.json", _actuals())
+    doc = pf.build_document(projects, GENERATED_AT, path)
+    slots = _slots(doc)
+    assert slots[("alpha", "Issue-1")] == _slot(10.0)
+    assert slots[("alpha", "Issue-3")] == _slot(30.0)
+    assert slots[("beta", "Issue-1")] == _slot(11.0)
+    assert sum(1 for v in slots.values() if v is not None) == 3
+    assert len(slots) == 16
+    fields = {p["project"]: p["actuals"] for p in doc["projects"]}
+    assert fields == {**{n: None for n in CONFIG_ORDER}, "alpha": ALPHA_OVERHEAD, "gamma": {"overhead": None}}
+    assert doc["actuals"] == {"actuals_version": "1.0", "generated_at": "2026-11-05T00:00:00Z",
+                              "unassigned": UNASSIGNED}
+    assert _unavailable(doc) == []
+    assert pf._self_check(doc) is None
+
+
+UNAVAILABLE = "actuals are empty"
+
+
+@pytest.mark.parametrize("state, message", [
+    ("missing", "{path} does not exist; actuals are empty; run /devagent:actuals"),
+    ("directory", "{path} could not be read: "),
+    ("torn", "{path} could not be read: "),
+    ("null", "{path} is not a usable actuals document: not a JSON object; actuals are empty; "
+             "run /devagent:actuals"),
+    ("major-2", "{path} is not a usable actuals document: actuals_version 2.0 is not major 1; "
+                "actuals are empty; run /devagent:actuals"),
+    ("newer-minor", "{path} is not a usable actuals document: actuals_version 1.1 is newer than this "
+                    "reader (1.0); actuals are empty; run /devagent:actuals"),
+    ("bad-slot", "{path} is not a usable actuals document: issues[1].actuals.tokens.total: expected number, "
+                 "got string; actuals are empty; run /devagent:actuals"),
+    ("one-project", "{path} is not a usable actuals document: inputs.project is 'alpha': a one-project "
+                    "document; actuals are empty; run /devagent:actuals"),
+    ("8-days", "{path} was generated at 2026-10-28T23:59:59Z, more than 7 days before this document; "
+               "actuals are empty; run /devagent:actuals"),
+])
+def test_actuals_unavailable_states(tmp_path, monkeypatch, capsys, state, message):
+    _, projects = _multi(tmp_path)
+    target = tmp_path / "a" / "actuals.json"
+    bad = _actuals()
+    bad["issues"][1]["actuals"]["tokens"]["total"] = "30"
+    body = {"directory": None, "torn": '{"actuals_version": "1.0", ', "null": "null",
+            "major-2": _actuals(actuals_version="2.0"), "newer-minor": _actuals(actuals_version="1.1"),
+            "bad-slot": bad, "one-project": _actuals(inputs={"archive": None, "hosts": [], "project": "alpha"}),
+            "8-days": _actuals(at="2026-10-28T23:59:59Z")}
+    if state == "directory":
+        target.mkdir(parents=True)
+    elif state != "missing":
+        _write_actuals(target, body[state])
+    path = str(target)
+    doc = pf.build_document(projects, GENERATED_AT, path)
+    assert all(v is None for v in _slots(doc).values()) and len(_slots(doc)) == 16
+    assert all(p["actuals"] is None for p in doc["projects"]) and doc["actuals"] is None
+    got = _unavailable(doc)
+    assert [p for p, _, _ in got] == CONFIG_ORDER   # one per project, in config order
+    expected = message.format(path=path)
+    for _, line, text in got:
+        assert line is None
+        assert text == expected if not expected.endswith(": ") else (
+            text.startswith(expected) and text.endswith("; actuals are empty") and "\n" not in text)
+    assert pf._self_check(doc) is None
+    root = tmp_path / "multi"
+    _manifest(monkeypatch, [(n, str(root / n)) for n in ("alpha", "beta")], actuals=path)
+    out = tmp_path / "out" / "p.json"
+    assert pf.main(["build", "--out", str(out)]) == pf.EXIT_OK
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("at", ["2026-10-30T00:00:00Z", "2026-11-06T01:00:00Z"], ids=["7-days", "future-1h"])
+def test_actuals_edge_ages_are_used(tmp_path, at):
+    _, projects = _multi(tmp_path)
+    path = _write_actuals(tmp_path / "a" / "actuals.json", _actuals(at=at))
+    doc = pf.build_document(projects, GENERATED_AT, path)
+    assert _unavailable(doc) == []
+    assert doc["actuals"]["generated_at"] == at
+
+
+def test_actuals_no_project_carries_no_entry(tmp_path):
+    doc = pf.build_document([], GENERATED_AT, str(tmp_path / "none.json"))
+    assert doc["parse_report"] == [] and doc["actuals"] is None
+    assert pf._self_check(doc) is None
+
+
+def test_actuals_unmatched_rows_are_ignored(tmp_path):
+    _, projects = _multi(tmp_path)
+    doc = pf.build_document(projects, GENERATED_AT, _write_actuals(tmp_path / "a.json", _actuals()))
+    assert ("alpha", "Issue-999") not in _slots(doc)
+    assert not any("Issue-999" in r["message"] or "nowhere" in r["message"] for r in doc["parse_report"])
+
+
+def _keys_named(value, name):
+    if isinstance(value, dict):
+        return (name in value) + sum(_keys_named(v, name) for v in value.values())
+    if isinstance(value, list):
+        return sum(_keys_named(v, name) for v in value)
+    return 0
+
+
+def test_actuals_none_means_no_keys(tmp_path):
+    _, projects = _multi(tmp_path)
+    doc = pf.build_document(projects, GENERATED_AT, None)
+    assert _keys_named(doc, "actuals") == 0
+    assert _unavailable(doc) == []
+    wired = pf.build_document(projects, GENERATED_AT, str(tmp_path / "none.json"))
+    assert _keys_named(wired, "actuals") == 1 + len(CONFIG_ORDER) + 16
+
+
+# One process-wide audit hook (hooks cannot be removed): it raises only while armed.
+_FORBIDDEN = ("subprocess.Popen", "os.system", "os.exec", "os.fork", "os.forkpty", "os.posix_spawn", "os.spawn",
+              "socket.connect", "socket.getaddrinfo", "socket.gethostbyname")
+_ARMED = []
+
+
+def _forbid(event, _args):
+    if _ARMED and event in _FORBIDDEN:
+        raise RuntimeError(f"forbidden during build: {event}")
+
+
+sys.addaudithook(_forbid)
+
+
+def test_build_starts_no_subprocess_and_no_network(tmp_path):
+    """AC6: the aggregator only reads actuals.json, in every state."""
+    _, projects = _multi(tmp_path)
+    good = _write_actuals(tmp_path / "good.json", _actuals())
+    torn = _write_actuals(tmp_path / "torn.json", "{")
+    stale = _write_actuals(tmp_path / "stale.json", _actuals(at="2026-01-01T00:00:00Z"))
+    (tmp_path / "dir.json").mkdir()
+    _ARMED.append(1)
+    try:
+        with pytest.raises(RuntimeError):   # positive control: the hook fires
+            os.system("true")
+        for path in (good, torn, stale, str(tmp_path / "dir.json"), str(tmp_path / "absent.json"), None):
+            pf.build_document(projects, GENERATED_AT, path)
+    finally:
+        _ARMED.clear()
+    names = set()
+    for f in (PRODUCER, LIB / "portfolio-check.py", LIB / "wbs-parser.py"):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                names.add(node.module.split(".")[0])
+    assert names and not names & {"subprocess", "socket", "urllib", "http"}
+
+
+def test_build_deterministic_with_actuals(tmp_path):
+    _, projects = _multi(tmp_path)
+    path = _write_actuals(tmp_path / "a.json", _actuals())
+    assert pf.dumps(pf.build_document(projects, GENERATED_AT, path)) == \
+        pf.dumps(pf.build_document(projects, GENERATED_AT, path))
+
+
+@pytest.mark.parametrize("value", [None, ""], ids=["unset", "empty"])
+def test_manifest_requires_actuals_path(tmp_path, monkeypatch, capsys, value):
+    _manifest(monkeypatch, [], actuals=value)
+    out = tmp_path / "p.json"
+    assert pf.main(["build", "--out", str(out)]) == pf.EXIT_USAGE
+    assert "PORTFOLIO_ACTUALS is not set" in capsys.readouterr().err
+    assert not out.exists()
+    assert pf.main(["ready"]) == pf.EXIT_OK   # ready builds without actuals
+
+
+def test_actuals_with_a_lone_surrogate_is_unusable_not_a_crash(tmp_path, monkeypatch, capsys):
+    """Final review I1: json accepts "\\ud800", UTF-8 cannot encode it; the file is unusable, exit 0."""
+    root, _ = _multi(tmp_path)
+    path = tmp_path / "a" / "actuals.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_actuals(unassigned=[{"cwd": "\ud800", "sessions": [], "tokens": None}])),
+                    encoding="utf-8")
+    _manifest(monkeypatch, [("alpha", str(root / "alpha"))], actuals=str(path))
+    out = tmp_path / "out" / "p.json"
+    assert pf.main(["build", "--out", str(out)]) == pf.EXIT_OK
+    capsys.readouterr()
+    doc = json.loads(out.read_bytes().decode("utf-8"))
+    assert _unavailable(doc) == [("alpha", None, f"{path} is not a usable actuals document: a string is not "
+                                                 "valid UTF-8 (a lone surrogate); actuals are empty; run "
+                                                 "/devagent:actuals")]
+    assert doc["actuals"] is None

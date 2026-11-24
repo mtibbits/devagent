@@ -15,6 +15,9 @@ configured by the [archive] table of ${DA_HOME:-~/.claude/devagent}/config.toml:
     host_id          the partition name, [A-Za-z0-9._-]+ without ".." and not
                      "."; default the hostname, with "-wsl" under WSL
     exclude          cwd-slug globs never archived (case-insensitive)
+    actuals_max_age_hours
+                     hours after which cleanup rebuilds <devagent_home>/actuals.json
+                     (#735; scripts/actuals.sh --if-stale), 0 < x <= 168, default 24
 
 Nothing is ever deleted or rewritten. A transcript only grows, so a grown one
 gets one more gzip member holding only the new bytes; a file whose archived
@@ -43,6 +46,7 @@ import functools
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -62,7 +66,10 @@ PROG = "archive-transcripts"
 LIB = Path(__file__).resolve().parent
 # Read at call time (a module global, so a test points it at a fixture file).
 OSRELEASE = "/proc/sys/kernel/osrelease"
-KEYS = ("transcripts_dir", "host_id", "exclude")
+KEYS = ("transcripts_dir", "host_id", "exclude", "actuals_max_age_hours")
+# #735: the actuals rebuild age. Its cap (max_age_hours) is the portfolio's
+# stale line: a larger age would guarantee a stale portfolio.
+ACTUALS_MAX_AGE_DEFAULT = 24.0
 HOST_ID = re.compile(r"(?!\.$)(?!.*\.\.)[A-Za-z0-9._-]+")
 STALE_DAYS = 7
 GIT_TIMEOUT = 30   # an unreachable mount must not hang a close
@@ -125,8 +132,16 @@ def default_host_id(hostname: str, osrelease: str) -> str:
     return hostname + "-wsl" if wsl else hostname
 
 
-def _git_check(resolved: str):
-    """Refuse unless git says the nearest existing ancestor is outside every repository (Issue-243: fail closed)."""
+ARCHIVE_IN_REPO = ("[archive].transcripts_dir", "transcripts hold everything a session read, so the archive "
+                   "belongs on private storage outside any repository")
+
+
+def _git_check(resolved: str, label: tuple[str, str] = ARCHIVE_IN_REPO):
+    """Refuse unless git says the nearest existing ancestor is outside every repository (Issue-243: fail closed).
+
+    label is (what the path is, why it must stay out of a repository): the refusal reads
+    "<what> is inside a git work tree (<path>); <why>" (#735 passes its --out).
+    """
     anc = resolved
     while not os.path.exists(anc):
         parent = os.path.dirname(anc)
@@ -152,12 +167,29 @@ def _git_check(resolved: str):
     except OSError as e:
         raise Refusal(f"cannot tell whether {resolved} is inside a git work tree ({e}); refusing")
     if r.returncode == 0:   # "true" in a work tree, "false" inside a .git dir: a repository either way
-        raise Refusal(f"[archive].transcripts_dir is inside a git work tree ({resolved}); transcripts hold "
-                      "everything a session read, so the archive belongs on private storage outside any repository")
+        raise Refusal(f"{label[0]} is inside a git work tree ({resolved}); {label[1]}")
     if r.returncode == 128 and "not a git repository" in r.stderr:
         return
     why = next((ln.strip() for ln in r.stderr.splitlines() if ln.strip()), f"rc {r.returncode}")
     raise Refusal(f"cannot tell whether {resolved} is inside a git work tree ({why}); refusing")
+
+
+def max_age_hours(table: dict) -> float:
+    """[archive].actuals_max_age_hours as a float, the default when absent; Refusal unless a finite
+    number 0 < x <= the portfolio's stale line in hours (168)."""
+    if "actuals_max_age_hours" not in table:
+        return ACTUALS_MAX_AGE_DEFAULT
+    raw = table["actuals_max_age_hours"]
+    cap = 24.0 * _lib("_archive_portfolio", "portfolio.py").pc.ACTUALS_STALE_DAYS
+    try:
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError
+        hours = float(raw)   # an int too large for a float raises OverflowError
+        if not (math.isfinite(hours) and 0 < hours <= cap):
+            raise ValueError
+    except (ValueError, OverflowError):
+        raise Refusal(f"[archive].actuals_max_age_hours must be a number of hours, 0 < x <= {cap:g}: {raw}") from None
+    return hours
 
 
 def resolve(table: dict):
@@ -165,7 +197,7 @@ def resolve(table: dict):
     raw = table.get("transcripts_dir")
     for k in table:
         if k not in KEYS:
-            raise Refusal(f"[archive].{k} is not a known key (transcripts_dir, host_id, exclude)")
+            raise Refusal(f"[archive].{k} is not a known key ({', '.join(KEYS)})")
     tdir = os.path.expanduser(raw) if isinstance(raw, str) and raw.startswith("~") else raw
     if not isinstance(tdir, str) or not Path(tdir).is_absolute():
         raise Refusal(f"[archive].transcripts_dir must be an absolute path: {raw} "
@@ -176,6 +208,7 @@ def resolve(table: dict):
     exclude = table.get("exclude", [])
     if not isinstance(exclude, list) or not all(isinstance(g, str) for g in exclude):
         raise Refusal("[archive].exclude must be a list of strings")
+    max_age_hours(table)   # doctor and the archiver refuse a bad age with the same line
     root = _cost_report().transcripts_root()
     if _lib("_archive_portfolio", "portfolio.py")._is_under(tdir, root):
         raise Refusal(f"[archive].transcripts_dir is inside {root}, where Claude Code deletes old transcripts")

@@ -25,7 +25,10 @@ live dirs are added by --all-dirs, --project, --overhead or --transcripts. A tra
 read as .jsonl or .jsonl.gz. One API call (message id) is counted once across
 every file read, so a session archived on two hosts and still live counts
 once; a session is its sessionId. --json prints one JSON object per (project,
-issue) with the transcript files it came from.
+issue) with the transcript files it came from and, under "raw" (#735), its
+unweighted token counts per message.model and class, main and subagent calls
+together (a call with no model is "(unknown)"; an all-zero model has no entry):
+the weighted sum of raw is total, to rounding.
 
 --overhead (#732) reports the (no project)/(no issue) calls as overhead per
 project, each placed by the first rule that applies: the session's most
@@ -117,6 +120,7 @@ PROJECT_ASSIGN = re.compile(
 )
 NO_PROJECT = "(no project)"
 NO_ISSUE = "(no issue)"
+UNASSIGNED = "(unassigned)"
 NO_STEP = "(no step)"
 START = ((NO_PROJECT, NO_ISSUE), NO_STEP)
 # A line holding none of these cannot carry a call, a tool use, a dispatch
@@ -139,7 +143,18 @@ ASK_TOOLS = ("AskUserQuestion", "ExitPlanMode")
 NOT_TYPED = ("<task-notification>", "Another Claude session", "<local-command")
 
 
-def call_cost(u: dict) -> float:
+# The token classes of a raw count, in WEIGHTS order (#735).
+RAW_CLASSES = tuple(WEIGHTS)
+# A call whose message.model is absent or not a non-empty string (#735).
+NO_MODEL = "(unknown)"
+
+
+def raw_counts(u: dict) -> tuple:
+    """A usage dict's token counts per class, in RAW_CLASSES order.
+
+    Without a 5m/1h split every cache write counts as 5m; a split with one side
+    present counts the other as 0.
+    """
     writes = u.get("cache_creation_input_tokens") or 0
     split = u.get("cache_creation") or {}
     w1h = split.get("ephemeral_1h_input_tokens")
@@ -147,12 +162,45 @@ def call_cost(u: dict) -> float:
     if w1h is None and w5m is None:
         w5m, w1h = writes, 0
     return (
-        WEIGHTS["input"] * (u.get("input_tokens") or 0)
-        + WEIGHTS["cache_read"] * (u.get("cache_read_input_tokens") or 0)
-        + WEIGHTS["cache_write_5m"] * (w5m or 0)
-        + WEIGHTS["cache_write_1h"] * (w1h or 0)
-        + WEIGHTS["output"] * (u.get("output_tokens") or 0)
+        u.get("input_tokens") or 0,
+        u.get("cache_read_input_tokens") or 0,
+        w5m or 0,
+        w1h or 0,
+        u.get("output_tokens") or 0,
     )
+
+
+def weighted(counts) -> float:
+    """The weighted cost of five raw counts in RAW_CLASSES order."""
+    total = 0.0
+    for k, n in zip(RAW_CLASSES, counts):
+        total += WEIGHTS[k] * n
+    return total
+
+
+def call_cost(u: dict) -> float:
+    return weighted(raw_counts(u))
+
+
+def call_model(msg: dict) -> str:
+    """The call's message.model, NO_MODEL when it is absent or not a non-empty string.
+
+    Only message.model: a bare "model" also occurs inside Agent tool inputs.
+    """
+    m = msg.get("model")
+    return m if isinstance(m, str) and m else NO_MODEL
+
+
+def add_raw(into: dict, model: str, counts) -> None:
+    """Add one call's (or one raw dict's) counts to a {model: [five counts]} dict."""
+    cur = into.setdefault(model, [0] * len(RAW_CLASSES))
+    for i, n in enumerate(counts):
+        cur[i] += n
+
+
+def merge_raw(into: dict, other: dict) -> None:
+    for model, counts in other.items():
+        add_raw(into, model, counts)
 
 
 def context_size(u: dict) -> int:
@@ -174,12 +222,20 @@ def _open(path: Path):
     return open(path, encoding="utf-8", errors="replace")
 
 
-def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
+def _warn(skipped: list | None, path: Path, message: str):
+    """Print a skip warning; with skipped (#735), also record (path, message)."""
+    print(f"cost-report: {message}", file=sys.stderr)
+    if skipped is not None:
+        skipped.append((str(path), message))
+
+
+def load(path: Path, markers: tuple = MARKERS, skipped: list | None = None) -> Iterator[dict]:
     """Yield a transcript's records one at a time.
 
     A line is parsed only if it holds one of markers; a line that does not
     parse, or parses to anything but an object, is skipped. A .gz whose tail
-    is torn (a crash mid-append) yields the records before the tear and warns.
+    is torn (a crash mid-append) yields the records before the tear and warns
+    (and, with skipped, records the file).
     """
     with _open(path) as f:
         try:
@@ -193,7 +249,7 @@ def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
                 if isinstance(d, dict):
                     yield d
         except (EOFError, zlib.error, gzip.BadGzipFile) as e:
-            print(f"cost-report: truncated {path} ({e})", file=sys.stderr)
+            _warn(skipped, path, f"truncated {path} ({e})")
 
 
 def _project_tables() -> dict[str, dict]:
@@ -515,15 +571,23 @@ def _timed(d: dict) -> float | None:
 
 
 class Row:
-    __slots__ = ("calls", "peak", "main", "sub")
+    """raw: {model: [five counts in RAW_CLASSES order]}, main and subagent calls together (#735)."""
+    __slots__ = ("calls", "peak", "main", "sub", "raw")
 
     def __init__(self):
         self.calls, self.peak, self.main, self.sub = 0, 0, 0.0, 0.0
+        self.raw: dict[str, list[int]] = {}
 
-    def add(self, calls: int, peak: int, main: float):
+    def add(self, calls: int, peak: int, main: float, raw: dict | None = None):
         self.calls += calls
         self.peak = max(self.peak, peak)
         self.main += main
+        if raw:
+            merge_raw(self.raw, raw)
+
+    def add_sub(self, cost: float, raw: dict):
+        self.sub += cost
+        merge_raw(self.raw, raw)
 
 
 class Tape:
@@ -535,9 +599,10 @@ class Tape:
             cwd is the record's cwd (None when absent); a calls bucket holds one cwd. A
             "hint" is the literal DEVAGENT_PROJECT values one Bash command assigns.
     dispatched: every project a next.sh dispatch header named (all hits, not only the last).
-    subs: [(toolUseId, cost, fresh, cwd)], one per subagent file with usage; fresh is
+    subs: [(toolUseId, cost, fresh, cwd, raw)], one per subagent file with usage; fresh is
           False when every one of its message ids was already counted elsewhere; cwd is
-          the file's first record cwd (None when none has one).
+          the file's first record cwd (None when none has one); raw is the fresh calls'
+          {model: counts} (#735).
     session: the first sessionId in the file, else its session key.
     runs: {workflow run id: the Workflow tool_use id whose result named it} (first wins).
     A "time" event (under --time) holds the time of the records ticked before the
@@ -639,12 +704,15 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
                     ev.append(("calls", row, cwd))
                 if mid not in seen:
                     seen.add(mid)
-                    row.add(1, context_size(usage), call_cost(usage))
+                    # raw is added only here and at the subagent fresh list, beside cost (#735).
+                    counts = raw_counts(usage)
+                    row.add(1, context_size(usage), weighted(counts))
+                    add_raw(row.raw, call_model(msg), counts)
     return tape
 
 
-def _skipped(path: Path, e: OSError):
-    print(f"cost-report: skipped {path} ({e})", file=sys.stderr)
+def _skipped(path: Path, e: OSError, skipped: list | None = None):
+    _warn(skipped, path, f"skipped {path} ({e})")
 
 
 def _mtime(path: Path) -> float:
@@ -659,7 +727,7 @@ def _transcripts(paths: Iterable[Path]) -> list[Path]:
     return sorted(p for p in paths if p.name.endswith((".jsonl", ".jsonl.gz")))
 
 
-def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Tape:
+def scan_session(path: Path, seen: set[str], timing: Timing | None = None, skipped: list | None = None) -> Tape:
     """scan() one session file, then sum each of its subagent files (last usage per message id wins).
 
     Subagent files are every agent-*.jsonl[.gz] under <dir>/<session>/subagents/,
@@ -668,7 +736,7 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
     With timing, each subagent file also runs its own Clock (no operator events).
     """
     key = session_key(path)
-    tape = scan(load(path, MARKERS + TIME_MARKERS if timing else MARKERS), seen, timing)
+    tape = scan(load(path, MARKERS + TIME_MARKERS if timing else MARKERS, skipped), seen, timing)
     tape.session = tape.session or key
     base = path.parent / key / "subagents"
     for sub in _transcripts(base.rglob("agent-*.jsonl*")):
@@ -676,24 +744,24 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
             meta = json.loads((sub.parent / f"{session_key(sub)}.meta.json").read_text(encoding="utf-8"))
         except (OSError, ValueError, RecursionError):
             meta = {}
-        last: dict[str, dict] = {}
+        last: dict[str, tuple[dict, str]] = {}   # message id -> (usage, model), last wins
         sub_cwd = None
         # Like last for cost, a subagent file's uuids join the shared set only once it reads whole.
         added: set = set()
         clock, acc = (timing.clock(main=False, added=added), TimeAcc()) if timing else (None, None)
         try:
-            for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS):
+            for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS, skipped):
                 msg = d.get("message") or {}
                 if sub_cwd is None and isinstance(d.get("cwd"), str):
                     sub_cwd = d["cwd"]
                 if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and isinstance(msg.get("usage"), dict):
-                    last[msg["id"]] = msg["usage"]
+                    last[msg["id"]] = (msg["usage"], call_model(msg))
                 if clock is not None:
                     t = _timed(d)
                     if t is not None:
                         clock.tick(d, t, acc)
         except OSError as e:
-            _skipped(sub, e)
+            _skipped(sub, e, skipped)
             continue
         tool_use_id = meta.get("toolUseId") if isinstance(meta, dict) else None
         if tool_use_id is None and sub.parent.parent.name == "workflows":
@@ -702,9 +770,15 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
             timing.uuids |= added
             tape.sub_time.append((tool_use_id, acc))
         if last:
-            fresh = [u for mid, u in last.items() if mid not in seen]
+            fresh = [um for mid, um in last.items() if mid not in seen]
             seen.update(last)
-            tape.subs.append((tool_use_id, sum(map(call_cost, fresh)), bool(fresh), sub_cwd))
+            raw: dict = {}
+            cost = 0
+            for u, model in fresh:
+                counts = raw_counts(u)
+                cost += weighted(counts)
+                add_raw(raw, model, counts)
+            tape.subs.append((tool_use_id, cost, bool(fresh), sub_cwd, raw))
     return tape
 
 
@@ -854,7 +928,7 @@ def _place(hint: str | None, cwd: str | None, dirs: list[tuple[str, str]], cache
 def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None, *,
             hosts: dict | None = None, sources: dict | None = None,
             timing: TimeRules | None = None, times: dict | None = None,
-            overhead: dict | None = None):
+            overhead: dict | None = None, skipped: list | None = None):
     """Return ({(project, issue): {step: Row}}, {(project, issue): {sessionId}}), each filter an exact match.
 
     Every session is scanned before any is replayed: a typed command names a
@@ -867,6 +941,8 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     spans every file, as message ids do. A dict passed as overhead is filled
     {("project", P) | ("unassigned", cwd): Overhead} with the (no project)/(no issue)
     calls, charged at the same sites and from the same Rows, so it sums to that pair.
+    A list passed as skipped (#735) receives (path, message) for every file skipped
+    or truncated, the message being the warning's text after "cost-report: ".
     """
     hosts = hosts or {}
     sources = {} if sources is None else sources
@@ -878,9 +954,9 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     seen: set[str] = set()
     for p, d in files:
         try:
-            tapes.append((scan_session(p, seen, clocks), (hosts.get(d, "local"), d.name)))
+            tapes.append((scan_session(p, seen, clocks, skipped), (hosts.get(d, "local"), d.name)))
         except OSError as e:
-            _skipped(p, e)
+            _skipped(p, e, skipped)
     tables = _project_tables()
     known = set(tables).union(*(t.dispatched for t, _ in tapes))
     pdirs, cache = (project_dirs(tables), {}) if overhead is not None else ([], {})
@@ -902,22 +978,22 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
         origin = (*where, tape.session)
         for pair, step, b, (hint, cwd) in buckets:
             if b.calls:
-                rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
+                rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main, b.raw)
                 if overhead is not None and pair == START[0]:
                     place, rule = _place(hint, cwd, pdirs, cache)
                     o, row = _charge_overhead(overhead, place, step, tape.session, origin)
-                    row.add(b.calls, b.peak, b.main)
+                    row.add(b.calls, b.peak, b.main, b.raw)
                     o.rules[rule] += b.calls
             sessions[pair].add(tape.session)
             sources.setdefault(pair, set()).add(origin)
-        for tool_use_id, cost, fresh, sub_cwd in tape.subs:
+        for tool_use_id, cost, fresh, sub_cwd, sub_raw in tape.subs:
             pair, step = launches.get(tool_use_id, START)
             if fresh:
-                rows[pair].setdefault(step, Row()).sub += cost
+                rows[pair].setdefault(step, Row()).add_sub(cost, sub_raw)
                 if overhead is not None and pair == START[0]:
                     hint, cwd = places.get(tool_use_id, (None, None))
                     place, _ = _place(hint, cwd or sub_cwd, pdirs, cache)
-                    _charge_overhead(overhead, place, step, tape.session, origin)[1].sub += cost
+                    _charge_overhead(overhead, place, step, tape.session, origin)[1].add_sub(cost, sub_raw)
             sources.setdefault(pair, set()).add(origin)
         for pair, a in timed:
             charge(pair, a, launches)
@@ -999,6 +1075,17 @@ def _steps_block(steps: dict[str, Row]) -> list[str]:
     return out
 
 
+def raw_json(steps: dict[str, Row]) -> list[dict]:
+    """A pair's or an overhead line's raw counts per model, summed over steps, sorted by model.
+
+    A model whose five counts are all zero (a <synthetic> record) has no entry.
+    """
+    raw: dict = {}
+    for r in steps.values():
+        merge_raw(raw, r.raw)
+    return [{"model": m, **dict(zip(RAW_CLASSES, c))} for m, c in sorted(raw.items()) if any(c)]
+
+
 def _sources_json(sources) -> list[dict]:
     return [{"cwd_slug": c, "host": h, "session": s} for c, h, s in sorted((c, h, s) for h, c, s in sources)]
 
@@ -1024,28 +1111,34 @@ def report_overhead(ov: dict, source: str, summary: bool) -> str:
     return "\n".join(out)
 
 
-def report_overhead_json(ov: dict) -> str:
-    """One JSON object per --overhead line, keys sorted, figures rounded to 2 decimals."""
+def overhead_objects(ov: dict) -> list[dict]:
+    """One object per --overhead line, figures rounded to 2 decimals."""
     out = []
     for (kind, name), o in _overhead_order(ov):
         calls, peak, main, sub = _figures(o.steps)
-        out.append(json.dumps({
+        out.append({
             "calls": calls,
             "cwd": None if kind == "project" else name,
             "main": round(main, 2),
             "peak_context": peak,
-            "project": name if kind == "project" else "(unassigned)",
+            "project": name if kind == "project" else UNASSIGNED,
+            "raw": raw_json(o.steps),
             "rules": dict(o.rules),
             "sessions": len(o.sessions),
             "sources": _sources_json(o.sources),
             "subagents": round(sub, 2),
             "total": round(main + sub, 2),
-        }, sort_keys=True))
-    return "\n".join(out)
+        })
+    return out
 
 
-def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeRules | None = None) -> str:
-    """One JSON object per pair, in report() order, keys sorted, figures rounded to 2 decimals.
+def report_overhead_json(ov: dict) -> str:
+    """One JSON object per --overhead line, keys sorted."""
+    return "\n".join(json.dumps(o, sort_keys=True) for o in overhead_objects(ov))
+
+
+def pair_objects(rows, sessions, sources, times: dict | None = None, rules: TimeRules | None = None) -> list[dict]:
+    """One object per pair, in report() order, figures rounded to 2 decimals.
 
     With rules (--time), each object also carries the pair's time figures (seconds) and the rules as time_rule.
     """
@@ -1064,19 +1157,25 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
                 "returns_after_absence": a.returns,
                 "time_rule": rules.as_json(),
             }
-        out.append(json.dumps({
+        out.append({
             **extra,
             "calls": calls,
             "issue": pair[1],
             "main": round(main, 2),
             "peak_context": peak,
             "project": pair[0],
+            "raw": raw_json(steps),
             "sessions": len(sessions.get(pair, ())),
             "sources": _sources_json(sources.get(pair, ())),
             "subagents": round(sub, 2),
             "total": round(main + sub, 2),
-        }, sort_keys=True))
-    return "\n".join(out)
+        })
+    return out
+
+
+def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeRules | None = None) -> str:
+    """One JSON object per pair (pair_objects), keys sorted."""
+    return "\n".join(json.dumps(o, sort_keys=True) for o in pair_objects(rows, sessions, sources, times, rules))
 
 
 def archive_dirs(archive: Path) -> list[Path]:

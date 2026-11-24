@@ -29,6 +29,7 @@ import math
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "portfolio-schema.json"
@@ -52,6 +53,16 @@ MSG_NO_VERSION = 'portfolio document has no schema_version'
 MSG_BAD_VERSION = 'schema_version {value!r} is not MAJOR.MINOR'
 MSG_NOT_OBJECT = 'portfolio document is not a JSON object'
 MSG_NOT_PORTFOLIO = 'not a devagent portfolio document (schema is {value!r})'
+
+# The actuals file (#735) has its own MAJOR.MINOR, under the same version
+# rules; this is the newest minor this reader (and the builder that writes it)
+# knows. An actuals_version minor ships with a portfolio schema minor.
+ACTUALS_READER = "1.0"
+ACTUALS_STAMP_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+ACTUALS_STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+# A file this much older than the portfolio document is stale: its rows are not
+# copied. It also caps [archive].actuals_max_age_hours.
+ACTUALS_STALE_DAYS = 7
 
 COMPAT_BACKWARDS = 'version went backwards: {old} -> {new}'
 COMPAT_REMOVED = 'removed or renamed without a major bump: {path}'
@@ -232,26 +243,30 @@ def _spec(node, required):
                      additional, node.get("x-reserved"))
 
 
-def inventory(schema) -> dict:
-    """Flatten the schema to {path: FieldSpec}. Paths are dotted, `[]` marks
-    array items and `{}` an additionalProperties schema; $ref is expanded."""
+def _walk(schema):
+    """Yield (path, schema node, required) for every inventory path, in schema order."""
     defs = schema.get("$defs", {})
-    out = {}
 
     def walk(node, prefix):
         node = _resolve(node, defs)
         required = set(node.get("required", []))
         for name, sub in node.get("properties", {}).items():
             path = f"{prefix}.{name}" if prefix else name
-            out[path] = _spec(_resolve(sub, defs), name in required)
-            walk(sub, path)
+            yield path, sub, name in required
+            yield from walk(sub, path)
         for key, mark in (("items", "[]"), ("additionalProperties", "{}")):
             if isinstance(node.get(key), dict):
-                out[prefix + mark] = _spec(_resolve(node[key], defs), False)
-                walk(node[key], prefix + mark)
+                yield prefix + mark, node[key], False
+                yield from walk(node[key], prefix + mark)
 
-    walk(schema, "")
-    return out
+    yield from walk(schema, "")
+
+
+def inventory(schema) -> dict:
+    """Flatten the schema to {path: FieldSpec}. Paths are dotted, `[]` marks
+    array items and `{}` an additionalProperties schema; $ref is expanded."""
+    defs = schema.get("$defs", {})
+    return {path: _spec(_resolve(sub, defs), req) for path, sub, req in _walk(schema)}
 
 
 def _parent(path):
@@ -423,6 +438,108 @@ def check(doc, schema=None) -> list:
            "newer": version[1] > reader_v[1]}
     _validate(doc, schema, "$", ctx)
     return ctx["errors"]
+
+
+def check_at(value, path, schema=None) -> list:
+    """Structural errors in `value` against the schema node at inventory path
+    `path` (e.g. `projects[].issues[].actuals`), [] when valid; errors are
+    rooted at `$`. It checks at the schema's own minor, so an unknown field is
+    an error. An unknown path raises SchemaError."""
+    schema = load_schema() if schema is None else schema
+    return _check_node(value, _node_at(path, schema), schema)
+
+
+def _node_at(path, schema):
+    node = next((n for p, n, _ in _walk(schema) if p == path), None)
+    if node is None:
+        raise SchemaError(f"no schema path {path!r}")
+    return node
+
+
+def _check_node(value, node, schema) -> list:
+    ctx = {"defs": schema.get("$defs", {}), "errors": [], "reader": schema["version"],
+           "newer": False}
+    _validate(value, node, "$", ctx)
+    return ctx["errors"]
+
+
+def _rooted(errors, prefix):
+    """check_at errors re-rooted from `$` at `prefix`; the first one, or None."""
+    return f"{prefix}{errors[0][1:]}" if errors else None
+
+
+# Each actuals.json list: its key fields (all strings, unique together), and
+# the schema path of the object check_at validates (None = the row itself).
+_ACTUALS_LISTS = (
+    ("issues", ("project", "issue"), "actuals", "projects[].issues[].actuals"),
+    ("projects", ("project",), "actuals", "projects[].actuals"),
+    ("unassigned", ("cwd",), None, "actuals.unassigned[]"),
+)
+
+
+def actuals_usable(doc, schema=None) -> str | None:
+    """None when `doc` (a parsed actuals.json, #735) is usable by this reader,
+    else the first reason, one line. Usable: an object; actuals_version
+    MAJOR.MINOR with major 1 and a minor no newer than ACTUALS_READER;
+    generated_at YYYY-MM-DDTHH:MM:SSZ; inputs.project null (an all-projects
+    document); issues, projects and unassigned lists of objects with string
+    keys, no key twice; every actuals object valid at its schema path. Both
+    the aggregator's read and actuals.sh's --if-stale gate use it. Age is the
+    caller's."""
+    if not isinstance(doc, dict):
+        return "not a JSON object"
+    v = doc.get("actuals_version")
+    try:
+        major, minor = parse_version(v)
+    except ValueError:
+        return f"actuals_version {v!r} is not MAJOR.MINOR"
+    reader = parse_version(ACTUALS_READER)
+    if major != reader[0]:
+        return f"actuals_version {v} is not major {reader[0]}"
+    if minor > reader[1]:
+        return f"actuals_version {v} is newer than this reader ({ACTUALS_READER})"
+    at = doc.get("generated_at")
+    try:
+        if not (isinstance(at, str) and ACTUALS_STAMP_RE.fullmatch(at)):
+            raise ValueError
+        datetime.strptime(at, ACTUALS_STAMP_FORMAT)
+    except ValueError:
+        return f"generated_at {at!r} is not YYYY-MM-DDTHH:MM:SSZ"
+    inputs = doc.get("inputs")
+    if not isinstance(inputs, dict):
+        return "inputs is not an object"
+    if inputs.get("project") is not None:
+        return f"inputs.project is {inputs['project']!r}: a one-project document"
+    schema = load_schema() if schema is None else schema
+    for name, keys, field, path in _ACTUALS_LISTS:
+        node = _node_at(path, schema)
+        rows = doc.get(name)
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            return f"{name} is not a list of objects"
+        seen = set()
+        for i, row in enumerate(rows):
+            at_row = f"{name}[{i}]"
+            key = tuple(row.get(k) for k in keys)
+            if not all(isinstance(k, str) for k in key):
+                return f"{at_row}: {' and '.join(keys)} {'must be strings' if len(keys) > 1 else 'must be a string'}"
+            if key in seen:
+                return f"{at_row}: {'/'.join(key)} appears twice"
+            seen.add(key)
+            if field is None:
+                bad = _rooted(_check_node(row, node, schema), at_row)
+            elif field not in row:
+                return f"{at_row}: missing {field}"
+            else:
+                bad = _rooted(_check_node(row[field], node, schema), f"{at_row}.{field}")
+            if bad:
+                return bad
+    try:
+        # json accepts an escaped lone surrogate ("\ud800"); UTF-8 cannot encode it,
+        # so a document carrying one could never be written back out.
+        json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return "a string is not valid UTF-8 (a lone surrogate)"
+    return None
 
 
 def _say(line):

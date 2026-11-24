@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # bats file_tags=gitbash
 # tests/floor.bats — #715: pull's deterministic floor (scripts/lib/floor.sh),
-# the `steering` and `size` checks on the candidate issue.md, driven directly:
+# its `steering`, `size` and `chars` (#923) checks on the candidate issue.md, driven directly:
 # each test sources the libraries and sets TRUST_VAL by hand. The end-to-end
 # legs through the real pull.sh are tests/floor-pull.bats.
 # shellcheck disable=SC2154,SC2034  # $stderr is set by `run --separate-stderr`; TRUST_VAL is read by floor.sh
@@ -275,7 +275,8 @@ _forms() {
   re+="|steering: an unrecognised '## Workflow flags' key on body line [0-9]+ cannot be listed"
   re+="|steering: 'tier:' label [0-9]+ of [0-9]+ is not listed in allowed_steering"
   re+="|size: [0-9]+ bytes staged, size_cap is [0-9]+"
-  re+="|(steering|size): [0-9]+ more not shown"
+  re+="|chars: (title|body|label|state|author|comment:[A-Za-z0-9_.-]{1,64}) line [1-9][0-9]* (U\\+[0-9A-F]{4,6}|0x[0-9A-F]{2})"
+  re+="|(steering|size|chars): [0-9]+ more not shown"
   re+="|for the operator: .*)$"
   local diag
   diag="$(_diag)" || return 1   # an unprefixed line (a tool's own) fails here
@@ -360,5 +361,134 @@ _forms() {
   # The remedy lines are never capped and still come last.
   [ "$(_diag | tail -n 2)" = "$REMEDY_UNLISTABLE
 $REMEDY_LAST" ]
+  _forms
+}
+
+# ---- #923: the `chars` check ---------------------------------------------------
+
+REMEDY_CHARS="for the operator: edit the text, remove the label that holds the character, or add the character to the trust policy's allowed_chars (a run longer than two, or invalid UTF-8, can only be edited out); a trusted approver then releases the quarantine"
+REMEDY_CHARS_LAST="for the operator: a chars quarantine released without one of these fixes quarantines again on every pull"
+
+# _pt <printf-format>: the bytes, for _cand's arguments.
+# shellcheck disable=SC2059  # the test's own formats
+_pt() { printf "$1"; }
+
+@test "floor: chars — each AC code point quarantines; U+E000 passes" {
+  local pair cp bytes
+  for pair in '202E:\xe2\x80\xae' 'E0041:\xf3\xa0\x81\x81' '200B:\xe2\x80\x8b' 'FE00:\xef\xb8\x80' \
+              '00AD:\xc2\xad' '0007:\x07' '0378:\xcd\xb8'; do
+    cp="${pair%%:*}" bytes="${pair#*:}"
+    _cand "$(_pt "a${bytes}b")"
+    run --separate-stderr floor_run "$C"
+    [ "$status" -eq 0 ] || { echo "U+$cp: rc $status" >&2; return 1; }
+    [ "$output" = "chars
+detail: body line 1 U+$cp" ] || { echo "U+$cp: stdout '$output'" >&2; return 1; }
+    [ "$(_diag)" = "chars: body line 1 U+$cp
+$REMEDY_CHARS
+$REMEDY_CHARS_LAST" ] || { echo "U+$cp: stderr '$stderr'" >&2; return 1; }
+  done
+  _cand "$(_pt 'a\xee\x80\x80b')"
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+  [ "$stderr" = "" ]
+}
+
+@test "floor: chars — invalid UTF-8 and an encoded lone surrogate" {
+  _cand "$(_pt 'ok\nab\xffcd')"
+  run --separate-stderr floor_run "$C"
+  [ "$output" = "chars
+detail: body line 2 0xFF" ]
+  _cand "$(_pt 'x\xed\xa0\x80y')"
+  run --separate-stderr floor_run "$C"
+  [ "$output" = "chars
+detail: body line 1 0xED" ]
+}
+
+@test "floor: chars — a label, and a JIRA-shaped Author value" {
+  _cand 'Body.' "$(_pt 'bug, x\xe2\x80\xaey')"
+  run --separate-stderr floor_run "$C"
+  [ "$output" = "chars
+detail: label line 1 U+202E" ]
+  printf '# acme/widgets#7 \xe2\x80\x94 Demo\n\n- State: open\n- Author: @Ann \xe2\x80\xae Lee\n- Labels: \n- URL: u\n- Created: \n\n---\n\nBody.\n\n---\n\n## Comments (0)\n' > "$C"
+  run --separate-stderr floor_run "$C"
+  [ "$output" = "chars
+detail: author line 1 U+202E" ]
+}
+
+@test "floor: chars — line 3, and a second hit" {
+  _cand "$(_pt 'a\nb\nc\xe2\x80\xae')"
+  run --separate-stderr floor_run "$C"
+  [ "$output" = "chars
+detail: body line 3 U+202E" ]
+  _cand "$(_pt 'a\nb\nc\xe2\x80\xae\nd\xe2\x80\x8b')"
+  run --separate-stderr floor_run "$C"
+  [ "$output" = "chars
+detail: body line 3 U+202E (+1 more)" ]
+  [ "$(_diag | head -n 2)" = "chars: body line 3 U+202E
+chars: body line 4 U+200B" ]
+}
+
+@test "floor: chars — steering wins the token and chars still speaks" {
+  _cand "$(_pt '## Workflow flags\ntier: oneshot\n\nx\xe2\x80\xae')"
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 0 ]
+  [ "$output" = steering ]
+  [ "$(_diag)" = "steering: '## Workflow flags' key 'tier' on body line 2 is not listed in allowed_steering
+chars: body line 4 U+202E
+$REMEDY_LISTABLE
+$REMEDY_LAST
+$REMEDY_CHARS
+$REMEDY_CHARS_LAST" ]
+}
+
+@test "floor: chars — at most FLOOR_SAY_MAX diagnostics, then a count" {
+  local body="" i
+  for i in $(seq 1 50); do body+="$(_pt 'x\xe2\x80\xae')"$'\n'; done
+  _cand "$body"
+  run --separate-stderr floor_run "$C"
+  [ "$output" = "chars
+detail: body line 1 U+202E (+49 more)" ]
+  [ "$(_diag | grep -c '^chars: body line ')" -eq "$FLOOR_SAY_MAX" ]
+  [ "$(_diag | grep -c '^chars: 30 more not shown$')" -eq 1 ]
+  [ "$(_diag | tail -n 2)" = "$REMEDY_CHARS
+$REMEDY_CHARS_LAST" ]
+  _forms
+}
+
+@test "floor: chars — could not run is rc 3" {
+  local lib="$BATS_TEST_TMPDIR/lib" stub
+  cp -R "$PLUGIN_ROOT/scripts/lib" "$lib"
+  for stub in 'exit 3' 'exit 1' 'printf "hits 2\nbody line 1 U+202E\n"' 'printf "hits 1\nbody line 1 U+202E SENTINEL\n"' \
+              'printf "hits 0\nbody line 1 U+202E\n"' 'printf "junk\n"' 'printf "hits 1\nbody line 0 U+202E\n"'; do
+    printf '#!/usr/bin/env python3\nimport subprocess, sys\nsys.exit(subprocess.call(["bash", "-c", %s]))\n' "'$stub'" > "$lib/chars.py"
+    # shellcheck source=/dev/null
+    source "$lib/floor.sh"
+    _cand 'Body.'
+    run --separate-stderr floor_run "$C"
+    [ "$status" -eq 3 ] || { echo "stub '$stub': rc $status" >&2; return 1; }
+    [ "$output" = "" ] || { echo "stub '$stub': token '$output'" >&2; return 1; }
+  done
+}
+
+@test "floor: chars — an unset or empty QUARANTINE_DETAIL_RE is rc 3" {
+  _cand "$(_pt 'a\xe2\x80\xaeb')"
+  QUARANTINE_DETAIL_RE=''
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+  unset QUARANTINE_DETAIL_RE
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 3 ]
+  [ "$output" = "" ]
+}
+
+@test "floor: chars — diagnostics carry no ticket byte" {
+  printf '# acme/widgets#7 \xe2\x80\x94 SENTINEL\xe2\x80\xaeSENTINEL\n\n- State: open\n- Author: @SENTINEL\xe2\x80\xae\n- Labels: SENTINEL\xe2\x80\xae\n- URL: u\n- Created: \n\n---\n\nSENTINEL\xe2\x80\xaeSENTINEL\xff\n\n---\n\n## Comments (0)\n' > "$C"
+  run --separate-stderr floor_run "$C"
+  [ "$status" -eq 0 ]
+  [ "$output" = "chars
+detail: title line 1 U+202E (+3 more)" ]
+  [[ "$output$stderr" != *SENTINEL* ]]
   _forms
 }

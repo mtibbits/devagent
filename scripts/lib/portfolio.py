@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""portfolio.py — #726. Build the portfolio document (schema v1.2, #725) over
+"""portfolio.py — #726. Build the portfolio document (schema v1.3, #725) over
 every configured project's WBS.md, with a parse report that drops nothing
 silently, and write it only when it passes both the structural checker
 (portfolio-check.py) and this module's own cross-field invariants I1–I17.
@@ -7,8 +7,9 @@ silently, and write it only when it passes both the structural checker
     portfolio.py build --out PATH
     portfolio.py ready
 
-`ready` builds the same document in memory, runs the same self-check, and
-prints one TSV line per ready leaf (ready_lines); it writes nothing.
+`ready` builds the same document in memory, without actuals, runs the same
+self-check, and prints one TSV line per ready leaf (ready_lines); it writes
+nothing.
 
 The project manifest arrives as indexed environment variables, set by
 scripts/portfolio.sh from config.toml (this module reads no TOML):
@@ -18,7 +19,9 @@ path variable set only when configured (it may be empty), PORTFOLIO_WORKTREE_<i>
 also when derived from source_dir as <source_dir>-wt (#1050), and (#890)
 PORTFOLIO_MODEL_THINKING_<i>, PORTFOLIO_MODEL_CHECKING_<i> and
 PORTFOLIO_MODEL_DEFAULT_<i>, the project's step_models values, set only when
-the key exists.
+the key exists. `build` also needs PORTFOLIO_ACTUALS (#735), the path of
+<devagent_home>/actuals.json, which it reads (never runs) to fill the actuals
+slots.
 
 Standard library only (3.10+), like portfolio-check.py. docs/portfolio-schema.md
 is the contract; commands/portfolio.md is the user doc.
@@ -38,7 +41,7 @@ import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -414,7 +417,7 @@ def _models_violations(node: dict, minor: int, add) -> None:
 def invariant_violations(doc: dict) -> list[str]:
     """The cross-field rules the structural checker does not decide (#725).
 
-    Each entry is `"I<n>: <message>"`. Reads known v1.2 fields only, so a
+    Each entry is `"I<n>: <message>"`. Reads known v1.3 fields only, so a
     document at a newer minor is checked on what this producer knows.
     Assumes `portfolio-check.check(doc)` already passed.
     """
@@ -801,7 +804,7 @@ class ProjectInput:
     step_models: Mapping[str, str] = field(default_factory=dict, hash=False)
 
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 
 REASON_UNSET = "no devdoc dir is configured"
 REASON_EMPTY = "devdoc_dir is set but empty"
@@ -836,6 +839,7 @@ KINDS: tuple[str, ...] = (
     "directive_warning",
     "checklist_unreadable",
     "stuck_unreadable",
+    "actuals_unavailable",
 )
 _KIND_INDEX = {k: i for i, k in enumerate(KINDS)}
 _LINE_RE = re.compile(r"\bline ([0-9]+)\b")
@@ -1120,8 +1124,72 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             "rollup": rollup(nodes)}
 
 
-def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
-    """The portfolio document over `projects`, in config order. Reads only."""
+# --- actuals (#735) ---------------------------------------------------------------
+
+ACTUALS_MISSING = "{path} does not exist; actuals are empty; run /devagent:actuals"
+ACTUALS_UNREADABLE = "{path} could not be read: {detail}; actuals are empty"
+ACTUALS_UNUSABLE = "{path} is not a usable actuals document: {detail}; actuals are empty; run /devagent:actuals"
+ACTUALS_STALE = ("{path} was generated at {at}, more than {days} days before this document; "
+                 "actuals are empty; run /devagent:actuals")
+
+
+def _one_line(text: str) -> str:
+    return " ".join(str(text).split())
+
+
+def read_actuals(path: str, generated_at: str) -> tuple[dict | None, str | None]:
+    """(the actuals document, None) when it is usable, else (None, why): the
+    actuals_unavailable message. Never raises; reads one file, opens nothing
+    that is not a regular file, and starts no process."""
+    state, detail = _regular_file(path)
+    if state == "absent":
+        return None, ACTUALS_MISSING.format(path=path)
+    if state != "regular":
+        return None, ACTUALS_UNREADABLE.format(path=path, detail=detail)
+    try:
+        doc = pc.read_document(path)
+    except pc.DocumentError as e:
+        return None, ACTUALS_UNREADABLE.format(path=path, detail=_one_line(e.__cause__ or e))
+    why = pc.actuals_usable(doc)
+    if why is not None:
+        return None, ACTUALS_UNUSABLE.format(path=path, detail=_one_line(why))
+    at = doc["generated_at"]
+    age = (datetime.strptime(generated_at, pc.ACTUALS_STAMP_FORMAT)
+           - datetime.strptime(at, pc.ACTUALS_STAMP_FORMAT))
+    if age > timedelta(days=pc.ACTUALS_STALE_DAYS):
+        return None, ACTUALS_STALE.format(path=path, at=at, days=pc.ACTUALS_STALE_DAYS)
+    return doc, None
+
+
+def apply_actuals(out: list[dict], path: str, generated_at: str, report_for) -> dict | None:
+    """Copy the file's objects into every IssueEntry slot and project field
+    (null where it has no row, or everywhere when it is unavailable, with one
+    actuals_unavailable entry per project); return the top-level object."""
+    doc, why = read_actuals(path, generated_at)
+    issues, fields = {}, {}
+    if doc is None:
+        for p in out:
+            report_for(p["project"])(None, "actuals_unavailable", why)
+    else:
+        issues = {(r["project"], r["issue"]): r["actuals"] for r in doc["issues"]}
+        fields = {r["project"]: r["actuals"] for r in doc["projects"]}
+    for p in out:
+        for e in p["issues"]:
+            e["actuals"] = issues.get((p["project"], e["issue"]))
+        p["actuals"] = fields.get(p["project"])
+    if doc is None:
+        return None
+    return {"actuals_version": doc["actuals_version"], "generated_at": doc["generated_at"],
+            "unassigned": doc["unassigned"]}
+
+
+def build_document(projects: list[ProjectInput], generated_at: str, actuals: str | None) -> dict:
+    """The portfolio document over `projects`, in config order. Reads only.
+
+    actuals (#735) is the actuals.json path: every IssueEntry, project and the
+    document then carry `actuals`. None (`ready`, library callers) means no
+    `actuals` key anywhere and no report entry.
+    """
     counter = iter(range(1, sys.maxsize))
     next_id = lambda: f"n{next(counter)}"  # noqa: E731
     entries: list[dict] = []
@@ -1141,12 +1209,16 @@ def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
         out.append(_build_read_project(p.name, Path(p.devdoc), text, next_id,
                                        report_for(p.name), p.step_models))
     apply_readiness(out, report_for)
+    top = apply_actuals(out, actuals, generated_at, report_for) if actuals is not None else None
     order = {p.name: i for i, p in enumerate(projects)}
     entries.sort(key=lambda r: (order[r["project"]],
                                 -1 if r["source_line"] is None else r["source_line"],
                                 _KIND_INDEX.get(r["kind"], len(KINDS)), r["message"]))
-    return {"schema": pc.PORTFOLIO_ID, "schema_version": SCHEMA_VERSION,
-            "generated_at": generated_at, "projects": out, "parse_report": entries}
+    doc = {"schema": pc.PORTFOLIO_ID, "schema_version": SCHEMA_VERSION,
+           "generated_at": generated_at, "projects": out, "parse_report": entries}
+    if actuals is not None:
+        doc["actuals"] = top
+    return doc
 
 
 # --- write path and CLI --------------------------------------------------------
@@ -1233,9 +1305,9 @@ def rail(projects: list[ProjectInput], out) -> str | None:
     return None
 
 
-def dumps(doc: dict) -> bytes:
+def dumps(doc: dict, sort_keys: bool = False) -> bytes:
     """The document as UTF-8 with LF line ends; NaN and Infinity refused."""
-    text = json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    text = json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False, sort_keys=sort_keys) + "\n"
     return text.encode("utf-8")
 
 
@@ -1290,10 +1362,19 @@ def _self_check(doc: dict) -> int | None:
     return EXIT_SELF_CHECK
 
 
-def _checked_document(projects) -> tuple[dict, int | None]:
+def read_actuals_path(env=None) -> str:
+    """PORTFOLIO_ACTUALS, the actuals.json path portfolio.sh exports; build needs it (#735)."""
+    env = os.environ if env is None else env
+    path = env.get("PORTFOLIO_ACTUALS")
+    if not path:
+        raise ManifestError("PORTFOLIO_ACTUALS is not set")
+    return path
+
+
+def _checked_document(projects, actuals: str | None = None) -> tuple[dict, int | None]:
     """Build the document as of now and self-check it: (doc, None) or (doc, exit code)."""
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    doc = build_document(projects, generated_at)
+    doc = build_document(projects, generated_at, actuals)
     return doc, _self_check(doc)
 
 
@@ -1338,13 +1419,14 @@ def main(argv: list[str]) -> int:
     out = Path(argv[2])
     try:
         projects = read_manifest()
+        actuals = read_actuals_path()
     except ManifestError as e:
         return _usage(str(e))
     refusal = rail(projects, out)
     if refusal:
         sys.stderr.write(refusal + "\n")
         return EXIT_USAGE
-    doc, failed = _checked_document(projects)
+    doc, failed = _checked_document(projects, actuals)
     if failed is not None:
         return failed
     try:

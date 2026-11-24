@@ -84,10 +84,10 @@ devAgent/
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
 │                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
-├── commands/                # one .md file per command-form slash command (58)
+├── commands/                # one .md file per command-form slash command (59)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 58 + 3 = the 61 slash commands
+│                            #   (SKILL.md + references/, #452) — 59 + 3 = the 62 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -115,7 +115,11 @@ devAgent/
 │   │                        #   notify.sh + _notify.py — #961 launcher notifications appender,
 │   │                        #   heartbeat.sh — #932 per-session progress files (the one reader of the session id),
 │   │                        #   watchdog-limits.sh — #932 the watchdog's limits, the --silent window grammar, the --since time,
-│   │                        #   _longrun_pump.py — #932 the byte pump libexec/long-run.sh runs)
+│   │                        #   _longrun_pump.py — #932 the byte pump libexec/long-run.sh runs,
+│   │                        #   chars.py — #923 the pulled-text character check, escape and mixed-script record (one CLI),
+│   │                        #   chars_gen.py + chars_table.py — #923 the table generated from ucd/, and its drift check,
+│   │                        #   staging_layout.py — #923 fetch's issue.md layout, shared by the render and chars.py,
+│   │                        #   ucd/ — #923 the vendored Unicode 16.0.0 UCD files, LICENSE and SHA256SUMS)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh;
 │   │                        #   local.sh — #1016 git only, no forge (§9.2)
@@ -138,7 +142,8 @@ devAgent/
 │   │   capacity.sh (#743; lib/capacity.py) — the capacity reader: [capacity] resolved and checked,
 │   │   watchdog.sh (#932) — the no-progress watchdog: `check` for a launcher, `heartbeat` for a session (§7.3),
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
-│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans, ...
+│   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans,
+│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -182,7 +187,9 @@ potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pot
 [archive]                                # #731: GLOBAL top-level table — the durable transcript archive; absent = off
 transcripts_dir = "~/private/claude-transcripts"   # absolute after ~ expansion; required; refused inside a git work tree or inside <CLAUDE_CONFIG_DIR>/projects
 host_id         = "laptop"               # partition name [A-Za-z0-9._-]+, no "..", not "."; default hostname (+ "-wsl" under WSL)
-exclude         = ["*scratch*"]          # cwd-slug globs never archived; any other key is refused
+exclude         = ["*scratch*"]          # cwd-slug globs never archived
+actuals_max_age_hours = 24               # #735: cleanup rebuilds <devagent_home>/actuals.json when it is older; 0 < x <= 168; default 24
+# any other [archive] key is refused (so is a refused actuals_max_age_hours: the archiver stops until it is fixed)
 
 # #743: operator capacity, GLOBAL top-level table; absent = forecasting off (planned, #744).
 # devagent does not know the subscription's limits: every value here is an example.
@@ -537,8 +544,11 @@ Adjacent state files:
 `~/.claude/devagent/state/staging/` (#715) holds a fetched ticket under a
 trust policy until pull's floor passes (§9.3): one
 `<project>.<issue_id>.XXXXXX/` dir per pull (mode 0700; the root too), with
-`fetch.raw` (deleted by the render, so comment text is on disk only while it
-runs) and the candidate `issue.md`. It is outside git and must
+`fetch.raw` and `allow.json` (the policy's `allowed_chars`, #923; both deleted
+by the render, so comment text is on disk only while it runs), the candidate
+`issue.md`, and `issue.md.mixed.json`, the mixed-script record (#923) that a
+later verdict source (#717's screen) reads as `<candidate>.mixed.json`; the
+record is never promoted and goes with the dir. It is outside git and must
 not resolve inside the project's `devdoc_dir` (pull dies before creating
 anything if it does). Every exit removes the dir:
 
@@ -778,6 +788,13 @@ today). Any other entry refuses (exit 3 from the loader, so exit 9 at every
 entry point); the default `[]` allows nothing. `size_cap` is in bytes of the
 staged `issue.md`, default 65536, at most 2147483647.
 
+**`allowed_chars` (#923).** Single characters of the floor's `chars` set
+(§9.3) a ticket may carry, written as TOML escapes (`["\u200f"]`). The render
+writes each listed character as `<U+XXXX>` when its run of set characters is
+at most two long; a longer run, an unlisted character and invalid UTF-8 still
+quarantine. The default (absent) is the empty list: nothing passes. Its type,
+validation and default are #713's; the render reads it from `TRUST_VAL`.
+
 **Digest.** `sha256:` of the normalised policy (defaults applied, lists sorted
 and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
 and explicit defaults leave it unchanged and the location does not enter it.
@@ -1010,7 +1027,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
-| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate, and writes `issue.md` only on PASS (§9.3, #715) |
+| 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir. Under a trust policy in scope it fetches into `state/staging/`, renders and floor-checks the candidate (`steering`, `size`, `chars`), and writes `issue.md` only on PASS (§9.3, #715, #923) |
 | 1 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 2. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
 | 2 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
 | 3 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 2 and 4. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. `scripts/spike.sh` is a helper the command calls, not this row's entry point, so `next.sh` dispatches the row skill-backed (#812). |
@@ -1034,7 +1051,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit devdoc and sync it with origin (#1148), clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731) |
+| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit devdoc and sync it with origin (#1148), clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731); inside the same gate, when `<devagent_home>/actuals.json` is stale, starts `actuals.sh --if-stale` detached and does not wait (#735) |
 
 **Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–24 top-to-bottom: 25 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
@@ -1176,6 +1193,7 @@ omits.
 | `/devagent:wbs <init\|update\|order\|exclude\|show>` | WBS authoring/render (see §13) |
 | `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:milestones [project] [--issue <issue-id> \| --all] [--json]` | Prints each issue's dated milestones (tracker opened/closed, linked MRs opened/merged, checklist steps, parks, revisions) and spans; read-only (see §13.5) |
+| `/devagent:actuals [--archive DIR] [--project P] [--out PATH \| --stdout] [--if-stale]` | Builds `<devagent_home>/actuals.json`, the per-issue actuals (tokens, time, sessions, dated milestones) the portfolio reads (see §13.6) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 **The devDoc not-pushed line (#1148).** After the project blocks (`--all`: after
@@ -3381,7 +3399,7 @@ has an `origin`, a local ship never pushes, so a suite artifact's
 With no trust policy in scope, `pull.sh` writes this verbatim to
 `<issue-dir>/issue.md`.
 
-#### Under a trust policy: the trust render and the floor (#715)
+#### Under a trust policy: the trust render and the floor (#715, #923)
 
 In scope, pull fetches into `state/staging/` (§3.3), and `issue.md` is the
 trust render of the fetch (`scripts/lib/staging_render.py`), written only after
@@ -3395,7 +3413,7 @@ the floor passes. The render keeps the fetch layout, so `flags_get`,
 
 ---
 
-<body, byte for byte>
+<body, byte for byte, except #923's <U+XXXX> escape>
 
 ---
 
@@ -3416,8 +3434,24 @@ Comments not rendered under trust: N
   `## Comments (<digits>)` after blank, `---`, blank, searched from the first
   body line (the header's own rule never counts). Comment text never enters
   the file.
-- Each byte 0x00-0x1F or 0x7F in the title or a header value becomes
-  `<U+00HH>` (uppercase hex). Nothing else is rewritten.
+- #923: in the title, the `State`, `Author` and `Labels` values and the body,
+  each character of the `chars` set that `allowed_chars` lists, in a run of at
+  most two set characters, becomes `<U+XXXX>` (four to six upper-case hex
+  digits). `URL`, `Created` and the layout lines are not touched.
+- Then each byte 0x00-0x1F or 0x7F in the title or a header value becomes
+  `<U+00HH>` (uppercase hex; #715). Nothing else is rewritten. So a C0 control
+  or DEL in a header is visible and never a `chars` hit; in the body it is.
+- The render writes `<candidate>.mixed.json` (§3.3) from the unescaped title
+  and body: one entry per mixed-script word,
+  `[{"field":"title","line":1,"word_scripts":["Cyrillic","Latin"]}]`, or `[]`
+  (compact JSON, ASCII, sorted keys, LF). A word is a maximal run of general
+  category L* or M* on one line; each character contributes its
+  Script_Extensions (its Script when it has none), a set of only Common or
+  Inherited is ignored, and UTS #39 section 5.1's augmentation applies (Han
+  adds Hanb, Jpan, Kore; Hiragana and Katakana add Jpan; Hangul adds Kore;
+  Bopomofo adds Hanb). The word is mixed when a character is not ignored and
+  the intersection is empty; `word_scripts` lists the sorted distinct Script
+  values of its characters, Common and Inherited included.
 - Header values are measured, not truncated: `size_cap` counts every byte of
   the candidate, and cutting the `- Labels:` line could hide a `tier:*` label
   from the steering check.
@@ -3433,14 +3467,52 @@ trailer (any commenter could then hold any ticket), and a second
 that #953 removes).
 
 The floor (`scripts/lib/floor.sh`, the first source of `quarantine_verdict`)
-runs `steering` then `size` on the candidate; every check runs, and the first
-failing token quarantines (exit 6). `steering` reads the body's live
+runs `steering`, `size` then `chars` on the candidate; every check runs, and
+the first failing token quarantines (exit 6). `steering` reads the body's live
 `## Workflow flags` key lines with `flags_enumerate` (the validate machine's
 quiet mode) and the `tier:*` labels with `issue_labels`, and requires each to be
 listed in `allowed_steering` (§3.8); `size` compares the candidate's bytes
 with `size_cap`. Until PASS pull prints no ticket byte, and each check prints
 at most 20 diagnostic lines, then a count of the rest (`FLOOR_SAY_MAX`), so a
 ticket's author cannot set how much the worker session reads.
+
+**`chars` (#923).** The set is Bidi_Control (PropList.txt) and
+Default_Ignorable_Code_Point (DerivedCoreProperties.txt), with general category
+Cf, Cn and Cs, and Cc other than U+0009, U+000A and U+000D
+(DerivedGeneralCategory.txt), at Unicode 16.0.0: 822,080 code points. Co
+(private use) is outside it. `scripts/lib/chars.py` scans the title, body and
+the `Labels`, `State` and `Author` values of the candidate with the empty
+allowlist, since the render already escaped what `allowed_chars` lets through.
+- Lines: a field's bytes end a line at an LF together with every CR directly
+  before it, or else at a lone CR; U+000C, U+0085, U+2028 and U+2029 never end
+  a line. Each line is decoded strictly as UTF-8; one that does not decode is
+  one hit, `0xHH` (its first invalid byte), and its other characters are not
+  scanned.
+- Hits: a run is a maximal sequence of set code points on one line; a set code
+  point is passable when it is allowlisted and its run is at most two long;
+  every other set code point is a hit, `U+XXXX`. Scanning the escape with the
+  empty allowlist gives the hits of scanning the text with the allowlist.
+- The detail: the first hit in field order title, body, label, state, author
+  (comments, by id, last: #953), then ` (+N more)`, N counting every further
+  hit in every field. It matches `QUARANTINE_DETAIL_RE` (`scripts/lib/refusals.sh`),
+  `<field> line <n> <U+XXXX|0xHH>[ (+N more)]`, the one grammar of its three
+  carriers: `floor_run`'s second stdout line `detail: <detail>`, which
+  `quarantine_verdict` repeats after `QUARANTINE chars`; the marker's optional
+  line 5; and `quarantine_print`, after `Reason:`. Any other second line is no
+  verdict; an unset or empty regex accepts no detail.
+- `chars` prints its own remedy lines (edit the text, remove the label, or list
+  the character; a release without a fix quarantines again on every pull) and
+  never the "until #953" line: #953's human PASS does not override it.
+- Residual: `- URL:` and `- Created:` are not scanned or escaped; both are
+  tracker-generated on every in-scope backend.
+- The data pin: the six UCD files (`scripts/lib/ucd/`, with the Unicode
+  licence and `SHA256SUMS`) generate `scripts/lib/chars_table.py`
+  (`chars_gen.py write`); the runtime reads only the table and never
+  `unicodedata`, so the answer does not move with the Python that runs it.
+  `chars_gen.py check`, under the suite, holds the table equal to the files
+  and the files to their sums. A version bump replaces the files and the sums
+  together, regenerates, re-pins the counts in `tests/test_chars.py` from an
+  independent derivation, and names the version in the changelog.
 
 #### `mr-comments` output (code backends, #592)
 
@@ -4202,6 +4274,9 @@ cross-field invariants I1–I17; the checker's exit 0 alone is not correctness.
 Since schema 1.2 (#890) the document also publishes each leaf's planned
 `models`, from its `thinking`/`checking` keys, else the project's
 `step_models`; it records the plan, not the model a step ran on.
+Since schema 1.3 (#735) it also carries actuals: each IssueEntry's `actuals`
+slot, an optional project `actuals` field and a top-level `actuals`, copied
+from `<devagent_home>/actuals.json` (§13.6).
 
 #727 fills the readiness fields (`ready`, `ready_via_parent_row`,
 `depends_on[].resolved`) by the rule in `commands/portfolio.md`, and
@@ -4348,6 +4423,41 @@ calls plus one per further page of a truncated timeline, on GitLab N calls.
 devagent's default scope was about 700 ids (≈ 15 GraphQL batches) at #734's
 draft; the command doc gives the Bash call the longest tool timeout
 (600000 ms).
+
+### 13.6 Actuals (#735)
+
+`/devagent:actuals [--archive DIR] [--project P] [--out PATH | --stdout] [--if-stale]`
+(`scripts/actuals.sh`, core `scripts/lib/actuals.py`) builds one versioned JSON
+document, `<devagent_home>/actuals.json`, that joins per `(project, issue)` what
+`cost-report.sh` charges (tokens in input-token equivalents with raw per-model
+counts beside them, agent and operator time, the sessions they came from) with
+the rows `milestones.sh --all --json` reports (§13.5). It reuses both producers'
+machine output: one cost-report `collect()` pass, read as the same row
+objects cost-report's `--json` prints, and one milestones run per project (up
+to 6 at once).
+It writes no devdoc, state or tracker; the document goes owner-only under
+`devagent_home`, and an `--out` under a project's dirs or inside a git work tree
+is refused. Every source consulted is a `sources` row, `ok` or `missing`; a
+missing source never fails the build, and a project whose milestones source is
+missing has null (not empty) milestones. Output is sorted and byte-identical
+over unchanged inputs apart from `generated_at`. The file carries its own
+`actuals_version` (MAJOR.MINOR, the portfolio's version rules); a new minor
+ships with a portfolio schema minor.
+
+The portfolio (§13.4) only reads the file: it never runs a build. It copies
+each row's object unchanged into the matching slot and field, and when the
+file is missing, unreadable, unusable or more than 7 days older than the
+document it leaves them null with one `actuals_unavailable` entry per project.
+Cleanup refreshes the file inside its `[archive]` gate: an age check against
+`[archive].actuals_max_age_hours` (default 24, at most 168), and when stale a
+detached `actuals.sh --if-stale` it does not wait for; the next close warns
+once when that run failed, timed out, or wrote a document missing a source the
+file it replaced had (a tracker outage; exit 4). The rebuild's files sit beside
+the document in `devagent_home`: `actuals-rebuild.log` (its output; a failed
+run's log is kept as `actuals-rebuild.log.1`), `actuals-rebuild.pid` and
+`actuals-rebuild.status` (its exit status). Estimates (#736) and
+forecasts (#742) read the same file. The command doc is `commands/actuals.md`;
+the slot shapes are `docs/portfolio-schema.md`, "Actuals".
 
 ## 14. Status reports
 

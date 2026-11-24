@@ -763,6 +763,15 @@ reads it. The archive holds everything a session read, so a `transcripts_dir`
 inside a git work tree or inside `~/.claude/projects` is refused; keep it on
 private storage.
 
+`actuals_max_age_hours` (#735, default 24, a number with 0 < x <= 168) is the
+age after which cleanup, inside the same `[archive]` gate, rebuilds
+`<devagent_home>/actuals.json` (`/devagent:actuals`, read by the portfolio);
+168 is the portfolio's 7-day stale line. Any other value refuses the whole
+`[archive]` table, as an unknown key does. A plugin older than #735 does not
+know the key, so it refuses the table and archiving stops (cleanup warns and
+continues): set the key only after every install that reads this config is
+upgraded.
+
 The plugin's own `templates/potholes.md` is a curated public excerpt (#613): at
 most 100 entries, 25 per section, citing devagent issues only. Its line-1
 marker names a commit in the plugin author's private devDoc — the migration

@@ -186,6 +186,8 @@ tier:check- label|"Body."|[{"name": "tier:check-$SENT"}]
 inline <!-- key|"## Workflow flags\n$SENT: x <!-- note -->\n\n## Workflow flags\ntier: oneshot"|
 ordinary label|"## Workflow flags\ntier: oneshot"|[{"name": "label-$SENT"}]
 title body and comment|"Prose $SENT.\n\n## Workflow flags\ntier: oneshot"|
+chars in the body|"Prose $SENT \\u202e here."|
+chars in a label|"Body."|[{"name": "x$SENT\\u202e"}]
 SLOTS
 }
 
@@ -207,6 +209,10 @@ SLOTS
     run --separate-stderr "$PULL" wid origin "$((40 + i))"
     case "$name" in
       "ordinary label") ;;   # silent today: no no-policy leg
+      "chars in the body"|"chars in a label")
+        # #923: no print site with no policy; live in issue.md, once.
+        [ "$(grep -c "$SENT" "$DEVDOC/Issue-$((40 + i))/issue.md")" -eq 1 ] \
+          || { echo "$name: not live in issue.md exactly once" >&2; return 1; } ;;
       "title body and comment")
         # No print site: live in the fetched text itself.
         [ "$(grep -c "$SENT" "$DEVDOC/Issue-$((40 + i))/issue.md")" -eq 3 ] \
@@ -220,7 +226,7 @@ SLOTS
     [[ "$output$stderr" != *"$SENT"* ]] || { echo "$name: policy leg printed it: $stderr" >&2; return 1; }
     _fresh_tracker
   done < <(_slots)
-  [ "$i" -eq 11 ]
+  [ "$i" -eq 13 ]
 }
 
 @test "AC sentinel: a failed fetch shows no backend stderr" {
