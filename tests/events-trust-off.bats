@@ -7,6 +7,7 @@
 #     GH_STUB_EVENTS_DIR, so any of the gh-stub consumers that reached one
 #     would go red.
 
+bats_require_minimum_version 1.5.0   # run --separate-stderr (the #966 stub rows)
 load 'lib/bats-helpers'
 
 # _trust_off_hits <root> [verb-alternation]: git grep the caller surface for a
