@@ -968,7 +968,9 @@ cmd_post_comment() {
     return 1
   fi
   # Bare (never in $( … )): the gate sets globals and a refusal exits 9.
-  post_gate_run --project "${opt[project]}" "${item[@]}" --file "$snap"     --repo "$repo" --backend github --backend-script "${SCRIPT_DIR}/github.sh"     --record "${opt[review]}" || rc=$?
+  post_gate_run --project "${opt[project]}" "${item[@]}" --file "$snap" \
+    --repo "$repo" --backend github --backend-script "${SCRIPT_DIR}/github.sh" \
+    --record "${opt[review]}" || rc=$?
   if [ "$rc" -ne 0 ]; then return "$rc"; fi
   out="$(_gh_ev_call api --hostname "$GT_HOST" --method POST \
     "repos/$GT_OWNER/$GT_NAME/issues/$num/comments" -F body=@- < "$snap")" || return 1

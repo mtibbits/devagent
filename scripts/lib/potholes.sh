@@ -380,6 +380,7 @@ _potholes_name_hit() {
 # roster stays out of the process table.
 potholes_private_name_hits() {
   local seed name rc=0 hrc fd
+  local -a names=()
   if [ "${1:-}" = --names-fd ]; then
     if [ "$#" -ne 3 ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
       echo "potholes_private_name_hits: usage: --names-fd <N> <file>" >&2
@@ -395,15 +396,13 @@ potholes_private_name_hits() {
       return 2
     fi
     while IFS= read -r -u "$fd" name || [ -n "$name" ]; do
-      [ -n "$name" ] || continue
-      hrc=0; _potholes_name_hit "$seed" "$name" || hrc=$?
-      [ "$hrc" -le 1 ] || return 2
-      [ "$hrc" -eq 0 ] || rc=1
+      [ -z "$name" ] || names+=("$name")
     done
-    return "$rc"
+  else
+    seed="$1"; shift
+    names=("$@")
   fi
-  seed="$1"; shift
-  for name in "$@"; do
+  for name in "${names[@]}"; do
     hrc=0; _potholes_name_hit "$seed" "$name" || hrc=$?
     [ "$hrc" -le 1 ] || return 2
     [ "$hrc" -eq 0 ] || rc=1

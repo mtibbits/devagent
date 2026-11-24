@@ -37,11 +37,11 @@
 # · `trust_exit_code leak-held` a hold. `hash` exits 1 when the file cannot be
 # read. The spec's §9.1 "Leak gate" section is the contract.
 #
-# Sourced callers: post_gate_run (the flags of `run`), post_gate_check, one
-# post_gate_check_<name> per check, post_gate_hash. Each turns xtrace off
-# before any file content enters a variable and never turns it back on. Temp
-# files go through pg_tmp onto one cleanup list; the gate never sets a trap —
-# the entry point does (`trap pg_cleanup EXIT`).
+# Sourced callers: post_gate_run (the flags of `run`), post_gate_check,
+# post_gate_hash. Each turns xtrace off before any file content enters a
+# variable and never turns it back on. Temp files go through pg_tmp onto one
+# cleanup list; the gate never sets a trap — the entry point does
+# (`trap pg_cleanup EXIT`).
 #
 # shellcheck shell=bash
 
@@ -87,8 +87,8 @@ POST_GATE_ERROR_DETAILS=(
   list-missing list-empty
 )
 
-# The hold exit, read from the registry by id: no script writes the number.
-_PG_HELD="$(trust_exit_code leak-held)" || _PG_HELD=""
+# The UTF-8 locale candidates the names scan pins, never the ambient locale.
+_PG_LOCALES=(C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8)
 
 _PG_SYNOPSIS='post-gate.sh run <common> --repo <repo> --backend <name> --backend-script <path> --record <record> [--draft] [--names-file <records>] [--no-record]
        post-gate.sh check <permission|tracker|names|review> <common> [--repo <repo> --backend <name> --backend-script <path>] [--record <record> [--draft]] [--no-record]
@@ -132,7 +132,9 @@ _pg_pass() { printf 'post-gate: %s pass\n' "$1" >&2; }
 # exit, so `_pg_hold …; return` ends a check.
 _pg_hold() {
   printf 'post-gate: %s hold %s%s\n' "$1" "$2" "${3:+ $3}" >&2
-  return "${_PG_HELD:-1}"
+  # The hold exit, read from the registry by id: no script writes the number.
+  [ -n "${_PG_HELD:-}" ] || _PG_HELD="$(trust_exit_code leak-held)" || _PG_HELD=1
+  return "$_PG_HELD"
 }
 
 # --- grammar ------------------------------------------------------------------
@@ -195,7 +197,7 @@ _pg_require() {
 # PG_ITEM[] (the notify fields) and PG_FAULT (a gate-error detail every check
 # of this call holds with, when the rules could not be read). 2 on usage.
 _pg_item() {
-  local rc=0 err
+  local rc=0 err key
   PG_ITEM=() PG_FAULT=""
   _pg_require project || return 2
   if [ -n "${PG_ARG[issue]+x}" ] && [ -n "${PG_ARG[capture]+x}" ]; then
@@ -203,13 +205,14 @@ _pg_item() {
     return 2
   fi
   if [ -n "${PG_ARG[issue]+x}" ]; then
-    PG_ITEM=(event=notify "project=${PG_ARG[project]}" "issue=${PG_ARG[issue]}" "detail=denylist path recorded")
+    key=issue
   elif [ -n "${PG_ARG[capture]+x}" ]; then
-    PG_ITEM=(event=notify "project=${PG_ARG[project]}" "capture=${PG_ARG[capture]}" "detail=denylist path recorded")
+    key=capture
   else
     _pg_usage "one of --issue and --capture is required"
     return 2
   fi
+  PG_ITEM=(event=notify "project=${PG_ARG[project]}" "$key=${PG_ARG[$key]}" "detail=denylist path recorded")
   err="$(notify_check "${PG_ITEM[@]}" 2>&1 >/dev/null)" || rc=$?
   case "$rc" in
     0) ;;
@@ -280,38 +283,30 @@ _pg_hash() {
 }
 
 _pg_hash_main() {
-  local args=()
-  case "$#" in
-    1) args=("$1") ;;
-    2)
-      if [ "$1" != --draft ]; then
-        _pg_usage "hash takes [--draft] <file>"
-        return 2
-      fi
-      args=(--draft "$2")
-      ;;
-    *)
-      _pg_usage "hash takes [--draft] <file>"
-      return 2
-      ;;
-  esac
-  if [ -z "${args[-1]}" ] || [[ "${args[-1]}" == --* ]]; then
+  local file="${!#}"
+  if ! { [ "$#" -eq 1 ] || { [ "$#" -eq 2 ] && [ "$1" = --draft ]; }; } \
+    || [ -z "$file" ] || [[ "$file" == --* ]]; then
     _pg_usage "hash takes [--draft] <file>"
     return 2
   fi
-  if ! _pg_hash "${args[@]}"; then
-    printf 'post-gate.sh: hash: cannot read %s\n' "${args[-1]}" >&2
+  if ! _pg_hash "$@"; then
+    printf 'post-gate.sh: hash: cannot read %s\n' "$file" >&2
     return 1
   fi
 }
 
-# post_gate_hash [--draft] <file>
-post_gate_hash() {
+# _pg_entry <main> <args…>: every public function's body. xtrace goes off
+# before any file content enters a variable and stays off; the || keeps a
+# caller's errexit from ending the gate before it returns its code.
+_pg_entry() {
   { set +x; } 2>/dev/null
   local rc=0
-  _pg_hash_main "$@" || rc=$?
+  "$@" || rc=$?
   return "$rc"
 }
+
+# post_gate_hash [--draft] <file>
+post_gate_hash() { _pg_entry _pg_hash_main "$@"; }
 
 # --- the review check ---------------------------------------------------------
 
@@ -387,12 +382,10 @@ _pg_review() {
 
 # _pg_keys_meet <keys-a> <keys-b>: 0 iff the two key lists (one per line) share a key.
 _pg_keys_meet() {
-  local a b
+  local a
   while IFS= read -r a; do
     [ -n "$a" ] || continue
-    while IFS= read -r b; do
-      if [ "$a" = "$b" ]; then return 0; fi
-    done <<<"$2"
+    if _pg_owner_listed "$2" "$a"; then return 0; fi
   done <<<"$1"
   return 1
 }
@@ -783,8 +776,9 @@ _pg_utf8_valid() {
 # _pg_record_write: row 7 — the audit line, then the record. notify_check
 # first, then notify_append (event notify, the call's project and issue or
 # capture, no step, no question, detail "denylist path recorded"), then the
-# resolved path through a temp file and mv. 1 with PG_RECORD_FAULT naming the
-# gate-error detail; nothing is recorded then, and no temp file is left.
+# resolved path through a temp file (pg_tmp, so pg_cleanup removes it) and mv.
+# 1 with PG_RECORD_FAULT naming the gate-error detail; nothing is recorded
+# then.
 _pg_record_write() {
   local f
   # a record that could never be written gets no audit line.
@@ -797,7 +791,6 @@ _pg_record_write() {
   PG_RECORD_FAULT="record-failed"
   pg_tmp "$f.XXXXXX" || return 1
   if ! printf '%s\n' "$PG_DL_RESOLVED" > "$PG_TMP" || ! mv -f -- "$PG_TMP" "$f"; then
-    rm -f -- "$PG_TMP"
     return 1
   fi
   PG_RECORD_FAULT=""
@@ -832,17 +825,8 @@ _pg_names_file_split() {
   done < "$1" > "$2"
 }
 
-# _pg_names: the names check. The temp file --names-file needs is removed on
-# every way out.
+# _pg_names: the names check.
 _pg_names() {
-  local rc=0
-  PG_NAMES_TMP=""
-  _pg_names_scan || rc=$?
-  [ -z "$PG_NAMES_TMP" ] || rm -f -- "$PG_NAMES_TMP"
-  return "$rc"
-}
-
-_pg_names_scan() {
   local text="${PG_ARG[file]}" loc rc name cites="" wnums cnums all n count=0 list="" vrc=0 mapped=""
   _pg_denylist_locate
   case "$PG_DL_STATE" in
@@ -861,7 +845,7 @@ _pg_names_scan() {
     return
   fi
   # Explicit candidates, never the ambient locale.
-  if ! utf8_locale_resolve C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; then
+  if ! utf8_locale_resolve "${_PG_LOCALES[@]}"; then
     _pg_hold names no-utf8-locale
     return
   fi
@@ -876,7 +860,6 @@ _pg_names_scan() {
       _pg_hold names gate-error scan-failed
       return
     fi
-    PG_NAMES_TMP="$PG_TMP"
     text="$PG_TMP"
     if ! _pg_names_file_split "${PG_ARG[names-file]}" "$text"; then
       _pg_hold names gate-error names-file-malformed
@@ -1036,7 +1019,7 @@ _pg_status_main() {
   fi
   # An empty roster is `empty` too; without a UTF-8 locale the subtraction
   # cannot be made, and the names check reports that itself.
-  if utf8_locale_resolve C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; then
+  if utf8_locale_resolve "${_PG_LOCALES[@]}"; then
     if ! _pg_roster "$UTF8_LOCALE"; then
       printf 'post-gate.sh: denylist-status: cannot tell (scan-failed)\n' >&2
       return 1
@@ -1102,41 +1085,16 @@ _pg_run_main() {
 }
 
 # post_gate_record_denylist <flags of `record-denylist`>
-post_gate_record_denylist() {
-  { set +x; } 2>/dev/null
-  local rc=0
-  _pg_record_main "$@" || rc=$?
-  return "$rc"
-}
+post_gate_record_denylist() { _pg_entry _pg_record_main "$@"; }
 
 # post_gate_denylist_status
-post_gate_denylist_status() {
-  { set +x; } 2>/dev/null
-  local rc=0
-  _pg_status_main "$@" || rc=$?
-  return "$rc"
-}
+post_gate_denylist_status() { _pg_entry _pg_status_main "$@"; }
 
 # post_gate_check <permission|tracker|names|review> <flags of `check`>
-post_gate_check() {
-  { set +x; } 2>/dev/null
-  local rc=0
-  _pg_check_main "$@" || rc=$?
-  return "$rc"
-}
-
-post_gate_check_permission() { post_gate_check permission "$@"; }
-post_gate_check_tracker() { post_gate_check tracker "$@"; }
-post_gate_check_names() { post_gate_check names "$@"; }
-post_gate_check_review() { post_gate_check review "$@"; }
+post_gate_check() { _pg_entry _pg_check_main "$@"; }
 
 # post_gate_run <flags of `run`>: the full gate. 0 when all four checks passed.
-post_gate_run() {
-  { set +x; } 2>/dev/null
-  local rc=0
-  _pg_run_main "$@" || rc=$?
-  return "$rc"
-}
+post_gate_run() { _pg_entry _pg_run_main "$@"; }
 
 # post_gate_main <args…>: the executed grammar.
 post_gate_main() {

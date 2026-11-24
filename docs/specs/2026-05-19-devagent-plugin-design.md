@@ -2694,9 +2694,8 @@ every script reads by id (`trust_exit_code leak-held`).
 | `repo-owner` | printed | bad arguments, a wrong-host repo, or a failed call | never | no numeric `owner.id` | | |
 
 Sourced, the script sets no shell option and prints nothing. Its public
-functions (`post_gate_run`, `post_gate_check`, one `post_gate_check_<name>`
-per check, `post_gate_hash`, `post_gate_record_denylist`,
-`post_gate_denylist_status`) turn xtrace off before any file content enters a
+functions (`post_gate_run`, `post_gate_check`, `post_gate_hash`,
+`post_gate_record_denylist`, `post_gate_denylist_status`) turn xtrace off before any file content enters a
 variable, run the same under `set -euo pipefail`, and never set a trap: temp
 files go through `pg_tmp` onto one list that the entry point removes
 (`trap pg_cleanup EXIT`).

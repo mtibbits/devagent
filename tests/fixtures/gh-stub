@@ -155,7 +155,7 @@ _api_path() {
 
 _events_serve() {
   # _events_serve <name> <path> "$@" → the GH_STUB_EVENTS_DIR answer (#712).
-  local name="$1" path="$2" d rc; shift 2
+  local name="$1" path="$2" d; shift 2
   d="${GH_STUB_EVENTS_DIR:-}"
   [ -n "$d" ] || _assert_fail "new-verb call with GH_STUB_EVENTS_DIR unset: $path"
   if [ "$name" != user ] && ! _has_flag --paginate -- "$@"; then
@@ -171,10 +171,15 @@ _events_serve() {
       printf '\r\n'
     fi
   fi
-  cat "$d/$name.json"
-  [ -f "$d/$name.err" ] && cat "$d/$name.err" >&2
-  rc=$(cat "$d/$name.rc" 2>/dev/null || echo 0)
-  exit "$rc"
+  _serve_named "$d" "$name"
+}
+
+_serve_named() {
+  # _serve_named <dir> <name> → <name>.json on stdout, <name>.err on stderr,
+  # exit <name>.rc (0 when absent). The json is the caller's to have checked.
+  cat "$1/$2.json"
+  [ -f "$1/$2.err" ] && cat "$1/$2.err" >&2
+  exit "$(cat "$1/$2.rc" 2>/dev/null || echo 0)"
 }
 
 _api_method() {
@@ -189,10 +194,7 @@ _api_method() {
 
 _gate_repo_serve() {
   # _gate_repo_serve → the GH_STUB_GATE_DIR answer for repos/<o>/<r> (#966).
-  local d="$GH_STUB_GATE_DIR"
-  cat "$d/repo.json"
-  [ -f "$d/repo.err" ] && cat "$d/repo.err" >&2
-  exit "$(cat "$d/repo.rc" 2>/dev/null || echo 0)"
+  _serve_named "$GH_STUB_GATE_DIR" repo
 }
 
 _gate_comment_post() {
