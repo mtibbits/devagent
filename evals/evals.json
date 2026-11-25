@@ -372,6 +372,63 @@
           "pass"
         ]
       }
+    },
+    {
+      "id": "next-ask",
+      "skill": "next",
+      "fixture": "evals/fixtures/next-ask",
+      "inputs": [
+        "scenario.md",
+        "record.md"
+      ],
+      "rubric": {
+        "verdict": "turn 1: call AskUserQuestion with the record's question and its two options, `commit` marked recommended, and continue only after a reply is recorded; turn 2: record nothing (a timed-out dialog's pre-selected option is not an answer), run `bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hold.sh\" toy Issue-7 --step commit --no-ask` once, then stop",
+        "must_name": [
+          "the record path /work/devdoc/toy/Issue-7/questions/01-commit.md",
+          "AskUserQuestion with options commit (recommended) and prune",
+          "the timed-out commit is not recorded as the operator's answer",
+          "`--no-ask` in the hold.sh call, in the bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hold.sh\" form",
+          "stops: neither the continue line nor any CHAIN: line is followed"
+        ]
+      },
+      "baseline": {
+        "date": "2026-11-20",
+        "model": "claude-opus-5-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "next-held",
+      "skill": "next",
+      "fixture": "evals/fixtures/next-held",
+      "inputs": [
+        "scenario.md",
+        "STUCK"
+      ],
+      "rubric": {
+        "verdict": "relay the question path /work/devdoc/toy/Issue-7/STUCK (and its answer line) to the operator and stop; never invoke the pending CHAIN: line, never re-run /devagent:next, unstick, resume or re-run the step",
+        "must_name": [
+          "the STUCK path /work/devdoc/toy/Issue-7/STUCK",
+          "the issue is held on an operator question",
+          "the CHAIN: line is not followed",
+          "no further devagent command or step is run"
+        ]
+      },
+      "baseline": {
+        "date": "2026-11-20",
+        "model": "claude-opus-5-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
     }
   ]
 }

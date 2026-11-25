@@ -109,6 +109,7 @@ _argv_for() {
                                  ARGS=(wid) ;;
     capture/file)                ARGS=(--slug idea --target origin) ;;
     resume|switch)               ARGS=(wid Issue-8) ;;
+    hold)                        ARGS=(wid Issue-7 --step draft --reason r --question-file "$BATS_TEST_TMPDIR/q.md") ;;
     stuck)                       ARGS=(wid "a reason") ;;
     revise)                      ARGS=(wid --no-chain) ;;
     spike)                       ARGS=(create wid) ;;
@@ -236,6 +237,8 @@ _refusals() {
   [ ! -e "$DA_HOME/state/watchdog" ]
 }
 
+# #962: hold.sh reads the unattended marker to choose ask or hold, so this
+# matrix is also its marker-set refusal; the one above is its ask-mode one.
 @test "entry-points: the same refusals in an unattended session leave state/watchdog/<id>/script and nothing else (#932)" {
   _refusals unattended
 }

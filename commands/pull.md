@@ -224,6 +224,7 @@ equal to it.
 | 9 | `host` | host-level refusal: identity, policy or environment | #713 |
 | 10 | `try-later` | a check could not run (`whoami` or `events` could-not-run) | #713 |
 | 11 | `quarantine-refused` | refused on quarantine, every entry point but pull | #714 |
+| 12 | `operator-question` | held on an operator question; nothing further is run | #962 |
 
 Consumer action per code:
 
@@ -233,6 +234,7 @@ Consumer action per code:
 - `9` → stop polling: the host needs fixing, and a retry will refuse again.
 - `10` → retry later: a check could not run (network, rate limit, 5xx). Under trust a missing or inaccessible issue also reads 10 (the `events` read cannot tell a 404 from an outage; its detail carries the backend's message), so bound the retries per ticket.
 - `11` → skip the ticket; a human must release it.
+- `12` → skip the ticket and tell the operator; watch the notifications file for `answered`. From `/devagent:next` it can follow a step that ran and then held.
 - `1` under a trust policy, with nothing written (the staging dir could not
   be created, the fetch failed, the fetched text is not in the fetch layout,
   there was no quarantine verdict, or `issue.md` could not be written) → skip
@@ -241,7 +243,7 @@ Consumer action per code:
   re-runs its `fetch` by hand with stdout discarded, so the operator sees its
   stderr and no ticket text.
 
-With no trust policy on the host and no quarantine marker in the issue dir, none of these codes is emitted.
+With no trust policy on the host and no quarantine marker in the issue dir, only `operator-question` is emitted: `/devagent:next` exits with it while the issue is held on an operator question.
 
 ## Run the script
 

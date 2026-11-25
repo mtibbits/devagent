@@ -40,7 +40,7 @@ TRUST_SYSTEM_DIRS=(/etc/devagent/trust /c/ProgramData/devagent/trust)
 # column 0, even inside a function body: that census greps for it anchored.
 # shellcheck disable=SC2034  # read by tests/trust-entry.bats
 TRUST_ENTRY_POINTS=(
-  pull next ship cleanup mergetoall mergemr comments capture/file sync
+  pull next ship cleanup mergetoall mergemr comments capture/file sync hold
   transition-draft-start park resume switch stuck unstuck revise
   checklist-advance checklist-init checklist-log checklist-mark checklist-stuck
   checklist-unstuck commit branch spike promote-potholes

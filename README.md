@@ -160,7 +160,7 @@ All commands live under the `/devagent:` namespace.
 | `status` | Multi-project dashboard of active issues, STUCK, and parked |
 | `history` / `grep` | Chronological log / search across per-issue artifacts |
 | `depends` | Record or list issue dependencies |
-| `park` / `resume` / `switch` | Park, reactivate, or swap the active issue in one step |
+| `park` / `resume` / `switch` | Park, reactivate, or swap the active issue in one step; `park --reason "<text>"` logs why |
 | `use` | Deliberately switch the active project (the one arg-driven pointer writer) |
 | `sync` | Async merge detection — fires `on_merge` for issues merged outside this session |
 | `stuck` / `unstuck` | Mark the current step stuck (with a reason) / clear it and resume |
@@ -227,6 +227,15 @@ bash scripts/lib/notify.sh --rotate <new-name>
 
 which renames it under the appender's lock. The line format, the events, the
 exit codes and the reader rules are the launcher contract in spec §7.3.
+
+**Operator questions (#962).** A step that needs the operator calls
+`scripts/hold.sh`. With the marker unset it writes an open question record and
+the session asks it; with the marker set it holds the issue — a question
+STUCK, the step `[?]`, the issue parked, one `hold` line — and
+`/devagent:next` then exits `operator-question` (see `commands/pull.md`'s exit
+table) until the answer is recorded. Rules for the session:
+`skills/next/references/operator-questions.md`. No step calls `hold.sh` until
+#963 and #964 land.
 
 A launcher can also ask whether a session it started is still making progress
 (#932):
