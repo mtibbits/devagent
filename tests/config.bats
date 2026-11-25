@@ -334,3 +334,93 @@ ROWS
     --forbid /d/g)"
   diff <(printf '%s\n' "$output") <(printf '%s\n' "$want")
 }
+
+# --- #966: the leak gate's two user-level keys --------------------------------
+# auto_post_owners (a top-level array) and [paths] denylist_path are read from
+# the top level of the user config only; a [project.<name>] copy is never read.
+
+@test "config_get_global_list: prints a top-level array, one element per line" {
+  printf 'auto_post_owners = ["github:acme", "gitlab:grp/sub"]\n\n[defaults]\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 2 ]
+  [ "${lines[0]}" = "github:acme" ]
+  [ "${lines[1]}" = "gitlab:grp/sub" ]
+}
+
+@test "config_get_global_list: absent is 1, a string or mixed array is 3, a broken config is 2" {
+  printf '[defaults]\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  printf 'auto_post_owners = "github:acme"\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 3 ]
+  [ -z "$output" ]
+  printf 'auto_post_owners = ["github:acme", 7]\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 3 ]
+  [ -z "$output" ]
+  printf 'auto_post_owners = [\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+  rm "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+@test "config_get_global_list: a [project.<name>] key of the same name is not read" {
+  printf '[project.p]\nauto_post_owners = ["github:acme"]\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  # a dotted key would walk into a table: refused, never read.
+  run --separate-stderr config_get_global_list project.p.auto_post_owners
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+@test "config_get_global_path denylist_path: only the top-level [paths] table" {
+  printf '[project.p.paths]\ndenylist_path = "/proj/list.txt"\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_path denylist_path
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  printf '[paths]\ndenylist_path = "~/user/list.txt"\n\n[project.p.paths]\ndenylist_path = "/proj/list.txt"\n' > "$DA_HOME/config.toml"
+  run --separate-stderr config_get_global_path denylist_path
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/user/list.txt" ]
+}
+
+@test "skel: both gate keys are commented in place and read back once uncommented" {
+  local skel="$PLUGIN_ROOT/templates/config.toml.skel" owners defaults paths_hdr deny archive
+  owners="$(grep -n -m1 -xF '# auto_post_owners = ["github:<login>"]' "$skel" | cut -d: -f1)"
+  defaults="$(grep -n -m1 -xF '[defaults]' "$skel" | cut -d: -f1)"
+  [ -n "$owners" ] && [ -n "$defaults" ]
+  [ "$owners" -lt "$defaults" ]
+  # the comment above the key says where it must sit.
+  sed -n "1,${owners}p" "$skel" | grep -qF 'TOP-LEVEL'
+  sed -n "1,${owners}p" "$skel" | grep -qF 'ignored under any table header'
+  # denylist_path sits in the commented [paths] block, before the next block.
+  paths_hdr="$(grep -n -m1 -E '^# \[paths\]' "$skel" | cut -d: -f1)"
+  deny="$(grep -n -m1 -xF '# denylist_path = "~/.config/denylist.txt"' "$skel" | cut -d: -f1)"
+  archive="$(grep -n -m1 -E '^# \[archive\]' "$skel" | cut -d: -f1)"
+  [ -n "$paths_hdr" ] && [ -n "$deny" ] && [ -n "$archive" ]
+  [ "$paths_hdr" -lt "$deny" ] && [ "$deny" -lt "$archive" ]
+  [ -z "$(sed -n "${paths_hdr},${deny}p" "$skel" | grep -vE '^#')" ]   # one unbroken comment block
+  # A rendered copy with both keys (and the [paths] header) uncommented is valid
+  # TOML, and the two readers return the samples.
+  sed -e 's/{{[A-Z_]*}}/x/g' \
+      -e 's/^# \(auto_post_owners = \)/\1/' \
+      -e 's/^# \(\[paths\]\)/\1/' \
+      -e 's/^# \(denylist_path = \)/\1/' "$skel" > "$DA_HOME/config.toml"
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" validate "$DA_HOME/config.toml"
+  [ "$status" -eq 0 ]
+  run --separate-stderr config_get_global_list auto_post_owners
+  [ "$status" -eq 0 ]
+  [ "$output" = "github:<login>" ]
+  run --separate-stderr config_get_global_path denylist_path
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/.config/denylist.txt" ]
+}

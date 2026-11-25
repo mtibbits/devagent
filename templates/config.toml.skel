@@ -1,3 +1,12 @@
+# Leak gate (#966): trackers devagent may post to without asking. Each entry is
+# "github:<login>", "gitlab:<namespace>" (the path before the project name,
+# subgroups included; a parent group does not cover a subgroup) or "jira:<KEY>".
+# A GitHub tracker owned by the authenticated account needs no entry. An entry
+# names an owner on EVERY host of its backend: the grammar has no host part.
+# TOP-LEVEL key: it must stay above the first table header ([defaults]); it is
+# ignored under any table header, a [project.<name>] block included.
+# auto_post_owners = ["github:<login>"]
+
 [defaults]
 checklist_template = "standard"  # project default; a per-issue `tier:` key overrides — legal names live in the spec §6.3 tier table (#537)
 ship_as_draft = false
@@ -78,8 +87,14 @@ ship_as_draft = false
 # <devdoc>/templates/potholes.md. Global table; a [project.<name>.paths]
 # potholes_workflow overrides it per project. Optional per-project
 # potholes_domain_nouns = ["..."] lists words the shared layer refuses.
+# denylist_path (#966): the leak gate's private-names list, one name per line
+# ('#' comments; a "# public: <name> <name>" line lists names that are allowed
+# on a tracker, split on spaces, so a public name cannot hold a space). Read only
+# from this top-level [paths] table, never from a [project.<name>.paths] table.
+# Absolute (~ expands); default ~/.config/denylist.txt.
 # [paths]                       # TOP-LEVEL table: keep it above the first [project.*] header
 # potholes_workflow = "~/src/devDoc/templates/potholes.md"
+# denylist_path = "~/.config/denylist.txt"
 
 # Durable transcript archive (#731): scripts/archive-transcripts.sh copies this
 # machine's Claude Code transcripts (~/.claude/projects) into

@@ -54,14 +54,25 @@ worktree_root_rule() {
 }
 
 # config_get_global_path <key> — #611: the top-level [paths] table. Global,
-# every-project file paths; today the only consumer is potholes_workflow (the
-# shared workflow register). Tilde-expanded like project paths.*; rc from
-# config_get (1 = absent) so callers' `|| true` keep working.
+# every-project file paths: potholes_workflow (the shared workflow register)
+# and denylist_path (the leak gate, #966). Tilde-expanded like project
+# paths.*; rc from config_get (1 = absent) so callers' `|| true` keep working.
 config_get_global_path() {
   local key="$1" val
   [[ -n "$key" ]] || { echo "config_get_global_path: key required" >&2; return 2; }
   val="$(config_get "paths.${key}")" || return $?
   expand_tilde "$val"
+}
+
+# config_get_global_list <key> — #966: a TOP-LEVEL array of strings (today
+# auto_post_owners, the leak gate's owner list), one element per line. Only the
+# top level of the user config is read: a dotted key, which would walk into a
+# table such as [project.<name>], is refused (rc 2). rc is _toml.py get-list's:
+# 0 printed, 1 absent, 2 unreadable config, 3 not an array of strings.
+config_get_global_list() {
+  local key="$1"
+  [[ -n "$key" && "$key" != *.* ]] || { echo "config_get_global_list: one top-level key required" >&2; return 2; }
+  _config_toml get-list "$(config_path)" "$key"
 }
 
 # config_get_project_list <project> <field> — #611: an array-of-strings field,

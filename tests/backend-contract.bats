@@ -97,3 +97,30 @@ run_backend_suite() {
   done
   [ "$n" -eq 5 ]
 }
+
+@test "contract: gitlab, jira, custom and disk answer post-comment with exit 2 (#966)" {
+  # post-comment is GitHub's alone. For its caller another backend's unknown-verb
+  # exit is a check that cannot run. repo-owner, the read verb beside it, is
+  # 2 or 78 there and never 2 on GitHub.
+  local f n=0 b
+  for f in "${BATS_DIR}/../scripts/issue/"*.sh; do
+    n=$((n + 1))
+    b="$(basename "$f")"
+    # github.sh's own post-comment rows live in tests/issue-github-post.bats,
+    # under a scratch DA_HOME; never run it here against the real config.
+    [ "$b" != github.sh ] || continue
+    run "$f" post-comment acme/widgets 7 --project p --issue Issue-7 --file /dev/null --review /dev/null
+    [ "$status" -eq 2 ] || { echo "$b post-comment: status $status" >&2; false; }
+    run "$f" repo-owner acme/widgets
+    [ "$status" -eq 2 ] || [ "$status" -eq 78 ] || { echo "$b repo-owner: status $status" >&2; false; }
+  done
+  [ "$n" -eq 5 ]
+  # GitHub implements both: with no arguments post-comment is ITS usage (exit 2,
+  # naming the verb's grammar, not "unknown verb"), and repo-owner is 1.
+  run "${BATS_DIR}/../scripts/issue/github.sh" post-comment
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"usage: post-comment <repo> <num>"* ]]
+  [[ "$output" != *"unknown verb"* ]]
+  run "${BATS_DIR}/../scripts/issue/github.sh" repo-owner
+  [ "$status" -eq 1 ]
+}

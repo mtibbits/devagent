@@ -7,6 +7,7 @@
 #     GH_STUB_EVENTS_DIR, so any of the gh-stub consumers that reached one
 #     would go red.
 
+bats_require_minimum_version 1.5.0   # run --separate-stderr (the #966 stub rows)
 load 'lib/bats-helpers'
 
 # _trust_off_hits <root> [verb-alternation]: git grep the caller surface for a
@@ -22,9 +23,13 @@ load 'lib/bats-helpers'
 #   scripts/lib/quarantine.sh — #714 reads events (and sources the record
 #   library) only for an in-scope issue (TRUST_IN_SCOPE=1); out of scope the
 #   guard checks the marker alone (pinned by tests/trust-golden.bats).
+#   scripts/lib/post-gate.sh — #966: the leak gate's tracker check asks
+#   whoami with trust OFF, to compare the repo owner's id with the account's
+#   before a post (spec §9.1 names this caller). It runs only inside a gate
+#   run, for a GitHub tracker whose owner is not in auto_post_owners.
 # Not seen: a verb after an unquoted backend ($be events "$repo") and a
 # Python subprocess call; the gh-stub tripwire covers a test that reaches one.
-_TRUST_OFF_EXTRA_EXCLUDES=(':!scripts/lib/trust.sh' ':!scripts/lib/quarantine.sh')
+_TRUST_OFF_EXTRA_EXCLUDES=(':!scripts/lib/trust.sh' ':!scripts/lib/quarantine.sh' ':!scripts/lib/post-gate.sh')
 _trust_off_hits() {
   local root="$1" verbs="${2:-events|comment-records|whoami}" re rc1=0 rc2=0
   re='(["'"'"')}]|\.sh)[[:space:]]+('"$verbs"')[[:space:]]+(["$]|--kinds)'
@@ -95,7 +100,7 @@ _stub_setup() {
   # The census excludes these paths; an exclusion that names nothing (a
   # rename) would silently widen nothing and hide a typo (W266).
   local home
-  for home in scripts/issue scripts/lib/issue-events.sh scripts/lib/trust.sh; do
+  for home in scripts/issue scripts/lib/issue-events.sh scripts/lib/trust.sh scripts/lib/post-gate.sh; do
     [ -e "$PLUGIN_ROOT/$home" ]
     run grep -rlwE 'events|comment-records|whoami' "$PLUGIN_ROOT/$home"
     [ "$status" -eq 0 ]
@@ -109,6 +114,85 @@ _stub_setup() {
   run _trust_off_hits "$PLUGIN_ROOT" whoami
   [ "$status" -eq 0 ]
   [[ "$output" == *"scripts/lib/trust.sh:"*"whoami"* ]]
+}
+
+@test "trust-off: the census finds post-gate.sh's whoami call without its exclusion" {
+  # positive control for the #966 allow-list entry, the twin of the trust.sh
+  # test above: the exclusion hides a real hit.
+  _TRUST_OFF_EXTRA_EXCLUDES=(':!scripts/lib/trust.sh' ':!scripts/lib/quarantine.sh')
+  run _trust_off_hits "$PLUGIN_ROOT" whoami
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"scripts/lib/post-gate.sh:"*"whoami"* ]]
+  [[ "$output" != *"scripts/lib/trust.sh:"* ]]
+}
+
+@test "gh-stub api: repos/<r> serves repo.json only under GH_STUB_GATE_DIR, and a comment POST exits 3 without it" {
+  _stub_setup
+  unset GH_STUB_GATE_DIR
+  local d="$BATS_TEST_TMPDIR/gate" ev="$BATS_TEST_TMPDIR/ev" body="$BATS_TEST_TMPDIR/body.md"
+  local post=(api --hostname github.com --method POST repos/o/r/issues/5/comments -F body=@-)
+  mkdir -p "$d" "$ev"
+  printf '%s\n' '{"owner":{"id":7,"login":"o"}}' > "$d/repo.json"
+  printf 'line one\n\nline two, no final newline' > "$body"
+  # --- the knob unset: every answer is today's ---
+  run "$STUB_BIN/gh" api --hostname github.com repos/o/r
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+  run "$STUB_BIN/gh" "${post[@]}" < "$body"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"stub-gh: api: comment POST with GH_STUB_GATE_DIR unset"* ]]
+  [ ! -e "$d/comment.posts" ]
+  # with only the events knob, a POST is still not served (never as the list).
+  printf '[]\n' > "$ev/comments.json"
+  GH_STUB_EVENTS_DIR="$ev" run "$STUB_BIN/gh" "${post[@]}" < "$body"
+  [ "$status" -eq 3 ]
+  [ ! -e "$d/comment.posts" ]
+  # --- GH_STUB_GATE_DIR set ---
+  export GH_STUB_GATE_DIR="$d"
+  run "$STUB_BIN/gh" api --hostname github.com repos/o/r
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"owner":{"id":7,"login":"o"}}' ]
+  echo 1 > "$d/repo.rc"; echo 'gh: HTTP 404' > "$d/repo.err"
+  run "$STUB_BIN/gh" api --hostname github.com repos/o/r
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"gh: HTTP 404"* ]]
+  rm "$d/repo.json" "$d/repo.rc" "$d/repo.err"
+  run "$STUB_BIN/gh" api --hostname github.com repos/o/r
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+  run --separate-stderr "$STUB_BIN/gh" "${post[@]}" < "$body"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .html_url <<<"$output")" = "https://github.com/o/r/issues/5#issuecomment-1" ]
+  cmp "$body" "$d/comment.body"
+  [ "$(grep -c '' "$d/comment.posts")" -eq 1 ]
+  run "$STUB_BIN/gh" "${post[@]}" <<<"second"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '' "$d/comment.posts")" -eq 2 ]
+  [ "$(cat "$d/comment.body")" = second ]
+  printf '%s\n' '{"message":"no url here"}' > "$d/comment.json"
+  echo 1 > "$d/comment.rc"; echo 'gh: HTTP 502' > "$d/comment.err"
+  run --separate-stderr "$STUB_BIN/gh" "${post[@]}" <<<"third"
+  [ "$status" -eq 1 ]
+  [ "$output" = '{"message":"no url here"}' ]
+  [[ "$stderr" == *"gh: HTTP 502"* ]]
+  [ "$(grep -c '' "$d/comment.posts")" -eq 3 ]
+  # a POST that is not the comment write, or does not send the body on stdin, is a stub failure.
+  rm "$d/comment.json" "$d/comment.rc" "$d/comment.err"
+  run "$STUB_BIN/gh" api --hostname github.com --method POST repos/o/r/issues/5/comments -f body=inline
+  [ "$status" -eq 3 ]
+  run "$STUB_BIN/gh" api --hostname github.com --method POST repos/o/r/issues <<<"x"
+  [ "$status" -eq 3 ]
+  [ "$(grep -c '' "$d/comment.posts")" -eq 3 ]
+  # --- both knobs: the POST is the write, the paginated GET is still the list ---
+  export GH_STUB_EVENTS_DIR="$ev"
+  run "$STUB_BIN/gh" api --hostname github.com --paginate "repos/o/r/issues/5/comments?per_page=100"
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+  [ "$(grep -c '' "$d/comment.posts")" -eq 3 ]
+  run "$STUB_BIN/gh" "${post[@]}" <<<"fourth"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '' "$d/comment.posts")" -eq 4 ]
+  [ "$(cat "$d/comment.body")" = fourth ]
 }
 
 @test "gh-stub api: an unknown path exits 3 naming it" {

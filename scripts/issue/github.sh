@@ -5,9 +5,12 @@
 # state-list that `wbs update` reads (#703), issue-list that
 # `wbs init --from-tracker` reads (#706), state-exists that the transition
 # pre-check and doctor's tracker check share (#710), state-class
-# (`<class>\t<reason>` for one issue) that the merge step reads (#885), and
-# the read-only events, events --kinds, comment-records and whoami (#712; no
-# caller yet). Output shape conforms to spec §9.3 and §9.3.1.
+# (`<class>\t<reason>` for one issue) that the merge step reads (#885), the
+# read-only events, events --kinds, comment-records and whoami (#712; read by
+# trust.sh and quarantine.sh under a trust policy, and whoami by the leak gate
+# with trust off), and the leak gate's two verbs (#966): the read verb
+# repo-owner and the one gated write, post-comment. Output shape conforms to
+# spec §9.3 and §9.3.1.
 
 set -euo pipefail
 
@@ -483,7 +486,10 @@ cmd_issue_list() {
 }
 
 # --- #712: events, events --kinds, comment-records, whoami (spec §9.1 MAY,
-# record shapes §9.3.1). Read-only; no caller invokes them yet. The host
+# record shapes §9.3.1). Read-only. Their callers: under a trust policy,
+# trust_entry_check asks whoami (#713) and the quarantine guard reads events
+# (#714); with trust off the leak gate's tracker check asks whoami (#966,
+# scripts/lib/post-gate.sh). tests/events-trust-off.bats holds that list. The host
 # comes from <repo> (HOST/OWNER/REPO, bare OWNER/REPO = github.com) and every
 # call runs with GH_HOST unset; a bare repo under a GH_HOST naming another
 # host is refused. Output is all-or-nothing: printed only after every call,
@@ -831,6 +837,164 @@ cmd_whoami() {
   printf '%s\n' "$id"
 }
 
+# repo-owner <repo>: "<owner-id>\t<owner-login>" from one repos/<owner>/<repo>
+# call (#966) — the leak gate's tracker check compares the id with whoami's.
+# The host comes from <repo> and the call runs with GH_HOST unset, as the
+# other read verbs above. Exit 1 on bad arguments, the wrong-host refusal or a
+# failed call; 5 when the answer names no positive integer owner.id or no
+# login of the form [A-Za-z0-9][A-Za-z0-9_-]*. Never 2. Stdout stays empty on
+# every failure.
+cmd_repo_owner() {
+  if [ "$#" -ne 1 ] || ! _gh_ev_args_ok "$@"; then
+    echo "github.sh: usage: repo-owner <repo>" >&2
+    return 1
+  fi
+  _gh_target repo-owner "$1" || return 1
+  _need gh
+  _need jq
+  local out line id login
+  out="$(_gh_ev_call api --hostname "$GT_HOST" "repos/$GT_OWNER/$GT_NAME")" || return 1
+  line="$(printf '%s' "$out" | jq -r '
+    if type == "object" and (.owner | type) == "object"
+       and (.owner.id | type) == "number" and (.owner.login | type) == "string"
+    then "\(.owner.id)\t\(.owner.login)" else empty end' 2>/dev/null | tr -d '\r')" || line=""
+  id="${line%%$'\t'*}"
+  login="${line#*$'\t'}"
+  if ! [[ "$id" =~ ^[1-9][0-9]*$ ]] || ! [[ "$login" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+    echo "github.sh: repo-owner: repos/$GT_OWNER/$GT_NAME on $GT_HOST names no numeric owner id and login" >&2
+    return 5
+  fi
+  printf '%s\t%s\n' "$id" "$login"
+}
+
+_gh_post_usage() {
+  echo "github.sh: usage: post-comment <repo> <num> --project <name> (--issue <issue-dir-name> | --capture <slug>) --file <post> --review <record>${1:+ ($1)}" >&2
+}
+
+# post-comment <repo> <num> --project <name> (--issue <issue-dir-name> |
+#   --capture <slug>) --file <post> --review <record>   (#966)
+# The one gated write: post <post> as a new comment on issue <num> and print
+# the comment's URL. The leak gate (scripts/lib/post-gate.sh) runs INSIDE the
+# verb, before any write, so a direct call meets the same gate as post.sh.
+# In order:
+#   1. the grammar (`--flag value`, each flag once, no empty value; <num>
+#      matches ^[1-9][0-9]{0,9}$; <repo> is [HOST/]OWNER/REPO)        → exit 2
+#   2. the host: a bare repo while GH_HOST names another host, and gh
+#      and jq on PATH                                                 → exit 2
+#   3. a private snapshot of a readable --file, removed on every exit;
+#      a snapshot that cannot be made                                 → exit 2
+#   4. the full gate on the SNAPSHOT (permission, tracker, names,
+#      review), so the bytes gated are the bytes posted → a hold exits
+#      `trust_exit_code leak-held`, a trust policy that fails to load 9,
+#      a work item the gate refuses 2. An unreadable --file goes to the
+#      gate as given, which holds names gate-error file-unreadable:
+#      every fault before the write is a hold or a 2.
+#   5. one `gh api --method POST …/issues/<num>/comments -F body=@-` with
+#      the snapshot on stdin, on <repo>'s host with GH_HOST unset → a
+#      failed call exits 1
+#   6. the answer's html_url, which must start https:// → else exit 5
+# A caller reads: 0 posted · leak-held, 9, 2 not posted · 1 unknown (gh
+# failed after the gate passed; the POST may have reached the tracker) ·
+# 5 probably posted: never retry without looking at the issue.
+cmd_post_comment() {
+  local repo="${1:-}" num="${2:-}" key snap="" out url tool rc=0
+  local -A opt=()
+  local -a item=()
+  if [ "$#" -lt 2 ]; then
+    _gh_post_usage
+    return 2
+  fi
+  shift 2
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --project | --issue | --capture | --file | --review)
+        key="${1#--}"
+        if [ -n "${opt[$key]+x}" ]; then
+          _gh_post_usage "--$key is given twice"
+          return 2
+        fi
+        if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+          _gh_post_usage "--$key needs a value"
+          return 2
+        fi
+        opt[$key]="$2"
+        shift 2
+        ;;
+      *)
+        _gh_post_usage "unexpected argument '$1'"
+        return 2
+        ;;
+    esac
+  done
+  for key in project file review; do
+    if [ -z "${opt[$key]+x}" ]; then
+      _gh_post_usage "--$key is required"
+      return 2
+    fi
+  done
+  if [ -n "${opt[issue]+x}" ] && [ -z "${opt[capture]+x}" ]; then
+    item=(--issue "${opt[issue]}")
+  elif [ -n "${opt[capture]+x}" ] && [ -z "${opt[issue]+x}" ]; then
+    item=(--capture "${opt[capture]}")
+  else
+    _gh_post_usage "give exactly one of --issue and --capture"
+    return 2
+  fi
+  if ! [[ "$num" =~ ^[1-9][0-9]{0,9}$ ]]; then
+    _gh_post_usage "<num> is not an issue number"
+    return 2
+  fi
+  if ! _gh_repo_syntax "$repo"; then
+    _gh_post_usage "malformed repo '$repo' (want [HOST/]OWNER/REPO)"
+    return 2
+  fi
+  # Sets GT_HOST, GT_OWNER, GT_NAME: called bare. What is left to refuse is the
+  # wrong host. It and a missing tool exit 2, not 1: exit 1 is kept for a gh
+  # failure after the gate passed, the one exit whose comment is unknown.
+  _gh_target post-comment "$repo" || return 2
+  for tool in gh jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "github.sh: post-comment: $tool not found on PATH" >&2
+      return 2
+    fi
+  done
+  # The gate, sourced in the verb (it sources every library it calls). This
+  # verb owns the process's one EXIT trap; the gate's temp files and the
+  # snapshot share one cleanup list.
+  # shellcheck source=../lib/post-gate.sh
+  source "${SCRIPT_DIR}/../lib/post-gate.sh"
+  trap pg_cleanup EXIT
+  if [ -f "${opt[file]}" ] && [ -r "${opt[file]}" ]; then
+    if ! pg_tmp || ! cat -- "${opt[file]}" > "$PG_TMP"; then
+      echo "github.sh: post-comment: cannot copy --file ${opt[file]} to a private snapshot; nothing was posted" >&2
+      return 2
+    fi
+    snap="$PG_TMP"
+  fi
+  # Bare (never in $( … )): the gate sets globals and a refusal exits 9. With
+  # no snapshot the gate reads --file as given and holds file-unreadable.
+  post_gate_run --project "${opt[project]}" "${item[@]}" --file "${snap:-${opt[file]}}" \
+    --repo "$repo" --backend github --backend-script "${SCRIPT_DIR}/github.sh" \
+    --record "${opt[review]}" || rc=$?
+  if [ "$rc" -ne 0 ]; then return "$rc"; fi
+  if [ -z "$snap" ]; then
+    # the gate passed a --file that was unreadable a moment before: it changed
+    # under the call, and there is no snapshot to post.
+    echo "github.sh: post-comment: --file ${opt[file]} changed under the call; nothing was posted" >&2
+    return 2
+  fi
+  out="$(_gh_ev_call api --hostname "$GT_HOST" --method POST \
+    "repos/$GT_OWNER/$GT_NAME/issues/$num/comments" -F body=@- < "$snap")" || return 1
+  url="$(printf '%s' "$out" | jq -r '
+    if type == "object" and (.html_url | type) == "string" then .html_url else empty end' \
+    2>/dev/null | tr -d '\r')" || url=""
+  if [[ "$url" != https://* ]]; then
+    echo "github.sh: post-comment: gh exited 0 but its answer has no https html_url; the comment was probably posted — look at the issue before any retry" >&2
+    return 5
+  fi
+  printf '%s\n' "$url"
+}
+
 main() {
   local verb="${1:-}"
   if [ -z "$verb" ]; then
@@ -851,6 +1015,8 @@ main() {
     events)        cmd_events       "$@" ;;
     comment-records) cmd_comment_records "$@" ;;
     whoami)        cmd_whoami       "$@" ;;
+    repo-owner)    cmd_repo_owner   "$@" ;;
+    post-comment)  cmd_post_comment "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2
       exit 2

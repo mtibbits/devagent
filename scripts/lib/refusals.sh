@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# scripts/lib/refusals.sh — the trust exit table and message registry (#713).
+# scripts/lib/refusals.sh — the exit table and the trust message registry (#713).
 # No dependencies, safe to source multiple times. Siblings (#714, #719, #902)
 # add rows HERE only; commands/pull.md carries the same exit table and
-# tests/trust-registry.bats holds the two in step.
+# tests/trust-registry.bats holds the two in step. One row is not a trust
+# refusal: `leak-held` (#966) is emitted by scripts/lib/post-gate.sh and
+# `scripts/issue/github.sh post-comment`, also with no trust policy on the
+# host, and never by pull. Callers read a row's code through trust_exit_code,
+# by id; no script writes the number.
 
 # trust_exit_table: the exit codes a polling consumer keys on, as markdown rows
 # (the shape commands/pull.md carries, read by one parser on both sides).
@@ -17,6 +21,7 @@ trust_exit_table() {
 | 10 | `try-later` | a check could not run (`whoami` or `events` could-not-run) | #713 |
 | 11 | `quarantine-refused` | refused on quarantine, every entry point but pull | #714 |
 | 12 | `operator-question` | held on an operator question; nothing further is run | #962 |
+| 13 | `leak-held` | refused by the leak gate: nothing was posted | #966 |
 EOF
 }
 

@@ -338,31 +338,77 @@ potholes_show_union() {
     { print }' "${paths[@]}"
 }
 
-# Fixture-list parsers shared by doctor and the suite canary (one grammar):
-# '#' comments, one '# public: <name>…' allowlist line, one private name per line.
-potholes_fixture_private_names() { grep -v '^#' "$1" | sed '/^[[:space:]]*$/d'; }
-potholes_fixture_public()        { sed -n 's/^# public: *//p' "$1"; }
+# Fixture-list parsers shared by doctor, the suite canary and the leak gate
+# (scripts/lib/post-gate.sh, #966) — ONE grammar. Line 1 is first stripped of
+# a UTF-8 BOM (Windows PowerShell 5.1 writes one; left on, it would hide the
+# first entry from every scan), then every line of a trailing CR and of leading
+# and trailing whitespace. Then a blank line
+# and a '#' line are not names; a '# public: <name> <name>…' line is the
+# allowlist, printed without its key, and every reader splits it on whitespace
+# (so a public name cannot hold a space); any other line is one private name.
+_POTHOLES_LIST_STRIP=(-e $'1s/^\xEF\xBB\xBF//' -e $'s/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+potholes_fixture_private_names() { sed "${_POTHOLES_LIST_STRIP[@]}" -e '/^$/d' -e '/^#/d' "$1"; }
+potholes_fixture_public()        { sed -n "${_POTHOLES_LIST_STRIP[@]}" -e 's/^# public:[[:space:]]*//p' "$1"; }
 
-# potholes_private_name_hits <seed> <name>… — ONE predicate shared by the suite
-# canary (tests/potholes-seed-canary.bats) and doctor (register: a guard and its
-# probe share a predicate, Issue-585). Prints "<name> citations=<n> words=<m>"
-# per name with any hit; rc 1 iff any. Case-insensitive; the citation form
+# _potholes_name_hit <seed> <name>: one name's two counts. Prints
+# "<name> citations=<n> words=<m>" and returns 1 on any hit; 0 on none; 2 when
+# grep could not run. The pattern reaches grep on stdin (-f -), never in argv.
+_potholes_name_hit() {
+  local seed="$1" name="$2" c w grc
+  # grep -c: rc 0 hits, rc 1 none (prints 0), rc >= 2 could not run — the
+  # last must never read as "clean" (Issue-316). -F on both: names are
+  # literals, never patterns.
+  grc=0; c="$(grep -ciF -f - -- "$seed" <<<"(${name} Issue-")" || grc=$?
+  [ "$grc" -le 1 ] || { echo "potholes_private_name_hits: cannot read $seed (grep rc $grc)" >&2; return 2; }
+  grc=0; w="$(grep -ciwF -f - -- "$seed" <<<"${name}")" || grc=$?
+  [ "$grc" -le 1 ] || { echo "potholes_private_name_hits: cannot read $seed (grep rc $grc)" >&2; return 2; }
+  if [ "${c:-0}" -gt 0 ] || [ "${w:-0}" -gt 0 ]; then
+    printf '%s citations=%s words=%s\n' "$name" "$c" "$w"
+    return 1
+  fi
+  return 0
+}
+
+# potholes_private_name_hits <seed> <name>…
+# potholes_private_name_hits --names-fd <N> <seed>
+# ONE predicate shared by the suite canary (tests/potholes-seed-canary.bats),
+# doctor and the leak gate (register: a guard and its probe share a predicate,
+# Issue-585). Prints "<name> citations=<n> words=<m>" per name with any hit;
+# rc 1 iff any, rc 2 when it cannot read. Case-insensitive; the citation form
 # "(<name> Issue-" is primary, a word-bounded bare mention secondary. The public
 # allowlist is the CALLER's filter — this predicate knows nothing of it.
+# --names-fd (#966) reads the names, one per line, from file descriptor N: a
+# blank line is skipped and a last line with no newline is read. Output and rc
+# are the positional form's, and no name reaches an exec argv, so a private
+# roster stays out of the process table.
 potholes_private_name_hits() {
-  local seed="$1"; shift
-  local name c w rc=0 grc
-  for name in "$@"; do
-    # grep -c: rc 0 hits, rc 1 none (prints 0), rc >= 2 could not run — the
-    # last must never read as "clean" (Issue-316). -F on both: names are
-    # literals, never patterns.
-    grc=0; c="$(grep -ciF -- "(${name} Issue-" "$seed")" || grc=$?
-    [ "$grc" -le 1 ] || { echo "potholes_private_name_hits: cannot read $seed (grep rc $grc)" >&2; return 2; }
-    grc=0; w="$(grep -ciwF -- "${name}" "$seed")" || grc=$?
-    [ "$grc" -le 1 ] || { echo "potholes_private_name_hits: cannot read $seed (grep rc $grc)" >&2; return 2; }
-    if [ "${c:-0}" -gt 0 ] || [ "${w:-0}" -gt 0 ]; then
-      printf '%s citations=%s words=%s\n' "$name" "$c" "$w"; rc=1
+  local seed name rc=0 hrc fd
+  local -a names=()
+  if [ "${1:-}" = --names-fd ]; then
+    if [ "$#" -ne 3 ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+      echo "potholes_private_name_hits: usage: --names-fd <N> <file>" >&2
+      return 2
     fi
+    fd="$2" seed="$3"
+    if ! { true <&"$fd"; } 2>/dev/null; then
+      echo "potholes_private_name_hits: file descriptor $fd is not open" >&2
+      return 2
+    fi
+    if [ ! -f "$seed" ] || [ ! -r "$seed" ]; then
+      echo "potholes_private_name_hits: cannot read $seed" >&2
+      return 2
+    fi
+    while IFS= read -r -u "$fd" name || [ -n "$name" ]; do
+      [ -z "$name" ] || names+=("$name")
+    done
+  else
+    seed="$1"; shift
+    names=("$@")
+  fi
+  for name in "${names[@]}"; do
+    hrc=0; _potholes_name_hit "$seed" "$name" || hrc=$?
+    [ "$hrc" -le 1 ] || return 2
+    [ "$hrc" -eq 0 ] || rc=1
   done
-  return $rc
+  return "$rc"
 }

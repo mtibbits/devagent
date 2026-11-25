@@ -261,6 +261,41 @@ keys (`docs/configuration.md`, "Watchdog limits"); the progress sources, the
 transcript recipe, the state layout and the permission rule are in spec §7.3,
 "The no-progress watchdog".
 
+## Posting to a tracker: the leak gate
+
+devagent writes a tracker comment only through
+`scripts/issue/github.sh post-comment`, and that verb posts only after the
+leak gate (`scripts/lib/post-gate.sh`) passes inside it. The gate runs four
+checks in order and stops at the first that does not pass: `permission` (the
+project's `push_mr`, and under a trust policy a hold on anything in scope),
+`tracker` (the tracker's owner is the authenticated account, or is listed in
+`auto_post_owners`), `names` (no line of the post holds a name from the
+operator's private list), and `review` (a red-team record whose
+`Reviewed-sha256:` line matches the exact text and whose `### Blocking (N)`
+count is 0). Each check prints `post-gate: <check> pass` or
+`post-gate: <check> hold <cause>` on stderr, and a hold exits the registered
+`leak-held` code with nothing posted. It fails closed: a check that cannot
+run holds.
+
+Two keys, read only from the top level of `~/.claude/devagent/config.toml`
+and never from a `[project.<name>]` block, configure it:
+
+```toml
+auto_post_owners = ["github:<login>"]   # above the first table; also gitlab:<namespace>, jira:<KEY>
+
+[paths]
+denylist_path = "~/.config/denylist.txt"   # the default
+```
+
+The private list holds one name per line (`#` comments; a
+`# public: <name> <name>` line lists names that may appear). The gate records
+the list's path the first time it reads it, and holds if the path later
+changes until the operator re-records it with
+`post-gate.sh record-denylist`. No entry of the list is ever printed, logged
+or put in a command line. `post-gate.sh hash <file>` prints the value a review
+record must carry. The full contract (the grammar, every cause token, the
+exits and the accepted residuals) is spec §9.1, "Leak gate".
+
 ## Trust policy
 
 On a shared queue, a trust policy (`policy.toml`, #711) names the trusted
@@ -392,9 +427,11 @@ and `comment-list`, and MAY implement `state-list`, `issue-list`,
 | `issue-list`   | `<repo>`                                        | one JSON record per issue (optional; read by `wbs init --from-tracker` and `--merge`; absent = exit 78, or 2) |
 | `state-exists` | `<repo> <state-name>`                           | exit 0 present, 4 absent, else undetermined (optional; read by `doctor`; absent = exit 78, or 2) |
 | `state-class`  | `<repo> <num>`                                  | one `<class>\t<reason>` line (optional; read by `mergemr` for a dependency; absent = exit 78, or 2) |
-| `events`       | `<repo> <num>`, or `--kinds <repo>`             | one six-field record per change, or one `<kind>\t<coverage>` line per kind (optional; no caller yet; absent = exit 78, or 2; spec §9.3.1) |
+| `events`       | `<repo> <num>`, or `--kinds <repo>`             | one six-field record per change, or one `<kind>\t<coverage>` line per kind (optional; read by the quarantine guard under a trust policy; absent = exit 78, or 2; spec §9.3.1) |
 | `comment-records` | `<repo> <num>`                               | one six-field record per comment (optional; no caller yet; absent = exit 78, or 2) |
-| `whoami`       | `<repo>`                                        | the credential's account id on the repo's host (optional; no caller yet; absent = exit 78, or 2) |
+| `whoami`       | `<repo>`                                        | the credential's account id on the repo's host (optional; read by the trust identity check under a trust policy, and by the leak gate with trust off; absent = exit 78, or 2) |
+| `repo-owner`   | `<repo>`                                        | `<owner-id>\t<owner-login>` from one repository call (optional; read by the leak gate's tracker check; GitHub only; absent = exit 78, or 2) |
+| `post-comment` | `<repo> <num> --project <name> (--issue <issue-dir-name> \| --capture <slug>) --file <post> --review <record>` | the new comment's URL, after the leak gate passes inside the verb (optional; GitHub only; a hold exits the `leak-held` code; the other backends answer 2) |
 
 Every code backend MUST implement `push-branch`, `create-mr`, `mr-state`,
 `mr-comments` and `merge-mr`, and MAY implement `issue-mrs`, `mr-checks` and
