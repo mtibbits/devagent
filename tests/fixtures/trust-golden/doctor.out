@@ -1,6 +1,12 @@
-captured-at 891254c48e6bc9f6b32fb34fd6f826d3fb3c2331
+captured-at f19eb2cb83e1a3b752d9c01024c5c0ffcd1b56a6
 devagent doctor — <TS>
 home: <TMP>
+
+[prerequisites]
+  OK   bash 4.4 or later
+  OK   git
+  OK   python3 3.11+, or 3.8-3.10 with tomli
+  OK   jq
 
   OK   config exists
   OK   config is valid TOML

@@ -110,6 +110,7 @@ devAgent/
 │   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock + #1148 sync with origin,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
+│   │                        #   prereqs.sh — #986 doctor's dependency-free prerequisite rows (bash 3.2-safe),
 │   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
 │   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker,
 │   │                        #   notify.sh + _notify.py — #961 launcher notifications appender,
@@ -1246,7 +1247,7 @@ omits.
 | `/devagent:switch <issue>` | Sugar: park current + resume target in one call |
 | `/devagent:stuck "reason"` | Marks `[!]`, writes STUCK file |
 | `/devagent:unstuck` | Removes STUCK, flips `[!]` to operator's choice of `[~]` or `[ ]` |
-| `/devagent:doctor [project]` | Validates `config.toml`, backend auth, reachability; reports issues without changing state |
+| `/devagent:doctor [project]` | Validates prerequisites (bash, git, python3, jq), `config.toml`, backend auth, reachability; reports issues without changing state |
 | `/devagent:depends <A> on <B>` | Records `Issue-A depends on Issue-B`; `where`/`next` warns if shipping with open deps |
 | `/devagent:depends list [project]` | Prints dependency graph |
 | `/devagent:grep <pattern> [project]` | Greps across all issue dirs (issue.md, imPlan, actualWork, mr, checklist) |

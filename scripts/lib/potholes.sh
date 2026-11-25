@@ -5,6 +5,7 @@
 # resolver sources this lib unconditionally, so the floor is plugin-wide
 # (README states it); fail with the cause named rather than a cryptic
 # `local: -n: invalid option` from inside a sourced lib.
+# The same 4.4 floor is doctor's bash gate (scripts/lib/prereqs.sh, #986).
 if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
   echo "potholes.sh: bash >= 4.4 required (found ${BASH_VERSION}) — devAgent's scripts need a modern bash (Git Bash, WSL and Linux all provide 5.x)" >&2
   # A `return` is swallowed by callers without set -e (doctor, template.sh) and
