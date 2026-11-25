@@ -110,9 +110,12 @@ devAgent/
 │   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock + #1148 sync with origin,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
+│   │                        #   prereqs.sh — #986 doctor's dependency-free prerequisite rows (bash 3.2-safe),
 │   │                        #   merge-forward.sh — #1125 merge_forward config, git's merge, driver scan, list/gate/insertion predicates,
 │   │                        #   merge-forward-hunks.py — #1125 append-only keep-both hunk checker,
 │   │                        #   notify.sh + _notify.py — #961 launcher notifications appender,
+│   │                        #   question-actions.sh — #962 operator-question format: grammar, renderer,
+│   │                        #     number, open-record finder, questions/.lock, no-clobber publish, option tags,
 │   │                        #   heartbeat.sh — #932 per-session progress files (the one reader of the session id),
 │   │                        #   watchdog-limits.sh — #932 the watchdog's limits, the --silent window grammar, the --since time,
 │   │                        #   _longrun_pump.py — #932 the byte pump libexec/long-run.sh runs,
@@ -611,7 +614,8 @@ Issue-676/
 ├── evidence/                            # #1097: <YYYY-MM-DD>-gitbash-<stem>-<sha>.txt, a hand-run Git Bash transcript (line 1 the pinned head), the fallback preship rule 1a accepts
 ├── revisions/                           # populated by /devagent:revise
 │   └── r2/comments.md
-├── STUCK                                # sentinel; present iff a step is [!]
+├── questions/                           # #962: open in-session question records (<NN>-<step>.md) and .lock
+├── STUCK                                # sentinel; present iff a step is [!] or the issue is held on an operator question (§5.3)
 └── QUARANTINE                           # #714: cache of a tracker-anchored hold (scripts/lib/quarantine.sh)
 ```
 
@@ -836,12 +840,15 @@ doctor lists `separate_identity`, `signatures` and `system_policy
 
 **Exit codes.** 9 is a host-level refusal (stop and fix the host; never retry
 or work around it), 10 asks for a retry; 6, 7 and 11 are emitted by #714's
-quarantine, and 8 is reserved for #719. The registry is `scripts/lib/refusals.sh`; `commands/pull.md`
-carries the table and each code's consumer action. One row is not a trust
-refusal: `leak-held` (#966) is the leak gate's hold (§9.1), emitted by
-`post-gate.sh` and `post-comment` with or without a policy on the host and
-never by pull. It took the next free code when it landed; callers read a
-row's code by its id (`trust_exit_code <id>`) and never write the number.
+quarantine, 8 is reserved for #719, and `operator-question` (#962) is
+`/devagent:next`'s exit while the issue is held on an operator question. The
+registry is `scripts/lib/refusals.sh`; `commands/pull.md` carries the table and
+each code's consumer action. Two rows are emitted with no trust policy and no
+quarantine marker: `operator-question`, and `leak-held` (#966), the leak gate's
+hold (§9.1), emitted by `post-gate.sh` and `post-comment` and never by pull.
+`leak-held` is not a trust refusal. Each row took the next free code when it
+landed; callers read a row's code by its id (`trust_exit_code <id>`) and never
+write the number.
 
 **doctor.** With a policy on the host, doctor's first global block reports the
 policy and digest, empty or shadowed locations, `whoami` per scope, the
@@ -902,7 +909,7 @@ issue number. A template that writes `#{{issue}}` produces
 | `[-]` | skipped (deliberately not applicable) |
 | `[!]` | stuck (needs human; STUCK file exists) |
 | `[~]` | in-progress (started, not finished) |
-| `[?]` | blocked-on-external (waiting on CI, reviewer, upstream) |
+| `[?]` | blocked-on-external (waiting on CI, reviewer, upstream), or held on an operator question when a `Kind: question` STUCK exists (#962) |
 | `[P]` | parked (deliberately set aside for another issue) |
 
 `where` and `next` treat states as follows:
@@ -911,7 +918,9 @@ issue number. A template that writes `#{{issue}}` produces
 - `[?]` — current step is waiting on external; `next` offers to park
   the issue and surface other projects' actionable work (since most
   workflow steps depend on prior steps, advancing past `[?]` is
-  rarely meaningful)
+  rarely meaningful). `[?]` also marks a step waiting on an operator question (#962): with a
+  `Kind: question` STUCK present, `next` exits `operator-question` (§3.8)
+  instead, before it reads the row
 - `[!]` — halt until cleared via `/devagent:unstuck`
 - `[-]`, `[x]` — already disposed; `next` advances past
 - `[P]` — only meaningful at the issue level (issue is parked);
@@ -967,7 +976,8 @@ parse it.
 
 ### 5.3 STUCK file
 
-Present iff any step is `[!]`. Format:
+Present iff a step is `[!]` or the issue is held on an operator question
+(#962; its step is `[?]`). Format of a `[!]` STUCK:
 
 ```
 Step:        16 redmr
@@ -985,6 +995,61 @@ by line rather than by step number, because closeout numbers are reused
 across revision blocks; STUCK is removed only after that row has taken the
 new glyph (#587). `/devagent:checklist-unstuck` applies the same rule to an
 explicit issue directory.
+
+**`Kind:` (#962).** The header (the lines before the first blank line or
+`## ` heading) may carry `Kind: <value>`. `stuck_kind` in
+`scripts/lib/checklist.sh` is its one reader: no STUCK reads `none`; a STUCK
+with no `Kind:` line (every STUCK written before #962), an empty value, or a
+STUCK it cannot read reads `stuck`; any other value prints as written
+(`question`, `watchdog`, ...).
+
+**Question STUCK (#962).** `scripts/hold.sh` writes it, through the one
+renderer in `scripts/lib/question-actions.sh`:
+
+```
+Kind:        question
+Step:        5 improve
+Reason:      improve: 14 bugs after round 3 of 3
+Last good:   4 scope
+Created:     2026-11-20T10:31:00-05:00
+
+## Question
+...
+## Impediment
+...
+## Options
+
+- `a` (recommended) Run round 4.
+- `b` Stop and prune.
+
+## Evidence
+...
+
+## How to answer
+
+/devagent:answer devagent Issue-5 03 a
+Other options: b
+```
+
+`Last good:` is `(none)` when no earlier row is `[x]`; with one option the
+last line is `Other options: (none)`. The four sections come from the step's
+question file: CR stripped, only those four `## ` headings, once each and in
+that order, each with a non-blank line; every non-blank `## Options` line is
+an option (`` - `<id>` ``, at most one `(recommended)` and exactly one in all,
+an optional registered `[<tag>: <value>]`, the text). `NN` is the question's
+number: one more than the highest among `questions/` names, the STUCK's answer
+line and the checklist log's `question NN` entries, so a removed STUCK never
+frees its number. The answer line is read only after `## How to answer`. A
+question STUCK is answered when it has a `## Answer` line (#964 writes it).
+
+**Open record (#962).** An interactive ask writes the same text to
+`questions/<NN>-<step>.md`; it is open while it has no `Blocking: no` header
+line and no `## Answer` line. A hold takes over the step's open record: the
+STUCK keeps its number and the record is removed.
+
+**One stop at a time.** hold.sh refuses (exit 2, `one-stop`) on any STUCK but
+an unanswered question STUCK for the same step, which it treats as a re-entry
+that finishes an interrupted hold.
 
 ## 6. Commands
 
@@ -1194,12 +1259,12 @@ omits.
 | `/devagent:use <project>` | Deliberately switches the global active-project pointer (`state/_active.toml`), then prints the resolved state (#349). The one arg-driven pointer writer; warns when a `DEVAGENT_ACTIVE_PROJECT` env pin shadows the change (env beats the pointer for this session, #434) |
 | `/devagent:status [project\|--all]` | Multi-project dashboard: active, stuck, parked, idle; then one line per devDoc repository with commits not on origin (#1148, below) |
 | `/devagent:catchup [issue]` | Synthesizes issue.md + imPlan + actualWork + last comments + last 5 log entries into one-screen rehydration |
-| `/devagent:park [issue]` | Marks `[P]`, saves state, clears `active_issue` |
+| `/devagent:park [issue] [--reason "<text>"]` | Marks `[P]`, saves state, clears `active_issue`. `--reason` (#962) is appended to the park's log entry, which also records the marked row and its earlier mark: `park: issue parked (row 5 improve was [~]): <reason>`. An issue held on an operator question keeps its `[?]` row (no `[P]`) |
 | `/devagent:resume <issue>` | Reactivates a parked issue as `active_issue` |
 | `/devagent:switch <issue>` | Sugar: park current + resume target in one call |
 | `/devagent:stuck "reason"` | Marks `[!]`, writes STUCK file |
 | `/devagent:unstuck` | Removes STUCK, flips `[!]` to operator's choice of `[~]` or `[ ]` |
-| `/devagent:doctor [project]` | Validates `config.toml`, backend auth, reachability; reports issues without changing state |
+| `/devagent:doctor [project]` | Validates prerequisites (bash, git, python3, jq), `config.toml`, backend auth, reachability; reports issues without changing state |
 | `/devagent:depends <A> on <B>` | Records `Issue-A depends on Issue-B`; `where`/`next` warns if shipping with open deps |
 | `/devagent:depends list [project]` | Prints dependency graph |
 | `/devagent:grep <pattern> [project]` | Greps across all issue dirs (issue.md, imPlan, actualWork, mr, checklist) |
@@ -1262,6 +1327,12 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
   still halts and prompts `y/N` (the local code backend excepted: it
   pushes nothing, so `push_mr` is not asked, #1016).
 - Continue past a step that exits `[!]`. STUCK halts the chain.
+- Continue past an operator question (#962). A held issue (a `Kind:
+  question` STUCK) makes every `next` exit `operator-question` before it
+  dispatches anything; a step whose `hold.sh` exits 0 is held, and the
+  session relays the question path and never follows `CHAIN:`. An `ASK:` block
+  (an interactive ask by a script-backed step) also ends the call, with exit 0:
+  the session asks, records the reply, then runs the printed continue line.
 - Continue past a step whose script exits non-zero.
 - Override `$NOTE`. `$NOTE` is preserved across the chain and passed
   to each step verbatim.
@@ -1371,10 +1442,10 @@ An external launcher (an auto-launcher such as blazeAhead) may start sessions
 with no person at the keyboard and decide what runs next when one stops. It
 reads two things devagent owns: the notifications file, and the unattended
 marker. Both are contracts with code outside devagent, so each has one owner.
-The writers of the file arrive with #962 (the hold), #964 (the answer), #965
-(notify-only questions, notices and grants), #966 (the leak gate's audit lines)
-and #972 (the watchdog's kill record); until they land, nothing in devagent
-writes a line.
+The hold (#962) writes `hold` lines. The other writers arrive with #964 (the
+answer), #965 (notify-only questions, notices and grants), #966 (the leak
+gate's audit lines) and #972 (the watchdog's kill record); until they land,
+`hold` is the only event devagent writes.
 
 **The notifications file.** `$(devagent_home)/state/notifications.jsonl`
 (`devagent_home` respects `DA_HOME`; the file does not follow reap's
@@ -1407,10 +1478,23 @@ for any other issue it only tells the operator.
 
 | Event | Meaning | `question` | Written by | Launcher action |
 |---|---|---|---|---|
-| `hold` | an issue is held and parked on a question | the STUCK path | the hold (#962) | stop running the issue; tell the operator |
+| `hold` | an issue is held on a question; `detail` says whether it was parked | the STUCK path | the hold (#962) | stop running the issue; tell the operator |
 | `notify` | the operator is told something; nothing was parked | a question record or capture STUCK path, or null for a notice or an audit line | notify-only questions and notices (#965); the leak gate (#966), whose audit lines are written in interactive sessions too | tell the operator. A notice whose `detail` is `waiting on #<N>` (#938) means the issue may be resumed once it has no open dependency |
 | `answered` | the operator answered | the answered record's path | the answer (#964) | when `detail` ends in `; resume`, resume the issue and, if the resume succeeds, run it; when it ends in `; no resume` or in anything else, only tell the operator |
 | `stuck` | the watchdog recorded a killed step | null; `detail` names the STUCK path | `watchdog.sh fire` (#972) | defined by #972 |
+
+**The `hold` line (#962).** `scripts/hold.sh` appends it with `step` and
+`question` (the question STUCK) set, and `detail` in one of three forms:
+`operator question <NN> at <step>; parked` (this hold parked the issue),
+`…; already parked` (the issue was parked before the hold), or
+`…; park refused (exit <code>)` (STUCK and `[?]` are written, but the issue is
+not parked and may still be the shared active issue). So a `hold` line can
+describe an issue that is not parked. The hold proves its line by a checklist
+log entry, `<step>: hold line written for question <NN>`; a hold that could not
+append (hold.sh exits 1, or park's code when the park was refused too) logs nothing, and the next `hold.sh … --no-ask` for
+the step, or a pinned `/devagent:next`, writes it. A crash between the append
+and its log entry can give a second line for the same question, which is its
+own event like any other.
 
 Only `answered` lines are merged: the answer delivers each at least once, and a
 launcher treats two `answered` lines with the same project, the same issue or
@@ -1506,9 +1590,11 @@ only there. An interactive session never sets it, even one the operator started
 by hand with `--auto`. Any non-empty value means unattended; devagent does not
 read the value, and never sets the variable itself. Every reader asks
 `devagent_unattended` (`scripts/lib/paths.sh`), never its own test of the
-variable. The readers arrive with later issues: the hold helper asks in the
-session when the marker is unset and holds the issue when it is set (#962); the
-watchdog watches only marked sessions (#932); the answer command (#964), grants
+variable. The hold helper (#962) reads it: it asks in the session when the
+marker is unset and holds the issue when it is set, and `/devagent:next` holds
+an open record for the current step instead of printing `ASK:` when it is set.
+The other readers arrive with later issues: the watchdog watches only marked
+sessions (#932); the answer command (#964), grants
 (#965) and the leak gate's re-record command (#966) refuse to run in a marked
 session. Whether a line is written does not depend on the marker unless a
 writer says so: the hold writes a `hold` line in an unattended session, and in
@@ -2712,6 +2798,45 @@ correct under `use_worktree = true`, where an untracked virtualenv never reaches
 ephemeral or linked worktree. bats has no
 `(error)` state, because a run with no `1..N` plan line dies in `run-suite.sh` before an
 artifact exists.
+
+### 7.6 Standing answers
+
+Several halts recur on every issue that reaches them: a third improve round
+that is still not clean, a split with no seam, a held post. Each gets a
+standing answer — a dated rule that decides the common case without the
+operator — and every standing answer ends, once its limit is reached, in a
+question for the operator. This section is where the epic's children
+(#925) record their dated answers; each names its step, its limit and the
+question it asks at that limit.
+
+**Asking (#962, operator ruling of 2026-11-09).** A step asks its question
+through `scripts/hold.sh`, which decides by the unattended marker
+(`devagent_unattended`, §7.3): with the marker unset, an interactive session,
+it writes the open record and the session asks there and then
+(AskUserQuestion); with the marker set, a launcher-started session, it holds —
+the question STUCK (§5.3), the step `[?]`, the issue parked, one `hold` line —
+and the chain stops without blocking on the reply. An ask that cannot be shown
+or gets no answer (refused, timed out, dismissed) records nothing and falls
+back to the hold with `--no-ask`. `/devagent:next` then exits
+`operator-question` until the answer is recorded (#964). The session-side rules
+are `skills/next/references/operator-questions.md`.
+
+**The helper's contract.** Callers branch on `hold.sh`'s exit, so it is fixed
+here:
+
+    hold.sh <project> <issue> --step <step-name> --reason <one line> --question-file <path>
+    hold.sh <project> <issue> --step <step-name> --no-ask [--reason <one line> --question-file <path>]
+
+- `0`: held. The STUCK is in place and its path is on stdout. A re-entry that
+  completed an earlier hold also exits 0.
+- `3`: ask. The open record's path is on stdout; nothing else was written.
+- `2`: refused (`hold.sh: refused (<id>): <rule>` on stderr); nothing written.
+- Anything else stops the step: `1` for a lock timeout, a failed write or an
+  unappended `hold` line, a trust or quarantine code, or park's code after a
+  refused park (a park exit of 2 or 3 is reported as 1).
+
+An option that performs an action records `questions/.performed-<NN>-<tag>`
+once it has run, so a repeated answer never performs it twice.
 
 ## 8. Permission gates
 

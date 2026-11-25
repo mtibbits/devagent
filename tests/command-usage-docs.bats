@@ -85,3 +85,22 @@ C="$REPO/commands"
   grep -qF '`CI PENDING:`/`CI UNKNOWN:`/`WAITING` is information, not an instruction' "$F"
   grep -qF 'to wait for CI or merge.' "$F"
 }
+
+# --- #962: next.sh's ASK: block is an instruction; operator-question is a stop ------
+@test "#962 next skill names ASK: and operator-question" {
+  F="$REPO/skills/next/SKILL.md"
+  R="$REPO/skills/next/references/operator-questions.md"
+  awk '/^---$/{c++; next} c>=2{print}' "$F" | grep -F '`ASK: <path>`' | grep -qF '`operator-question`'
+  grep -qF 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/hold.sh"' "$F"
+  [ -f "$R" ]
+  grep -qF -- '--no-ask' "$R"
+}
+
+# --- #962: the question STUCK, its answer line and Standing answers are documented --
+@test "#962 docs state the question STUCK, the answer line and Standing answers" {
+  S="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -qF 'Kind:        question' "$S"
+  grep -qF 'Other options: (none)' "$S"
+  grep -qE '^### 7\.6 Standing answers$' "$S"
+  grep -qF -- '--reason' "$REPO/commands/park.md"
+}

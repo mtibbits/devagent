@@ -20,24 +20,24 @@ trust_exit_table() {
 | 9 | `host` | host-level refusal: identity, policy or environment | #713 |
 | 10 | `try-later` | a check could not run (`whoami` or `events` could-not-run) | #713 |
 | 11 | `quarantine-refused` | refused on quarantine, every entry point but pull | #714 |
-| 12 | `leak-held` | refused by the leak gate: nothing was posted | #966 |
+| 12 | `operator-question` | held on an operator question; nothing further is run | #962 |
+| 13 | `leak-held` | refused by the leak gate: nothing was posted | #966 |
 EOF
 }
 
-# trust_exit_code <id>: the code of the exit-table row whose id is <id>, on
-# stdout. rc 1 and no output for an id the table does not carry.
+# trust_exit_code <id> (#962): the code of that id's row, on stdout; returns 1
+# with no output for an id the table does not carry. Scripts and tests read a
+# code by id here, never as a literal, so a renumber moves no caller.
 trust_exit_code() {
-  local code id
-  while IFS='|' read -r _ code id _; do
-    code="${code// /}"
-    id="${id// /}"
-    id="${id//\`/}"
-    if [ "$id" = "$1" ] && [[ "$code" =~ ^[0-9]+$ ]]; then
-      printf '%s\n' "$code"
-      return 0
-    fi
-  done < <(trust_exit_table)
-  return 1
+  local id="$1" code
+  code="$(trust_exit_table | awk -F'|' -v id="$id" '
+    NR > 2 {
+      c = $2; i = $3
+      gsub(/^ +| +$/, "", c); gsub(/^ +| +$|`/, "", i)
+      if (i == id) { print c; exit }
+    }')"
+  [[ -n "$code" ]] || return 1
+  printf '%s\n' "$code"
 }
 
 # The printf detail of each refusal id. Every id exits 9 except the ones in

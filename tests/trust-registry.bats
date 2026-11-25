@@ -90,6 +90,32 @@ _codes_contiguous() {
   [ "$output" = "" ]
 }
 
+# #962: operator-question is a row with a consumer action, read by id.
+@test "registry: operator-question is a row with a consumer action" {
+  # shellcheck source=/dev/null
+  source "$REFUSALS"
+  local code
+  code="$(trust_exit_code operator-question)"
+  [[ "$code" =~ ^[0-9]+$ ]]
+  [ "$code" != 8 ]
+  grep -Eq "^- \`$code\` → " "$PLUGIN_ROOT/commands/pull.md"
+  [ "$(trust_exit_code held)" = 8 ]
+  run trust_exit_code no-such-id
+  [ "$status" -eq 1 ]
+  [ "$output" = "" ]
+}
+
+# #962: exit 8 is #719's reserved `held`; nothing #962 adds may emit it.
+@test "registry: no script of #962 exits 8" {
+  local f n=0
+  for f in scripts/hold.sh scripts/park.sh scripts/next.sh scripts/lib/question-actions.sh; do
+    [ -f "$PLUGIN_ROOT/$f" ]
+    [ "$(grep -cE '(exit|return) +8\b' "$PLUGIN_ROOT/$f" || true)" = 0 ] || { echo "$f exits 8" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
 @test "registry: refuse prints the exact template and exits 9" {
   run --separate-stderr bash -c "source '$REFUSALS'; refuse not-worker github:42"
   [ "$status" -eq 9 ]

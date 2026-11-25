@@ -40,6 +40,15 @@
 # 'trust-golden: pull no-policy' tests/trust-golden.bats`, so pull's other
 # fixtures keep their captured-at line.
 #
+# 2026-11-24 (#986): doctor.out gained the `[prerequisites]` block (bash, git,
+# python3, jq — all OK on the capture host) between `home: <TMP>` and the global
+# checks. Only doctor.out's body and its captured-at line moved, re-captured with
+# `TRUST_GOLDEN_CAPTURE_SHA=<branch HEAD> TRUST_GOLDEN_CAPTURE_KINDS=out bats -f
+# 'trust-golden: doctor' tests/trust-golden.bats`; doctor.err/.rc/.argv keep
+# 891254c (stderr, exit code and gh calls are unchanged). #947 also re-captures
+# this golden: whichever of #947 and #986 lands second re-captures on top of the
+# other. As with #1099, the @test name carries no SHA.
+#
 # Retirement: the four #713 fixtures stay until #902 merges (#902's AC reuses them).
 # After that, only "no-policy runs make no whoami/events call" is the standing
 # guard and the fixture comparisons may be deleted.
@@ -86,7 +95,7 @@ teardown() {
   _golden_check next "$GOLDEN_ARGV"
 }
 
-@test "trust-golden: doctor no-policy output is byte-identical to the 891254c golden" {
+@test "trust-golden: doctor no-policy output is byte-identical to its golden (#713, re-captured #986)" {
   _scenario_doctor
   _golden_check doctor "$GOLDEN_ARGV"
 }

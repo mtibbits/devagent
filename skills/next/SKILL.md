@@ -34,6 +34,8 @@ belongs in a fresh session. Relay the Resume line and stop. `--no-breaks` opts o
 
 `CI PENDING:`/`CI UNKNOWN:`/`WAITING` is information, not an instruction: relay it; never re-run `/devagent:next`, `gh pr checks` or `gh pr view` to wait for CI or merge.
 
+`ASK: <path>` is an instruction: ask that record's question (AskUserQuestion) and record the reply; if it cannot be shown or gets no answer, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/hold.sh"` with the printed `--no-ask` arguments and stop. Exit `operator-question`, or a step's `hold.sh` exit 0, means held: relay the question path, stop, never follow `CHAIN:`. Rules: references/operator-questions.md.
+
 ## Zero-diff (artifact-only) issues
 
 With zero commits ahead of `baseline_sha`, steps 12 (commit), 18 (ship) and
