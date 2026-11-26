@@ -18,6 +18,20 @@ workflow chaining (`--auto`, `--through`) and skill mapping can
 reference a single verb. Like `/devagent:wbs update`, this step also sorts
 each parent's children by dependency, then priority (#803).
 
+**Sync first (#1149).** Before its tracker calls, `wbs.sh update` brings
+devDoc's `origin/<branch>` in, so the reconcile edits origin's current
+`WBS.md` and cleanup's push does not conflict on adjacent leaves. It runs only
+here (step 21 and a hand-run `/devagent:wbs update`), under cleanup's gate:
+`commit_devdoc = true`, the devDoc in git and an `origin`; `--offline` or
+`DEVAGENT_WBS_OFFLINE=1` skips it. It fast-forwards, or makes one `devagent`
+merge commit `devdoc: merge origin/<branch> into <branch> (<issue> wbs
+update)`, and never pushes: that merge shows in `/devagent:status` as a commit
+not on origin until the next cleanup pushes it. It makes one attempt at the
+devDoc lock; the reconcile's own write keeps its full bound. Cleanup's own
+reconcile does not sync. A sync that refuses or skips prints one line and the
+step goes on, with the same exit:
+`wbs-update.sh: wbs update: devDoc sync <refused|skipped> for <repo> (<branch>): <reason>. [<remedy>. ]This step uses this machine's copy; the next cleanup syncs again.`
+
 **A non-zero exit is not done (#749).** `wbs.sh update` exits 1 when it could
 not write `WBS.md` — for example the devDoc repository lock was held past
 its bound (spec §3.3). Then print its stderr verbatim and STOP: do not mark

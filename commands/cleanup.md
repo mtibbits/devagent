@@ -233,7 +233,9 @@ is not read). It runs whether or not this close committed, so commits from
 `statusreport.sh`, `promote-potholes.sh`, a hand commit or an earlier failed
 sync go out too. With `commit_devdoc = false` or no `origin` nothing changes
 and no network call runs. This is unrelated to `/devagent:sync`, which detects
-merged MRs.
+merged MRs. Step 21 (`wbs update`) brings origin in first, without pushing, so the
+reconcile edits origin's current `WBS.md`; cleanup's push then carries that
+step's merge commit, if any (#1149, `commands/updatewbs.md`).
 
 | Local branch compared with origin's | What the sync does |
 |---|---|

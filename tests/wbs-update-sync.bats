@@ -281,3 +281,22 @@ _sync_rows() { awk -F'\t' -v c="$2" 'NR < c && ($1 == "ls-remote" || $1 == "fetc
     [ "$(_head)" = "$h" ]
     _has "$L1"
 }
+
+# _pin <file> <text> — <text> is in <file> after whitespace normalisation (L189).
+_pin() {
+    tr -s '[:space:]' ' ' < "$DEVAGENT_ROOT/$1" | grep -qF -- "$2" \
+        || { echo "$1 lacks: $2" >&2; return 1; }
+}
+
+@test "#1149 docs name the step-21 sync" {
+    _pin commands/updatewbs.md 'Sync first (#1149)'
+    _pin commands/updatewbs.md "This step uses this machine's copy; the next cleanup syncs again."
+    _pin commands/wbs.md 'no devDoc sync'
+    _pin docs/configuration.md 'step 21 (wbs update)'
+    _pin docs/requirements.md "step 21's fetch and merge"
+    _pin docs/specs/2026-05-19-devagent-plugin-design.md 'Step-21 sync (#1149)'
+    _pin README.md '#1149'
+    _pin commands/status.md '#1149'
+    local cl; cl="$(changelog_text "$DEVAGENT_ROOT")"
+    [[ "$cl" == *'step 21 syncs devDoc with origin before the WBS reconcile (#1149)'* ]]
+}
