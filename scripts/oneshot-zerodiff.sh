@@ -171,8 +171,9 @@ fi
 # Pre-flight BOTH of active_tree_resolve's die branches (its recorded-state-path
 # die and its configured-source_dir dies) so neither can surface as a boundary
 # verdict — a state or config fault is `indeterminate` with its real reason, not
-# rc 1 (round-1 SE4, round-2 B6: the worktree branch is reachable after `revise.sh --retier oneshot` on a
-# project that already ran step 8, so "unreachable by construction" was false).
+# rc 1 (round-1 SE4, round-2 B6: the worktree branch is reachable after
+# `revise.sh --retier oneshot` on a project that already ran step 8, so
+# "unreachable by construction" was false).
 wt="$(state_ctx_get "$project" worktree_path "$issue_arg" || true)"
 case "$wt" in null|'""') wt="" ;; esac
 if [ -n "$wt" ]; then

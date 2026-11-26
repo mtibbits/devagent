@@ -351,10 +351,14 @@ _active_warn_wt_divergence() {
 # state_ctx_get <project> <key> [issue-arg] — session-view read.
 # A pinned/arg'd worktree_path read warns on stderr when the table value is
 # empty beside a non-empty top-level mirror for the shared issue (#879); the
-# printed value and rc are unchanged. _ACTIVE_SKIP_WT_DIVERGENCE=1 skips the
-# check (active_tree_resolve, whose read is muted and must not pay for it).
-state_ctx_get() {
-  local project="$1" key="$2" arg="${3:-}"
+# printed value and rc are unchanged.
+state_ctx_get() { _state_ctx_read 1 "$@"; }
+
+# _state_ctx_read <check:0|1> <project> <key> [issue-arg] — state_ctx_get's
+# body; check=0 skips the #879 divergence check (active_tree_resolve, whose read
+# is muted and must not pay for a warning nobody sees).
+_state_ctx_read() {
+  local check="$1" project="$2" key="$3" arg="${4:-}"
   if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "$arg" ]; then
     local issue
     issue="$(active_resolve_issue "$project" "$arg")" || return 1
@@ -364,7 +368,7 @@ state_ctx_get() {
     fi
     local out rc
     out="$(state_issue_get "$project" "$issue" "$key")"; rc=$?
-    if [ "$rc" -eq 0 ] && [ -z "$out" ] && [ -z "${_ACTIVE_SKIP_WT_DIVERGENCE:-}" ]; then
+    if [ "$rc" -eq 0 ] && [ -z "$out" ] && [ "$check" = 1 ]; then
       _active_warn_wt_divergence "$project" "$issue"
     fi
     # stdout as state_issue_get left it: nothing on an empty failure (rc 2)
@@ -410,14 +414,12 @@ active_tree_resolve() {
   # #879: kept for active_guard_tree's refusal text, which resolves the issue id
   # lazily (die path only) — no spawn here.
   # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
-  ACTIVE_TREE_PROJECT="$project"
-  # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
-  ACTIVE_TREE_ARG="$arg"
+  ACTIVE_TREE_PROJECT="$project" ACTIVE_TREE_ARG="$arg"
   # same shape as ship.sh:92 — kept byte-identical deliberately; the fail-closed
   # liveness check below is what makes the `|| true` safe (register Issue-314/316).
-  # The read stays muted and skips the #879 divergence check: a warning nobody
-  # sees must not cost the ~13 callers two extra state reads.
-  wt="$(_ACTIVE_SKIP_WT_DIVERGENCE=1 state_ctx_get "$project" worktree_path "$arg" 2>/dev/null || true)"
+  # The read stays muted and skips the #879 divergence check (check=0): a
+  # warning nobody sees must not cost the ~13 callers two extra state reads.
+  wt="$(_state_ctx_read 0 "$project" worktree_path "$arg" 2>/dev/null || true)"
   case "$wt" in null|'""') wt="" ;; esac
   if [ -n "$wt" ]; then
     "${DEVAGENT_GIT:-git}" -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
@@ -542,7 +544,7 @@ active_guard_tree() {
     ''|0|false|no) : ;;
     *)             return 0 ;;
   esac
-  local top c_cwd c_tree o_cwd o_tree u_cwd u_tree why
+  local top c_cwd c_tree o_cwd o_tree u_cwd u_tree why remedy
   top="$("$git" rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$top" ] || return 0
   # identity by device+inode, NEVER string equality: `pwd` yields /c/src/...
@@ -574,7 +576,8 @@ active_guard_tree() {
       why="a separate clone of the same project (origin $u_cwd)"
     fi
   fi
-  die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is recorded for this issue). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree $(_active_guard_remedy "$top"), or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
+  remedy="$(_active_guard_remedy "$top")"
+  die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is recorded for this issue). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree $remedy, or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
 }
 
 # _active_guard_remedy <top> — #879: the "record this tree" clause of the guard's
@@ -592,7 +595,8 @@ _active_guard_remedy() {
   res="$(active_resolve_issue_src "$project" "${ACTIVE_TREE_ARG:-}" >/dev/null 2>&1 \
         && printf '%s %s' "$ACTIVE_ISSUE_RESOLVED_FROM" "$ACTIVE_RESOLVED_ISSUE")" || res=""
   from="${res%% *}"; id="${res#* }"
-  case "$from" in arg|env|state) [ -n "$id" ] || id="<issue>" ;; *) id="<issue>" ;; esac
+  case "$from" in arg|env|state) ;; *) id="" ;; esac
+  [ -n "$id" ] || id="<issue>"
   if [ "$from" = "arg" ] || [ "$from" = "env" ]; then
     ai="$(state_get "$project" active_issue 2>/dev/null || true)"
     if [ "$ai" != "$id" ]; then

@@ -333,11 +333,9 @@ _wt879_stub() {
 }
 _wt879_calls() { grep -c '' "$BATS_TEST_TMPDIR/toml-calls"; }
 
-@test "state_ctx_get: divergent worktree_path (pinned) warns once and still returns the empty table value (#879)" {
-  _wt879_fixture
-  local out rc err="$BATS_TEST_TMPDIR/err"
-  export DEVAGENT_ACTIVE_ISSUE=Issue-7
-  { out="$(state_ctx_get volk worktree_path)"; rc=$?; } 2>"$err"
+# The divergent read: rc 0, empty table value kept, exactly one warning line.
+_wt879_assert_divergent_warn() {
+  local rc="$1" out="$2" err="$3"
   [ "$rc" -eq 0 ]
   [ -z "$out" ]
   [ "$(grep -c '' "$err")" -eq 1 ]
@@ -348,18 +346,19 @@ _wt879_calls() { grep -c '' "$BATS_TEST_TMPDIR/toml-calls"; }
   grep -qF "set [context.Issue-7].worktree_path = \"$BATS_TEST_TMPDIR/lab/wt\"" "$err"
 }
 
+@test "state_ctx_get: divergent worktree_path (pinned) warns once and still returns the empty table value (#879)" {
+  _wt879_fixture
+  local out rc err="$BATS_TEST_TMPDIR/err"
+  export DEVAGENT_ACTIVE_ISSUE=Issue-7
+  { out="$(state_ctx_get volk worktree_path)"; rc=$?; } 2>"$err"
+  _wt879_assert_divergent_warn "$rc" "$out" "$err"
+}
+
 @test "state_ctx_get: divergent worktree_path (arg'd) warns once and still returns the empty table value (#879)" {
   _wt879_fixture
   local out rc err="$BATS_TEST_TMPDIR/err"
   { out="$(state_ctx_get volk worktree_path Issue-7)"; rc=$?; } 2>"$err"
-  [ "$rc" -eq 0 ]
-  [ -z "$out" ]
-  [ "$(grep -c '' "$err")" -eq 1 ]
-  grep -qF '[context.Issue-7].worktree_path = ""' "$err"
-  grep -qF 'lab/wt' "$err"
-  grep -qF "$(state_path volk)" "$err"
-  # AC2: names [context.<issue>] as THE home to fix, with the value to set
-  grep -qF "set [context.Issue-7].worktree_path = \"$BATS_TEST_TMPDIR/lab/wt\"" "$err"
+  _wt879_assert_divergent_warn "$rc" "$out" "$err"
 }
 
 @test "state_ctx_get: table and top level agree — no warning (#879)" {

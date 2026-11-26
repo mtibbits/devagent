@@ -107,8 +107,8 @@ CHK() { run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT" Issue-1
 }
 
 @test "a stale recorded worktree_path is indeterminate, NOT rc 1 (#595 r2 B6)" {
-    # active_tree_resolve's OTHER die branch (its recorded-state-path die), reachable
-    # after `--retier oneshot` on a project that already ran step 8.
+    # active_tree_resolve's OTHER die branch (its recorded-state-path die),
+    # reachable after `--retier oneshot` on a project that already ran step 8.
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" context.Issue-1.worktree_path "$DEVAGENT_TMP/gone-worktree"
     CHK
     [ "$status" -eq 4 ]
