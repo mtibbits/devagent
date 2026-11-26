@@ -2,8 +2,10 @@
 # origin: a bare origin and two clones (A, the other machine; B, this machine), a
 # state snapshot, a strict driver for devdoc_sync, and a DEVAGENT_GIT stand-in
 # that reaches the states a normal close does not. Loaded by tests/devdoc-sync.bats,
-# tests/cleanup.bats and tests/status.bats. Every function takes its root
-# explicitly; nothing here reads the library under test.
+# tests/devdoc-sync-nopush.bats, tests/cleanup.bats, tests/status.bats and
+# tests/wbs-update-sync.bats. Every function takes its root explicitly; nothing
+# here reads the library under test. sync_close_fixture and sync_closeout_ready
+# need tests/helpers/common.bash (devagent_test_setup) loaded first.
 # shellcheck disable=SC2034  # SYNC_* are read by the bats files that load this helper
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
 # devdoc_lock_test_path and git_wrapper_argv_walk (functions only).
@@ -31,6 +33,50 @@ sync_fixture() {
     git -C "$SYNC_A" push -q -u origin main 2>/dev/null
     git clone -q "$SYNC_ORIGIN" "$SYNC_B"
     _sync_ident "$SYNC_B"
+}
+
+# sync_close_fixture — the devDoc one level above devdoc_dir ($DEVDOC_REPO), pushed to a
+# bare origin, and a second clone A standing in for the other machine (SYNC_A).
+sync_close_fixture() {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    devdoc_parent_repo_fixture
+    SYNC_ORIGIN="$DEVAGENT_TMP/origin.git" SYNC_A="$DEVAGENT_TMP/a"
+    git -c init.defaultBranch=main init -q --bare "$SYNC_ORIGIN"
+    git -C "$DEVDOC_REPO" remote add origin "$SYNC_ORIGIN"
+    git -C "$DEVDOC_REPO" push -q -u origin main 2>/dev/null
+    git clone -q "$SYNC_ORIGIN" "$SYNC_A"
+    _sync_ident "$SYNC_A"
+}
+
+# sync_closeout_ready <issue-dir> — what a close needs before the devdoc seed commit, so
+# that cleanup clears its closeout gate: steps 20-22 [x], lessons-learned seeded and
+# the pothole-register fixture.
+sync_closeout_ready() {
+    # #231/#242: a valid close requires the closeout steps terminal; mark
+    # updatewbs/impact/lessonslearned [x] so the pre-existing cleanup tests
+    # exercise the allowed path. Whitespace-robust: key on the line content,
+    # edit the glyph in place (don't assume spacing).
+    mark_step "$1/checklist.md" 20 x
+    mark_step "$1/checklist.md" 21 x
+    mark_step "$1/checklist.md" 22 x
+    # #594: lessonslearned [x] means the file exists and lints clean — seeded
+    # BEFORE the devdoc seed commit so the existing devdoc-diff assertions hold.
+    seed_lessons_learned "$1"
+    # #586: the register must resolve to a FIXTURE (never the plugin default —
+    # the drain would write the repo's real templates/potholes.md). Written
+    # BEFORE the devdoc seed commit so the existing tests' devdoc diff is
+    # unchanged. Seed citations are never Issue-1 (the issue under test).
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '# Pothole register' '' \
+        '## Bash exit-status & control flow' '- an existing line (Issue-7).' '' \
+        '## Docs / edit-neighborhood hygiene' '- another existing line (Issue-8).' \
+        > "$DEVDOC_DIR/templates/potholes.md"
+    export TEMPLATE_PATHS_OVERRIDE_potholes="$DEVDOC_DIR/templates/potholes.md"
+    # #611: the seed is a fixture too — a full COPY of the plugin templates with
+    # only potholes.md replaced, so every other key still resolves.
+    export DEVAGENT_PLUGIN_TEMPLATES="$DEVAGENT_TMP/plugin_templates"
+    cp -r "$DEVAGENT_ROOT/templates" "$DEVAGENT_PLUGIN_TEMPLATES"
+    cp "$DEVDOC_DIR/templates/potholes.md" "$DEVAGENT_PLUGIN_TEMPLATES/potholes.md"
 }
 
 # sync_commit <clone> <path> <text> <msg> — write <text> to <path> and commit it.
@@ -68,11 +114,13 @@ sync_snapshot() {
     [ "${2:-}" = --no-origin ] || printf 'origin %s\n' "$(git -C "$SYNC_ORIGIN" rev-parse -q --verify refs/heads/main || echo none)"
 }
 
-# sync_run <dir> <issue> <budget> — run devdoc_sync <dir> <issue> <budget> the way
+# sync_run <dir> <issue> <budget> [<mode>] — run devdoc_sync <dir> <issue> <budget> the way
 # cleanup does: a fresh bash under set -euo pipefail that sources io.sh and
 # devdoc-repo.sh, from <dir>. DEVAGENT_GIT passes through; $SYNC_PATH, when set,
 # is the PATH of the devdoc_sync call (set after the libraries are sourced). Sets SYNC_RC SYNC_OUTCOME SYNC_REASON SYNC_LINE; stderr goes
-# to $SYNC_ERR. rc 1 when the driver aborts or the line holds a newline.
+# to $SYNC_ERR. rc 1 when the driver aborts or the line holds a newline. A non-empty
+# <mode> (#1149) is passed as devdoc_sync's 4th argument; without one the call is the
+# 3-argument one cleanup makes.
 sync_run() {
     local out rc=0
     out="$(mktemp)"
@@ -85,9 +133,9 @@ sync_run() {
         cd "$1"
         [ -z "$SYNC_CALL_PATH" ] || PATH="$SYNC_CALL_PATH"
         r=0
-        devdoc_sync "$1" "$2" "$3" || r=$?
+        devdoc_sync "$1" "$2" "$3" ${5:+"$5"} || r=$?
         printf "%s\0" "$r" "$DEVDOC_SYNC_OUTCOME" "$DEVDOC_SYNC_REASON" "$DEVDOC_SYNC_LINE" > "$4"
-    ' _ "$1" "$2" "$3" "$out" 2>"$SYNC_ERR" || rc=$?
+    ' _ "$1" "$2" "$3" "$out" "${4:-}" 2>"$SYNC_ERR" || rc=$?
     if [ "$rc" -ne 0 ]; then
         rm -f "$out"; echo "sync_run: the driver exited $rc" >&2; cat "$SYNC_ERR" >&2; return 1
     fi

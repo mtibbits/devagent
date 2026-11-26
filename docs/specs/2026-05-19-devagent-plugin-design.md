@@ -537,7 +537,20 @@ per repository (`scripts/lib/devdoc-repo.sh`):
   case the knob plus 5 s (whole seconds under bash < 5). A close's bounded parts
   then stay inside its 120 s command timeout: 60 s of lock waits plus 35 s of
   sync, leaving 25 s for the WBS reconcile's tracker calls, which are not
-  bounded. This variable is defined here and in `commands/cleanup.md`.
+  bounded. This variable is defined here and in `commands/cleanup.md`; it also
+  bounds step 21's sync, as a budget of its own (`commands/updatewbs.md`).
+- **Step-21 sync (#1149).** `wbs update` (step 21, and a hand-run
+  `/devagent:wbs update`; never cleanup's own reconcile) runs the same
+  `devdoc_sync` in its `no-push` mode before its tracker calls, under cleanup's
+  gate plus `--offline`. It fetches unlocked and moves under one short hold,
+  but its acquire is one attempt (`DEVAGENT_DEVDOC_LOCK_TIMEOUT=0` for that
+  acquire only): a busy lock skips the sync, and the reconcile's write that
+  follows keeps its full bound. No network call runs under either hold. The
+  budget is the same `DEVAGENT_DEVDOC_SYNC_SECS`. It never pushes: a diverged
+  run leaves one `devagent` merge commit, `devdoc: merge origin/<branch> into
+  <branch> (<issue> wbs update)`, for the next cleanup to push. A refusal or
+  skip prints one `info` line ending "This step uses this machine's copy; the
+  next cleanup syncs again." and the exit is unchanged.
 
 `WBS.md` itself is replaced atomically under the lock (`write_document`,
 §13.2), and its replace retries a `PermissionError` for about 8 s (20
@@ -4664,7 +4677,8 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   the checklist, except that an all-done checklist gives `[~]` until the
   issue closes. An id the tracker does not list keeps its glyph. A failed
   lookup changes no glyph, prints one warning and exits 0. `--offline`
-  (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703).
+  (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703) and the step-21 devDoc
+  sync (#1149).
   Then an MR phase (#704) reads linked-MR state through the code backend's
   `issue-mrs` (§9.2), once per issue source with open leaves whose backend
   is the project's `code_source.backend`. A leaf whose issue is open takes
@@ -4682,9 +4696,11 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   Last, it sorts each non-root node's children by the §13.1 ordering rule
   (#803) on every run, `--offline` and an aborted lookup included, unless
   `[project.<p>.wbs] order_on_update = false`. One write carries the
-  glyphs, the MR phase's values and the moves. That write alone runs under
-  the devDoc repository lock (§3.3, #749), after every tracker and MR call;
-  a lock held past its bound exits `1` with nothing written.
+  glyphs, the MR phase's values and the moves. The write runs under the
+  devDoc repository lock (§3.3, #749), after every tracker and MR call; a
+  lock held past its bound exits `1` with nothing written. Before the
+  tracker calls, the step-21 sync (§3.3, #1149) takes one short hold of its
+  own.
 - `/devagent:wbs order [--dry-run]` (#803) — sort each non-root node's
   children by the §13.1 ordering rule and write the result; `wbs update`
   runs the same pass by default. It honours `completed_last`, and ignores

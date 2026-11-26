@@ -62,7 +62,8 @@ namerefs), `python3` ≥ 3.11 (or 3.8–3.10 plus `tomli`), `jq`, and `git`. Whe
 `run-suite.sh` measures a tree that has an `origin`, it also needs coreutils `timeout`
 on PATH and `git` ≥ 2.29, for its bounded freshness check (#660). Cleanup's devDoc
 sync needs `timeout` too: without it every close skips the sync (`no-timeout`) and the
-devDoc is no longer pushed (#1148). A project with
+devDoc is no longer pushed (#1148); step 21's sync before the WBS reconcile skips
+the same way (#1149). A project with
 `analyze = "shellcheck"` also needs `shellcheck` on PATH (step 13 stops without it);
 devAgent is tested against `shellcheck` 0.9.0 or newer, and nothing checks the version
 at run time — `commands/analyze.md` says where it is recorded. The backend and auth
