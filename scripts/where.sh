@@ -26,6 +26,23 @@ _report_parked() {
   return 0
 }
 
+# _report_stall <issue_dir> <checklist> <found> (#880): print the STUCK: section
+# for a stall checklist_sentinel_stall found (<found> = its `<line>:<step>`),
+# naming the row's block even when it sits in an older revision block. Prints
+# nothing for an empty <found>. Always returns 0 (safe as a bare call under
+# set -e); callers branch on <found>.
+_report_stall() {
+  local issue_dir="$1" checklist="$2" found="$3"
+  [[ -n "$found" ]] || return 0
+  echo
+  echo "STUCK:"
+  echo "  [!] $(checklist_describe_row "$checklist" "${found%%:*}")"
+  sed 's/^/  /' "$issue_dir/STUCK"
+  echo
+  echo "Run /devagent:unstuck to clear."
+  return 0
+}
+
 main() {
   local project="${1:-}"
   [[ -n "$project" ]] || die "project required"
@@ -54,10 +71,13 @@ main() {
   local checklist="$issue_dir/checklist.md"
   [[ -f "$checklist" ]] || die "checklist.md missing at $checklist"
 
-  local cur_step cur_state cur_name next_step next_name
+  local cur_step cur_state cur_name next_step next_name stall
+  # #880: a STUCK [!] in ANY revision block, not only the current row.
+  stall="$(checklist_sentinel_stall "$issue_dir")"
   cur_step="$(checklist_current_step "$checklist")"
   if [[ "$cur_step" == "done" ]]; then
     echo "All steps complete."
+    _report_stall "$issue_dir" "$checklist" "$stall"
     _report_parked "$project"
     return 0
   fi
@@ -72,6 +92,11 @@ main() {
     sed 's/^/  /' "$issue_dir/STUCK"
     echo
     echo "Run /devagent:unstuck to clear."
+    _report_parked "$project"
+    return 0
+  fi
+  if [[ -n "$stall" ]]; then
+    _report_stall "$issue_dir" "$checklist" "$stall"
     _report_parked "$project"
     return 0
   fi
