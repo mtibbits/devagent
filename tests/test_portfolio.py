@@ -306,7 +306,7 @@ def _example():
 
 
 def test_schema_version_matches_live_schema():
-    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.3"
+    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.4"
 
 
 def test_compat_both_directions():
@@ -326,6 +326,36 @@ def test_compat_both_directions():
     errors = pf.pc.check(mislabelled, old_schema)
     assert errors
     assert all(e.endswith(".ready_via_parent_row: unknown field") for e in errors), errors
+
+
+def test_compat_parked_kind_both_directions():
+    # #963: schema 1.4 adds optional projects[].issues[].parked and
+    # projects[].issues[].stuck.kind (Issue-725's both-directions rule, with a
+    # mislabelled negative control).
+    old_schema = pf.pc.load_schema(FIXTURES / "schema-history" / "1.3.json")
+    new_doc = _example()
+    new_doc["schema_version"] = "1.4"
+    kinds = 0
+    for p in new_doc["projects"]:
+        for n in p["nodes"]:
+            n["ready_via_parent_row"] = None
+        for e in p["issues"]:
+            e["parked"] = False
+            if e["stuck"] is not None:
+                e["stuck"]["kind"] = "stuck"
+                kinds += 1
+    assert kinds >= 1
+    # The 1.3 reader reads a 1.4 document: unknown fields at a newer minor.
+    assert pf.pc.check(new_doc, old_schema) == []
+    # The live reader reads the 1.4 document and the older example.
+    assert pf.pc.check(new_doc) == []
+    assert pf.pc.check(_example()) == []
+    # Negative control: the same fields under the 1.3 label are errors.
+    mislabelled = copy.deepcopy(new_doc)
+    mislabelled["schema_version"] = "1.3"
+    errors = pf.pc.check(mislabelled, old_schema)
+    assert errors
+    assert all(e.endswith((".parked: unknown field", ".kind: unknown field")) for e in errors), errors
 
 
 def test_compat_models_both_directions():
@@ -1579,7 +1609,7 @@ def test_main_schema_major_mismatch_exits_3(tmp_path, monkeypatch, capsys):
     lines = capsys.readouterr().err.splitlines()
     assert len(lines) == 1
     assert lines[0].startswith(
-        'portfolio: self-check: schema: unsupported portfolio schema_version "1.3"')
+        f'portfolio: self-check: schema: unsupported portfolio schema_version "{pf.SCHEMA_VERSION}"')
 
 
 def test_main_writes_and_reports(tmp_path, monkeypatch, capsys):

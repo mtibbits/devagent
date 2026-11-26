@@ -804,7 +804,7 @@ class ProjectInput:
     step_models: Mapping[str, str] = field(default_factory=dict, hash=False)
 
 
-SCHEMA_VERSION = "1.3"
+SCHEMA_VERSION = "1.4"
 
 REASON_UNSET = "no devdoc dir is configured"
 REASON_EMPTY = "devdoc_dir is set but empty"

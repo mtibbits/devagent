@@ -1,4 +1,4 @@
-# Portfolio document schema (v1.3)
+# Portfolio document schema (v1.4)
 
 The portfolio document is one generated JSON file that describes every
 configured project: its WBS nodes, the issues those nodes name, and a
@@ -61,11 +61,12 @@ Two constraints are outside what the schema can say:
      character. Edit both together. -->
 
 1. schema_version is MAJOR.MINOR: two non-negative integers, no leading zeros.
-2. A MINOR bump adds optional fields, or defines the contents of a reserved slot. Nothing else.
-3. A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change.
+2. A MINOR bump adds optional fields, defines the contents of a reserved slot, or adds a condition to the ready rule under rule 7. Nothing else.
+3. A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning, except as rule 7 allows. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change.
 4. A reader refuses a document whose MAJOR differs from its own, with a message naming both versions.
 5. A reader that meets its own MAJOR with a newer MINOR reads the document and ignores fields it does not know. At its own or an older MINOR, an unknown field is an error.
 6. The document is regenerated on every run. A slot is filled at generation time from a source its owning epic defines, never by editing the output. A defined slot stays optional and object-or-null; making a slot required or non-nullable is a MAJOR bump.
+7. `ready` is the producer's verdict. A MINOR bump may add a condition to the ready rule only when every field the condition reads is in the document. A reader at a MINOR other than the document's takes `ready` as written and does not recompute it.
 
 A **reserved slot** is optional, typed object-or-null, accepts any contents,
 and carries `x-reserved: "<owner>"`. It is null in every document whose minor
@@ -107,6 +108,7 @@ declaring its properties.
 - `1.2` (#890): adds optional `projects[].nodes[].models`.
 - `1.3` (#735): defines the `projects[].issues[].actuals` slot and adds the
   optional `projects[].actuals` and top-level `actuals` objects.
+- `1.4` (#963): adds optional `projects[].issues[].parked` and `projects[].issues[].stuck.kind`, and version rule 7.
 
 ## Field reference
 
@@ -223,13 +225,15 @@ carried as written and never summed.
 | `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, no `checklist.md`, the issue dir is not read (`issue_not_id`), or `checklist.md` cannot be read (`checklist_unreadable`). `open`: a step is still to do. `complete`: every step is done or skipped. |
 | `projects[].issues[].next_step` | string\|null | req | The name of the first step not `[x]`/`[-]` in the **active revision block** (the rule `next.sh` uses, `checklist_current_step` in `scripts/lib/checklist.sh`). Null unless `open`. |
 | `projects[].issues[].next_step_number` | integer\|null | req | That step's number. Null unless `open`. |
+| `projects[].issues[].parked` | boolean\|null | opt | True when the issue is a key of `[parked]` in devagent's state (`<devagent_home>/state/<project>.toml`), whatever the value: an operator park, a hold, a dependency wait or a displacement. False when it is not, or when the project has no state file. Null when the state file could not be read (`state_unreadable`). Absent (before 1.4) reads as false. Added in 1.4 (#963). |
 | `projects[].issues[].actuals` | object\|null | opt | The issue's actuals (see "Actuals" below). A slot reserved for #729, defined in 1.3 (#735). |
 | `projects[].issues[].estimates` | slot (#736) | opt | Reserved: derived estimates. |
 
 ### Stuck — `projects[].issues[].stuck`
 
-All three are copied **verbatim** from the `STUCK` file, and each is null when
-its line is missing. No format is promised, because there are two writers:
+`step`, `reason` and `since` are copied **verbatim** from the `STUCK` file, and
+each is null when its line is missing. The fourth, `kind` (1.4, #963), is
+derived: the header's `Kind:` value by the rule `stuck_kind` uses, or `stuck`. No format is promised, because there are two writers:
 `checklist-stuck.sh` writes `Created:` with `date -Iseconds`, while `stuck.sh`
 writes a zoneless `%Y-%m-%d %H:%M`. `Last good:` is not carried: it may be
 absent, and its form also differs by writer.
@@ -239,6 +243,7 @@ absent, and its form also differs by writer.
 | `projects[].issues[].stuck.step` | string\|null | req | The `Step:` value. |
 | `projects[].issues[].stuck.reason` | string\|null | req | The `Reason:` value. |
 | `projects[].issues[].stuck.since` | string\|null | req | The `Created:` value. |
+| `projects[].issues[].stuck.kind` | string\|null | opt | The `Kind:` value of the header (the lines before the first blank line or `## ` heading, one trailing CR stripped from each; a `Kind:` line must start at column 0; the first non-empty value, trimmed), or `stuck` when the header has none (every `STUCK` written before #962). Null when the `STUCK` file or the issue dir could not be read. A string, not an enum: `question` (a hold, #962), `stuck` and `watchdog` (#972) are in use, and a new kind needs no bump. Added in 1.4 (#963). |
 
 ### Rollup — `projects[].rollup`
 
@@ -462,7 +467,7 @@ one per line, prefixed `portfolio-check: `. stdout stays silent.
 | `0` | Valid. At a newer minor, also prints "document is schema X, newer than this reader's Y; fields this reader does not know are ignored". |
 | `1` | Invalid: not a JSON object, not a portfolio document, a malformed `schema_version`, or structural errors. |
 | `2` | Could not run: a usage error, an unreadable file, input that is not strict JSON, or a schema load error. |
-| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.3)`. |
+| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.4)`. |
 
 Structural errors name a JSONPath-like location, such as
 `$.projects[0].nodes[2].est.class: 'quantity' is not one of ...`,

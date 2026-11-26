@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "devagent portfolio document",
-  "version": "1.3",
-  "description": "One generated JSON document describing every configured project's WBS, issues and rollup (#725). Written in a declared subset of JSON Schema 2020-12; docs/portfolio-schema.md is the prose contract. Version rules: (1) schema_version is MAJOR.MINOR: two non-negative integers, no leading zeros. (2) A MINOR bump adds optional fields, or defines the contents of a reserved slot. Nothing else. (3) A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change. (4) A reader refuses a document whose MAJOR differs from its own, with a message naming both versions. (5) A reader that meets its own MAJOR with a newer MINOR reads the document and ignores fields it does not know. At its own or an older MINOR, an unknown field is an error. (6) The document is regenerated on every run. A slot is filled at generation time from a source its owning epic defines, never by editing the output. A defined slot stays optional and object-or-null; making a slot required or non-nullable is a MAJOR bump.",
+  "version": "1.4",
+  "description": "One generated JSON document describing every configured project's WBS, issues and rollup (#725). Written in a declared subset of JSON Schema 2020-12; docs/portfolio-schema.md is the prose contract. Version rules: (1) schema_version is MAJOR.MINOR: two non-negative integers, no leading zeros. (2) A MINOR bump adds optional fields, defines the contents of a reserved slot, or adds a condition to the ready rule under rule 7. Nothing else. (3) A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning, except as rule 7 allows. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change. (4) A reader refuses a document whose MAJOR differs from its own, with a message naming both versions. (5) A reader that meets its own MAJOR with a newer MINOR reads the document and ignores fields it does not know. At its own or an older MINOR, an unknown field is an error. (6) The document is regenerated on every run. A slot is filled at generation time from a source its owning epic defines, never by editing the output. A defined slot stays optional and object-or-null; making a slot required or non-nullable is a MAJOR bump. (7) `ready` is the producer's verdict. A MINOR bump may add a condition to the ready rule only when every field the condition reads is in the document. A reader at a MINOR other than the document's takes `ready` as written and does not recompute it.",
   "type": "object",
   "required": ["schema", "schema_version", "generated_at", "projects", "parse_report"],
   "additionalProperties": false,
@@ -358,6 +358,10 @@
           "description": "That step's number; null unless checklist is open.",
           "type": ["integer", "null"]
         },
+        "parked": {
+          "description": "Optional (#963, schema 1.4): true when devagent's state lists the issue under [parked], false when it does not, null when the project's state could not be read (a parse_report state_unreadable entry). Absent (before 1.4) reads as false.",
+          "type": ["boolean", "null"]
+        },
         "actuals": {
           "description": "Defined in schema 1.3 (#735; reserved for #729 before): this issue's row of actuals.json, copied unchanged; null when the file is unavailable or has no row for the issue.",
           "type": ["object", "null"],
@@ -410,6 +414,10 @@
         },
         "since": {
           "description": "The Created: value as written; no format is promised (it varies by writer); null when missing.",
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "description": "Optional (#963, schema 1.4): the Kind: value of the STUCK header by stuck_kind's rule (the lines before the first blank line or `## ` heading, CR stripped; the first non-empty Kind: value), or stuck when there is none; null when the STUCK file or the issue dir could not be read. A string, not an enum: question, stuck and watchdog are in use.",
           "type": ["string", "null"]
         }
       }

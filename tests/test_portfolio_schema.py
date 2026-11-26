@@ -21,7 +21,7 @@ HISTORY = REPO / "tests" / "fixtures" / "portfolio" / "schema-history"
 EXAMPLE = REPO / "tests" / "fixtures" / "portfolio" / "example-1.0.json"
 # The reader's own version: the live schema's. A "1.0" elsewhere names a
 # document or a snapshot, not the reader.
-READER = "1.3"
+READER = "1.4"
 
 
 def _load(name, path):
@@ -53,7 +53,7 @@ def test_schema_loads_and_is_reader_version():
     schema = pc.load_schema()
     assert "schema_version" in schema["properties"]
     assert schema["version"] == READER
-    assert pc.parse_version(schema["version"]) == (1, 3)
+    assert pc.parse_version(schema["version"]) == (1, 4)
 
 
 def test_ready_via_parent_row_is_optional_boolean_or_null():
@@ -161,8 +161,9 @@ def test_inventory_pins_reserved_slots():
 # defined issue slot's children 29 (milestones 5, sessions 5, time 7, tokens
 # 12), the project field 22 (itself, overhead, rules 3, sessions 5, tokens 12)
 # and the top-level object 23 (itself, actuals_version, generated_at,
-# unassigned + `unassigned[]`, cwd, sessions 5, tokens 12).
-INVENTORY_SIZE = 6 + 10 + 23 + 8 + 5 + 10 + 3 + 2 + 35 + 8 + 5 + 7 + 29 + 22 + 23
+# unassigned + `unassigned[]`, cwd, sessions 5, tokens 12). #963, schema 1.4:
+# issue entry 9 (`parked`), stuck 4 (`kind`).
+INVENTORY_SIZE = 6 + 10 + 23 + 8 + 5 + 11 + 4 + 2 + 35 + 8 + 5 + 7 + 29 + 22 + 23
 
 
 def test_inventory_path_count():
@@ -437,7 +438,8 @@ def test_reserved_slot_must_be_null():
     doc["projects"][0]["lanes"] = {}
     assert pc.check(doc) == [
         f"$.projects[0].lanes: reserved slot must be null in schema {READER}"]
-    doc = _minimal_doc("1.4")
+    # A minor newer than the reader's (#963: derived, so a re-bump moves no pin).
+    doc = _minimal_doc(f"1.{pc.parse_version(READER)[1] + 1}")
     doc["projects"][0]["lanes"] = {}
     assert pc.check(doc) == []
     doc = _minimal_doc()
@@ -526,6 +528,7 @@ HISTORY_SHA256 = {
     "1.1": "ef429e036cfb62e218e62a8e37d1a50a7297f40edf6c93c0c9958660ce58e30d",
     "1.2": "e5cf0848e8973acbe7fb99d2a95c3046a9066ec5ce73104b805d7a0bdb6fdb0a",
     "1.3": "d09bcac49a609a8319b900de8ac3030c362fc53b89b573339e20c842460d7dd6",
+    "1.4": "7a669b01dc808b292b05be2317a95aad67c6d3b9e2d0181460d2bb0546629df2",
 }
 
 
@@ -777,7 +780,7 @@ def test_doc_lists_every_schema_field():
 def test_doc_states_version_rules_verbatim():
     description = pc.load_schema()["description"]
     rules = re.findall(r"\((\d)\) (.*?)(?= \(\d\) |$)", description)
-    assert [n for n, _ in rules] == ["1", "2", "3", "4", "5", "6"]
+    assert [n for n, _ in rules] == ["1", "2", "3", "4", "5", "6", "7"]
     text = _doc_text()
     for number, rule in rules:
         assert f"{number}. {rule}" in text, number
