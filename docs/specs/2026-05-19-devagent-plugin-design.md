@@ -83,7 +83,7 @@ devAgent/
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
-│                            #   in 3 shard jobs on pinned Windows runners (#1197); one check,
+│                            #   in shard jobs on pinned Windows runners (#1197); one check,
 │                            #   `Git Bash tagged files`)
 ├── commands/                # one .md file per command-form slash command (59)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the

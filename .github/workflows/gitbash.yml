@@ -1,10 +1,10 @@
-# Runs every `gitbash`-tagged bats file under real Git Bash, split across three
-# shard jobs on pinned Windows runners (#1096, #1197), and reports one check,
+# Runs every `gitbash`-tagged bats file under real Git Bash, split across the
+# shard jobs below on pinned Windows runners (#1096, #1197), and reports one check,
 # `Git Bash tagged files`. A tagged file carries the column-0 line
 # `# bats file_tags=gitbash` (README, "Running the test suite"). Selection, the
 # shard split, the per-file run loop, every rule that fails a shard, and the gate
 # live in scripts/ci/gitbash-tagged.sh, which
-# tests/gitbash-ci.bats drives against planted fixtures on the Linux shards; this
+# tests/gitbash-ci.bats drives against planted fixtures on test.yml's Linux shards; this
 # file is a thin caller, and tests/test_gitbash_workflow.py pins its shape.
 #
 # The check-run name `Git Bash tagged files` (the check job's name, not the
@@ -37,14 +37,16 @@
 #   re-run sees the earlier shards' successes. The gate fails as soon as one shard
 #   fails, which cancels nothing: the other shards run to the end. Re-running a
 #   single shard does not re-run the gate (it has no needs:), so the check keeps
-#   its old verdict: re-run failed jobs instead.
+#   its old verdict: re-run failed jobs instead (or, after a single-shard re-run,
+#   re-run the gate job too: it re-reads every shard's latest execution).
 #
 # Runner: windows-2025 for the shards, pinned (never windows-latest: a floating
 # image changes the tools under a green result). Its `shell: bash` is Git for
 # Windows' bash; each shard's first step proves it (uname -s MINGW*/MSYS*) before
 # any repo code runs. The gate runs on ubuntu-24.04, pinned the same way, and
-# relies on that image's gh and jq (it logs both versions); its token can read
-# this run's jobs (`actions: read`) and nothing more.
+# relies on that image's gh and jq (it logs both versions); its token reads the
+# repository's contents and its Actions data (`contents: read`, `actions: read`),
+# with no write scope.
 #
 # Tools: bats 1.14.0, cloned at its release tag and checked against the tag's
 # commit, whereas the Linux shards in test.yml use apt's bats 1.10.0. That version

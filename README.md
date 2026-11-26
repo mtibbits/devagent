@@ -750,9 +750,12 @@ LC_ALL=C.UTF-8 bats --jobs 4 --no-parallelize-within-files tests/
 carries the literal column-0 line `# bats file_tags=gitbash`, directly after its
 shebang; other tags may sit before or after `gitbash` on that line, comma-separated.
 The `Git Bash tagged files` check in `.github/workflows/gitbash.yml` passes only when
-every tagged file passed, across three shard jobs on pinned Windows runners, one bats
-invocation per file; the files are split by their recorded times in
-`scripts/ci/gitbash-times.txt`. Tagging a file that runs for minutes should add its row
+every tagged file passed, across the workflow's shard jobs (`Git Bash shard <i> of <K>`)
+on pinned Windows runners, one bats invocation per file; the files are split by their
+recorded times in `scripts/ci/gitbash-times.txt`. To retry a red check, re-run failed
+jobs: re-running a single shard leaves `Git Bash tagged files` at its old verdict
+(mergemr still sees the shard's own red check, but a branch-protection rule that
+requires only `Git Bash tagged files` does not), so after one, re-run the gate job too. Tagging a file that runs for minutes should add its row
 there (the recipe is in its header); a missing row only weighs the file at 60 s, so a
 well-formed refresh changes the balance, never which files run (a malformed row fails
 every shard). Add the tag when a test
