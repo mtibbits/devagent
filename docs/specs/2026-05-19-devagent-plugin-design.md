@@ -83,7 +83,8 @@ devAgent/
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
-│                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
+│                            #   in 3 shard jobs on pinned Windows runners (#1197); one check,
+│                            #   `Git Bash tagged files`)
 ├── commands/                # one .md file per command-form slash command (59)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
@@ -133,8 +134,10 @@ devAgent/
 │   │                        #   fetch-policy scanner check-fetches.py (#1030); #996: the family files in
 │   │                        #   static/ (family.css, family.js, top bar and footer partials) and the
 │   │                        #   placeholder filler fill-placeholders.py
-│   ├── ci/                  # #1096: gitbash-tagged.sh — selection, run loop and TAP rules
-│   │                        #   behind .github/workflows/gitbash.yml
+│   ├── ci/                  # #1096: gitbash-tagged.sh — selection, the shard split (#1197),
+│   │                        #   run loop, TAP rules and the gate behind
+│   │                        #   .github/workflows/gitbash.yml; gitbash-times.txt holds the
+│   │                        #   per-file weights (#1197)
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),

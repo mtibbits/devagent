@@ -749,16 +749,21 @@ LC_ALL=C.UTF-8 bats --jobs 4 --no-parallelize-within-files tests/
 **The `gitbash` tag (#1096).** A test file that also runs under Git Bash on Windows
 carries the literal column-0 line `# bats file_tags=gitbash`, directly after its
 shebang; other tags may sit before or after `gitbash` on that line, comma-separated.
-The `Git Bash tagged files` job in `.github/workflows/gitbash.yml` runs every tagged
-file on a pinned Windows runner, one bats invocation per file. Add the tag when a test
+The `Git Bash tagged files` check in `.github/workflows/gitbash.yml` passes only when
+every tagged file passed, across three shard jobs on pinned Windows runners, one bats
+invocation per file; the files are split by their recorded times in
+`scripts/ci/gitbash-times.txt`. Tagging a file that runs for minutes should add its row
+there (the recipe is in its header); a missing row only weighs the file at 60 s, so a
+refresh changes the balance, never which files run. Add the tag when a test
 exercises behaviour that differs under Git Bash (drive-letter paths, MSYS path
 rewriting, a native Windows `python3`, CRLF), and only when the whole file passes in
-that job. A tagged file keeps skipping, each with a reason, the tests that cannot run
+that check. A tagged file keeps skipping, each with a reason, the tests that cannot run
 there: POSIX file modes (the `is_git_bash` pattern in `tests/backend-disk.bats`), real
-symlinks, or a tool the runner lacks. The job fails on a skip without a reason, on a
+symlinks, or a tool the runner lacks. The check fails on a skip without a reason, on a
 file whose every test skipped, and on any other spelling of `gitbash` on a `file_tags`
 comment line (an indented line, `#bats`, a different case, `gitbash2`), so such a
-misspelling cannot silently drop a file from the run. On Linux the line is inert: `test.yml`
+misspelling cannot silently drop a file from the run. A red check with no failing file
+means a shard had no files: the tagged list dropped below the shard count. On Linux the line is inert: `test.yml`
 passes no `--filter-tags`.
 
 ### Writing a new test file

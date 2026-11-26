@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 # tests/gitbash-ci.bats — #1096: scripts/ci/gitbash-tagged.sh, the helper behind the
-# `Git Bash tagged files` job in .github/workflows/gitbash.yml. Selection, the
-# malformed-tag detector, the per-file run loop and the TAP rules are each driven
-# against planted fixtures here, so every fail-closed rule has a control that runs on
+# `Git Bash tagged files` check in .github/workflows/gitbash.yml. Selection, the
+# malformed-tag detector, the per-file run loop, the TAP rules, the `shard` split and
+# the `gate` that is the check job (#1197) are each driven against planted fixtures
+# here, so every fail-closed rule has a control that runs on
 # every PR (the Linux shards). This file is NOT itself tagged.
 #
 # Invariant: no line of this file may hold both the tag key and the tag value, or

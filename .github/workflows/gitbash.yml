@@ -1,13 +1,16 @@
-# Runs every `gitbash`-tagged bats file under real Git Bash on a pinned Windows
-# runner (#1096). A tagged file carries the column-0 line `# bats file_tags=gitbash`
-# (README, "Running the test suite"). Selection, the per-file run loop and every
-# rule that fails the job live in scripts/ci/gitbash-tagged.sh, which
+# Runs every `gitbash`-tagged bats file under real Git Bash, split across three
+# shard jobs on pinned Windows runners (#1096, #1197), and reports one check,
+# `Git Bash tagged files`. A tagged file carries the column-0 line
+# `# bats file_tags=gitbash` (README, "Running the test suite"). Selection, the
+# shard split, the per-file run loop, every rule that fails a shard, and the gate
+# live in scripts/ci/gitbash-tagged.sh, which
 # tests/gitbash-ci.bats drives against planted fixtures on the Linux shards; this
 # file is a thin caller, and tests/test_gitbash_workflow.py pins its shape.
 #
-# The check-run name `Git Bash tagged files` (the job's name, not the workflow's)
-# is a CONTRACT: #1097 reads it at merge time. Rename it only together with that
-# reader.
+# The check-run name `Git Bash tagged files` (the check job's name, not the
+# workflow's) is a CONTRACT: #1097 reads it at merge time. Rename it only together
+# with that reader. The shard jobs are named `Git Bash shard <i> of <K>`; those
+# names are not the contract, and none of them starts with the check's name.
 #
 # Events that produce a run (for a consumer telling "no run yet" from "no run ever"):
 #   - pull_request (opened, synchronize, reopened), any base branch, draft or not:
@@ -27,10 +30,21 @@
 #   conflict-free PR or to master has "no run yet"; a SHA only ever pushed
 #   elsewhere never gets one. A failed run with zero steps executed (a runner
 #   or billing refusal) carries no verdict: read it as no run, never as green.
+#   Each run has K shard jobs and one `Git Bash tagged files` job, all created
+#   with the run, so the check reads pending from the start. A re-run (all jobs,
+#   or failed jobs) is a new run attempt with its own `Git Bash tagged files`
+#   check run; the gate reads each job's latest execution, so a failed-jobs
+#   re-run sees the earlier shards' successes. The gate fails as soon as one shard
+#   fails, which cancels nothing: the other shards run to the end. Re-running a
+#   single shard does not re-run the gate (it has no needs:), so the check keeps
+#   its old verdict: re-run failed jobs instead.
 #
-# Runner: windows-2025, pinned (never windows-latest: a floating image changes
-# the tools under a green result). Its `shell: bash` is Git for Windows' bash;
-# the first step proves it (uname -s MINGW*/MSYS*) before any repo code runs.
+# Runner: windows-2025 for the shards, pinned (never windows-latest: a floating
+# image changes the tools under a green result). Its `shell: bash` is Git for
+# Windows' bash; each shard's first step proves it (uname -s MINGW*/MSYS*) before
+# any repo code runs. The gate runs on ubuntu-24.04, pinned the same way, and
+# relies on that image's gh and jq (it logs both versions); its token can read
+# this run's jobs (`actions: read`) and nothing more.
 #
 # Tools: bats 1.14.0, cloned at its release tag and checked against the tag's
 # commit, whereas the Linux shards in test.yml use apt's bats 1.10.0. That version
@@ -47,6 +61,24 @@
 # real-symlink tests in commit-guard.bats and evidence-stamp.bats skip. Those
 # paths have no Windows coverage from this job.
 #
+# Shards (#1197): 3 jobs, split by `gitbash-tagged.sh shard`: each file weighs its
+#   row in scripts/ci/gitbash-times.txt (a file with no row weighs 60s and its
+#   shard's log names it), files are taken largest first, each onto the
+#   least-loaded shard. The table's header holds its refresh recipe. A single
+#   30-minute job no longer fit: master's own run 45686304072 was cancelled at
+#   30m11s. Not by position (file i to shard i mod K, as test.yml does): on the
+#   slow run's times four shards came out at 15.1, 8.4, 2.8 and 11.6 min; on the
+#   seed table round-robin gives 792/774/1909s at K = 3, LPT 1155/1156/1164s.
+#   A shard with no files fails (rc 3): a red with no failing file means the
+#   tagged list dropped below the shard count.
+#   The check job is a gate, not a `needs:` summary: the spike (run 45765050697)
+#   showed a needs: job has no check run until its needs finish, so the check
+#   would be absent while the shards run. The gate polls this run's jobs and
+#   passes only when every shard completed with success. It fails when a shard
+#   ends any other way, when a shard has been in progress for over 2100s by its
+#   own started_at (its 30 minutes plus 5), or when a shard has not started after
+#   1800s; its own timeout is 70 minutes. The 30-minute cap is the shards'.
+#
 # Why no `bats --filter-tags`: bats would source every file in tests/ to read
 # its tags, on a host where process start is slow. The helper selects with one
 # grep instead and hands bats one tagged file per invocation, so each file's
@@ -58,15 +90,18 @@
 #   GNU parallel is absent from the runner's Git Bash, so `bats --jobs` cannot
 #   run there; the helper's `run --jobs 2` runs two per-file bats processes at
 #   once (xargs -P 2), prints a `done:` line as each file finishes, and prints
-#   their TAP afterwards in list order.
+#   their TAP afterwards in list order. Since #1197 that is per shard: two files
+#   at a time on each of the K runners.
 #
 # Last green run: https://github.com/mtibbits/devagent/actions/runs/43622037992 @ 05c93d4545ade82550b28fb3944f7106a5edd728 in 13m39s
-#   The job's time on that run. The run of this header-only commit is not counted.
+#   The job's time on that run, before #1197's shards. The run of this
+#   header-only commit is not counted.
 #
 # For #987 (the user-path job): a sibling job copies these steps verbatim:
 # Confirm Git Bash, the workflow env (LC_ALL/LANG), Install bats 1.14.0, Ensure
-# python3, Tool versions and locale. A composite action can be extracted when
-# two jobs share them.
+# python3, Tool versions and locale. They exist once today (one matrix job runs
+# them in every shard), so #987's job would be the second copy; a composite
+# action can be extracted then.
 name: git bash
 
 on:
