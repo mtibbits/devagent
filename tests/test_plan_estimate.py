@@ -336,3 +336,49 @@ def test_reader_source_parses_at_python_3_8():
 def test_est_forms_plan_fixture_is_absent():
     r = pe.read_file(REPO / "tests" / "fixtures" / "wbs" / "est-forms-plan.md")
     assert (r["status"], r["problems"]) == ("absent", [])
+
+
+# Task 5: the spec's contract home (§13.7)
+
+SPEC = REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
+
+
+def _spec_section():
+    text = SPEC.read_text(encoding="utf-8")
+    start = text.index("### 13.7 Plan estimates (#738)")
+    return text[start:text.index("\n## 14.", start)]
+
+
+def _revision_1_rows(path):
+    block = path.read_text(encoding="utf-8").split("## Revision 1", 1)[1].split("\n## ", 1)[0]
+    return {step: f". {step}" in block for step in ("scope", "tighten", "impact")}
+
+
+def test_spec_tier_table_matches_checklist_templates():
+    rows = {}
+    for line in _spec_section().split("\n"):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 4 and cells[1] in ("yes", "no") and line.startswith("|"):
+            for tier in cells[0].split(","):
+                assert tier.strip() not in rows, tier
+                rows[tier.strip()] = {"scope": cells[1] == "yes",
+                                      "tighten": cells[2] == "yes",
+                                      "impact": cells[3] == "yes"}
+    templates = sorted((REPO / "templates").glob("checklist-*.md"))
+    assert len(templates) == 6
+    assert set(rows) == {t.stem[len("checklist-"):] for t in templates}
+    for t in templates:
+        assert rows[t.stem[len("checklist-"):]] == _revision_1_rows(t), t.name
+
+
+def test_spec_example_lines_are_read():
+    section = _spec_section()
+    fences = section.split("```")[1::2]
+    example = next(f for f in fences if "Estimate (confirmed)" in f and "### Size estimate" in f)
+    r = pe.read_estimate(example.split("\n", 1)[1])
+    assert (r["status"], r["source"]) == ("present", "confirmed")
+    assert pe.impact_line(_fix("confirmed-changed.md")) in section
+    assert pe.impact_line(_fix("legacy-prose.md")) in section
+    near = pe.impact_line(_fix("near-miss.md"))
+    assert near.endswith("plan line 1)")
+    assert near[: -len("1)")] in section
