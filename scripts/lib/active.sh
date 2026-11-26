@@ -407,6 +407,12 @@ issue_context_dir() {
 #   ACTIVE_TREE_FROM  "state" (recorded worktree_path) | "config" (source_dir)
 active_tree_resolve() {
   local project="$1" arg="${2:-}" wt src
+  # #879: kept for active_guard_tree's refusal text, which resolves the issue id
+  # lazily (die path only) — no spawn here.
+  # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
+  ACTIVE_TREE_PROJECT="$project"
+  # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
+  ACTIVE_TREE_ARG="$arg"
   # same shape as ship.sh:92 — kept byte-identical deliberately; the fail-closed
   # liveness check below is what makes the `|| true` safe (register Issue-314/316).
   # The read stays muted and skips the #879 divergence check: a warning nobody
@@ -568,5 +574,31 @@ active_guard_tree() {
       why="a separate clone of the same project (origin $u_cwd)"
     fi
   fi
-  die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is recorded for this issue). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree (set worktree_path in ~/.claude/devagent/state/<project>.toml), or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
+  die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is recorded for this issue). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree $(_active_guard_remedy "$top"), or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
+}
+
+# _active_guard_remedy <top> — #879: the "record this tree" clause of the guard's
+# refusal, naming the home(s) the next read and the next park actually use.
+# Refusal path only: it costs one issue resolve and, when pinned, one
+# active_issue read. A pinned/arg'd read uses [context.<id>] (#240); an unpinned
+# one uses the top level; and while <id> is the shared active_issue the two must
+# agree, because a park re-snapshots the table from the top level. A scan-guessed
+# or unresolvable id is never named: the literal <issue> is printed instead.
+_active_guard_remedy() {
+  local top="$1" project="${ACTIVE_TREE_PROJECT:-}" res from id state ai
+  state="$(state_path "$project" 2>/dev/null)" || state=""
+  [ -n "$state" ] || state="the project's state file"
+  # subshell: a die on a bad pin must not exit the caller mid-refusal
+  res="$(active_resolve_issue_src "$project" "${ACTIVE_TREE_ARG:-}" >/dev/null 2>&1 \
+        && printf '%s %s' "$ACTIVE_ISSUE_RESOLVED_FROM" "$ACTIVE_RESOLVED_ISSUE")" || res=""
+  from="${res%% *}"; id="${res#* }"
+  case "$from" in arg|env|state) [ -n "$id" ] || id="<issue>" ;; *) id="<issue>" ;; esac
+  if [ "$from" = "arg" ] || [ "$from" = "env" ]; then
+    ai="$(state_get "$project" active_issue 2>/dev/null || true)"
+    if [ "$ai" != "$id" ]; then
+      printf '%s' "(set worktree_path = '$top' under [context.$id].worktree_path in $state; $id is not the shared active_issue, so leave the top level alone)"
+      return 0
+    fi
+  fi
+  printf '%s' "(set worktree_path = '$top' in BOTH homes of $state, the top-level worktree_path and [context.$id].worktree_path: they must agree while $id is the shared active_issue, and a park re-snapshots the table from the top level)"
 }
