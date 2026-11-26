@@ -115,6 +115,17 @@ CHK() { run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT" Issue-1
     [[ "$output" == *"worktree_path"* ]]
 }
 
+@test "oneshot-zerodiff: a divergent worktree_path warns on stderr (#879)" {
+    # Table empty beside a non-empty top-level mirror for the shared Issue-1
+    # (the fixture's active_issue): the read keeps the table value (#240) and
+    # the warning must reach the operator, not a 2>/dev/null.
+    local st="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$st" context.Issue-1.worktree_path ""
+    devagent_state_set "$st" worktree_path "$DEVAGENT_TMP/elsewhere"
+    CHK
+    [[ "$output" == *'[context.Issue-1].worktree_path = ""'* ]]
+}
+
 @test "a VALID linked worktree_path is indeterminate; remedy is the tier, not a checkout (#595 review I3)" {
     # `git checkout main` in a linked worktree fails ('already used by
     # worktree'), so the routine remedy must not be the one printed here.

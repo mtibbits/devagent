@@ -306,3 +306,264 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"before active_tree_resolve"* ]]
 }
+
+# --- #879: worktree_path divergence ------------------------------------------
+# A pinned/arg'd read of worktree_path returns the [context.<issue>] table value
+# (#240: a table hit wins, even when empty). When that value is empty beside a
+# non-empty top-level mirror for the SHARED active_issue, the read warns once on
+# stderr; and the #571 guard's refusal names the home the read actually uses.
+
+# T1 shape: shared slot Issue-7, table worktree_path "", top level non-empty.
+# state_set runs LAST so the mirror ends up holding the non-empty value.
+_wt879_fixture() {
+  state_init volk
+  state_set volk active_issue Issue-7
+  state_issue_set_many volk Issue-7 str worktree_path ""
+  state_set volk worktree_path "$BATS_TEST_TMPDIR/lab/wt"
+}
+
+# Counting stub: define AFTER the fixture writes, then reset the log. No exec —
+# the function returns normally (as tests/state.bats does).
+_wt879_stub() {
+  _state_toml() {
+    printf '%s\n' "$*" >>"$BATS_TEST_TMPDIR/toml-calls"
+    python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" "$@"
+  }
+  : >"$BATS_TEST_TMPDIR/toml-calls"
+}
+_wt879_calls() { grep -c '' "$BATS_TEST_TMPDIR/toml-calls"; }
+
+@test "state_ctx_get: divergent worktree_path (pinned) warns once and still returns the empty table value (#879)" {
+  _wt879_fixture
+  local out rc err="$BATS_TEST_TMPDIR/err"
+  export DEVAGENT_ACTIVE_ISSUE=Issue-7
+  { out="$(state_ctx_get volk worktree_path)"; rc=$?; } 2>"$err"
+  [ "$rc" -eq 0 ]
+  [ -z "$out" ]
+  [ "$(grep -c '' "$err")" -eq 1 ]
+  grep -qF '[context.Issue-7].worktree_path = ""' "$err"
+  grep -qF 'lab/wt' "$err"
+  grep -qF "$(state_path volk)" "$err"
+}
+
+@test "state_ctx_get: divergent worktree_path (arg'd) warns once and still returns the empty table value (#879)" {
+  _wt879_fixture
+  local out rc err="$BATS_TEST_TMPDIR/err"
+  { out="$(state_ctx_get volk worktree_path Issue-7)"; rc=$?; } 2>"$err"
+  [ "$rc" -eq 0 ]
+  [ -z "$out" ]
+  [ "$(grep -c '' "$err")" -eq 1 ]
+  grep -qF '[context.Issue-7].worktree_path = ""' "$err"
+  grep -qF 'lab/wt' "$err"
+  grep -qF "$(state_path volk)" "$err"
+}
+
+@test "state_ctx_get: table and top level agree — no warning (#879)" {
+  state_init volk
+  state_set volk active_issue Issue-7
+  state_issue_set_many volk Issue-7 str worktree_path "$BATS_TEST_TMPDIR/lab/wt"
+  local out err="$BATS_TEST_TMPDIR/err"
+  { out="$(state_ctx_get volk worktree_path Issue-7)"; } 2>"$err"
+  [ "$out" = "$BATS_TEST_TMPDIR/lab/wt" ]
+  [ ! -s "$err" ]
+}
+
+@test "state_ctx_get: pinned issue is NOT the shared active_issue — no warning (#879)" {
+  state_init volk
+  state_set volk active_issue Issue-8
+  state_issue_set_many volk Issue-7 str worktree_path ""
+  state_set volk worktree_path "$BATS_TEST_TMPDIR/lab/wt"
+  local out err="$BATS_TEST_TMPDIR/err"
+  export DEVAGENT_ACTIVE_ISSUE=Issue-7
+  { out="$(state_ctx_get volk worktree_path)"; } 2>"$err"
+  [ -z "$out" ]
+  [ ! -s "$err" ]
+}
+
+@test "state_ctx_get: table empty and top level empty — no warning (#879)" {
+  state_init volk
+  state_set volk active_issue Issue-7
+  state_issue_set_many volk Issue-7 str worktree_path ""
+  local out err="$BATS_TEST_TMPDIR/err"
+  { out="$(state_ctx_get volk worktree_path Issue-7)"; } 2>"$err"
+  [ -z "$out" ]
+  [ ! -s "$err" ]
+}
+
+@test "the warning survives the sites' '|| true' idiom (#879)" {
+  _wt879_fixture
+  local out err="$BATS_TEST_TMPDIR/err"
+  { out="$(state_ctx_get volk worktree_path Issue-7 || true)"; } 2>"$err"
+  [ -z "$out" ]
+  [ "$(grep -c '' "$err")" -eq 1 ]
+  grep -qF '[context.Issue-7].worktree_path = ""' "$err"
+}
+
+@test "cost: a key other than worktree_path is never checked — 1 call, no warning (#879)" {
+  state_init volk
+  state_set volk active_issue Issue-7
+  state_issue_set_many volk Issue-7 str branch ""
+  state_set volk branch feat/7-x
+  _wt879_stub
+  local out err="$BATS_TEST_TMPDIR/err"
+  { out="$(state_ctx_get volk branch Issue-7)"; } 2>"$err"
+  [ -z "$out" ]
+  [ "$(_wt879_calls)" -eq 1 ]
+  [ ! -s "$err" ]
+}
+
+@test "cost: a non-empty table hit costs 1 call and never reads the top level (#879 AC3)" {
+  state_init volk
+  state_set volk active_issue Issue-7
+  state_issue_set_many volk Issue-7 str worktree_path "$BATS_TEST_TMPDIR/lab/a"
+  state_set volk worktree_path "$BATS_TEST_TMPDIR/lab/b"
+  _wt879_stub
+  local out
+  out="$(state_ctx_get volk worktree_path Issue-7)"
+  [ "$out" = "$BATS_TEST_TMPDIR/lab/a" ]
+  [ "$(_wt879_calls)" -eq 1 ]
+  ! grep -qxF "get $(state_path volk) worktree_path" "$BATS_TEST_TMPDIR/toml-calls"
+}
+
+@test "cost: the divergent pinned read costs exactly 3 calls (#879 AC3)" {
+  _wt879_fixture
+  _wt879_stub
+  local out
+  export DEVAGENT_ACTIVE_ISSUE=Issue-7
+  { out="$(state_ctx_get volk worktree_path)"; } 2>/dev/null
+  [ "$(_wt879_calls)" -eq 3 ]
+  local f; f="$(state_path volk)"
+  grep -qxF "get $f context.Issue-7.worktree_path" "$BATS_TEST_TMPDIR/toml-calls"
+  grep -qxF "get $f worktree_path" "$BATS_TEST_TMPDIR/toml-calls"
+  grep -qxF "get $f active_issue" "$BATS_TEST_TMPDIR/toml-calls"
+}
+
+@test "cost: a table MISS pays at most 2 extra calls and does not warn (#879 B7)" {
+  # Unfixed count measured at 3387216: N=3 (table get rc 1, active_issue,
+  # top-level worktree_path — state_issue_get's own fallback).
+  state_init volk
+  state_set volk active_issue Issue-7
+  _wt879_stub
+  local out err="$BATS_TEST_TMPDIR/err"
+  { out="$(state_ctx_get volk worktree_path Issue-7)"; } 2>"$err"
+  [ -z "$out" ]
+  [ "$(_wt879_calls)" -le 5 ]
+  [ ! -s "$err" ]
+}
+
+@test "cost: active_tree_resolve pays zero extra on the divergent fixture (#879 S1)" {
+  # Unfixed count measured at 3387216: 1 (the table read; source_dir is a
+  # config read, not _state_toml).
+  mkdir -p "$BATS_TEST_TMPDIR/volk"
+  _wt879_fixture
+  _wt879_stub
+  active_tree_resolve volk Issue-7 2>"$BATS_TEST_TMPDIR/err"
+  [ "$ACTIVE_TREE_FROM" = "config" ]
+  [ "$(_wt879_calls)" -eq 1 ]
+  [ ! -s "$BATS_TEST_TMPDIR/err" ]
+}
+
+# Guard-message fixture: source repo + a linked worktree, cwd inside the
+# worktree, no worktree_path recorded — the clause-1 mismatch die.
+_wt879_guard_fixture() {
+  local src="$BATS_TEST_TMPDIR/volk" wt="$BATS_TEST_TMPDIR/wt879"
+  mkdir -p "$src"
+  ( cd "$src" && git -c init.defaultBranch=main init -q \
+      && git config user.email t@example.com && git config user.name T \
+      && git commit -q --allow-empty -m x && git branch -q wt879 \
+      && git worktree add -q "$wt" wt879 )
+  state_init volk
+  [ -z "${1:-}" ] || state_set volk active_issue "$1"
+  cd "$wt"
+}
+
+# Apply the printed remedy exactly as printed: the value from "set
+# worktree_path = '<v>'", the top level iff the message names
+# "top-level worktree_path", and every [context.<id>].worktree_path it names.
+_wt879_apply_remedy() {
+  local msg="$1" val ids id
+  val="$(printf '%s' "$msg" | sed -n "s/.*(set worktree_path = '\([^']*\)'.*/\1/p")"
+  [ -n "$val" ] || return 1
+  case "$msg" in *"top-level worktree_path"*) state_set volk worktree_path "$val" ;; esac
+  ids="$(printf '%s' "$msg" | grep -o '\[context\.[A-Za-z0-9_-]*\]\.worktree_path' \
+      | sed 's/^\[context\.//; s/\]\.worktree_path$//' | sort -u)"
+  [ -n "$ids" ] || return 1
+  for id in $ids; do state_issue_set_many volk "$id" str worktree_path "$val"; done
+}
+
+@test "active_guard_tree: unpinned refusal names BOTH homes for the shared issue (#879 AC1)" {
+  _wt879_guard_fixture Issue-7
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "config" ]
+  run active_guard_tree lib-test
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TREE MISMATCH"* ]]
+  [[ "$output" == *"[context.Issue-7].worktree_path"* ]]
+  [[ "$output" == *"top-level worktree_path"* ]]
+  [[ "$output" == *"$(state_path volk)"* ]]
+  [[ "$output" != *"(set worktree_path in"* ]]
+}
+
+@test "active_guard_tree: pinned refusal names the PIN's table only (#879 AC1, U2)" {
+  _wt879_guard_fixture Issue-7
+  export DEVAGENT_ACTIVE_ISSUE=Issue-9
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "config" ]
+  run active_guard_tree lib-test
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"[context.Issue-9].worktree_path"* ]]
+  [[ "$output" != *"Issue-7"* ]]
+  [[ "$output" != *"top-level worktree_path"* ]]
+  [[ "$output" == *"$(state_path volk)"* ]]
+}
+
+@test "active_guard_tree: a scan-guessed id is never named — literal <issue> (#879 A5)" {
+  mkdir -p "$BATS_TEST_TMPDIR/devdoc/volk/Issue-3"
+  printf -- '- [x] 0. pull\n- [ ] 2. draft\n' > "$BATS_TEST_TMPDIR/devdoc/volk/Issue-3/checklist.md"
+  _wt879_guard_fixture
+  active_tree_resolve volk
+  run active_guard_tree lib-test
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"[context.<issue>].worktree_path"* ]]
+  [[ "$output" != *"Issue-3"* ]]
+}
+
+@test "active_guard_tree: following the unpinned remedy recovers FROM=state (#879 B2)" {
+  _wt879_guard_fixture Issue-7
+  active_tree_resolve volk
+  run active_guard_tree lib-test
+  [ "$status" -eq 1 ]
+  _wt879_apply_remedy "$output"
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "state" ]
+  run active_guard_tree lib-test
+  [ "$status" -eq 0 ]
+}
+
+@test "active_guard_tree: following the pinned remedy recovers FROM=state (#879 B2)" {
+  _wt879_guard_fixture Issue-7
+  export DEVAGENT_ACTIVE_ISSUE=Issue-9
+  active_tree_resolve volk
+  run active_guard_tree lib-test
+  [ "$status" -eq 1 ]
+  _wt879_apply_remedy "$output"
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "state" ]
+  run active_guard_tree lib-test
+  [ "$status" -eq 0 ]
+}
+
+@test "active_guard_tree: the shared-pin remedy survives a park round trip (#879 B1/B2)" {
+  _wt879_guard_fixture Issue-7
+  export DEVAGENT_ACTIVE_ISSUE=Issue-7
+  active_tree_resolve volk
+  run active_guard_tree lib-test
+  [ "$status" -eq 1 ]
+  _wt879_apply_remedy "$output"
+  state_context_save volk Issue-7
+  state_context_restore volk Issue-7
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "state" ]
+  run active_guard_tree lib-test
+  [ "$status" -eq 0 ]
+}
