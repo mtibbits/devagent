@@ -477,7 +477,7 @@ _wt879_guard_fixture() {
       && git worktree add -q "$wt" wt879 )
   state_init volk
   [ -z "${1:-}" ] || state_set volk active_issue "$1"
-  cd "$wt"
+  cd "$wt" || return 1
 }
 
 # Apply the printed remedy exactly as printed: the value from "set
