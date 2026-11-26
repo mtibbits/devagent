@@ -546,10 +546,7 @@ EOC
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   # (g) any other Kind (spec §5.3: `watchdog`, ...) is a stall unstuck clears
-  printf 'Kind:        watchdog
-Step:        15 review
-
-' > "$ISSUE_DIR/STUCK"
+  printf 'Kind:        watchdog\nStep:        15 review\n\n' > "$ISSUE_DIR/STUCK"
   run checklist_sentinel_stall "$ISSUE_DIR"
   [ "$status" -eq 0 ]
   [ "$output" = "$bang:15" ]

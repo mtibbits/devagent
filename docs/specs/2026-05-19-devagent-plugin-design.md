@@ -1000,7 +1000,8 @@ explicit issue directory.
 STUCK file of any `Kind:` but `question` plus a `[!]` row in ANY revision block as a stall —
 the exact case `/devagent:unstuck` clears (`checklist_sentinel_stall`). `next`
 halts before dispatching (and before a complete `--through` target or a done
-active block can return 0), naming the row's step, line and block; `where`
+active block can return 0), naming the row's step, line and block (the current
+step keeps gate (a)'s `step N (name)` text); `where`
 prints its `STUCK:` section for it. `next` warns once, without halting, on the
 two shapes unstuck cannot clear: a `[!]` row with no regular STUCK file, and a
 STUCK file with no `[!]` row. `revise` (and `--retier`) refuses to append a

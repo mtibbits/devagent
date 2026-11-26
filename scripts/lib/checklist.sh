@@ -433,7 +433,7 @@ checklist_step_name_at_line() {
 # block is the last one (_checklist_active_start's rule). Returns 1 with
 # checklist_step_name_at_line's stderr when <line> is not a step row. Read-only.
 checklist_describe_row() {
-  local file="$1" line="$2" content num name labels in_active own active
+  local file="$1" line="$2" content="" num name labels in_active own active
   [[ "$line" =~ ^[0-9]+$ ]] && content="$(sed -n "${line}{p;q}" "$file" 2>/dev/null)"
   if ! [[ "$content" =~ $_checklist_line_re ]]; then
     checklist_step_name_at_line "$file" "$line" >/dev/null   # its die / stderr

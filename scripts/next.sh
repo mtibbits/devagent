@@ -216,8 +216,7 @@ _stuck_current_step() {
   local c
   c="$(checklist_current_step "$checklist")"
   if [[ "$c" != "done" && "$(checklist_step_state "$checklist" "$c")" == "!" ]]; then
-    printf '%s
-' "$c"
+    printf '%s\n' "$c"
   fi
   return 0
 }
@@ -228,14 +227,15 @@ stuck_line() {
 }
 
 # stall_stop (#880): gate (b), "is this issue stuck anywhere?". Reads main's
-# project, issue_dir, checklist and stall_warned (dynamic scope).
+# issue_dir, checklist and stall_warned (dynamic scope).
 # A stall (checklist_sentinel_stall: a regular non-question STUCK plus a [!] row in
 # ANY revision block) prints the STUCK line and the STUCK body and returns 1, so a
 # complete --through target or a done active block cannot return 0 first. When
 # gate (a) would fire, the line is gate (a)'s own text. Otherwise it names the
 # row's line and block. The two shapes /devagent:unstuck cannot clear (a STUCK
-# with no [!] row; a [!] row with no regular STUCK) warn once per invocation and
-# return 0, so dispatch continues from the active block as before.
+# with no [!] row; a [!] row with no regular STUCK) are checked on the first pass
+# only, warn at most once and return 0, so dispatch continues from the active
+# block as before.
 stall_stop() {
   local found="" o c n why stuck="$issue_dir/STUCK"
   # The -f test spares the predicate's fork on the common no-STUCK path.
@@ -338,7 +338,7 @@ quarantine_guard "next" "$project"
 
   # #782: at most one CI read per invocation (see the window block below).
   local ci_done=0
-  # #880: gate (b) warns at most once per invocation on an undecidable shape.
+  # #880: gate (b) checks the two undecidable shapes on the first pass only.
   local stall_warned=0
 
   # Dispatch loop. Each iteration re-reads the checklist so script steps

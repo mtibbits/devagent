@@ -483,6 +483,7 @@ _make_stuck() {
 }
 
 @test "#880 a STUCK file with no [!] row does not block revise" {
+  # Preservation leg: green at the base by design.
   # Pins the predicate boundary: this shape is out of scope, so behaviour is today's.
   printf 'Step:        15 review\nReason:      reviewer unavailable\n' > "$FIX_ISSUE_DIR/STUCK"
   run_revise volk Issue-676 --no-chain
@@ -491,6 +492,7 @@ _make_stuck() {
 }
 
 @test "#880 a question STUCK beside an orphan [!] does not block revise" {
+  # Preservation leg: green at the base by design (a question STUCK is a hold).
   sed -i 's/^- \[x\] 15\. review/- [!] 15. review/' "$FIX_ISSUE_DIR/checklist.md"
   printf 'Kind:        question\nStep:        15 review\n\n' > "$FIX_ISSUE_DIR/STUCK"
   run_revise volk Issue-676 --no-chain
