@@ -1,7 +1,8 @@
 # tests/helpers/devdoc-repo.bash — fixtures for the #749 devDoc repository
 # discipline (owned-path commits, the repository lock, read-only git calls).
 # Loaded by tests/cleanup.bats, tests/promote-potholes.bats,
-# tests/statusreport.bats, tests/devdoc-lock.bats and
+# tests/statusreport.bats, tests/devdoc-lock.bats, tests/devdoc-commit-dir.bats,
+# tests/file.bats, tests/ship.bats and
 # tests/cleanup-concurrency.bats, after helpers/common; and by helpers/devdoc-sync.
 # shellcheck disable=SC2034  # variables are read by the bats files that load this helper
 # #338: every loaded setup layer sources the hermetic-env guard (pins / git config / TZ / locale).
