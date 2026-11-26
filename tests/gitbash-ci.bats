@@ -374,14 +374,18 @@ mkfiles() {
   for n in "$@"; do tagfile "$n.bats" "$(tagline "$T")"; FILES+=("$D/$n.bats"); done
 }
 # shard_union <count> <timings> <file>...: every shard's stdout, sorted; fails on a
-# shard whose rc is not 0.
+# shard whose rc is not 0 or whose stdout is empty. The loop is never on the left of
+# a pipe: bats sets no pipefail, so a failing shard there would be lost.
 shard_union() {
-  local k="$1" t="$2" i out
+  local k="$1" t="$2" i out rc all=""
   shift 2
   for i in $(seq 1 "$k"); do
-    out="$("$H" shard "$i" "$k" "$t" "$@" 2>/dev/null)" || { echo "shard $i of $k: rc $?" >&2; return 1; }
-    printf '%s\n' "$out"
-  done | LC_ALL=C sort
+    out="$("$H" shard "$i" "$k" "$t" "$@" 2>/dev/null)"; rc=$?
+    [ "$rc" -eq 0 ] || { echo "shard $i of $k: rc $rc" >&2; return 1; }
+    [ -n "$out" ] || { echo "shard $i of $k: empty" >&2; return 1; }
+    all+="$out"$'\n'
+  done
+  printf '%s' "$all" | LC_ALL=C sort
 }
 # count_lines <fixed string> <text>: how many lines of <text> equal <fixed string>.
 count_lines() { printf '%s\n' "$2" | grep -cxF -- "$1"; }
