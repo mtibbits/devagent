@@ -344,6 +344,8 @@ _wt879_calls() { grep -c '' "$BATS_TEST_TMPDIR/toml-calls"; }
   grep -qF '[context.Issue-7].worktree_path = ""' "$err"
   grep -qF 'lab/wt' "$err"
   grep -qF "$(state_path volk)" "$err"
+  # AC2: names [context.<issue>] as THE home to fix, with the value to set
+  grep -qF "set [context.Issue-7].worktree_path = \"$BATS_TEST_TMPDIR/lab/wt\"" "$err"
 }
 
 @test "state_ctx_get: divergent worktree_path (arg'd) warns once and still returns the empty table value (#879)" {
@@ -356,6 +358,8 @@ _wt879_calls() { grep -c '' "$BATS_TEST_TMPDIR/toml-calls"; }
   grep -qF '[context.Issue-7].worktree_path = ""' "$err"
   grep -qF 'lab/wt' "$err"
   grep -qF "$(state_path volk)" "$err"
+  # AC2: names [context.<issue>] as THE home to fix, with the value to set
+  grep -qF "set [context.Issue-7].worktree_path = \"$BATS_TEST_TMPDIR/lab/wt\"" "$err"
 }
 
 @test "state_ctx_get: table and top level agree — no warning (#879)" {
@@ -530,6 +534,8 @@ _wt879_apply_remedy() {
 
 @test "active_guard_tree: following the unpinned remedy recovers FROM=state (#879 B2)" {
   _wt879_guard_fixture Issue-7
+  # the incident shape: branch.sh leaves an EMPTY table entry beside the mirror
+  state_issue_set_many volk Issue-7 str worktree_path ""
   active_tree_resolve volk
   run active_guard_tree lib-test
   [ "$status" -eq 1 ]
@@ -555,6 +561,8 @@ _wt879_apply_remedy() {
 
 @test "active_guard_tree: the shared-pin remedy survives a park round trip (#879 B1/B2)" {
   _wt879_guard_fixture Issue-7
+  # the incident shape: branch.sh leaves an EMPTY table entry beside the mirror
+  state_issue_set_many volk Issue-7 str worktree_path ""
   export DEVAGENT_ACTIVE_ISSUE=Issue-7
   active_tree_resolve volk
   run active_guard_tree lib-test
@@ -562,6 +570,23 @@ _wt879_apply_remedy() {
   _wt879_apply_remedy "$output"
   state_context_save volk Issue-7
   state_context_restore volk Issue-7
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "state" ]
+  run active_guard_tree lib-test
+  [ "$status" -eq 0 ]
+}
+
+@test "active_guard_tree: the shared-pin remedy recovers FROM=state with the incident's empty table entry (#879 B1)" {
+  # The Issue-466 shape, no park: [context.Issue-7].worktree_path = "" wins
+  # over the top level for a pinned read (#240), so a top-only remedy (the old
+  # message) leaves FROM=config; the printed both-homes remedy must not.
+  _wt879_guard_fixture Issue-7
+  state_issue_set_many volk Issue-7 str worktree_path ""
+  export DEVAGENT_ACTIVE_ISSUE=Issue-7
+  active_tree_resolve volk
+  run active_guard_tree lib-test
+  [ "$status" -eq 1 ]
+  _wt879_apply_remedy "$output"
   active_tree_resolve volk
   [ "$ACTIVE_TREE_FROM" = "state" ]
   run active_guard_tree lib-test

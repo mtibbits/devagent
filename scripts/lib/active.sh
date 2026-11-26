@@ -345,7 +345,7 @@ _active_warn_wt_divergence() {
   case "$top" in ''|null|'""') return 0 ;; esac
   ai="$(state_get "$project" active_issue 2>/dev/null || true)"
   [ "$ai" = "$issue" ] || return 0
-  warn "state_ctx_get: worktree_path diverges for $issue: [context.$issue].worktree_path = \"\" (the table wins, #240) but top-level worktree_path = \"$top\"; set the same value in both homes of $(state_path "$project") while $issue is the shared active_issue"
+  warn "state_ctx_get: worktree_path diverges for $issue: [context.$issue].worktree_path = \"\" (the table wins, #240) but top-level worktree_path = \"$top\"; fix the table: set [context.$issue].worktree_path = \"$top\" in $(state_path "$project") so both homes agree while $issue is the shared active_issue (or clear the top level if $issue has no worktree)"
 }
 
 # state_ctx_get <project> <key> [issue-arg] — session-view read.
