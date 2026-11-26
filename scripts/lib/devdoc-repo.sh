@@ -781,11 +781,11 @@ _ds_paths() {
 devdoc_sync() {
     DEVDOC_SYNC_OUTCOME=off; DEVDOC_SYNC_REASON=""; DEVDOC_SYNC_REPO=""; DEVDOC_SYNC_BRANCH=""; DEVDOC_SYNC_LINE=""
     _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_TMPD=""; _DS_ERR=/dev/null; _DS_LIST=/dev/null; _DS_DETACHED=0; _DS_BRANCH=""
-    _DS_ISSUE="$2"; _DS_BUDGET="$3"; _DS_MODE="${4:-push}"; _DS_SUBJ="$2 cleanup"
+    _DS_ISSUE="$2"; _DS_BUDGET="$3"; _DS_MODE="${4:-push}"; _DS_SUBJ="$_DS_ISSUE cleanup"
     _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""; _DS_KIND=""
     case "$_DS_MODE" in
         push) ;;
-        no-push) case "$2" in ""|-) _DS_SUBJ="wbs update" ;; *) _DS_SUBJ="$2 wbs update" ;; esac ;;
+        no-push) case "$_DS_ISSUE" in ""|-) _DS_SUBJ="wbs update" ;; *) _DS_SUBJ="$_DS_ISSUE wbs update" ;; esac ;;
         *) _ds_set skipped bad-mode "unknown sync mode '$_DS_MODE'"; _DS_MODE=push ;;
     esac
     [ -n "$DEVDOC_SYNC_REASON" ] || _devdoc_sync_body "$1" || true
