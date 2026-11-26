@@ -148,7 +148,8 @@ devAgent/
 │   │   watchdog.sh (#932) — the no-progress watchdog: `check` for a launcher, `heartbeat` for a session (§7.3),
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
 │   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans,
-│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads, ...
+│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads,
+│   │   plan-estimate.sh (#738; lib/plan-estimate.py) — the plan's structured estimate, read-only, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -1653,10 +1654,10 @@ session's progress) and `libexec/long-run.sh` (its start is not progress; the
 command's output is), so a devagent script run as the wrapped command still
 counts its own entry (`tests/watchdog-check.bats`: `check and heartbeat do not
 move script, and check writes nothing`; `tests/long-run.bats`: `long-run.sh
-does not move script`). Seven top-level scripts never reach `paths.sh` and so
+does not move script`). Eight top-level scripts never reach `paths.sh` and so
 never move the file: `archive-transcripts.sh`, `build-docs-site.sh`,
 `cost-report.sh`, `install-git-hooks.sh`, `lessons-lint.sh`,
-`lessons-lint-corpus.sh` and `wbs.sh`. Their return still grows the session's
+`lessons-lint-corpus.sh`, `plan-estimate.sh` and `wbs.sh`. Their return still grows the session's
 transcript, which is a progress source of its own.
 
 #### The no-progress watchdog (#932)

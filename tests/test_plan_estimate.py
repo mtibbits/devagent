@@ -1,0 +1,338 @@
+"""Tests for scripts/lib/plan-estimate.py and scripts/plan-estimate.sh (#738):
+the plan's structured estimate line, read back, and the impact comparison line."""
+import ast
+import importlib.util
+import json
+import subprocess
+import time
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+LIB = REPO / "scripts" / "lib" / "plan-estimate.py"
+SH = REPO / "scripts" / "plan-estimate.sh"
+FIX = REPO / "tests" / "fixtures" / "plan-estimate"
+
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+pe = _load("plan_estimate", LIB)
+
+KEYS = {"schema", "status", "source", "changed", "line", "text", "est", "tok",
+        "meta", "scope", "problems"}
+NOTE = ("interim: actuals stop at the impact step and count only the "
+        "transcripts cost-report read")
+
+
+def _fix(name):
+    return pe.read_file(FIX / name)
+
+
+def _bounds(c):
+    return (c["class"], c["low"], c["high"])
+
+
+def _section(*lines, heading="### Size estimate"):
+    return "\n".join(["# Issue-1: inline", "", heading, *lines, ""])
+
+
+def _run(*args):
+    return subprocess.run(["bash", str(SH), *map(str, args)],
+                          capture_output=True, text=True, check=False)
+
+
+# 1-5: the named cases
+
+def test_confirmed_estimate_wins_when_tighten_changed_it():
+    r = _fix("confirmed-changed.md")
+    assert (r["status"], r["source"], r["changed"]) == ("present", "confirmed", True)
+    assert _bounds(r["est"]) == ("time", 4, 6)
+    assert _bounds(r["tok"]) == ("tokens", 10000000, 14000000)
+    assert r["scope"]["est"]["raw"] == "3-5h"
+    assert r["text"] == "- Estimate (confirmed): {est: 4-6h, tok: 10-14M}"
+    lines = (FIX / "confirmed-changed.md").read_text(encoding="utf-8").split("\n")
+    assert lines[r["line"] - 1] == r["text"]
+    for decoy in ("90-99h", "1-2h", "7-8h", "50-60h"):
+        assert decoy not in json.dumps(r["meta"]) + json.dumps(r["scope"])
+
+
+def test_scope_estimate_stands_when_tighten_did_not_change_it():
+    r = _fix("confirmed-same.md")
+    assert (r["source"], r["changed"]) == ("confirmed", False)
+    assert (r["est"]["low"], r["est"]["high"]) == (8, 8)
+    assert (r["tok"]["low"], r["tok"]["high"]) == (500000, 500000)
+    r = _fix("scope-only.md")
+    assert (r["status"], r["source"], r["changed"], r["scope"]) == (
+        "present", "scope", None, None)
+    assert r["tok"]["class"] == "placeholder"
+
+
+def test_latest_revision_wins():
+    r = _fix("two-revisions.md")
+    assert (r["source"], r["changed"]) == ("confirmed", False)
+    assert (r["est"]["low"], r["est"]["high"]) == (16, 24)
+    assert (r["tok"]["low"], r["tok"]["high"]) == (30000000, 40000000)
+    r = pe.read_estimate(_section(
+        "- Estimate (scope): {est: 1h, tok: 1M}",
+        "- Estimate (confirmed): {est: 2h, tok: 2M}",
+        "- Estimate (scope): {est: 3h, tok: 3M}"))
+    assert (r["status"], r["source"]) == ("present", "scope")
+    assert (r["est"]["raw"], r["tok"]["raw"]) == ("3h", "3M")
+
+
+def test_legacy_prose_is_absent():
+    text = (FIX / "legacy-prose.md").read_text(encoding="utf-8")
+    assert sum(1 for x in text.split("\n") if x.startswith("- ")) >= 5
+    r = pe.read_estimate(text)
+    assert r["status"] == "absent"
+    assert r["problems"] == []
+    for k in KEYS - {"schema", "status", "problems"}:
+        assert r[k] is None, k
+
+
+def test_quoted_format_is_absent():
+    r = _fix("quoted-format.md")
+    assert (r["status"], r["problems"]) == ("absent", [])
+
+
+# 6-15: the edges
+
+NEAR_MISSES = [
+    "- Estimate (scope): est 3-5h, tok 8-12M",
+    "- Estimate (scope): {est: 3-5h, tok: 8-12M} (rough)",
+    "- estimate (scope): {est: 3-5h, tok: 8-12M}",
+    "Estimate (scope): {est: 3-5h, tok: 8-12M}",
+    "- Estimate(scope): {est: 3-5h, tok: 8-12M}",
+]
+
+
+@pytest.mark.parametrize("bad", NEAR_MISSES)
+def test_last_estimate_shaped_line_decides(bad):
+    r = pe.read_estimate(_section(bad))
+    assert (r["status"], r["line"], r["text"]) == ("unreadable", 4, bad)
+    assert [p["line"] for p in r["problems"]] == [4]
+    assert r["source"] is None and r["est"] is None and r["meta"] is None
+
+
+def test_near_miss_fixture_and_order():
+    r = _fix("near-miss.md")
+    assert (r["status"], r["line"]) == ("unreadable", 1)
+    assert len(r["problems"]) == 1
+    good = "- Estimate (scope): {est: 3-5h, tok: 8-12M}"
+    bad = "- Estimate (confirmed): {est: 4-6h, tok: 10-14M} plus a note"
+    r = pe.read_estimate(_section(good, bad))
+    assert (r["status"], r["line"]) == ("unreadable", 5)
+    r = pe.read_estimate(_section(bad, good))
+    assert (r["status"], r["source"], r["line"]) == ("present", "scope", 5)
+    assert len(r["problems"]) == 1 and r["problems"][0]["line"] == 4
+
+
+@pytest.mark.parametrize("line,heading", [
+    ("- **Estimate (scope):** {est: 3-5h, tok: 8-12M}", "### Size estimate"),
+    ("- **Estimate (scope)**: {est: 3-5h, tok: 8-12M}", "### Size estimate"),
+    ("- Estimate (scope): `{est: 3-5h, tok: 8-12M}`", "### Size estimate"),
+    ("- Estimate (scope): {est: \"3-5h\", tok: '8-12M'}", "### Size estimate"),
+    ("* Estimate (scope): {est: 3-5h, tok: 8-12M}", "### Size estimate"),
+    ("+ Estimate (scope): {est: 3-5h, tok: 8-12M}", "### Size estimate"),
+    ("- Estimate (scope): {est: 3-5h, tok: 8-12M}", "## Size estimate"),
+    ("- Estimate (scope): {est: 3-5h, tok: 8-12M}", "### Size estimate (revision 2)"),
+])
+def test_wrappers_models_write_are_read(line, heading):
+    r = pe.read_estimate(_section(line, heading=heading))
+    assert (r["status"], r["source"]) == ("present", "scope")
+    assert _bounds(r["est"]) == ("time", 3, 5)
+    assert _bounds(r["tok"]) == ("tokens", 8000000, 12000000)
+
+
+def test_line_under_another_heading_is_not_an_estimate():
+    # Tighten amendment A7 overrides test 7's `absent`: an estimate-shaped
+    # line outside a size section is reported, never silently absent.
+    r = pe.read_estimate(_section("- Estimate (scope): {est: 3-5h, tok: 8-12M}",
+                                  heading="### Sizing"))
+    assert (r["status"], r["line"], r["source"]) == ("unreadable", 4, None)
+    assert len(r["problems"]) == 1
+
+
+def test_values_go_through_the_one_classifier(monkeypatch):
+    calls = []
+    sentinel = {"sentinel": True}
+
+    def fake(key, value):
+        calls.append((key, value))
+        return sentinel
+
+    monkeypatch.setattr(pe.wbs_parser, "classify_estimate", fake)
+    r = pe.read_estimate(_section("- Estimate (scope): {est: \" 3-5h \", tok: 8-12M}"))
+    assert r["est"] is sentinel and r["tok"] is sentinel
+    assert calls == [("est", "3-5h"), ("tok", "8-12M")]
+
+
+def test_non_string_values_reach_the_classifier_unchanged(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pe.wbs_parser, "classify_estimate",
+                        lambda k, v: calls.append((k, v)) or {"class": "x"})
+    pe.read_estimate(_section("- Estimate (scope): {est: [1h, 2h], tok: 1M}"))
+    assert calls == [("est", ["1h", "2h"]), ("tok", "1M")]
+
+
+@pytest.mark.parametrize("body,est,tok", [
+    ("{est: ?, tok: 12000000}", "placeholder", "unparseable"),
+    ("{est: 30m}", "non-time", "absent"),
+    ("{est: [1h, 2h], tok: 1M}", "unparseable", "tokens"),
+])
+def test_non_estimates_are_reported_per_key(body, est, tok):
+    r = pe.read_estimate(_section(f"- Estimate (scope): {body}"))
+    assert r["status"] == "present"
+    assert (r["est"]["class"], r["tok"]["class"]) == (est, tok)
+
+
+def test_unknown_keys_pass_through():
+    r = pe.read_estimate(_section(
+        "- Estimate (scope): {tok: 8-12M, prod: 400, est: 3-5h, tests: 600}"))
+    assert r["status"] == "present"
+    assert set(r["meta"]) == {"tok", "prod", "est", "tests"}
+    assert (r["est"]["class"], r["tok"]["class"]) == ("time", "tokens")
+
+
+def test_crlf_bytes_read_as_lf(tmp_path):
+    lf = (FIX / "confirmed-changed.md").read_bytes()
+    crlf = tmp_path / "crlf.md"
+    crlf.write_bytes(lf.replace(b"\n", b"\r\n"))
+    assert pe.read_file(crlf) == _fix("confirmed-changed.md")
+
+
+def test_result_has_exactly_the_contract_keys():
+    for name, status in (("confirmed-changed.md", "present"),
+                         ("legacy-prose.md", "absent"),
+                         ("near-miss.md", "unreadable")):
+        r = _fix(name)
+        assert set(r) == KEYS
+        assert (r["schema"], r["status"]) == (1, status)
+        assert all(isinstance(p["line"], int) for p in r["problems"])
+    assert pe.STATUSES == ("present", "absent", "unreadable")
+
+
+IMPACT_FORMS = {
+    "confirmed-changed.md": (
+        "- Estimate vs actual (interim): agent time est 4-6h vs actual <agent wall>; "
+        "tokens est 10-14M vs actual <cost> [estimate confirmed, changed from scope; "
+        + NOTE + "]"),
+    "confirmed-same.md": (
+        "- Estimate vs actual (interim): agent time est 8h vs actual <agent wall>; "
+        "tokens est 0.5M vs actual <cost> [estimate confirmed, unchanged; " + NOTE + "]"),
+    "scope-only.md": (
+        "- Estimate vs actual (interim): agent time est 3-5h vs actual <agent wall>; "
+        "tokens est not measured (tok is a placeholder) vs actual <cost> "
+        "[estimate not confirmed; " + NOTE + "]"),
+    "legacy-prose.md": "- Estimate vs actual (interim): no structured estimate",
+    "near-miss.md": (
+        "- Estimate vs actual (interim): not measured "
+        "(estimate line unreadable at plan line 1)"),
+}
+
+
+def test_impact_line_forms():
+    for name, want in IMPACT_FORMS.items():
+        assert pe.impact_line(_fix(name)) == want, name
+    orphan = pe.read_estimate(_section("- Estimate (confirmed): {est: 30m}"))
+    assert pe.impact_line(orphan) == (
+        "- Estimate vs actual (interim): agent time est not measured "
+        "(est is not in h, d or w) vs actual <agent wall>; tokens est not measured "
+        "(no tok value) vs actual <cost> [estimate confirmed, no scope line; "
+        + NOTE + "]")
+    assert pe.IMPACT_LABEL == "- Estimate vs actual (interim):"
+    assert pe.INTERIM_NOTE == NOTE
+
+
+EXITS = {"confirmed-changed.md": 0, "confirmed-same.md": 0, "scope-only.md": 0,
+         "two-revisions.md": 0, "legacy-prose.md": 1, "quoted-format.md": 1,
+         "near-miss.md": 3, "unanchored.md": 3}
+
+
+def test_cli_modes_exit_codes_and_streams():
+    assert {p.name for p in FIX.glob("*.md")} == set(EXITS)
+    for name, code in EXITS.items():
+        path = FIX / name
+        for args in ((path,), ("--json", path), ("--impact-line", path)):
+            p = _run(*args)
+            assert (p.returncode, p.stderr) == (code, ""), (name, args, p.stderr)
+            assert p.stdout.endswith("\n") and p.stdout.count("\n") == 1
+            assert "\r" not in p.stdout
+        assert json.loads(_run("--json", path).stdout) == pe.read_file(path)
+        assert _run("--impact-line", path).stdout == pe.impact_line(pe.read_file(path)) + "\n"
+    good = FIX / "near-miss.md"
+    for args in ((FIX / "missing.md",), (FIX,), (), (good, good), ("--bogus", good),
+                 ("--json", "--impact-line", good)):
+        p = _run(*args)
+        assert (p.returncode, p.stdout) == (2, ""), args
+        assert p.stderr.splitlines()[-1].startswith("plan-estimate: "), (args, p.stderr)
+    assert "cannot read" in _run(FIX / "missing.md").stderr
+
+
+def test_hostile_line_is_fast():
+    text = _section("- Estimate (scope): {" + "a" * 200000,
+                    " " * 200000 + "x")
+    t = time.monotonic()
+    pe.read_estimate(text)
+    assert time.monotonic() - t < 2
+
+
+def test_hostile_heading_and_unclosed_fences_are_fast():
+    t = time.monotonic()
+    pe.read_estimate(_section("# a" + " " * 200000 + "x"))
+    pe.read_estimate(_section(*["```py"] * 8000))
+    assert time.monotonic() - t < 2
+
+
+def test_unclosed_fence_hides_what_follows():
+    r = pe.read_estimate(_section("```text", "- Estimate (scope): {est: 3-5h, tok: 8-12M}"))
+    assert r["status"] == "absent"
+
+
+# 16-20: tighten additions
+
+def test_crash_exits_4_not_absent(tmp_path):
+    bad = tmp_path / "broken.py"
+    bad.write_text("raise RuntimeError('planted')\n", encoding="utf-8")
+    p = subprocess.run(["bash", str(SH), str(FIX / "confirmed-changed.md")],
+                       capture_output=True, text=True, check=False,
+                       env={"PATH": "/usr/bin:/bin", "PLAN_ESTIMATE_WBS_PARSER": str(bad)})
+    assert (p.returncode, p.stdout) == (4, "")
+    assert p.stderr == "plan-estimate: internal error: RuntimeError: planted\n"
+
+
+def test_meta_walk_problems_are_reported():
+    r = pe.read_estimate(_section("- Estimate (scope): {est: 3-5h tok: 8-12M}"))
+    assert r["status"] == "present"
+    assert any("','" in p["message"] and p["line"] == 4 for p in r["problems"])
+    assert pe.impact_line(r).startswith(
+        "- Estimate vs actual (interim): agent time est not measured ('est' value holds ")
+    r = pe.read_estimate(_section("- Estimate (scope): {est: 3-5h, tok: 1M, est: 4h}"))
+    assert any("more than once" in p["message"] for p in r["problems"])
+    assert r["est"]["raw"] == "4h"
+
+
+def test_unanchored_labelled_lines_are_unreadable():
+    r = _fix("unanchored.md")
+    assert r["status"] == "unreadable"
+    assert len(r["problems"]) == 3
+    for line in ("1. Estimate (scope): {est: 3-5h, tok: 8-12M}",
+                 "> - Estimate (scope): {est: 3-5h, tok: 8-12M}"):
+        for heading in ("### Size estimate", "## Tasks"):
+            r = pe.read_estimate(_section(line, heading=heading))
+            assert (r["status"], r["line"]) == ("unreadable", 4), (line, heading)
+
+
+def test_reader_source_parses_at_python_3_8():
+    ast.parse(LIB.read_text(encoding="utf-8"), feature_version=(3, 8))
+
+
+def test_est_forms_plan_fixture_is_absent():
+    r = pe.read_file(REPO / "tests" / "fixtures" / "wbs" / "est-forms-plan.md")
+    assert (r["status"], r["problems"]) == ("absent", [])
