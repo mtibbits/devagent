@@ -5,33 +5,11 @@ load 'helpers/devdoc-sync'
 
 setup() {
     devagent_test_setup
-    # #231/#242: a valid close requires the closeout steps terminal; mark
-    # updatewbs/impact/lessonslearned [x] so the pre-existing cleanup tests
-    # exercise the allowed path. Whitespace-robust: key on the line content,
-    # edit the glyph in place (don't assume spacing).
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 x
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 x
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 x
-    # #594: lessonslearned [x] means the file exists and lints clean — seeded
-    # BEFORE the devdoc seed commit so the existing devdoc-diff assertions hold.
-    seed_lessons_learned "$DEVDOC_DIR/Issue-1"
+    # The closeout steps terminal, lessons-learned seeded and the register fixture,
+    # all BEFORE the devdoc seed commit (tests/helpers/devdoc-sync.bash).
+    sync_closeout_ready "$DEVDOC_DIR/Issue-1"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
-    # #586: the register must resolve to a FIXTURE (never the plugin default —
-    # the drain would write the repo's real templates/potholes.md). Written
-    # BEFORE the devdoc seed commit so the existing tests' devdoc diff is
-    # unchanged. Seed citations are never Issue-1 (the issue under test).
-    mkdir -p "$DEVDOC_DIR/templates"
-    printf '%s\n' '# Pothole register' '' \
-        '## Bash exit-status & control flow' '- an existing line (Issue-7).' '' \
-        '## Docs / edit-neighborhood hygiene' '- another existing line (Issue-8).' \
-        > "$DEVDOC_DIR/templates/potholes.md"
-    export TEMPLATE_PATHS_OVERRIDE_potholes="$DEVDOC_DIR/templates/potholes.md"
-    # #611: the seed is a fixture too — a full COPY of the plugin templates with
-    # only potholes.md replaced, so every other key still resolves.
-    export DEVAGENT_PLUGIN_TEMPLATES="$DEVAGENT_TMP/plugin_templates"
-    cp -r "$DEVAGENT_ROOT/templates" "$DEVAGENT_PLUGIN_TEMPLATES"
-    cp "$DEVDOC_DIR/templates/potholes.md" "$DEVAGENT_PLUGIN_TEMPLATES/potholes.md"
     ( cd "$DEVDOC_DIR" \
       && git -c init.defaultBranch=main init -q \
       && git config user.email t@example.com \
@@ -1129,25 +1107,13 @@ EOF
 }
 
 # ---- #1148: cleanup syncs the devDoc with origin ------------------------------------
-# _sync_close_fixture — the devDoc one level above devdoc_dir ($DEVDOC_REPO), pushed to a
-# bare origin, and a second clone A standing in for the other machine (SYNC_A).
-_sync_close_fixture() {
-    unset DEVAGENT_DEVDOC_LOCK_TOKEN
-    devdoc_parent_repo_fixture
-    SYNC_ORIGIN="$DEVAGENT_TMP/origin.git" SYNC_A="$DEVAGENT_TMP/a"
-    git -c init.defaultBranch=main init -q --bare "$SYNC_ORIGIN"
-    git -C "$DEVDOC_REPO" remote add origin "$SYNC_ORIGIN"
-    git -C "$DEVDOC_REPO" push -q -u origin main 2>/dev/null
-    git clone -q "$SYNC_ORIGIN" "$SYNC_A"
-    _sync_ident "$SYNC_A"
-}
 # _net_secs <calls> — the summed seconds of the wrapper's network calls (end - start).
 _net_secs() {
     awk '$1 == "start" { s[$2] = $3 } $1 == "end" { t += $3 - s[$2] } END { printf "%.3f\n", t / 1000000 }' "$1"
 }
 
 @test "#1148 diverged close: origin holds all three commits" {
-    _sync_close_fixture
+    sync_close_fixture
     sync_commit "$DEVDOC_REPO" statusreport.md 'report' 'statusreport: 2026-11-19'
     sr="$(git -C "$DEVDOC_REPO" rev-parse HEAD)"
     sync_other other.md 'from A' 'A: other.md'
@@ -1164,7 +1130,7 @@ _net_secs() {
 }
 
 @test "#1148 conflict at close: closed, one WARNING, status line" {
-    _sync_close_fixture
+    sync_close_fixture
     sync_commit "$DEVDOC_REPO" shared.md 'from B' 'B: shared.md'
     sync_other shared.md 'from A' 'A: shared.md'
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
@@ -1180,7 +1146,7 @@ _net_secs() {
 }
 
 @test "#1148 bounded: one budget for all network calls" {
-    _sync_close_fixture
+    sync_close_fixture
     sync_other other.md 'from A' 'A: other.md'
     o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
     w="$(sync_git_wrapper "$DEVAGENT_TMP/w1" slow:2)"
@@ -1193,7 +1159,7 @@ _net_secs() {
     awk -v t="$(_net_secs "$DEVAGENT_TMP/w1/calls")" 'BEGIN { exit !(t <= 4 + 5) }'
     [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]
     # run 2: under 1 s is left after the first call, so no second call starts
-    rm -rf "$DEVAGENT_TMP/a"; teardown; setup; _sync_close_fixture
+    rm -rf "$DEVAGENT_TMP/a"; teardown; setup; sync_close_fixture
     sync_other other.md 'from A' 'A: other.md'
     w="$(sync_git_wrapper "$DEVAGENT_TMP/w2" slow:1.5)"
     DEVAGENT_DEVDOC_SYNC_SECS=2 DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
@@ -1204,7 +1170,7 @@ _net_secs() {
 }
 
 @test "#1148 lock: HEAD read and move are held; network calls are not" {
-    _sync_close_fixture
+    sync_close_fixture
     sync_other other.md 'from A' 'A: other.md'
     w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
     DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
@@ -1231,7 +1197,7 @@ _net_secs() {
 }
 
 @test "#1148 off: no network call, no new output" {
-    _sync_close_fixture
+    sync_close_fixture
     git -C "$DEVDOC_REPO" remote remove origin                       # leg a: no origin
     o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"
     w="$(sync_git_wrapper "$DEVAGENT_TMP/w1" log)"
@@ -1240,7 +1206,7 @@ _net_secs() {
     ! grep -q '^start ' "$DEVAGENT_TMP/w1/calls" || false
     [[ "$output" != *"devDoc sync"* && "$output" != *"WARNING:"* ]]
     [ "$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)" = "$o" ]
-    teardown; setup; _sync_close_fixture                             # leg b: commit_devdoc=false
+    teardown; setup; sync_close_fixture                             # leg b: commit_devdoc=false
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
     sync_commit "$DEVDOC_REPO" local.md local 'B: local'
     o="$(git -C "$SYNC_ORIGIN" rev-parse refs/heads/main)"

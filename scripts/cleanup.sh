@@ -364,6 +364,7 @@ if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
 fi
 
 # #1148: the devDoc sync - after the lock release; its own short hold only.
+# wbs-update.sh's --sync-devdoc block (#1149, step 21) uses this same gate: keep them alike.
 if [ "$commit_devdoc" = true ] && [ "$devdoc_git" -eq 0 ] && devdoc_sync_repo "$devdoc_dir"; then
     _ci_secs DEVAGENT_DEVDOC_SYNC_SECS 30                             # read only when a sync can run
     devdoc_sync "$devdoc_dir" "$issue_arg" "$_CI_SECS" || warn "$DEVDOC_SYNC_LINE"

@@ -157,6 +157,13 @@
 #                 still wins, and otherwise the most recent incomplete
 #                 checklist is scanned, exactly the close-time resolution
 #                 from before #749 (when the slot was already blank).
+#   --sync-devdoc (#1149; passed only by `wbs.sh update`, so step 21 and a
+#                 hand-run /devagent:wbs update, never cleanup's call)
+#                 before the tracker calls, bring devDoc's origin/<branch> in
+#                 through devdoc_sync's no-push mode: a fast-forward or one
+#                 `devagent` merge commit, never a push. Gated as cleanup's sync
+#                 is, and off under --offline / DEVAGENT_WBS_OFFLINE=1. A sync
+#                 that refuses or skips prints one info line; the exit is unchanged.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -175,10 +182,15 @@ source "$SCRIPT_DIR/lib/active.sh"
 source "$SCRIPT_DIR/lib/trust.sh"
 # shellcheck source=lib/devdoc-repo.sh
 source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: the devDoc repository lock
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/permission.sh"    # #1149: the sync's commit_devdoc gate
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/ci.sh"            # #1149: _ci_secs reads DEVAGENT_DEVDOC_SYNC_SECS
 
 if_exists=0
 offline=0
 skip_state_slot=0
+sync_devdoc=0
 [[ "${DEVAGENT_WBS_OFFLINE:-}" == 1 ]] && offline=1
 project_arg=""
 for arg in "$@"; do
@@ -186,6 +198,7 @@ for arg in "$@"; do
     --if-exists) if_exists=1 ;;
     --offline) offline=1 ;;
     --skip-state-slot) skip_state_slot=1 ;;
+    --sync-devdoc) sync_devdoc=1 ;;
     --*) warn "wbs update: ignoring unknown flag '$arg'" ;;
     *)
       if [[ -z "$project_arg" ]]; then
@@ -259,6 +272,21 @@ trk_tmp="$(mktemp -d)"
 # fetch temp dir.
 trap 'devdoc_lock_release; rm -rf "$trk_tmp"' EXIT
 trk_env=()
+
+# --- devDoc sync (#1149) -----------------------------------------------------
+# Before the tracker calls and every WBS.md read, so the reconcile edits
+# origin's current WBS.md. Its gate is cleanup's (cleanup.sh, the #1148 block
+# after the lock release) plus --offline: keep the two alike. No lock is held
+# here; the sync takes one short hold of its own (one attempt), and the EXIT
+# trap above releases it if the run is interrupted.
+if (( sync_devdoc == 1 && offline == 0 )); then
+  if devdoc_in_git "$devdoc_dir" >/dev/null && devdoc_sync_repo "$devdoc_dir" \
+    && [[ "$(permission_value "$project" commit_devdoc)" == true ]]; then
+    _ci_secs DEVAGENT_DEVDOC_SYNC_SECS 30
+    devdoc_sync "$devdoc_dir" "${active_issue:--}" "$_CI_SECS" no-push \
+      || info "wbs update: $DEVDOC_SYNC_LINE"
+  fi
+fi
 
 _trk_fetch() {
   local S="$1" table="$2"
