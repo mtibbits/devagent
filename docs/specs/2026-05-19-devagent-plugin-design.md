@@ -537,7 +537,8 @@ per repository (`scripts/lib/devdoc-repo.sh`):
   case the knob plus 5 s (whole seconds under bash < 5). A close's bounded parts
   then stay inside its 120 s command timeout: 60 s of lock waits plus 35 s of
   sync, leaving 25 s for the WBS reconcile's tracker calls, which are not
-  bounded. This variable is defined here and in `commands/cleanup.md`.
+  bounded. This variable is defined here and in `commands/cleanup.md`; it also
+  bounds step 21's sync, as a budget of its own (`commands/updatewbs.md`).
 - **Step-21 sync (#1149).** `wbs update` (step 21, and a hand-run
   `/devagent:wbs update`; never cleanup's own reconcile) runs the same
   `devdoc_sync` in its `no-push` mode before its tracker calls, under cleanup's
@@ -4676,7 +4677,8 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   the checklist, except that an all-done checklist gives `[~]` until the
   issue closes. An id the tracker does not list keeps its glyph. A failed
   lookup changes no glyph, prints one warning and exits 0. `--offline`
-  (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703).
+  (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703) and the step-21 devDoc
+  sync (#1149).
   Then an MR phase (#704) reads linked-MR state through the code backend's
   `issue-mrs` (§9.2), once per issue source with open leaves whose backend
   is the project's `code_source.backend`. A leaf whose issue is open takes

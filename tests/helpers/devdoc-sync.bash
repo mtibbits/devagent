@@ -295,26 +295,3 @@ EOF
     chmod +x "$w"
     printf '%s\n' "$w"
 }
-
-# sync_wait_rebuild — cleanup starts the actuals rebuild detached (#735); wait for it
-# (bounded) so no test leaves a process writing into a removed tmp dir.
-sync_wait_rebuild() {
-    local pidf="$HOME/.claude/devagent/actuals-rebuild.pid" pid n=0
-    [ -f "$pidf" ] || return 0
-    pid="$(cat "$pidf")"
-    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
-}
-
-# sync_stub_backends — a close reaches the actuals rebuild, whose milestones run
-# dispatches the project's github issue_source (#735): stub it and the code
-# backend, and shim the CLIs so a real one is caught in network.log.
-sync_stub_backends() {
-    . "$BATS_TEST_DIRNAME/helpers/wbs-tracker.bash"
-    export WBS_STUB_ROOT="$DEVAGENT_TMP"
-    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
-    export DEVAGENT_CODE_BACKEND_DIR="$DEVAGENT_TMP/code-backends"
-    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
-    wbs_mr_install_stub "$DEVAGENT_CODE_BACKEND_DIR"
-    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
-    export PATH="$DEVAGENT_TMP/shims:$PATH"
-}

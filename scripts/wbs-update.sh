@@ -147,8 +147,9 @@
 # Flags:
 #   --if-exists   exit 0 silently when <devdoc>/WBS.md does not exist
 #                 (used by cleanup.sh and other auto-call sites)
-#   --offline     no tracker or MR lookup; reconcile from local checklists
-#                 only, holding MR-set glyphs. DEVAGENT_WBS_OFFLINE=1 does
+#   --offline     no tracker or MR lookup and no devDoc sync (#1149);
+#                 reconcile from local checklists only, holding MR-set
+#                 glyphs. DEVAGENT_WBS_OFFLINE=1 does
 #                 the same (cleanup.sh's call cannot take a flag).
 #   --skip-state-slot
 #                 cleanup's call (#749); the closing issue is still in the

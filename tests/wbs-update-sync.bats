@@ -22,9 +22,16 @@ setup() {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
+# #735: cleanup starts the actuals rebuild detached; wait for it (bounded).
+_wait_rebuild() {
+    local pidf="$HOME/.claude/devagent/actuals-rebuild.pid" pid n=0
+    [ -f "$pidf" ] || return 0
+    pid="$(cat "$pidf")"
+    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
+}
 teardown() {
     local rc=0
-    sync_wait_rebuild
+    _wait_rebuild
     [ ! -e "$DEVAGENT_TMP/network.log" ] || { echo "a real backend CLI ran:" >&2; cat "$DEVAGENT_TMP/network.log" >&2; rc=1; }
     devagent_test_teardown
     return "$rc"
@@ -37,8 +44,14 @@ _wbs_fixture() {
         '  - [~] Working leaf {issue: Issue-1, est: 1w}' \
         '  - [ ] Next leaf {issue: Issue-2, est: 1w}' > "$DEVDOC_DIR/WBS.md"
     [ "${1:-}" = --no-git ] || sync_close_fixture
-    sync_stub_backends
+    export WBS_STUB_ROOT="$DEVAGENT_TMP"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
+    export DEVAGENT_CODE_BACKEND_DIR="$DEVAGENT_TMP/code-backends"
+    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+    wbs_mr_install_stub "$DEVAGENT_CODE_BACKEND_DIR"
     printf '1\tdone\n' > "$DEVAGENT_TMP/state-list.github"
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    export PATH="$DEVAGENT_TMP/shims:$PATH"
     export DEVAGENT_DEVDOC_LOCK_TIMEOUT=30
 }
 # _a_flip — the other machine marks Issue-2 done and pushes; sets a (its tip).

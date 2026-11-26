@@ -308,7 +308,8 @@ seconds, default 30). Each call is bounded by what is left of it, measured
 finer than whole seconds; lock waits do not spend it; no call starts with under
 1 s left. A call that hits its bound gets 5 s more to exit, so allow the knob
 plus 5 s (under bash older than 5 the clock is whole seconds and can overrun by
-under 1 s).
+under 1 s). The same knob bounds step 21's sync (`commands/updatewbs.md`), as a
+budget of its own.
 
 ## Transcript archive (#731)
 

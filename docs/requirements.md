@@ -525,7 +525,9 @@ tracker.
   changes nothing in its phase, warns once and exits zero. It writes under
   the devDoc repository lock, after every lookup, replaces the file
   atomically, and exits non-zero when the lock is held past its bound or the
-  write fails. {refines: SR-9}
+  write fails. Run as step 21 (`wbs.sh update`), it first brings the devDoc
+  repository's origin branch in without pushing, unless offline (#1149).
+  {refines: SR-9}
 - FR-67: devagent sorts each parent's children by dependency, then
   inherited priority, then fan-out, moving whole blocks and never top-level
   nodes; it writes only a pure permutation, otherwise leaves the order and

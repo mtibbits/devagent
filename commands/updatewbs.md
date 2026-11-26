@@ -27,7 +27,9 @@ here (step 21 and a hand-run `/devagent:wbs update`), under cleanup's gate:
 merge commit `devdoc: merge origin/<branch> into <branch> (<issue> wbs
 update)`, and never pushes: that merge shows in `/devagent:status` as a commit
 not on origin until the next cleanup pushes it. It makes one attempt at the
-devDoc lock; the reconcile's own write keeps its full bound. Cleanup's own
+devDoc lock; the reconcile's own write keeps its full bound. Its network calls
+share one budget, `DEVAGENT_DEVDOC_SYNC_SECS` (default 30 s; allow the knob plus
+5 s), as cleanup's sync does. Cleanup's own
 reconcile does not sync. A sync that refuses or skips prints one line and the
 step goes on, with the same exit:
 `wbs-update.sh: wbs update: devDoc sync <refused|skipped> for <repo> (<branch>): <reason>. [<remedy>. ]This step uses this machine's copy; the next cleanup syncs again.`
