@@ -15,6 +15,15 @@ Then:
 - If the script exited non-zero because `revisions/r<N>/comments.md` is missing, tell the user to run `/devagent:comments` first.
 - The next step on the new revision is `draft` (step 2). The `draft` skill reads `pending_comments_file` from per-project state and includes those comments as user-intent context in the new plan.
 
+## A held issue (#963)
+
+While the issue's `STUCK` is an operator question (`Kind: question`, written
+by a hold, #962), revise refuses, with or without `--retier`: a new revision block would move
+the active block off the held row. It changes nothing, prints the `STUCK` path and its
+answer line on stderr, and exits `operator-question` (the code is in
+`scripts/lib/refusals.sh`).
+On that exit, stop: the issue is held. Report the `STUCK` path and the answer line to the operator; do not retry, unstick, resume or re-pull the issue. Any other `STUCK` is handled as before.
+
 ## `--retier <tier>` — tier escalation valve (#537)
 
 `revise.sh --retier <tier> [project] [issue]` promotes a misclassified

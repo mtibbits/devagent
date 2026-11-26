@@ -28,6 +28,9 @@ which ends an `--auto` chain:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-stuck.sh" --name updatewbs "$ISSUE_DIR" "<first stderr line>"
 ```
 
+If that call exits `operator-question`, stop: the issue is held on an operator
+question, and its `STUCK` is kept (#963).
+
 ## Completion handoff
 
 First, **mark this step done** — `next.sh` keys off the checklist mark

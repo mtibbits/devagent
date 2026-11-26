@@ -9,7 +9,7 @@ argument-hint: "[--out PATH | --ready]"
 **Usage:** `/devagent:portfolio [--out PATH | --ready]`
 
 Writes one document that describes every configured project's `WBS.md`
-(#726). The document conforms to the portfolio schema v1.3; its contract is
+(#726). The document conforms to the portfolio schema v1.4; its contract is
 [`docs/portfolio-schema.md`](../docs/portfolio-schema.md), and spec §13.4
 introduces it. The command is read-only. It writes the one document and
 nothing else: no `WBS.md`, no state, and no devdoc file. With `--ready` it
@@ -27,7 +27,14 @@ writes nothing and prints every project's ready leaves instead (#727; see
   `WBS.md` (`unreadable`).
 - **Each issue dir.** For an issue id on a node, `<devdoc>/<issue>/checklist.md`
   gives `checklist`, `next_step` and `next_step_number` (the rule `next.sh`
-  uses), and `<devdoc>/<issue>/STUCK` gives `stuck`.
+  uses), and `<devdoc>/<issue>/STUCK` gives `stuck` (with `stuck.kind`, the
+  header's `Kind:`, since 1.4).
+- **Devagent state** (#963). `<devagent_home>/state/<project>.toml` is read,
+  never written, for its `[parked]` keys: an issue that is a key there has
+  `parked: true`. A project with no state file has no parked issues. A state
+  file that cannot be loaded, or whose `parked` is not a table, gives every
+  issue of that project `parked: null`, one `state_unreadable` entry (which
+  does not name the path), and no ready leaf that carries an issue.
 - **Actuals** (#735). `<devagent_home>/actuals.json`, built by
   `/devagent:actuals` (and by cleanup when it is stale), is read, never run:
   each issue's row fills its `actuals` slot, each project's row its `actuals`
@@ -72,7 +79,8 @@ rows (`dep_skipped`), dependency cycles (`dep_cycle`), parents marked done
 with pending leaves under them (`parent_done_leaf_pending`), duplicate issues,
 unparseable estimates, unknown or unreadable metadata, lines shaped like nodes
 that are not nodes, parser warnings, and an actuals file that could not be
-used (`actuals_unavailable`, one per project). The kinds are listed in the
+used (`actuals_unavailable`, one per project), and a devagent state file that
+could not be read (`state_unreadable`, one per project). The kinds are listed in the
 schema doc's "Report kinds" table.
 
 ## Ready leaves (`--ready`)
@@ -157,7 +165,10 @@ the TAB character):
 When no leaf is ready, the view prints nothing and exits 0. Each project the
 command could not read gets one line on stderr, `portfolio: <project>: not
 read (<status>); its leaves are not listed`, so "nothing is ready" and "could
-not read" differ. `--ready` writes nothing (no document, no devdoc file) and
+not read" differ. A project whose `WBS.md` was read but whose devagent state
+could not be (#963) gets `portfolio: <project>: devagent state could not be
+read; leaves with an issue are not listed`; its leaves without an issue are
+still listed. `--ready` writes nothing (no document, no devdoc file) and
 refuses `--out` (exit 2). To read the parse report, run without `--ready`.
 
 ## Estimates

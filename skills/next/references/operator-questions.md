@@ -75,6 +75,15 @@ an `ASK:` record path is gone once the hold has taken it over) and stop: never
 follow a `CHAIN:` line, and do not unstick, resume or re-run the step. The
 issue stays held until the answer is recorded (#964).
 
+The commands that could undo the hold refuse it (#963): pull, switch, resume,
+revise (with or without `--retier`), unstuck, checklist-unstuck, stuck and
+checklist-stuck exit `operator-question`, change nothing, and print the STUCK
+path and its answer line. Treat that exit like `/devagent:next`'s: relay and
+stop. Sync leaves the held row `[?]`, reap skips the question STUCK, and
+`/devagent:portfolio --ready` does not offer the issue. Until #964 lands there
+is no answer command; to clear a hold by hand, edit the answer into STUCK under
+a `## Answer` heading, remove STUCK, then `/devagent:resume <project> <issue>`.
+
 - Pinned session: every later `/devagent:next` for the issue exits
   `operator-question` and prints the STUCK path and its answer line.
 - Unpinned session: the hold parks the issue and clears the shared active
@@ -88,7 +97,10 @@ an answered question, another step's question) refuses a new hold with exit 2.
 
 ## A stuck lock
 
-hold.sh serialises on `<issue-dir>/questions/.lock` and waits about 10 s. On
+hold.sh serialises on `<issue-dir>/questions/.lock` and waits about 10 s;
+stuck.sh and checklist-stuck.sh take the same lock when `questions/` exists
+(#963), so a stale lock costs about 11 s on every later stop for the issue
+until it is removed (they then go on without it). On
 `hold: lock busy: <path> (remove it if no devagent command is running)`, check
 that no devagent command is running for the issue, then remove the file. The
 lock is never broken automatically.

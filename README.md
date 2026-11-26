@@ -239,8 +239,11 @@ the session asks it; with the marker set it holds the issue — a question
 STUCK, the step `[?]`, the issue parked, one `hold` line — and
 `/devagent:next` then exits `operator-question` (see `commands/pull.md`'s exit
 table) until the answer is recorded. Rules for the session:
-`skills/next/references/operator-questions.md`. No step calls `hold.sh` until
-#963 and #964 land.
+`skills/next/references/operator-questions.md`. While an issue is held, the
+commands that could undo the hold (pull, switch, resume, revise, unstuck,
+checklist-unstuck, stuck, checklist-stuck) refuse it with the same exit, sync
+leaves its held row `[?]`, reap skips it, and `/devagent:portfolio --ready`
+leaves it out (#963). No step calls `hold.sh` until #964 lands.
 
 A launcher can also ask whether a session it started is still making progress
 (#932):

@@ -233,9 +233,10 @@ carried as written and never summed.
 
 `step`, `reason` and `since` are copied **verbatim** from the `STUCK` file, and
 each is null when its line is missing. The fourth, `kind` (1.4, #963), is
-derived: the header's `Kind:` value by the rule `stuck_kind` uses, or `stuck`. No format is promised, because there are two writers:
-`checklist-stuck.sh` writes `Created:` with `date -Iseconds`, while `stuck.sh`
-writes a zoneless `%Y-%m-%d %H:%M`. `Last good:` is not carried: it may be
+derived: the header's `Kind:` value by the rule `stuck_kind` uses, or `stuck`.
+No format is promised for `since`, because there are three writers:
+`checklist-stuck.sh` and `hold.sh` (#962) write `Created:` with
+`date -Iseconds`, while `stuck.sh` writes a zoneless `%Y-%m-%d %H:%M`. `Last good:` is not carried: it may be
 absent, and its form also differs by writer.
 
 | Path | Type | Req | Meaning |
@@ -443,7 +444,8 @@ dispatch is read.
 | `models` | #890, from the leaf's `thinking`/`checking` keys, else the project's `step_models` class then `default`, read by `portfolio.sh` through `config_get_project_field` |
 | `depends_on[].scope`, `.project`, `.issue` | #726, by the split rule above (#887) |
 | `ready`, `ready_via_parent_row`, `depends_on[].resolved` | #727, by the readiness rule in `commands/portfolio.md` |
-| `stuck` | #726, from the issue dir's `STUCK` file |
+| `stuck` | #726, from the issue dir's `STUCK` file; `stuck.kind` #963, by `stuck_kind`'s header rule |
+| `parked` | #963, from the `[parked]` keys of `<devagent_home>/state/<project>.toml`, read by `portfolio.sh` through `_toml.py list-keys` (never written) |
 | `checklist`, `next_step`, `next_step_number` | #726, from the issue dir's `checklist.md` |
 | `parse_report[].kind` | #726 (open vocabulary) |
 | `projects[].issues[].actuals`, `projects[].actuals`, top-level `actuals` | #735, copied from `<devagent_home>/actuals.json` (`scripts/actuals.sh`) |
@@ -500,7 +502,9 @@ The checker does not verify that:
 - `checklist` is `open` exactly when the next-step fields are set;
 - a report entry names a project in the document;
 - `ready`, `ready_via_parent_row` and `depends_on[].resolved` are either all
-  null or all equal to a recomputation by the readiness rule (I16);
+  null or all equal to a recomputation by the readiness rule (I16). `ready` is
+  recomputed only in a document at the producer's own minor (version rule 7,
+  #963); at another minor it is taken as written;
 - `models` sits on leaves only (on every leaf from minor 2) and agrees with
   the leaf's `thinking`/`checking` keys (I17). The project rung is not
   re-derivable from the document, since `step_models` is not in it.

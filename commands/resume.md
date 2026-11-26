@@ -16,6 +16,14 @@ block's if one is there, otherwise the first in the file (#587; closeout step
 numbers are reused across revision blocks, so the row is located by LINE, never
 by number).
 
+## A held issue (#963)
+
+While the issue's `STUCK` is an operator question (`Kind: question`, written
+by a hold, #962), resume refuses: the issue stays parked until its question is answered. It changes nothing, prints the `STUCK` path and its
+answer line on stderr, and exits `operator-question` (the code is in
+`scripts/lib/refusals.sh`).
+On that exit, stop: the issue is held. Report the `STUCK` path and the answer line to the operator; do not retry, unstick, resume or re-pull the issue. Any other `STUCK` is handled as before.
+
 ## Run the script
 
 ```bash
