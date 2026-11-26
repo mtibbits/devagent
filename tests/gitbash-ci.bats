@@ -354,3 +354,196 @@ stub_bats() {
   [[ "$(fileline "$D/fail.bats")" == *" FAIL ("*"failed=1"* ]]
   [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 2 file(s), 1 failed" ]
 }
+
+# -------------------------------------------------------------------- shard
+# #1197: `shard <index> <count> <timings> <file>...` splits select's list across the
+# shard jobs. Every partition check is an EQUALITY of sorted lists plus a count.
+
+# mktimes <name=secs>...: $TIMES, one "<name>.bats <secs>" row per argument.
+mktimes() {
+  TIMES="$BATS_TEST_TMPDIR/times.txt"
+  local r
+  : > "$TIMES"
+  for r in "$@"; do printf '%s.bats %s\n' "${r%%=*}" "${r#*=}" >> "$TIMES"; done
+}
+# mkfiles <name>...: tagged fixtures $D/<name>.bats; FILES holds their paths.
+mkfiles() {
+  local n
+  FILES=()
+  for n in "$@"; do tagfile "$n.bats" "$(tagline "$T")"; FILES+=("$D/$n.bats"); done
+}
+# shard_union <count> <timings> <file>...: every shard's stdout, sorted; fails on a
+# shard whose rc is not 0.
+shard_union() {
+  local k="$1" t="$2" i out
+  shift 2
+  for i in $(seq 1 "$k"); do
+    out="$("$H" shard "$i" "$k" "$t" "$@" 2>/dev/null)" || { echo "shard $i of $k: rc $?" >&2; return 1; }
+    printf '%s\n' "$out"
+  done | LC_ALL=C sort
+}
+# count_lines <fixed string> <text>: how many lines of <text> equal <fixed string>.
+count_lines() { printf '%s\n' "$2" | grep -cxF -- "$1"; }
+
+@test "shard: every file lands in exactly one shard, K = 1 to 4" {
+  local k got want
+  mktimes a=50 b=40 c=30 d=20 e=10
+  mkfiles a b c d e f g
+  want="$(printf '%s\n' "${FILES[@]}" | LC_ALL=C sort)"
+  for k in 1 2 3 4; do
+    got="$(shard_union "$k" "$TIMES" "${FILES[@]}")" || { echo "K=$k: a shard failed"; return 1; }
+    [ "$got" = "$want" ] || { echo "K=$k: got [$got]"; return 1; }
+    [ "$(printf '%s\n' "$got" | wc -l)" -eq 7 ] || { echo "K=$k: count"; return 1; }
+  done
+}
+
+@test "shard: largest first onto the least-loaded shard, ties to the lower shard" {
+  mktimes a=50 b=40 c=30 d=20 e=10
+  mkfiles a b c d e
+  run --separate-stderr "$H" shard 1 2 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '%s\n' "$D/a.bats" "$D/d.bats" "$D/e.bats")" ]
+  run --separate-stderr "$H" shard 2 2 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '%s\n' "$D/b.bats" "$D/c.bats")" ]
+}
+
+@test "shard: equal weights keep list order" {
+  mktimes c=7 a=7 b=7
+  mkfiles c a b
+  run --separate-stderr "$H" shard 1 1 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '%s\n' "$D/c.bats" "$D/a.bats" "$D/b.bats")" ]
+}
+
+@test "shard: the split is stable" {
+  local i a b r="$BATS_TEST_TMPDIR/rev.txt"
+  mktimes a=50 b=40 c=30 d=20 e=10 f=40 g=5
+  mkfiles a b c d e f g
+  tac "$TIMES" > "$r"
+  run cmp -s "$r" "$TIMES"
+  [ "$status" -eq 1 ]
+  for i in 1 2 3; do
+    a="$("$H" shard "$i" 3 "$TIMES" "${FILES[@]}" 2>&1)"
+    b="$("$H" shard "$i" 3 "$TIMES" "${FILES[@]}" 2>&1)"
+    [ "$a" = "$b" ] || { echo "shard $i: two runs differ"; return 1; }
+    b="$("$H" shard "$i" 3 "$r" "${FILES[@]}" 2>&1)"
+    [ "$a" = "$b" ] || { echo "shard $i: reversed table differs"; return 1; }
+  done
+}
+
+@test "shard: an untimed file lands in exactly one shard, weighted 60s, and is named on stderr" {
+  local u="gitbash-tagged: untimed $D/u.bats (weighted 60s)"
+  mktimes a=100 b=59
+  mkfiles a b u
+  run --separate-stderr "$H" shard 2 2 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '%s\n' "$D/u.bats" "$D/b.bats")" ]
+  [ "$(count_lines "$u" "$stderr")" -eq 1 ]
+  # The shard that does not hold u.bats does not name it.
+  run --separate-stderr "$H" shard 1 2 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$D/a.bats" ]
+  [[ "$stderr" != *untimed* ]]
+
+  mktimes a=100 b=61
+  run --separate-stderr "$H" shard 2 2 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '%s\n' "$D/b.bats" "$D/u.bats")" ]
+  [ "$(count_lines "$u" "$stderr")" -eq 1 ]
+}
+
+@test "shard: prints its size and weight on stderr" {
+  mktimes a=50 b=40 c=30 d=20 e=10
+  mkfiles a b c d e
+  run --separate-stderr "$H" shard 2 2 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "${stderr##*$'\n'}" = "gitbash-tagged: shard 2 of 2: 2 file(s), weight 70s" ]
+  run --separate-stderr "$H" shard 1 2 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "${stderr##*$'\n'}" = "gitbash-tagged: shard 1 of 2: 3 file(s), weight 80s" ]
+}
+
+@test "shard: refuses bad arguments, rc 2" {
+  local row i=0
+  mktimes a=50 b=40
+  mkfiles a b
+  # chk <stderr substring> <args...>
+  chk() {
+    local want="$1"; shift
+    run --separate-stderr "$H" shard "$@"
+    [ "$status" -eq 2 ] || { echo "[$*]: rc $status"; return 1; }
+    [[ "$stderr" == *"$want"* ]] || { echo "[$*]: stderr [$stderr]"; return 1; }
+  }
+  chk 'bad shard index: 0' 0 2 "$TIMES" "${FILES[@]}"
+  chk 'shard index 3 > count 2' 3 2 "$TIMES" "${FILES[@]}"
+  chk 'bad shard count: 0' 1 0 "$TIMES" "${FILES[@]}"
+  chk 'bad shard index: x' x 2 "$TIMES" "${FILES[@]}"
+  chk 'bad shard count: 1000' 1 1000 "$TIMES" "${FILES[@]}"
+  chk "cannot read timings: $BATS_TEST_TMPDIR/none.txt" 1 2 "$BATS_TEST_TMPDIR/none.txt" "${FILES[@]}"
+  for row in 'x.bats 1.5' 'x.bats' 'tests/x.bats 3' 'x.bats  3' 'x.bats 123456'; do
+    i=$((i + 1))
+    printf '# header\n\na.bats 50\n%s\n' "$row" > "$BATS_TEST_TMPDIR/bad$i.txt"
+    chk "bad timings line 4: $row" 1 2 "$BATS_TEST_TMPDIR/bad$i.txt" "${FILES[@]}"
+  done
+  printf 'a.bats 50\nb.bats 40\na.bats 9\n' > "$BATS_TEST_TMPDIR/dup.txt"
+  chk 'duplicate timings row: a.bats' 1 2 "$BATS_TEST_TMPDIR/dup.txt" "${FILES[@]}"
+  chk 'usage:' 1 2 "$TIMES"
+  mkdir -p "$D/sub"
+  tagfile sub/a.bats "$(tagline "$T")"
+  chk "duplicate file basename: a.bats" 1 2 "$TIMES" "$D/a.bats" "$D/sub/a.bats"
+}
+
+@test "shard: an empty shard is rc 3" {
+  mktimes a=50 b=40
+  mkfiles a b
+  run --separate-stderr "$H" shard 3 3 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 3 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"shard 3 of 3 is empty (2 file(s) for 3 shards)"* ]]
+  run --separate-stderr "$H" shard 1 3 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$D/a.bats" ]
+  run --separate-stderr "$H" shard 2 3 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$D/b.bats" ]
+}
+
+@test "shard: a leading-zero weight is decimal, never octal" {
+  mktimes a=010 b=9
+  mkfiles a b
+  run --separate-stderr "$H" shard 1 1 "$TIMES" "${FILES[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '%s\n' "$D/a.bats" "$D/b.bats")" ]
+  [ "${stderr##*$'\n'}" = "gitbash-tagged: shard 1 of 1: 2 file(s), weight 19s" ]
+}
+
+@test "shard: a CRLF table splits the same as LF" {
+  local i lf crlf
+  mktimes a=50 b=40 c=30 d=20 e=10
+  mkfiles a b c d e
+  printf '%s\r\n' '# weights' 'a.bats 50' 'b.bats 40' 'c.bats 30' 'd.bats 20' 'e.bats 10' \
+    > "$BATS_TEST_TMPDIR/crlf.txt"
+  [ "$(od -An -c "$BATS_TEST_TMPDIR/crlf.txt" | grep -o '\\r' | wc -l)" -eq 6 ]
+  for i in 1 2; do
+    lf="$("$H" shard "$i" 2 "$TIMES" "${FILES[@]}" 2>&1)" || return 1
+    crlf="$("$H" shard "$i" 2 "$BATS_TEST_TMPDIR/crlf.txt" "${FILES[@]}" 2>&1)" || return 1
+    [ "$lf" = "$crlf" ] || { echo "shard $i: [$lf] vs [$crlf]"; return 1; }
+  done
+}
+
+@test "shard: the live list and checked-in table split into K non-empty shards covering select" {
+  local k got want n
+  run --separate-stderr "$H" select "$PLUGIN_ROOT/tests"
+  [ "$status" -eq 0 ] || { echo "select rc $status: $stderr"; return 1; }
+  mapfile -t FILES <<<"$output"
+  n="${#FILES[@]}"
+  [ "$n" -ge 4 ]
+  want="$(printf '%s\n' "${FILES[@]}" | LC_ALL=C sort)"
+  for k in 2 3 4; do
+    got="$(shard_union "$k" "$PLUGIN_ROOT/scripts/ci/gitbash-times.txt" "${FILES[@]}")" \
+      || { echo "K=$k: a shard failed"; return 1; }
+    [ "$got" = "$want" ] || { echo "K=$k: partition differs"; return 1; }
+    [ "$(printf '%s\n' "$got" | wc -l)" -eq "$n" ]
+  done
+}
