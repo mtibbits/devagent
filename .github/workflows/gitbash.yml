@@ -69,8 +69,9 @@
 #   30m11s. Not by position (file i to shard i mod K, as test.yml does): on the
 #   slow run's times four shards came out at 15.1, 8.4, 2.8 and 11.6 min; on the
 #   seed table round-robin gives 792/774/1909s at K = 3, LPT 1155/1156/1164s.
-#   A shard with no files fails (rc 3): a red with no failing file means the
-#   tagged list dropped below the shard count.
+#   A shard with no files fails (rc 3), as does every shard on a malformed table
+#   row (rc 2): a red with no failing file can mean the tagged list dropped below
+#   the shard count, a bad row, a shard past the gate's bounds, or a setup step.
 #   The check job is a gate, not a `needs:` summary: the spike (run 45765050697)
 #   showed a needs: job has no check run until its needs finish, so the check
 #   would be absent while the shards run. The gate polls this run's jobs and

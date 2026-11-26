@@ -754,7 +754,8 @@ every tagged file passed, across three shard jobs on pinned Windows runners, one
 invocation per file; the files are split by their recorded times in
 `scripts/ci/gitbash-times.txt`. Tagging a file that runs for minutes should add its row
 there (the recipe is in its header); a missing row only weighs the file at 60 s, so a
-refresh changes the balance, never which files run. Add the tag when a test
+well-formed refresh changes the balance, never which files run (a malformed row fails
+every shard). Add the tag when a test
 exercises behaviour that differs under Git Bash (drive-letter paths, MSYS path
 rewriting, a native Windows `python3`, CRLF), and only when the whole file passes in
 that check. A tagged file keeps skipping, each with a reason, the tests that cannot run
@@ -763,7 +764,9 @@ symlinks, or a tool the runner lacks. The check fails on a skip without a reason
 file whose every test skipped, and on any other spelling of `gitbash` on a `file_tags`
 comment line (an indented line, `#bats`, a different case, `gitbash2`), so such a
 misspelling cannot silently drop a file from the run. A red check with no failing file
-means a shard had no files: the tagged list dropped below the shard count. On Linux the line is inert: `test.yml`
+has other causes: one is a shard with no files (the tagged list dropped below the shard
+count); others are a malformed `gitbash-times.txt` row, a shard that never started or
+ran past its bound, and a setup step that failed. On Linux the line is inert: `test.yml`
 passes no `--filter-tags`.
 
 ### Writing a new test file
