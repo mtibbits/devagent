@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/ship.sh — workflow step 18. Push branch, create MR, fire on_ship.
 # Honors permissions.push_mr and ship_as_draft. If fork_first=true, files MR
-# on the fork before referencing upstream.
+# on the fork before referencing upstream. With commit_devdoc (#1055) it
+# commits the issue's devDoc folder alone at its end, best effort.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -23,6 +24,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"
 
 : "${DEVAGENT_GIT:=git}"
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
@@ -84,12 +87,26 @@ self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" ship)" || die "
 # so "$branch" resolves regardless (#68). Only the 'empty' verdict authorizes the
 # auto-skip; 'indeterminate' (no baseline or a rev-list FAILURE) never collapses
 # into the destructive skip (fail-safe by direction, #25/#68).
+# #1055: commit the issue's devDoc folder alone — after the row and its log line
+# (and, on the normal path, after the URL is on stdout), so the commit carries
+# them and a kill during the bounded lock wait loses only the commit. Gated on
+# commit_devdoc (permission_value); best effort: a failure warns, ship's exit
+# is unchanged. Its own subshell holds the lock: no EXIT-trap edit here.
+_ship_devdoc_commit() {
+    [ "$(permission_value "$project" commit_devdoc)" = true ] || return 0
+    local dd
+    dd="$(project_devdoc_dir "$project" 2>/dev/null)" || return 0
+    [ -n "$dd" ] || return 0
+    devdoc_commit_dir "$dd" "$issue_dir" "$issue_arg" "devdoc: $(basename "$issue_dir") ship" || true
+}
+
 baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
     info "no commits on branch — auto-marking step 18 [-] (zero-diff issue)"
     checklist_mark_by_name "$issue_dir/checklist.md" ship -
     log_append "$issue_dir" ship "auto-skipped: zero commits on branch (artifact-only issue)"
+    _ship_devdoc_commit
     exit 0
 fi
 
@@ -359,3 +376,4 @@ checklist_mark_by_name "$issue_dir/checklist.md" ship x
 log_append "$issue_dir" ship "MR $mr_url${NOTE:+ — $NOTE}"
 echo "$mr_url"
 checklist_print_next_hint "$issue_dir/checklist.md"
+_ship_devdoc_commit
