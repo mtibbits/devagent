@@ -138,6 +138,10 @@ main() {
   local issue_dir="${devdoc%/}/${issue_id}"
 trust_entry_check "pull" "$project" "$source"
 quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
+  # #963: a held issue is never re-pulled (the fetch would rewrite issue.md
+  # and drop its saved context); after the trust and quarantine checks, so
+  # their codes win.
+  [[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse pull "$issue_dir"
   STAGE_TRAILERS=""
   if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
     # #715: staged, rendered and checked before anything reads or prints it;

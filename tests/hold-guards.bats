@@ -113,3 +113,118 @@ _refuse() {
   [ "$status" -eq "$OQ" ]
   [ "$(sed -n 3p <<<"$stderr")" = "  Answer:   (no answer line; read the STUCK's ## How to answer section)" ]
 }
+
+# ---- Task 2: pull, switch, resume and revise refuse a held issue -----------
+
+# _pullable: toy gains an issue source and the gh-stub (argv logged).
+_pullable() {
+  cat >> "$DA_HOME/config.toml" <<EOF2
+
+[project.toy.issue_source]
+backend = "github"
+repo = "o/toy"
+dir_prefix = "Issue-"
+EOF2
+  STUB_BIN="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$STUB_BIN"
+  cp "$PLUGIN_ROOT/tests/fixtures/gh-stub" "$STUB_BIN/gh"
+  chmod +x "$STUB_BIN/gh"
+  export PATH="$STUB_BIN:$PATH" GH_STUB_CASE=standard GH_STUB_ARGV_LOG="$BATS_TEST_TMPDIR/argv"
+}
+
+_active8() {
+  _tset active_issue '"Issue-8"'
+  _tset issue_dir "\"$DEVDOC/Issue-8\""
+}
+
+@test "pull: a held parked issue is refused with operator-question and nothing changes" {
+  _pullable
+  _held
+  local leg before
+  for leg in none issue-8; do
+    [ "$leg" = none ] || _active8
+    before="$(_snap)"
+    run --separate-stderr "$S/pull.sh" toy 7
+    [ "$status" -eq "$OQ" ] || { echo "leg $leg rc=$status err=$stderr" >&2; return 1; }
+    [ "$(_snap)" = "$before" ]
+    [ ! -s "$GH_STUB_ARGV_LOG" ]
+    [ "$stderr" = "$(_refusal_lines pull)" ]
+  done
+}
+
+@test "pull: a trust refusal still wins over a held issue" {
+  _pullable
+  _held
+  trust_home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$trust_home/.config/devagent/trust"
+  printf 'x = [\n' > "$trust_home/.config/devagent/trust/policy.toml"
+  HOST="$(bash -c 'source "$1"; trust_exit_code host' _ "$PLUGIN_ROOT/scripts/lib/refusals.sh")"
+  HOME="$trust_home" run --separate-stderr "$S/pull.sh" toy 7
+  [ "$status" -eq "$HOST" ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$HOST" -ne "$OQ" ]
+}
+
+@test "switch: a held target is refused and the current issue is not parked" {
+  _held
+  _active8
+  local before; before="$(_snap)"
+  run --separate-stderr "$S/switch.sh" toy Issue-7
+  [ "$status" -eq "$OQ" ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  grep -q '^active_issue = "Issue-8"$' "$DA_HOME/state/toy.toml"
+  ! grep -q '\[P\]' "$DEVDOC/Issue-8/checklist.md"
+  [ "$(_snap)" = "$before" ]
+  [ "$stderr" = "$(_refusal_lines switch)" ]
+}
+
+@test "resume: a held parked issue is refused" {
+  _held
+  local before; before="$(_snap)"
+  run --separate-stderr "$S/resume.sh" toy Issue-7
+  [ "$status" -eq "$OQ" ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$(_snap)" = "$before" ]
+  [ "$stderr" = "$(_refusal_lines resume)" ]
+}
+
+@test "revise: a held active issue is refused, with and without --retier" {
+  _held_active
+  mkdir -p "$D/revisions/r1" && : > "$D/revisions/r1/comments.md"
+  local before; before="$(_snap)"
+  run --separate-stderr "$S/revise.sh" toy --no-chain
+  [ "$status" -eq "$OQ" ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$stderr" = "$(_refusal_lines revise)" ]
+  run --separate-stderr "$S/revise.sh" toy --retier standard --no-chain
+  [ "$status" -eq "$OQ" ] || { echo "retier rc=$status err=$stderr" >&2; return 1; }
+  [ "$(_snap)" = "$before" ]
+}
+
+_leg_resume() {
+  "$S/park.sh" toy >/dev/null
+  run --separate-stderr "$S/resume.sh" toy Issue-7
+  [ "$status" -eq 0 ] || { echo "resume rc=$status err=$stderr" >&2; return 1; }
+  grep -q '^- \[~\]  5\. improve' "$CK"
+}
+_leg_switch() {
+  "$S/park.sh" toy >/dev/null
+  run --separate-stderr "$S/switch.sh" toy Issue-7
+  [ "$status" -eq 0 ] || { echo "switch rc=$status err=$stderr" >&2; return 1; }
+}
+_leg_revise() {
+  mkdir -p "$D/revisions/r1" && : > "$D/revisions/r1/comments.md"
+  run --separate-stderr "$S/revise.sh" toy --no-chain
+  [ "$status" -eq 0 ] || { echo "revise rc=$status err=$stderr" >&2; return 1; }
+  grep -q '^## Revision' "$CK"
+}
+_leg_pull() {
+  _pullable
+  "$S/park.sh" toy >/dev/null
+  run --separate-stderr "$S/pull.sh" toy 7
+  [ "$status" -eq 0 ] || { echo "pull rc=$status err=$stderr" >&2; return 1; }
+  grep -q 'issue' "$GH_STUB_ARGV_LOG"
+}
+
+@test "other kinds: pull, switch, resume and revise act as today" {
+  _kinds _leg_resume
+  _kinds _leg_switch
+  _kinds _leg_revise
+  _kinds _leg_pull
+}

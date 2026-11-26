@@ -91,6 +91,8 @@ issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
 [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
+# #963: a new block (or --retier) would move the active block off the held row.
+[[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse revise "$issue_dir"
 
 n_cur=$(revision_current "$PROJECT" "$ISSUE")
 n_new=$((n_cur + 1))

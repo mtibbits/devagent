@@ -17,6 +17,8 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # stuck_kind, hold_refuse (#963)
 
 main() {
   local project="${1:-}"
@@ -43,6 +45,8 @@ quarantine_guard "switch" "$project" "$target"
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   target_dir="${devdoc%/}/$target"
   [[ -d "$target_dir" ]] || die "issue dir missing: $target_dir"
+  # #963: refuse a held target before the park, so nothing is half-applied.
+  [[ "$(stuck_kind "$target_dir")" != question ]] || hold_refuse switch "$target_dir"
 
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"
