@@ -1,0 +1,13 @@
+# THROWAWAY spike for #1197 (U7): a job no runner serves, so it stays queued. Cancelled by hand.
+name: spike-1197-queue
+on:
+  push:
+    branches: ['spike/1197']
+permissions:
+  contents: read
+jobs:
+  queued:
+    name: Probe queued
+    runs-on: [self-hosted, no-such-runner-1197]
+    steps:
+      - run: echo never

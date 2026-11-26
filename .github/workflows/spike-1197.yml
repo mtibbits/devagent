@@ -1,0 +1,60 @@
+# THROWAWAY spike for #1197 (devAgent step 3). Never merged; branch deleted after.
+name: spike-1197
+on:
+  push:
+    branches: ['spike/1197']
+permissions:
+  contents: read
+jobs:
+  work:
+    name: Probe work ${{ matrix.n }} of ${{ strategy.job-total }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2]
+    steps:
+      - name: Sleep then maybe fail
+        env:
+          N: ${{ matrix.n }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          echo "leg $N attempt $ATTEMPT"
+          sleep 240
+          if [ "$N" = 2 ] && [ "$ATTEMPT" = 1 ]; then echo "planned failure"; exit 1; fi
+  summary:
+    name: Probe summary
+    needs: work
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "needs.work.result=${{ needs.work.result }}"
+  gate:
+    name: Probe gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Poll own run's jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh --version | head -1; jq --version
+          url="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100"
+          i=0
+          while :; do
+            i=$((i+1))
+            body="$(gh api "$url")" || { echo "read $i failed"; sleep 15; continue; }
+            echo "::group::raw read $i $(date -u +%FT%TZ)"; printf '%s\n' "$body"; echo "::endgroup::"
+            printf '%s' "$body" | jq -r '.jobs[] | [.name, .status, (.conclusion // "-"), (.started_at // "-"), .run_attempt] | @tsv'
+            done_n="$(printf '%s' "$body" | jq '[.jobs[] | select(.name | startswith("Probe work")) | select(.status == "completed")] | length')"
+            ok_n="$(printf '%s' "$body" | jq '[.jobs[] | select(.name | startswith("Probe work")) | select(.conclusion == "success")] | length')"
+            if [ "$done_n" = 2 ]; then
+              echo "legs completed: $done_n, succeeded: $ok_n"
+              [ "$ok_n" = 2 ]; exit $?
+            fi
+            sleep 15
+          done
