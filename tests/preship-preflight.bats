@@ -272,3 +272,15 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
   run grep -c '^- \[!\]' "$ISSUE_DIR/checklist.md"; [ "$output" -eq 0 ]
   [ "$(sha256sum "$ISSUE_DIR/STUCK" | awk '{print $1}')" = "$(head -1 <<<"$before")" ]
 }
+
+@test "evidence: a checklist-stuck failure other than operator-question still stops preflight with its own code (#963)" {
+  # A defective user-level trust policy makes checklist-stuck refuse with the
+  # host code; only operator-question is tolerated by the evidence stop.
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.config/devagent/trust"
+  printf 'x = [\n' > "$HOME/.config/devagent/trust/policy.toml"
+  local host; host="$(bash -c 'source "$1"; trust_exit_code host' _ "$PLUGIN_ROOT/scripts/lib/refusals.sh")"
+  STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - x\n' _pf evidence
+  [ "$status" -eq "$host" ] || { echo "rc=$status out=$output err=$stderr" >&2; return 1; }
+  [[ "$output" != *"evidence rc="* ]]
+}
