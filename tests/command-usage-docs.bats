@@ -118,4 +118,8 @@ C="$REPO/commands"
   grep -qF 'question STUCK' "$REPO/commands/sync.md"
   grep -qF 'question STUCK' "$REPO/commands/reap.md"
   ! grep -qF 'pull emits none of these codes' "$REPO/commands/pull.md"
+  # The manual clear (until #964) that tests/hold-guards.bats "manual clear" runs.
+  local O="$REPO/skills/next/references/operator-questions.md"
+  grep -qF 'scripts/checklist-log.sh" <issue-dir> <step>' "$O"
+  grep -qF "scripts/checklist-mark.sh\" <issue-dir> <N> ' ' <step>" "$O"
 }

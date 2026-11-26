@@ -80,9 +80,21 @@ revise (with or without `--retier`), unstuck, checklist-unstuck, stuck and
 checklist-stuck exit `operator-question`, change nothing, and print the STUCK
 path and its answer line. Treat that exit like `/devagent:next`'s: relay and
 stop. Sync leaves the held row `[?]`, reap skips the question STUCK, and
-`/devagent:portfolio --ready` does not offer the issue. Until #964 lands there
-is no answer command; to clear a hold by hand, edit the answer into STUCK under
-a `## Answer` heading, remove STUCK, then `/devagent:resume <project> <issue>`.
+`/devagent:portfolio --ready` does not offer the issue.
+
+Until #964 lands there is no answer command. To clear a hold by hand, with
+`<N> <step>` taken from STUCK's `Step:` line:
+
+1. Record the answer in the log, since STUCK is about to go:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" <issue-dir> <step> "operator answer to question <NN>: <option>"`.
+2. Remove `<issue-dir>/STUCK`.
+3. Reset the held row, which the hold marked `[?]`:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" <issue-dir> <N> ' ' <step>`.
+4. If the issue is still parked (a key of `[parked]` in the project's state),
+   `/devagent:resume <project> <issue>`. A hold whose park was refused left the
+   issue active, and there is nothing to resume.
+
+`/devagent:next` then runs `<step>` again.
 
 - Pinned session: every later `/devagent:next` for the issue exits
   `operator-question` and prints the STUCK path and its answer line.

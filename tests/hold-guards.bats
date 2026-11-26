@@ -515,3 +515,28 @@ _leg_reap() {
   _kinds _leg_sync
   _kinds _leg_reap
 }
+
+# ---- operator-questions.md's manual clear (until #964) ----------------------
+
+# _manual_clear: the steps skills/next/references/operator-questions.md gives
+# for clearing a hold by hand, in its order.
+_manual_clear() {
+  "$S/checklist-log.sh" "$D" improve "operator answer to question 01: a" >/dev/null
+  rm "$D/STUCK"
+  "$S/checklist-mark.sh" "$D" 5 ' ' improve >/dev/null
+  if grep -q '^Issue-7 = ' "$DA_HOME/state/toy.toml"; then "$S/resume.sh" toy Issue-7 >/dev/null 2>&1; fi
+}
+
+@test "manual clear: the documented steps let next run the held step again, parked or not" {
+  local leg
+  for leg in parked active; do
+    rm -rf "$DEVDOC" "$DA_HOME/state"/*
+    _toy
+    if [ "$leg" = parked ]; then _held; else _held_active; fi
+    _manual_clear
+    run --separate-stderr "$S/next.sh" toy
+    [ "$status" -eq 0 ] || { echo "$leg rc=$status out=$output err=$stderr" >&2; return 1; }
+    [[ "$output$stderr" != *"blocked-on-external"* ]] || { echo "$leg: $output $stderr" >&2; return 1; }
+    [[ "$output" == *"/devagent:improve toy"* ]] || { echo "$leg: $output" >&2; return 1; }
+  done
+}
