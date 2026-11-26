@@ -32,17 +32,13 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
-# Test use only: load the parser from another path (a planted import failure).
-PARSER_ENV = "PLAN_ESTIMATE_WBS_PARSER"
-
 
 def _load_parser():
-    path = os.environ.get(PARSER_ENV) or str(Path(__file__).resolve().parent / "wbs-parser.py")
+    path = Path(__file__).resolve().parent / "wbs-parser.py"
     spec = importlib.util.spec_from_file_location("_plan_estimate_wbs_parser", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -60,7 +56,6 @@ except BaseException as exc:  # reported as exit 4 by main(); a library import r
 
 SCHEMA = 1
 SECTION_TITLE = "Size estimate"
-STATUSES = ("present", "absent", "unreadable")
 EXIT_CODES = {"present": 0, "absent": 1, "unreadable": 3}
 IMPACT_LABEL = "- Estimate vs actual (interim):"
 INTERIM_NOTE = ("interim: actuals stop at the impact step and count only the "
@@ -83,11 +78,9 @@ BRACED_ESTIMATE_RE = re.compile(r"\{[^{}]*\b(?:est|tok)[ \t]*:")
 NEAR_MISS_MESSAGE = ("estimate-shaped line is not in the form "
                      "`- Estimate (scope|confirmed): {est: <time>, tok: <tokens>}`")
 OUTSIDE_MESSAGE = "estimate-shaped line outside a `### Size estimate` section"
-REASONS = {
-    "est": {"absent": "no est value", "placeholder": "est is a placeholder",
-            "non-time": "est is not in h, d or w"},
-    "tok": {"absent": "no tok value", "placeholder": "tok is a placeholder"},
-}
+# `{key}` is est or tok; only est classifies as non-time.
+REASONS = {"absent": "no {key} value", "placeholder": "{key} is a placeholder",
+           "non-time": "{key} is not in h, d or w"}
 MEASURED = {"est": "time", "tok": "tokens"}
 
 
@@ -132,7 +125,7 @@ def read_estimate(text: str) -> dict:
     fenced = _fenced(lines)
     in_section = False
     entries: list[dict] = []  # in-section estimate lines and near-misses, in order
-    outside: list[int] = []
+    outside = None  # the last estimate-shaped line outside a size section
     problems: list[dict] = []
     for idx, line in enumerate(lines):
         if fenced[idx]:
@@ -157,15 +150,10 @@ def read_estimate(text: str) -> dict:
             continue
         if ESTIMATE_NEAR_MISS_RE.match(line):
             problems.append({"line": lineno, "message": OUTSIDE_MESSAGE})
-            outside.append(lineno)
-    if not entries:
-        if not outside:
-            return _empty("absent", problems)
-        out = _empty("unreadable", problems)
-        out["line"] = outside[-1]
-        out["text"] = lines[outside[-1] - 1]
-        return out
-    win = entries[-1]
+            outside = {"line": lineno, "text": line, "kind": None}
+    win = entries[-1] if entries else outside
+    if win is None:
+        return _empty("absent", problems)
     if win["kind"] is None:
         out = _empty("unreadable", problems)
         out.update(line=win["line"], text=win["text"])
@@ -200,7 +188,8 @@ def _value(key: str, c: dict, block_problem_at: int | None) -> str:
     if block_problem_at is not None:
         # A fixed reason: the walk's own message can hold `;` and quotes.
         return f"not measured ({key} block problem at plan line {block_problem_at})"
-    return f"not measured ({REASONS[key].get(c.get('class'), f'{key} is unparseable')})"
+    reason = REASONS.get(c.get("class"), "{key} is unparseable").format(key=key)
+    return f"not measured ({reason})"
 
 
 def impact_line(result: dict) -> str:

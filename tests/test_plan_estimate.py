@@ -3,6 +3,7 @@ the plan's structured estimate line, read back, and the impact comparison line."
 import ast
 import importlib.util
 import json
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -226,7 +227,6 @@ def test_result_has_exactly_the_contract_keys():
         assert set(r) == KEYS
         assert (r["schema"], r["status"]) == (1, status)
         assert all(isinstance(p["line"], int) for p in r["problems"])
-    assert pe.STATUSES == ("present", "absent", "unreadable")
 
 
 IMPACT_FORMS = {
@@ -266,24 +266,48 @@ EXITS = {"confirmed-changed.md": 0, "confirmed-same.md": 0, "scope-only.md": 0,
          "near-miss.md": 3, "unanchored.md": 3}
 
 
-def test_cli_modes_exit_codes_and_streams():
+def _main(capsys, *args):
+    """`main` in-process: (exit code, stdout, stderr)."""
+    try:
+        code = pe.main([str(a) for a in args])
+    except SystemExit as e:
+        code = e.code
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
+def test_cli_modes_exit_codes_and_streams(capsys):
     assert {p.name for p in FIX.glob("*.md")} == set(EXITS)
     for name, code in EXITS.items():
         path = FIX / name
+        want = pe.read_file(path)
+        outs = {}
         for args in ((path,), ("--json", path), ("--impact-line", path)):
-            p = _run(*args)
-            assert (p.returncode, p.stderr) == (code, ""), (name, args, p.stderr)
-            assert p.stdout.endswith("\n") and p.stdout.count("\n") == 1
-            assert "\r" not in p.stdout
-        assert json.loads(_run("--json", path).stdout) == pe.read_file(path)
-        assert _run("--impact-line", path).stdout == pe.impact_line(pe.read_file(path)) + "\n"
+            got, out, err = _main(capsys, *args)
+            assert (got, err) == (code, ""), (name, args, err)
+            assert out.endswith("\n") and out.count("\n") == 1
+            assert "\r" not in out
+            outs[args[0]] = out
+        assert outs[path] == outs["--json"]
+        assert json.loads(outs["--json"]) == want
+        assert outs["--impact-line"] == pe.impact_line(want) + "\n"
     good = FIX / "near-miss.md"
     for args in ((FIX / "missing.md",), (FIX,), (), (good, good), ("--bogus", good),
                  ("--json", "--impact-line", good)):
-        p = _run(*args)
-        assert (p.returncode, p.stdout) == (2, ""), args
-        assert p.stderr.splitlines()[-1].startswith("plan-estimate: "), (args, p.stderr)
-    assert "cannot read" in _run(FIX / "missing.md").stderr
+        got, out, err = _main(capsys, *args)
+        assert (got, out) == (2, ""), args
+        assert err.splitlines()[-1].startswith("plan-estimate: "), (args, err)
+        if args == (FIX / "missing.md",):
+            assert "cannot read" in err
+
+
+def test_wrapper_runs_the_module():
+    path = FIX / "confirmed-changed.md"
+    p = _run("--impact-line", path)
+    assert (p.returncode, p.stderr) == (0, "")
+    assert p.stdout == pe.impact_line(pe.read_file(path)) + "\n"
+    p = _run(FIX / "missing.md")
+    assert (p.returncode, p.stdout) == (2, "")
 
 
 def test_hostile_line_is_fast():
@@ -309,11 +333,15 @@ def test_unclosed_fence_hides_what_follows():
 # 16-20: tighten additions
 
 def test_crash_exits_4_not_absent(tmp_path):
-    bad = tmp_path / "broken.py"
-    bad.write_text("raise RuntimeError('planted')\n", encoding="utf-8")
-    p = subprocess.run(["bash", str(SH), str(FIX / "confirmed-changed.md")],
+    # A copy of the reader and its wrapper beside a parser that fails to load.
+    (tmp_path / "lib").mkdir()
+    shutil.copy(SH, tmp_path / SH.name)
+    shutil.copy(LIB, tmp_path / "lib" / LIB.name)
+    (tmp_path / "lib" / "wbs-parser.py").write_text(
+        "raise RuntimeError('planted')\n", encoding="utf-8")
+    p = subprocess.run(["bash", str(tmp_path / SH.name), str(FIX / "confirmed-changed.md")],
                        capture_output=True, text=True, check=False,
-                       env={"PATH": "/usr/bin:/bin", "PLAN_ESTIMATE_WBS_PARSER": str(bad)})
+                       env={"PATH": "/usr/bin:/bin"})
     assert (p.returncode, p.stdout) == (4, "")
     assert p.stderr == "plan-estimate: internal error: RuntimeError: planted\n"
 

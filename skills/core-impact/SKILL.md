@@ -151,10 +151,6 @@ numbers are not available or honest).
 - Pattern documented for future stage-pair fusions.
 ```
 
-The comparison line is the filled form above, or, as the reader printed it,
-`- Estimate vs actual (interim): no structured estimate` or
-`- Estimate vs actual (interim): not measured (<reason>)`.
-
 ## Halt and ask if
 
 - Issue labels suggest performance impact but no benchmark evidence
