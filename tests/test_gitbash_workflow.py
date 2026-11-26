@@ -87,7 +87,9 @@ def _k(wf):
     return len(_shard_job(wf)["strategy"]["matrix"]["shard"])
 
 
-GATE_RE = re.compile(re.escape(HELPER) + r" gate (\d+) (\d+) (\d+) (\d+)[ \t]*$", re.M)
+# Anchored: the gate call is a bare command on its own line, never an argument
+# to echo or the right side of a ||.
+GATE_RE = re.compile(r"^[ \t]*" + re.escape(HELPER) + r" gate (\d+) (\d+) (\d+) (\d+)[ \t]*$", re.M)
 SHARD_NAME = "Git Bash shard ${{ matrix.shard }} of ${{ strategy.job-total }}"
 FROZEN_STEPS = ["Confirm Git Bash", "actions/checkout@v4", "Install bats 1.14.0",
                 "Ensure python3", "Tool versions and locale"]
@@ -318,3 +320,14 @@ def test_header_records_shards(wf, header):
     hits = [m for m in map(pat.match, header) if m]
     assert len(hits) == 1
     assert int(hits[0].group(1)) == _k(wf)
+
+
+def test_jobs_cannot_be_softened(wf):
+    # #1197 review: a skipped job reads as passing and continue-on-error turns a red
+    # step green, so neither may sit on the gate, the shards, or any of their steps.
+    for jid, job in _jobs(wf).items():
+        for key in ("if", "continue-on-error"):
+            assert key not in job, (jid, key)
+        for step in job.get("steps", []):
+            for key in ("if", "continue-on-error"):
+                assert key not in step, (jid, _step_label(step), key)
