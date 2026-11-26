@@ -75,10 +75,8 @@
 #   The check job is a gate, not a `needs:` summary: the spike (run 45765050697)
 #   showed a needs: job has no check run until its needs finish, so the check
 #   would be absent while the shards run. The gate polls this run's jobs and
-#   passes only when every shard completed with success. It fails when a shard
-#   ends any other way, when a shard has been in progress for over 2100s by its
-#   own started_at (its 30 minutes plus 5), or when a shard has not started after
-#   1800s; its own timeout is 70 minutes. The 30-minute cap is the shards'.
+#   passes only when every shard completed with success; its fail bounds and
+#   their derivation are in the comment on the `tagged:` job below.
 #
 # Why no `bats --filter-tags`: bats would source every file in tests/ to read
 # its tags, on a host where process start is slow. The helper selects with one
@@ -181,8 +179,8 @@ jobs:
           SHARDS: ${{ strategy.job-total }}
         run: |
           scripts/ci/gitbash-tagged.sh select tests > "$RUNNER_TEMP/gitbash-files.txt"
-          echo "count: $(wc -l < "$RUNNER_TEMP/gitbash-files.txt")"
           mapfile -t all < "$RUNNER_TEMP/gitbash-files.txt"
+          echo "count: ${#all[@]}"
           scripts/ci/gitbash-tagged.sh shard "$SHARD" "$SHARDS" scripts/ci/gitbash-times.txt \
             "${all[@]}" > "$RUNNER_TEMP/gitbash-shard.txt"
           cat "$RUNNER_TEMP/gitbash-shard.txt"

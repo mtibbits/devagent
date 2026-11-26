@@ -559,11 +559,12 @@ count_lines() { printf '%s\n' "$2" | grep -cxF -- "$1"; }
 # shard job completed with success. gh is a PATH binstub; the gate reads the real
 # clock (jq `now`), so ages are written as real UTC timestamps.
 
-# stub_gh: a binstub gh PREPENDED to PATH. On call n it prints $STUB_DIR/resp.<n>
-# (repeating the last response it has), logs its argv to $STUB_DIR/argv.log, and
-# exits $STUB_DIR/rc.<n> (0 if absent).
-stub_gh() {
+# stub_gh_jobs: a fresh binstub gh PREPENDED to PATH (a second call resets it). On
+# call n it prints $STUB_DIR/resp.<n> (repeating the last response it has), logs its
+# argv to $STUB_DIR/argv.log, and exits $STUB_DIR/rc.<n> (0 if absent).
+stub_gh_jobs() {
   STUB_DIR="$BATS_TEST_TMPDIR/gh"
+  rm -rf "$STUB_DIR"
   mkdir -p "$STUB_DIR/bin"
   export STUB_DIR
   cat > "$STUB_DIR/bin/gh" <<'STUB'
@@ -586,7 +587,7 @@ STUB
 calls() { cat "$STUB_DIR/calls" 2>/dev/null || echo 0; }
 
 # ts <age>: the UTC timestamp <age> seconds before now.
-ts() { date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
+ts() { date -u -d "$1 seconds ago" +%Y-%m-%dT%H:%M:%SZ; }
 # jobs_json "<name>|<status>|<conclusion>|<age>"...: the jobs API's response shape.
 # An empty conclusion is null; an age of '-' or none is a null started_at. Job k's
 # html_url is https://github.com/o/r/actions/runs/123/job/<k>.
@@ -616,7 +617,7 @@ NAMED='Git Bash tagged files'
 REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files'
 
 @test "gate: passes when every shard of K completed with success" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300" "$NAMED|in_progress||300"
   gate
   [ "$status" -eq 0 ]
@@ -625,7 +626,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: waits while a shard is queued or in progress, then passes" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|queued||" "$S3|queued||"
   resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||10"
   resp 3 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
@@ -639,8 +640,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 @test "gate: fails on every non-success conclusion, as soon as that shard completes" {
   local c
   for c in failure cancelled skipped timed_out neutral action_required stale ''; do
-    rm -rf "$BATS_TEST_TMPDIR/gh"
-    stub_gh
+    stub_gh_jobs
     resp 1 "$S1|in_progress||10" "$S2|completed|$c|100" "$S3|in_progress||10"
     gate
     local shown="${c:-no conclusion}"
@@ -654,17 +654,17 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: fails on a shard job outside 1..K or of another total, or duplicated" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|in_progress||10" "Git Bash shard 4 of 4|in_progress||10" "$S3|in_progress||10"
   gate
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL (unexpected shard job: Git Bash shard 4 of 4)"* ]]
-  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  stub_gh_jobs
   resp 1 "$S1|in_progress||10" "Git Bash shard 4 of 3|in_progress||10"
   gate
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL (unexpected shard job: Git Bash shard 4 of 3)"* ]]
-  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|10" "$S2|completed|success|10" "$S3|completed|success|10" "$S3|completed|success|10"
   gate
   [ "$status" -eq 1 ]
@@ -672,7 +672,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: other jobs never count" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300" \
     "Git Bash shard x|in_progress||10" "$NAMED|in_progress||10" "$NAMED (other)|completed|failure|10"
   gate
@@ -681,7 +681,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: a shard in progress past <run-secs> fails, naming it and its age" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||100"
   gate 3 0 60 3600
   [ "$status" -eq 1 ]
@@ -691,7 +691,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: a shard in progress within <run-secs> keeps it waiting" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||10"
   resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
   gate 3 0 60 3600
@@ -700,7 +700,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: a missing shard fails after <start-secs> of the gate's own wait" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300"
   gate 3 1 3600 2
   [ "$status" -eq 1 ]
@@ -709,7 +709,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: a queued shard fails after <start-secs>, naming its status" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|queued||"
   gate 3 1 3600 2
   [ "$status" -eq 1 ]
@@ -717,7 +717,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: an in-progress shard with no started_at is judged by <start-secs> only" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||-"
   gate 3 1 60 2
   [ "$status" -eq 1 ]
@@ -725,7 +725,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: queue time never counts toward <run-secs>" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|queued||5000"
   resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||5"
   resp 3 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
@@ -739,7 +739,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
   # ($SECONDS ticks whole seconds) and still be inside it; the shard then stays
   # in_progress for polls 2-6 (t of about 5s, past the bound) before it succeeds.
   local n
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|queued||"
   resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||1"
   for n in 3 4 5 6; do cp "$STUB_DIR/resp.2" "$STUB_DIR/resp.$n"; done
@@ -750,7 +750,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: a future started_at (clock skew) is age 0, never negative" {
-  stub_gh
+  stub_gh_jobs
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||-30"
   resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
   gate 3 0 60 3600
@@ -759,14 +759,14 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: a failed or non-JSON read is retried, and fails after 5 in a row" {
-  stub_gh
+  stub_gh_jobs
   echo 1 > "$STUB_DIR/rc.1"
   resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
   gate
   [ "$status" -eq 0 ]
   [ "$(calls)" -eq 2 ]
 
-  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  stub_gh_jobs
   echo '<html>' > "$STUB_DIR/resp.1"
   gate
   [ "$status" -eq 1 ]
@@ -774,7 +774,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
   [[ "$output" == *"FAIL (could not read the run's jobs 5 times in a row: "* ]]
 
   # Four failures then a good read reset the count: a fifth failure later is not fatal.
-  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  stub_gh_jobs
   local n
   for n in 1 2 3 4; do echo '<html>' > "$STUB_DIR/resp.$n"; done
   resp 5 "$S1|completed|success|300" "$S2|in_progress||10" "$S3|completed|success|300"
@@ -787,7 +787,7 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 
 @test "gate: refuses bad arguments and a missing run, rc 2" {
   local a
-  stub_gh
+  stub_gh_jobs
   run --separate-stderr env -u GITHUB_RUN_ID GITHUB_REPOSITORY=o/r "$H" gate 3 0 3600 3600
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"GITHUB_RUN_ID"* ]]
@@ -808,13 +808,13 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 # attempts 1-3, and queue run 45765050676), with only the job names rewritten to this workflow's names.
 @test "gate: real API responses: attempt 1 failed, attempt 2 copied the success" {
   local F="$PLUGIN_ROOT/tests/fixtures/gitbash-gate"
-  stub_gh
+  stub_gh_jobs
   cp "$F/attempt1-failed.json" "$STUB_DIR/resp.1"
   gate 2 0 3600 3600
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL (Git Bash shard 2 of 2: failure)"* ]]
 
-  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  stub_gh_jobs
   cp "$F/attempt2-copied.json" "$STUB_DIR/resp.1"
   gate 2 0 3600 3600
   [ "$status" -eq 0 ]
@@ -824,20 +824,20 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 @test "gate: real API responses: in progress, single-job re-run, queued" {
   local F="$PLUGIN_ROOT/tests/fixtures/gitbash-gate"
   # Both legs in progress since the spike: past any small run bound.
-  stub_gh
+  stub_gh_jobs
   cp "$F/in-progress.json" "$STUB_DIR/resp.1"
   gate 2 0 60 3600
   [ "$status" -eq 1 ]
   [[ "$output" =~ FAIL\ \(Git\ Bash\ shard\ 1\ of\ 2\ in\ progress\ [0-9]+s\ since\ started_at,\ past\ 60s\) ]]
   # A single-shard re-run: the named job's stale success never counts.
-  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  stub_gh_jobs
   cp "$F/attempt3-single-rerun.json" "$STUB_DIR/resp.1"
   gate 2 0 60 3600
   [ "$status" -eq 1 ]
   [[ "$output" == *"gate: 1 of 2 shards done"* ]]
   [[ "$output" =~ FAIL\ \(Git\ Bash\ shard\ 2\ of\ 2\ in\ progress ]]
   # A queued job's started_at is set (= created_at) yet never read.
-  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  stub_gh_jobs
   cp "$F/queued.json" "$STUB_DIR/resp.1"
   gate 1 1 60 1
   [ "$status" -eq 1 ]

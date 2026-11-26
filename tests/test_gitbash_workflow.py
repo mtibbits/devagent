@@ -160,19 +160,15 @@ def test_shard_job_keeps_the_frozen_steps(wf):
 
 def test_shard_names_never_equal_the_check_name(wf):
     assert not SHARD_NAME.startswith(CHECK_NAME)
-    assert _shard_job(wf)["name"] != CHECK_NAME
 
 
 def test_only_two_jobs(wf):
     assert len(_jobs(wf)) == 2
-    assert _shard_job(wf) is not _named_job(wf)
 
 
 def test_runs_on_pinned(wf):
     assert re.fullmatch(r"windows-\d{4}", str(_shard_job(wf).get("runs-on")))
     assert re.fullmatch(r"ubuntu-\d{2}\.04", str(_named_job(wf).get("runs-on")))
-    for jid, job in _jobs(wf).items():
-        assert "latest" not in str(job.get("runs-on")), jid
 
 
 def test_defaults_shell_bash(wf):

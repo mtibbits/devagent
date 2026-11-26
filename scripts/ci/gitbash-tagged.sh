@@ -57,7 +57,8 @@
 #             a shard missing, not yet in_progress, or in_progress with no
 #             started_at when the gate has waited <start-secs> ($SECONDS since the
 #             gate began, never poll turns);
-#             5 consecutive reads failed (gh rc != 0, or jq could not read .jobs).
+#             5 consecutive reads failed (gh rc != 0 or past 60s, or jq could not
+#             read .jobs).
 #       rc 2  usage: <count> as shard's; <interval-secs> 0..9999; <run-secs> and
 #             <start-secs> 1..99999; GITHUB_REPOSITORY and GITHUB_RUN_ID set.
 #       Each poll prints "gitbash-tagged: gate: <d> of <count> shards done (<name>=
@@ -117,15 +118,16 @@ cmd_shard() {
     secs[$name]=$((10#${BASH_REMATCH[2]}))   # 10#: a leading 0 is decimal, not octal
   done < "$tab"
 
-  local -a files=("$@") wt=() untimed=() order=() load=() mine=()
+  local -a files=("$@") wt=() order=() load=() mine=()
   for f in "${files[@]}"; do
     b="${f##*/}"
     [ -z "${seen[$b]+x}" ] || die 2 "duplicate file basename: $b"
     seen[$b]=1
-    if [ -n "${secs[$b]+x}" ]; then wt+=("${secs[$b]}"); untimed+=(""); else wt+=("$UNTIMED_SECS"); untimed+=(1); fi
+    wt+=("${secs[$b]:-$UNTIMED_SECS}")
   done
 
-  # Stable insertion sort of indexes by weight, heaviest first (ties: list order).
+  # Stable insertion sort of indexes by weight, heaviest first (ties: list order);
+  # in-process, so no sort(1) fork or PATH lookup on Git Bash.
   for ((i = 0; i < ${#files[@]}; i++)); do
     j=${#order[@]}
     order+=("$i")
@@ -149,18 +151,21 @@ cmd_shard() {
   [ ${#mine[@]} -gt 0 ] || die 3 "shard $idx of $cnt is empty (${#files[@]} file(s) for $cnt shards)"
   for i in "${mine[@]}"; do
     printf '%s\n' "${files[i]}"
-    [ -z "${untimed[i]}" ] \
+    b="${files[i]##*/}"
+    [ -n "${secs[$b]+x}" ] \
       || printf 'gitbash-tagged: untimed %s (weighted %ss)\n' "${files[i]}" "$UNTIMED_SECS" >&2
   done
   printf 'gitbash-tagged: shard %s of %s: %s file(s), weight %ss\n' \
     "$idx" "$cnt" "${#mine[@]}" "${load[idx]}" >&2
 }
 
-# gate: one numeric grammar; the shard names are "Git Bash shard <i> of <count>".
+# gate: one numeric grammar (gate_secs_re is lib/ci.sh _ci_secs's, #774); the shard
+# names are "Git Bash shard <i> of <count>".
 gate_interval_re='^(0|[1-9][0-9]{0,3})$'
 gate_secs_re='^[1-9][0-9]{0,4}$'
 shard_name_re='^Git Bash shard ([0-9]{1,3}) of ([0-9]{1,3})$'
 GATE_MAX_READ_FAILS=5
+GATE_CALL_SECS=60   # one gh call's bound: a hung read counts as a failed read
 GATE_REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files'
 # One TSV row per job; no field is ever empty, so a TAB-split read cannot shift
 # fields. The age is read only while the job is in_progress: a queued job's
@@ -202,8 +207,9 @@ cmd_gate() {
   trap "rm -f -- '$errf'" EXIT
 
   while :; do
-    # Capture, then test the rc: never through a pipe (#314).
-    body="$(gh api "$url" 2>"$errf")"; rc=$?
+    # Capture, then test the rc: never through a pipe (#314). Bounded as
+    # lib/upstream.sh bounded_call does (#660), so a hung call cannot hold the job.
+    body="$(timeout -k 5 "$GATE_CALL_SECS" gh api "$url" 2>"$errf")"; rc=$?
     reason=""
     if [ "$rc" -ne 0 ]; then
       reason="gh api rc $rc: $(head -c 300 "$errf")"
@@ -220,7 +226,7 @@ cmd_gate() {
       sleep "$iv"; continue
     fi
     fails=0
-    rows="${rows//$'\r'/}"   # a Windows jq writes CRLF
+    rows="${rows//$'\r'/}"   # a Windows jq writes CRLF (local Git Bash runs)
 
     local -A st=() co=() ag=() hu=()
     while IFS=$'\t' read -r name status concl age hurl; do
@@ -234,30 +240,30 @@ cmd_gate() {
 
     # Judge every shard, then print the poll line, then the first failure (if any).
     d=0; failr=""; failu=""
-    local -a seen=() waiting=()
+    local -a polled=() waiting=()
     for ((i = 1; i <= cnt; i++)); do
       n="Git Bash shard $i of $cnt"
       if [ -z "${st[$i]+x}" ]; then
-        seen+=("$n=missing"); waiting+=("$n (missing)")
+        polled+=("$n=missing"); waiting+=("$n (missing)")
       elif [ "${st[$i]}" = completed ]; then
-        seen+=("$n=${co[$i]}")
+        polled+=("$n=${co[$i]}")
         if [ "${co[$i]}" = success ]; then d=$((d + 1))
         elif [ -z "$failr" ]; then
           concl="${co[$i]}"; [ "$concl" != - ] || concl="no conclusion"
           failr="$n: $concl"; failu="${hu[$i]}"
         fi
       elif [ "${st[$i]}" = in_progress ] && [ "${ag[$i]}" != - ]; then
-        seen+=("$n=in_progress ${ag[$i]}s")
+        polled+=("$n=in_progress ${ag[$i]}s")
         if [ "${ag[$i]}" -gt "$runs" ] && [ -z "$failr" ]; then
           failr="$n in progress ${ag[$i]}s since started_at, past ${runs}s"; failu="${hu[$i]}"
         fi
       elif [ "${st[$i]}" = in_progress ]; then
-        seen+=("$n=in_progress"); waiting+=("$n (in_progress, no started_at)")
+        polled+=("$n=in_progress"); waiting+=("$n (in_progress, no started_at)")
       else
-        seen+=("$n=${st[$i]}"); waiting+=("$n (${st[$i]})")
+        polled+=("$n=${st[$i]}"); waiting+=("$n (${st[$i]})")
       fi
     done
-    line="$(printf '%s, ' "${seen[@]}")"
+    printf -v line '%s, ' "${polled[@]}"
     printf 'gitbash-tagged: gate: %s of %s shards done (%s)\n' "$d" "$cnt" "${line%, }"
     [ -z "$failr" ] || gate_fail "$failr" "$failu"
     if [ "$d" -eq "$cnt" ]; then
@@ -266,7 +272,7 @@ cmd_gate() {
     fi
     waited=$((SECONDS - t0))
     if [ ${#waiting[@]} -gt 0 ] && [ "$waited" -ge "$starts" ]; then
-      line="$(printf '%s; ' "${waiting[@]}")"
+      printf -v line '%s; ' "${waiting[@]}"
       gate_fail "not started after ${starts}s: ${line%; }"
     fi
     sleep "$iv"
