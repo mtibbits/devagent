@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 
 load 'helpers'
+load 'helpers/devdoc-repo'
+bats_require_minimum_version 1.5.0
 
 setup() {
   setup_tmp_devdoc
@@ -15,6 +17,9 @@ setup() {
     --type issue --subtype bug --title "Corn planting" >/dev/null
   SLUG="2026-05-19-corn-planting"
   CAP_DIR="${TMP_DEVDOC}/Captures/${SLUG}"
+  # #1055: helpers/devdoc-repo writes its git wrappers under DEVAGENT_TMP.
+  export DEVAGENT_TMP="${TMP_HOME}"
+  unset DEVAGENT_DEVDOC_LOCK_TOKEN DEVAGENT_DEVDOC_LOCK_DEADLINE
 }
 
 teardown() {
@@ -167,4 +172,115 @@ teardown() {
   [[ "$output" == *"malformed"* ]]
   [ ! -f "${CAP_DIR}/filed.toml" ]
   [ -e "${CAP_DIR}/.pending" ]
+}
+
+# ---------------------------------------------------------------------------
+# #1055: with commit_devdoc = true in the config of the project that owns
+# DEVAGENT_DEVDOC_DIR, a filing commits Captures/<slug>/ alone, under the devDoc
+# lock; best effort (a failure warns, the exit stays 0).
+# ---------------------------------------------------------------------------
+
+# _owner_config <true|false> — a config whose project `fake` owns TMP_DEVDOC.
+_owner_config() {
+  mkdir -p "${HOME}/.claude/devagent"
+  cat > "${HOME}/.claude/devagent/config.toml" <<EOF
+[project.fake]
+source_dir = "${TMP_HOME}/src"
+devdoc_dir = "${TMP_DEVDOC}"
+
+[project.fake.issue_source]
+backend = "github"
+repo    = "fakeorg/fake"
+
+[project.fake.permissions]
+commit_devdoc = $1
+EOF
+}
+
+# _git_devdoc — TMP_DEVDOC as a git repository: another issue and another
+# capture are committed, then both are left modified; the setup's capture stays
+# untracked, as in real use.
+_git_devdoc() {
+  mkdir -p "${TMP_DEVDOC}/Issue-7" "${TMP_DEVDOC}/Captures/other"
+  printf '# Issue-7\n' > "${TMP_DEVDOC}/Issue-7/checklist.md"
+  printf '# other\n' > "${TMP_DEVDOC}/Captures/other/draft.md"
+  ( cd "${TMP_DEVDOC}" && git -c init.defaultBranch=main init -q \
+    && git add -A -- Issue-7 Captures/other \
+    && git -c user.email=t@example.com -c user.name=Test commit -q -m seed )
+  printf 'edit\n' >> "${TMP_DEVDOC}/Issue-7/checklist.md"
+  printf 'edit\n' >> "${TMP_DEVDOC}/Captures/other/draft.md"
+}
+
+_dd_count() { git -C "${TMP_DEVDOC}" rev-list --count HEAD; }
+
+@test "file: commit_devdoc=true commits only Captures/<slug>/ after filing (#1055)" {
+  export DEVAGENT_PERMISSION_PUSH_MR=true
+  _owner_config true; _git_devdoc
+  DEVAGENT_GIT="$(devdoc_git_logging_wrapper "${TMP_HOME}/git.log")"; export DEVAGENT_GIT
+  before="$(_dd_count)"
+  run --separate-stderr "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -eq 0 ]
+  [ "$output" = "https://github.com/fakeorg/fake/issues/4242" ]
+  [ "$(_dd_count)" -eq $((before + 1)) ]
+  [ "$(git -C "${TMP_DEVDOC}" log -1 --format=%s)" = "devdoc: file ${SLUG} as fakeorg/fake#4242" ]
+  run git -C "${TMP_DEVDOC}" log -1 --name-only --format=
+  while IFS= read -r p; do [[ -z "$p" || "$p" == "Captures/${SLUG}/"* ]]; done <<< "$output"
+  [[ "$output" == *"Captures/${SLUG}/filed.toml"* ]]
+  [[ "$output" == *"Captures/${SLUG}/draft.md"* ]]
+  [[ "$output" != *".pending"* ]]
+  run git -C "${TMP_DEVDOC}" status --porcelain
+  [[ "$output" == *" M Issue-7/checklist.md"* ]]
+  [[ "$output" == *" M Captures/other/draft.md"* ]]
+  # the commit ran under the devDoc lock, held by file.sh
+  run awk -F'\t' '$1 == "commit" { print $6 "\t" $8 }' "${TMP_HOME}/git.log"
+  [ "${#lines[@]}" -eq 1 ]
+  [[ "${lines[0]}" != "-"* ]]
+  [[ "${lines[0]}" == *$'\t'"file.sh" ]]
+}
+
+@test "file: commit_devdoc=false makes no devDoc commit and takes no lock (#1055)" {
+  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+  _owner_config false; _git_devdoc
+  DEVAGENT_GIT="$(devdoc_git_logging_wrapper "${TMP_HOME}/git.log")"; export DEVAGENT_GIT
+  hp="$(devdoc_lock_stub_holder "${TMP_DEVDOC}" Issue-5)"
+  cp "${hp}/holder" "${TMP_HOME}/holder.before"
+  before="$(_dd_count)"
+  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -eq 0 ]
+  [ -f "${CAP_DIR}/filed.toml" ]
+  [ "$(_dd_count)" -eq "$before" ]
+  [ "$(awk -F'\t' '$1 == "add" || $1 == "commit"' "${TMP_HOME}/git.log" 2>/dev/null | wc -l)" -eq 0 ]
+  [[ "$output" != *"devdoc lock"* ]]
+  cmp "${hp}/holder" "${TMP_HOME}/holder.before"
+}
+
+@test "file: a devDoc outside git makes no commit and takes no lock (#1055)" {
+  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+  _owner_config true
+  hp="$(devdoc_lock_stub_holder "${TMP_DEVDOC}" Issue-5)"
+  [ "$hp" = "$(cd "${TMP_DEVDOC}" && pwd -P)/.devagent-wbs.lock" ]
+  cp "${hp}/holder" "${TMP_HOME}/holder.before"
+  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -eq 0 ]
+  [ -f "${CAP_DIR}/filed.toml" ]
+  [[ "$output" != *"devdoc lock"* ]]
+  [[ "$output" != *"WARNING"* ]]
+  cmp "${hp}/holder" "${TMP_HOME}/holder.before"
+}
+
+@test "file: a held devDoc lock warns, exits 0 and keeps the filed issue (#1055)" {
+  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+  _owner_config true; _git_devdoc
+  hp="$(devdoc_lock_stub_holder "${TMP_DEVDOC}" Issue-5)"
+  cp "${hp}/holder" "${TMP_HOME}/holder.before"
+  before="$(_dd_count)"
+  run --separate-stderr "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -eq 0 ]
+  [ "$output" = "https://github.com/fakeorg/fake/issues/4242" ]
+  [[ "$stderr" == *"file.sh: WARNING: devdoc commit of ${CAP_DIR} skipped - devdoc lock timeout; commit it by hand:"* ]]
+  [ -f "${CAP_DIR}/filed.toml" ]
+  [ "$(grep -c '^verb=create$' "${MOCK_INVOCATION_LOG}")" -eq 1 ]
+  [ "$(_dd_count)" -eq "$before" ]
+  cmp "${hp}/holder" "${TMP_HOME}/holder.before"
+  grep -qx 'pid=4242' "${hp}/holder"
 }

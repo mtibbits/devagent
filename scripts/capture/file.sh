@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/capture/file.sh — file a capture draft as a tracker issue.
-# Honors the push_mr permission gate (spec §8).
+# Honors the push_mr permission gate (spec §8); with commit_devdoc (#1055) it
+# commits the filed capture's folder alone to devDoc, best effort.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +17,11 @@ source "${SCRIPT_DIR}/../lib/permission.sh"
 source "${SCRIPT_DIR}/../lib/flags.sh"
 # shellcheck source=lib/tiers.sh
 source "${SCRIPT_DIR}/lib/tiers.sh"
+# #1055: the best-effort devDoc commit of the filed capture (needs io.sh's warn).
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/../lib/io.sh"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/../lib/devdoc-repo.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -39,6 +45,9 @@ Env:
   DEVAGENT_REPO_ORIGIN           for --target origin (unset → from that config)
   DEVAGENT_REPO_FORK             for --target fork (unset → from that config)
   DEVAGENT_PERMISSION_PUSH_MR    true|false (default false; a disk target asks none)
+  commit_devdoc: read from [project.<owner>.permissions] of the project that owns
+                 DEVAGENT_DEVDOC_DIR (the policy's value under a trust policy); true
+                 commits Captures/<slug>/ after filing (#1055). No env var carries it.
 USAGE
 }
 
@@ -112,10 +121,13 @@ fi
 # when the backend or a tiers.toml needs it (one config read per project).
 tiers_file="${cap_dir}/tiers.toml"
 _proj=""
+_owner_looked_up=0   # #1055: the commit gate below reuses this lookup
 if [[ "${TRUST_HOST:-0}" == 1 ]]; then
   _proj="${TRUST_PROJECT:-}"
+  _owner_looked_up=1
 elif [[ -z "${DEVAGENT_ISSUE_BACKEND:-}" || -e "${tiers_file}" || -L "${tiers_file}" ]]; then
   _proj="$(trust_project_for_devdoc "${DEVAGENT_DEVDOC_DIR:-}")"
+  _owner_looked_up=1
   if [[ -z "${DEVAGENT_ISSUE_BACKEND:-}" && -n "${_proj}" ]]; then
     _section=issue_source
     [[ "${TARGET}" == fork ]] && _section=issue_source_fork
@@ -338,3 +350,13 @@ for _cls in thinking checking; do
 done
 
 printf '%s\n' "${url}"
+
+# #1055: commit the filed capture's folder alone, AFTER the URL is on stdout (a
+# kill during the bounded lock wait loses only this commit). The gate is the
+# owning project's commit_devdoc (the policy's under a trust policy, #713), read
+# through permission_value; no owner → no commit. Best effort: a failure prints
+# one warning and the exit stays 0 — the tracker issue already exists.
+[[ "${_owner_looked_up}" -eq 1 ]] || _proj="$(trust_project_for_devdoc "${DEVAGENT_DEVDOC_DIR:-}")"
+if [[ -n "${_proj}" && "$(permission_value "${_proj}" commit_devdoc)" == true ]]; then
+  devdoc_commit_dir "${DEVAGENT_DEVDOC_DIR}" "${cap_dir}" - "devdoc: file ${SLUG} as ${repo}#${issue_num}" || true
+fi

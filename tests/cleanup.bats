@@ -839,6 +839,30 @@ _age15() { find "$@" -exec touch -d '15 days ago' {} +; }
     [[ "$line" != *"Captures/ "* ]]
 }
 
+@test "#1055: a capture filed by file.sh and aged 15 days is not in cleanup's unowned report" {
+    unset DEVAGENT_ISSUE_BACKEND
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/file-backends"
+    mkdir -p "$DEVAGENT_ISSUE_BACKEND_DIR"
+    printf '%s\n' '#!/usr/bin/env bash' '[ "${1:-}" = create ] || exit 1' 'echo 4242' \
+        > "$DEVAGENT_ISSUE_BACKEND_DIR/github.sh"
+    chmod +x "$DEVAGENT_ISSUE_BACKEND_DIR/github.sh"
+    mkdir -p "$DEVDOC_DIR/Captures/c-filed" "$DEVDOC_DIR/Captures/c-old"
+    printf '# A filed capture\n' > "$DEVDOC_DIR/Captures/c-filed/draft.md"
+    DEVAGENT_DEVDOC_DIR="$DEVDOC_DIR" DEVAGENT_PERMISSION_PUSH_MR=true \
+        run "$DEVAGENT_ROOT/scripts/capture/file.sh" --slug c-filed --target origin
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$DEVDOC_DIR" log -1 --format=%s)" = "devdoc: file c-filed as acme/testproj#4242" ]
+    printf 'draft\n' > "$DEVDOC_DIR/Captures/c-old/draft.md"
+    printf 'issue = 5\n' > "$DEVDOC_DIR/Captures/c-old/filed.toml"
+    _age15 "$DEVDOC_DIR/Captures/c-filed" "$DEVDOC_DIR/Captures/c-old"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    line="$(printf '%s\n' "$output" | grep 'unowned path(s)')"
+    [[ "$line" == *"WARNING: cleanup: 1 unowned path(s)"* ]]
+    [[ "$line" == *"Captures/c-old/"* ]]
+    [[ "$line" != *"Captures/c-filed/"* ]]
+}
+
 @test "#749: no unowned paths prints no line" {
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
