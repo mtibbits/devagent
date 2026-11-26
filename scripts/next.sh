@@ -216,7 +216,7 @@ question_stop() {
 _stall_gate_a_fires() {
   local c
   c="$(checklist_current_step "$checklist")"
-  [[ "$c" != done && "$(checklist_step_state "$checklist" "$c")" == "!" ]]
+  [[ "$c" != "done" && "$(checklist_step_state "$checklist" "$c")" == "!" ]]
 }
 
 # stall_stop (#880): gate (b), "is this issue stuck anywhere?". Reads main's
