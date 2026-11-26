@@ -68,11 +68,13 @@ sync_snapshot() {
     [ "${2:-}" = --no-origin ] || printf 'origin %s\n' "$(git -C "$SYNC_ORIGIN" rev-parse -q --verify refs/heads/main || echo none)"
 }
 
-# sync_run <dir> <issue> <budget> — run devdoc_sync <dir> <issue> <budget> the way
+# sync_run <dir> <issue> <budget> [<mode>] — run devdoc_sync <dir> <issue> <budget> the way
 # cleanup does: a fresh bash under set -euo pipefail that sources io.sh and
 # devdoc-repo.sh, from <dir>. DEVAGENT_GIT passes through; $SYNC_PATH, when set,
 # is the PATH of the devdoc_sync call (set after the libraries are sourced). Sets SYNC_RC SYNC_OUTCOME SYNC_REASON SYNC_LINE; stderr goes
-# to $SYNC_ERR. rc 1 when the driver aborts or the line holds a newline.
+# to $SYNC_ERR. rc 1 when the driver aborts or the line holds a newline. A non-empty
+# <mode> (#1149) is passed as devdoc_sync's 4th argument; without one the call is the
+# 3-argument one cleanup makes.
 sync_run() {
     local out rc=0
     out="$(mktemp)"
@@ -85,9 +87,9 @@ sync_run() {
         cd "$1"
         [ -z "$SYNC_CALL_PATH" ] || PATH="$SYNC_CALL_PATH"
         r=0
-        devdoc_sync "$1" "$2" "$3" || r=$?
+        devdoc_sync "$1" "$2" "$3" ${5:+"$5"} || r=$?
         printf "%s\0" "$r" "$DEVDOC_SYNC_OUTCOME" "$DEVDOC_SYNC_REASON" "$DEVDOC_SYNC_LINE" > "$4"
-    ' _ "$1" "$2" "$3" "$out" 2>"$SYNC_ERR" || rc=$?
+    ' _ "$1" "$2" "$3" "$out" "${4:-}" 2>"$SYNC_ERR" || rc=$?
     if [ "$rc" -ne 0 ]; then
         rm -f "$out"; echo "sync_run: the driver exited $rc" >&2; cat "$SYNC_ERR" >&2; return 1
     fi

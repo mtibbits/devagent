@@ -542,7 +542,7 @@ _devdoc_sync_hold() {
         M="$(GIT_AUTHOR_NAME=devagent GIT_AUTHOR_EMAIL=devagent@local \
             GIT_COMMITTER_NAME=devagent GIT_COMMITTER_EMAIL=devagent@local \
             "$DEVAGENT_GIT" -C "$top" commit-tree "$MF_MTREE" -p "$H" -p "$T" \
-            -m "devdoc: merge origin/$b into $b ($_DS_ISSUE cleanup)" 2>"$_DS_ERR")" || rc=$?
+            -m "devdoc: merge origin/$b into $b ($_DS_SUBJ)" 2>"$_DS_ERR")" || rc=$?
         if [ "$rc" -ne 0 ] || [ -z "$M" ]; then _ds_git_failed commit-tree "$rc" "$_DS_ERR"; return 1; fi
         X="$M"; _DS_S="$M"
     fi
@@ -760,21 +760,35 @@ _ds_paths() {
     _ds_cap "$s"; _DS_PATHS="$_DS_CAPPED"
 }
 
-# devdoc_sync <devdoc_dir> <issue> <budget_secs> — sync the repository holding
-# <devdoc_dir> with origin's branch of the local branch's name. rc 0: nothing to warn
-# about; rc 1: DEVDOC_SYNC_LINE is the one WARNING line to print. Never anything else.
+# devdoc_sync <devdoc_dir> <issue|-> <budget_secs> [<mode>] — sync the repository
+# holding <devdoc_dir> with origin's branch of the local branch's name. rc 0: nothing
+# to warn about; rc 1: DEVDOC_SYNC_LINE is the one line to print. Never anything else.
+#   <mode>  absent or empty = push (cleanup, step 24). no-push (#1149, step 21's wbs
+#           update): the same fetch and locked move, one attempt at the lock
+#           (DEVAGENT_DEVDOC_LOCK_TIMEOUT=0 for that acquire only), and no push. Any
+#           other value refuses (bad-mode) before every check and every git call.
 #   DEVDOC_SYNC_OUTCOME  off | same | pushed | fast-forwarded | merged | refused | skipped
+#                        no-push adds ahead (nothing to bring in); there fast-forwarded
+#                        and merged are local only, and pushed is never set
 #   DEVDOC_SYNC_REASON   the warning's token (conflict, in-the-way, budget, …), or empty
 #   DEVDOC_SYNC_REPO     the repository's toplevel; DEVDOC_SYNC_BRANCH its branch
 #   DEVDOC_SYNC_LINE     devDoc sync <refused|skipped|finished> for <repo> (<branch>): <reason>. <count>. <next>
+#                        no-push: no count, and the step-21 tail (see _devdoc_sync_line)
 # <budget_secs> bounds the sum of the network calls; the lock wait spends none of it.
+# A trust check on the devDoc's origin (#958) belongs here, inside devdoc_sync, so
+# that it covers both callers.
 # shellcheck disable=SC2034  # the DEVDOC_SYNC_* globals are the return channel — read by cleanup.sh
 devdoc_sync() {
     DEVDOC_SYNC_OUTCOME=off; DEVDOC_SYNC_REASON=""; DEVDOC_SYNC_REPO=""; DEVDOC_SYNC_BRANCH=""; DEVDOC_SYNC_LINE=""
     _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_TMPD=""; _DS_ERR=/dev/null; _DS_LIST=/dev/null; _DS_DETACHED=0; _DS_BRANCH=""
-    _DS_ISSUE="$2"; _DS_BUDGET="$3"
+    _DS_ISSUE="$2"; _DS_BUDGET="$3"; _DS_MODE="${4:-push}"; _DS_SUBJ="$2 cleanup"
     _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""; _DS_KIND=""
-    _devdoc_sync_body "$1" || true
+    case "$_DS_MODE" in
+        push) ;;
+        no-push) case "$2" in ""|-) _DS_SUBJ="wbs update" ;; *) _DS_SUBJ="$2 wbs update" ;; esac ;;
+        *) _ds_set skipped bad-mode "unknown sync mode '$_DS_MODE'"; _DS_MODE=push ;;
+    esac
+    [ -n "$DEVDOC_SYNC_REASON" ] || _devdoc_sync_body "$1" || true
     if [ -n "$_DS_LEFT_WHY" ]; then                                  # a held deleted file (Task 5)
         if [ -z "$DEVDOC_SYNC_REASON" ]; then
             DEVDOC_SYNC_REASON=leftover; _DS_WHY="$_DS_LEFT_WHY"; _DS_NEXT="$_DS_LEFT_NEXT"
@@ -850,7 +864,11 @@ _devdoc_sync_body() {
     esac
     # 2. One short hold: no network call under the lock; the wait spends no budget.
     bounded_now_us; t0="$BOUNDED_NOW_US"
-    devdoc_lock_acquire "$devdoc_dir" "$_DS_ISSUE" "the next close" 2>/dev/null || lrc=$?
+    if [ "$_DS_MODE" = no-push ]; then                               # one attempt (#1149)
+        DEVAGENT_DEVDOC_LOCK_TIMEOUT=0 devdoc_lock_acquire "$devdoc_dir" "$_DS_ISSUE" "the next close" 2>/dev/null || lrc=$?
+    else
+        devdoc_lock_acquire "$devdoc_dir" "$_DS_ISSUE" "the next close" 2>/dev/null || lrc=$?
+    fi
     case "$lrc" in
         0) ;;
         1) _ds_set skipped lock-busy "the devDoc lock is busy" "Skipped for this close; the next close retries."; return 0 ;;
@@ -864,6 +882,13 @@ _devdoc_sync_body() {
         same) DEVDOC_SYNC_OUTCOME=same; return 0 ;;
         behind) DEVDOC_SYNC_OUTCOME=fast-forwarded; return 0 ;;
     esac
+    if [ "$_DS_MODE" = no-push ]; then                               # step 21 never pushes (#1149)
+        case "$_DS_KIND" in
+            diverged) DEVDOC_SYNC_OUTCOME=merged ;;
+            *) DEVDOC_SYNC_OUTCOME=ahead ;;
+        esac
+        return 0
+    fi
     # 3. The push, unlocked, bounded by what is left of the budget.
     if ! bounded_secs_left "$dl" "$_DS_BUDGET"; then _ds_budget; return 0; fi
     LC_ALL=C GIT_TERMINAL_PROMPT=0 bounded_call "$BOUNDED_SECS" "$DEVAGENT_GIT" -C "$top" \
@@ -931,9 +956,13 @@ _ds_budget() {
 
 # _devdoc_sync_line — DEVDOC_SYNC_LINE from the recorded reason. The count is read
 # after any move; a HEAD with no branch shows as (detached HEAD), with no count.
+# no-push (#1149) drops the count (cleanup reports it). A refusal or skip there keeps
+# the core's remedy without its "the next close retries" clause, drops a remedy that
+# only says when the close retries (and conflict's hand merge, which cleanup's warning
+# gives), and ends "This step uses this machine's copy; the next cleanup syncs again."
 # shellcheck disable=SC2034  # DEVDOC_SYNC_LINE is the return channel — read by cleanup.sh
 _devdoc_sync_line() {
-    local verb br count=""
+    local verb br count="" next="$_DS_NEXT"
     case "$DEVDOC_SYNC_OUTCOME" in
         skipped) verb=skipped ;;
         refused) verb=refused ;;
@@ -941,14 +970,24 @@ _devdoc_sync_line() {
     esac
     if [ -n "$DEVDOC_SYNC_BRANCH" ]; then
         br="($DEVDOC_SYNC_BRANCH)"
-        devdoc_unpushed_text "$DEVDOC_SYNC_REPO" "$DEVDOC_SYNC_BRANCH" || true
-        count=" $DEVDOC_UNPUSHED_TEXT."
+        if [ "$_DS_MODE" != no-push ]; then
+            devdoc_unpushed_text "$DEVDOC_SYNC_REPO" "$DEVDOC_SYNC_BRANCH" || true
+            count=" $DEVDOC_UNPUSHED_TEXT."
+        fi
     elif [ "$_DS_DETACHED" = 1 ]; then
         br="(detached HEAD)"
     else
         br="(branch unknown)"
     fi
-    DEVDOC_SYNC_LINE="devDoc sync $verb for $DEVDOC_SYNC_REPO $br: ${_DS_WHY%.}.$count $_DS_NEXT${_DS_ALSO:+ Also: $_DS_ALSO}"
+    if [ "$_DS_MODE" = no-push ] && [ "$verb" != finished ]; then
+        case "$DEVDOC_SYNC_REASON:$next" in
+            conflict:*|*:"The next close retries."|*:"Skipped for this close; the next close retries.") next="" ;;
+            *:*"; the next close retries.") next="${next%; the next close retries.}." ;;
+            *:*" The next close retries.") next="${next% The next close retries.}" ;;
+        esac
+        next="${next:+$next }This step uses this machine's copy; the next cleanup syncs again."
+    fi
+    DEVDOC_SYNC_LINE="devDoc sync $verb for $DEVDOC_SYNC_REPO $br: ${_DS_WHY%.}.$count $next${_DS_ALSO:+ Also: $_DS_ALSO}"
     # git's and the remote's text is quoted in it: no control character survives
     # (an escape sequence or a carriage return could repaint the terminal line).
     DEVDOC_SYNC_LINE="${DEVDOC_SYNC_LINE//[[:cntrl:]]/?}"
