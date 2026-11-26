@@ -92,6 +92,14 @@ issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
 [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
 
+# #880: a new block over a stuck issue would leave the [!] behind in the older
+# block (where unstuck's active-block preference cannot reach it once a twin
+# exists). Refuse before any write, on both the genuine and --retier paths.
+stall="$(checklist_sentinel_stall "$issue_dir")"
+if [[ -n "$stall" ]]; then
+  die "$ISSUE is stuck: $(checklist_describe_row "$issue_dir/checklist.md" "${stall%%:*}") is marked [!] and $issue_dir/STUCK is present; a new revision block would leave that row behind. Run /devagent:unstuck $PROJECT first, then re-run /devagent:revise. Nothing was changed."
+fi
+
 n_cur=$(revision_current "$PROJECT" "$ISSUE")
 n_new=$((n_cur + 1))
 
