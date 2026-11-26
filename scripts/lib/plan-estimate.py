@@ -14,7 +14,8 @@ unclosed openers, so it is not used here.
 Reading rules: a heading whose text starts with `Size estimate` opens the
 section and any other heading closes it. Inside it, a line that fullmatches
 ESTIMATE_LINE_RE is an estimate line, and any other line that matches
-ESTIMATE_NEAR_MISS_RE is a near-miss; the last of these decides (`present`,
+ESTIMATE_NEAR_MISS_RE, or holds a `{` block with an `est` or `tok` key
+(BRACED_ESTIMATE_RE: a drifted label), is a near-miss; the last of these decides (`present`,
 or `unreadable` for a near-miss). With none, an estimate-shaped line anywhere
 else outside a fence makes the result `unreadable`; with none at all it is
 `absent`. `est` and `tok` come from the deciding line only. A confirmed line's
@@ -75,6 +76,9 @@ ESTIMATE_LINE_RE = re.compile(
 ESTIMATE_NEAR_MISS_RE = re.compile(
     r"[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)?[*_`]{0,3}"
     r"Estimate[ \t]*\([ \t]*(?:scope|confirmed)\b", re.I)
+# Inside a size section only: a `{…}` block with an est or tok key under any
+# other label is an estimate written in the wrong form, never silently absent.
+BRACED_ESTIMATE_RE = re.compile(r"\{[^{}]*\b(?:est|tok)[ \t]*:")
 
 NEAR_MISS_MESSAGE = ("estimate-shaped line is not in the form "
                      "`- Estimate (scope|confirmed): {est: <time>, tok: <tokens>}`")
@@ -147,7 +151,7 @@ def read_estimate(text: str) -> dict:
                 entries.append({"line": lineno, "text": line, "kind": m.group("kind"),
                                 "meta": meta})
                 continue
-            if ESTIMATE_NEAR_MISS_RE.match(line):
+            if ESTIMATE_NEAR_MISS_RE.match(line) or BRACED_ESTIMATE_RE.search(line):
                 problems.append({"line": lineno, "message": NEAR_MISS_MESSAGE})
                 entries.append({"line": lineno, "text": line, "kind": None})
             continue
@@ -183,15 +187,6 @@ def read_estimate(text: str) -> dict:
     return out
 
 
-def _walk_reason(key: str, messages: list[str]) -> str | None:
-    """A walk problem about `key`, usable inside `not measured (...)`."""
-    for msg in messages:
-        names = msg.startswith(f"'{key}'") or f"key '{key}'" in msg
-        if names and "(" not in msg and ")" not in msg:
-            return msg
-    return None
-
-
 def read_file(path) -> dict:
     """`read_estimate` of a file read as UTF-8 (errors replaced, newlines kept).
     Raises OSError when the file cannot be read."""
@@ -199,12 +194,13 @@ def read_file(path) -> dict:
         return read_estimate(fh.read())
 
 
-def _value(key: str, c: dict, messages: list[str]) -> str:
+def _value(key: str, c: dict, block_problem_at: int | None) -> str:
     if c.get("class") == MEASURED[key]:
         return c["raw"]
-    reason = (_walk_reason(key, messages)
-              or REASONS[key].get(c.get("class"), f"{key} is unparseable"))
-    return f"not measured ({reason})"
+    if block_problem_at is not None:
+        # A fixed reason: the walk's own message can hold `;` and quotes.
+        return f"not measured ({key} block problem at plan line {block_problem_at})"
+    return f"not measured ({REASONS[key].get(c.get('class'), f'{key} is unparseable')})"
 
 
 def impact_line(result: dict) -> str:
@@ -214,8 +210,8 @@ def impact_line(result: dict) -> str:
         return f"{IMPACT_LABEL} no structured estimate"
     if status == "unreadable":
         return f"{IMPACT_LABEL} not measured (estimate line unreadable at plan line {result['line']})"
-    m = ESTIMATE_LINE_RE.fullmatch(result["text"] or "")
-    messages = [msg for _code, msg in wbs_parser._parse_meta_walk(m.group("body"))[1]] if m else []
+    # Only the block walk can report a problem on the deciding line itself.
+    at = result["line"] if any(p["line"] == result["line"] for p in result["problems"]) else None
     if result["source"] == "scope":
         mark = "estimate not confirmed"
     elif result["changed"] is None:
@@ -224,8 +220,8 @@ def impact_line(result: dict) -> str:
         mark = "estimate confirmed, changed from scope"
     else:
         mark = "estimate confirmed, unchanged"
-    return (f"{IMPACT_LABEL} agent time est {_value('est', result['est'], messages)} "
-            f"vs actual <agent wall>; tokens est {_value('tok', result['tok'], messages)} "
+    return (f"{IMPACT_LABEL} agent time est {_value('est', result['est'], at)} "
+            f"vs actual <agent wall>; tokens est {_value('tok', result['tok'], at)} "
             f"vs actual <cost> [{mark}; {INTERIM_NOTE}]")
 
 

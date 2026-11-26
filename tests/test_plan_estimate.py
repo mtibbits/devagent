@@ -109,7 +109,18 @@ NEAR_MISSES = [
     "- estimate (scope): {est: 3-5h, tok: 8-12M}",
     "Estimate (scope): {est: 3-5h, tok: 8-12M}",
     "- Estimate(scope): {est: 3-5h, tok: 8-12M}",
+    # Final review #1: a braced est/tok block under a drifted label, in the section.
+    "- Estimate: {est: 3-5h, tok: 8-12M}",
+    "- Scope estimate: {est: 3-5h, tok: 8-12M}",
+    "- Estimated (scope): {est: 3-5h, tok: 8-12M}",
+    "- {est: 3-5h, tok: 8-12M}",
+    "- {tok: 8-12M}",
 ]
+
+
+def test_braced_block_outside_the_section_is_not_an_estimate():
+    r = pe.read_estimate(_section("- [ ] leaf {est: 3h, tok: 1M}", heading="## Tasks"))
+    assert (r["status"], r["problems"]) == ("absent", [])
 
 
 @pytest.mark.parametrize("bad", NEAR_MISSES)
@@ -311,8 +322,12 @@ def test_meta_walk_problems_are_reported():
     r = pe.read_estimate(_section("- Estimate (scope): {est: 3-5h tok: 8-12M}"))
     assert r["status"] == "present"
     assert any("','" in p["message"] and p["line"] == 4 for p in r["problems"])
-    assert pe.impact_line(r).startswith(
-        "- Estimate vs actual (interim): agent time est not measured ('est' value holds ")
+    # Final review #2: a fixed reason (no `;` or quotes from the walk), for both keys.
+    assert pe.impact_line(r) == (
+        "- Estimate vs actual (interim): agent time est not measured "
+        "(est block problem at plan line 4) vs actual <agent wall>; tokens est not measured "
+        "(tok block problem at plan line 4) vs actual <cost> [estimate not confirmed; "
+        + NOTE + "]")
     r = pe.read_estimate(_section("- Estimate (scope): {est: 3-5h, tok: 1M, est: 4h}"))
     assert any("more than once" in p["message"] for p in r["problems"])
     assert r["est"]["raw"] == "4h"

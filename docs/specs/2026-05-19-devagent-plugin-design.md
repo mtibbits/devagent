@@ -5000,7 +5000,8 @@ devdoc's git history.
    or `+` bullet; `**` and backtick wrappers allowed) is an estimate line, and
    its block goes through wbs-parser's `_parse_meta_walk`, whose problems are
    reported. Any other line matching `ESTIMATE_NEAR_MISS_RE` (the label in any
-   case, as a bullet, numbered item, blockquote or bare text) is a near-miss.
+   case, as a bullet, numbered item, blockquote or bare text), or holding a
+   `{…}` block with an `est` or `tok` key under another label, is a near-miss.
 4. The last estimate-shaped line in a section decides: an estimate line gives
    `present` with `source` its kind, a near-miss gives `unreadable`. With none,
    a near-miss match anywhere else outside a fence gives `unreadable`; with
@@ -5043,8 +5044,9 @@ lines. `--impact-line` prints one of:
 
 An estimate value prints raw when its class is `time` or `tokens`, else
 `not measured (<reason>)`: `no est value`, `est is a placeholder`,
-`est is not in h, d or w`, `est is unparseable`, or the block problem that
-names the key (for `tok` the same, less the unit reason). The mark is
+`est is not in h, d or w`, `est is unparseable`, or
+`est block problem at plan line N` when the block walk reported a problem on
+that line (for `tok` the same, less the unit reason). The mark is
 `estimate confirmed, unchanged`, `estimate confirmed, changed from scope`,
 `estimate confirmed, no scope line` or `estimate not confirmed`. The impact
 skill replaces `<agent wall>` with the `agent wall N.NNh` figure of its
