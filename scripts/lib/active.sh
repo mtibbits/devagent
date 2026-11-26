@@ -345,7 +345,7 @@ _active_warn_wt_divergence() {
   case "$top" in ''|null|'""') return 0 ;; esac
   ai="$(state_get "$project" active_issue 2>/dev/null || true)"
   [ "$ai" = "$issue" ] || return 0
-  warn "state_ctx_get: worktree_path diverges for $issue: [context.$issue].worktree_path = \"\" (the table wins, #240) but top-level worktree_path = \"$top\"; fix the table: set [context.$issue].worktree_path = \"$top\" in $(state_path "$project") so both homes agree while $issue is the shared active_issue (or clear the top level if $issue has no worktree)"
+  warn "state_ctx_get: worktree_path diverges for $issue: [context.$issue].worktree_path = \"\" (the table wins, #240) but top-level worktree_path = \"$top\"; fix the table: set [context.$issue].worktree_path = \"$top\" in $(state_path "$project") so both homes agree while $issue is the shared active_issue"
 }
 
 # state_ctx_get <project> <key> [issue-arg] — session-view read.
@@ -417,11 +417,10 @@ active_tree_resolve() {
   # lazily (die path only) — no spawn here.
   # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
   ACTIVE_TREE_PROJECT="$project" ACTIVE_TREE_ARG="$arg"
-  # same `|| true` shape as ship.sh's read, but muted and check=0 (#879); the
+  # same `|| true` shape as ship.sh's read, but muted and check=0: a #879
+  # warning nobody sees must not cost the ~13 callers two extra state reads. The
   # fail-closed liveness check below is what makes the `|| true` safe (register
   # Issue-314/316).
-  # The read stays muted and skips the #879 divergence check (check=0): a
-  # warning nobody sees must not cost the ~13 callers two extra state reads.
   wt="$(_state_ctx_read 0 "$project" worktree_path "$arg" 2>/dev/null || true)"
   case "$wt" in null|'""') wt="" ;; esac
   if [ -n "$wt" ]; then
