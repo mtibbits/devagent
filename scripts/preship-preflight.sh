@@ -135,7 +135,9 @@ case "$sub" in
           mv -- "$issue_dir/preship.md" "$issue_dir/$sup"
           _log "preflight: moved preship.md to $sup"
         fi
-        bash "$SCRIPTS/checklist-stuck.sh" "$issue_dir" "preship: evidence preflight: $first" ;;
+        # || true (#963): a held issue refuses the mark (exit operator-question)
+        # and keeps its question; preflight still reports and exits with rc.
+        bash "$SCRIPTS/checklist-stuck.sh" "$issue_dir" "preship: evidence preflight: $first" || true ;;
     esac
     printf 'evidence rc=%s\n' "$rc"
     exit "$rc" ;;

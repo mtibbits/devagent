@@ -259,3 +259,16 @@ HOSTILE='  - Evidence suite line mismatch — write it with `bash "$CLAUDE_PLUGI
   [ "$status" -eq 0 ]
   [ ! -e "$ISSUE_DIR/.preflight-reason" ]
 }
+
+@test "evidence: a held issue keeps its question; a refused checklist-stuck still prints evidence rc (#963)" {
+  printf '%s\n' 'Kind:        question' 'Step:        17 preship' '' '## Question' '' 'q?' '' \
+    '## How to answer' '' '/devagent:answer fake Issue-7 01 a' > "$ISSUE_DIR/STUCK"
+  local before; before="$(sha256sum "$ISSUE_DIR/STUCK" "$ISSUE_DIR/checklist.md" | awk '{print $1}')"
+  STUB_RC=1 STUB_ERR=$'preship-evidence: FAIL\n  - x\n' _pf evidence
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"evidence rc=1"* ]]
+  [[ "$stderr" == *"checklist-stuck: Issue-7 is held on an operator question"* ]]
+  [ ! -e "$ISSUE_DIR/questions" ]
+  run grep -c '^- \[!\]' "$ISSUE_DIR/checklist.md"; [ "$output" -eq 0 ]
+  [ "$(sha256sum "$ISSUE_DIR/STUCK" | awk '{print $1}')" = "$(head -1 <<<"$before")" ]
+}

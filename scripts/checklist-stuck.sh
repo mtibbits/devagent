@@ -9,6 +9,8 @@ source "$PLUGIN_ROOT/scripts/lib/log.sh"
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/question-actions.sh"   # question_lock (#963)
 
 # --step <N> <name> (#782): mark row N instead of the current step. Kept for operators;
 # scripts use --name (#885). <name> is checklist_mark's #558 row guard: a row N that is
@@ -37,6 +39,19 @@ file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 trust_entry_check_devdoc "checklist-stuck" "$(dirname -- "$issue_dir")"
 quarantine_guard_dir "checklist-stuck" "$issue_dir"
+
+# #963: refuse to overwrite an operator question. The check and the STUCK write
+# run under the question lock hold.sh takes while it creates STUCK, taken only
+# when questions/ exists (an issue that never held gets no directory). A lock
+# wait that runs out (its own stderr line is relayed) falls back to an
+# unlocked read, so a real stop is never lost. The EXIT trap releases the lock
+# and removes questions/ when it is left empty, as hold.sh does.
+_stuck_exit() { set +e; question_unlock; rmdir "$issue_dir/questions" 2>/dev/null; return 0; }
+if [[ -d "$issue_dir/questions" ]]; then
+  trap _stuck_exit EXIT
+  question_lock "$issue_dir" || true
+fi
+[[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse checklist-stuck "$issue_dir"
 
 if [[ -n "$by_name" ]]; then
   cur="$(checklist_step_num_by_name "$file" "$by_name")" \

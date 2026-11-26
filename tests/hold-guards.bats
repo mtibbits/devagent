@@ -277,3 +277,139 @@ _leg_checklist_unstuck() {
   _kinds _leg_unstuck
   _kinds _leg_checklist_unstuck
 }
+
+# ---- Task 4: checklist-stuck and stuck refuse under the question lock -------
+
+@test "race: checklist-stuck and stuck wait for a hold in progress, then refuse" {
+  _tree
+  printf '#!/usr/bin/env bash\nexit 11\n' > "$TREE/scripts/park.sh"
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local shim="$BATS_TEST_TMPDIR/shim" real t="$BATS_TEST_TMPDIR"
+  real="$(command -v date)"
+  mkdir -p "$shim"
+  # The first `date -Iseconds` call (hold.sh's _render_to, under the lock and
+  # before STUCK exists: U1) signals `ready` and waits for `go`.
+  cat > "$shim/date" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *" -Iseconds "*)
+    if mkdir "$t/armed" 2>/dev/null; then
+      : > "$t/ready"
+      while [ ! -e "$t/go" ]; do sleep 0.05; done
+    fi ;;
+esac
+exec "$real" "\$@"
+SH
+  chmod +x "$shim/date"
+  PATH="$shim:$PATH" DEVAGENT_UNATTENDED=1 "$TREE/scripts/hold.sh" toy Issue-7 --step improve --reason r \
+    --question-file "$t/q.md" > "$t/hold.out" 2>&1 3>&- &
+  local hp=$! i
+  for i in $(seq 200); do [ -e "$t/ready" ] && break; sleep 0.05; done
+  [ -e "$t/ready" ]
+  [ -e "$D/questions/.lock" ]
+  "$S/checklist-stuck.sh" "$D" r > "$t/cs.out" 2>&1 3>&- &
+  local cp=$!
+  "$S/stuck.sh" toy r > "$t/st.out" 2>&1 3>&- &
+  local sp=$!
+  sleep 1
+  kill -0 "$cp"
+  kill -0 "$sp"
+  [ ! -e "$D/STUCK" ]
+  : > "$t/go"
+  local hrc=0 crc=0 src=0
+  wait "$hp" || hrc=$?
+  wait "$cp" || crc=$?
+  wait "$sp" || src=$?
+  [ "$hrc" -eq 11 ] || { cat "$t/hold.out" >&2; return 1; }
+  [ "$crc" -eq "$OQ" ] || { echo "checklist-stuck rc=$crc" >&2; cat "$t/cs.out" >&2; return 1; }
+  [ "$src" -eq "$OQ" ] || { echo "stuck rc=$src" >&2; cat "$t/st.out" >&2; return 1; }
+  [ "$(head -1 "$D/STUCK")" = "Kind:        question" ]
+  grep -q '^- \[?\]  5\. improve' "$CK"
+  ! grep -q '^- \[!\]' "$CK"
+  [ ! -e "$D/questions" ]
+}
+
+@test "lock timeout: a stale lock delays but does not stop a real stop, and a held issue still refuses" {
+  # Leg A: no STUCK. A dead pid's lock stands in for a hold.
+  mkdir -p "$D/questions"
+  echo 999999 > "$D/questions/.lock"
+  run --separate-stderr "$S/checklist-stuck.sh" "$D" "real stop"
+  [ "$status" -eq 0 ] || { echo "A rc=$status err=$stderr" >&2; return 1; }
+  grep -q '^- \[!\]  5\. improve' "$CK"
+  grep -q '^Reason:      real stop$' "$D/STUCK"
+  ! grep -q '^Kind:' "$D/STUCK"
+  [[ "$stderr" == *"hold: lock busy: $D/questions/.lock"* ]]
+  # Leg B: held, then the stale lock.
+  rm -rf "$DEVDOC" "$DA_HOME/state"/*
+  _toy
+  _held_active
+  mkdir -p "$D/questions"
+  echo 999999 > "$D/questions/.lock"
+  local before; before="$(_snap)"
+  run --separate-stderr "$S/checklist-stuck.sh" "$D" "real stop"
+  [ "$status" -eq "$OQ" ] || { echo "B rc=$status err=$stderr" >&2; return 1; }
+  [ "$(_snap)" = "$before" ]
+}
+
+@test "no directory: checklist-stuck on an issue that never held creates no questions/" {
+  # A `date` shim records, at the STUCK write's `date -Iseconds`, whether
+  # questions/ exists then: an EXIT trap that removes it afterwards cannot
+  # hide a lock taken without the directory.
+  local shim="$BATS_TEST_TMPDIR/shim" real; real="$(command -v date)"
+  mkdir -p "$shim"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "case \" \$* \" in *' -Iseconds '*) if [ -e '$D/questions' ]; then echo yes; else echo no; fi >> '$BATS_TEST_TMPDIR/seen' ;; esac" \
+    "exec '$real' \"\$@\"" > "$shim/date"
+  chmod +x "$shim/date"
+  PATH="$shim:$PATH" run --separate-stderr "$S/checklist-stuck.sh" "$D" r
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$(cat "$BATS_TEST_TMPDIR/seen")" = no ]
+  [ ! -e "$D/questions" ]
+}
+
+@test "other kinds: checklist-stuck writes under the lock and releases it" {
+  _question_stuck improve 5
+  sed -i 1d "$D/STUCK"
+  mkdir -p "$D/questions"
+  echo kept > "$D/questions/notes.txt"
+  run --separate-stderr "$S/checklist-stuck.sh" "$D" "new reason"
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  grep -q '^Reason:      new reason$' "$D/STUCK"
+  [ ! -e "$D/questions/.lock" ]
+  [ -f "$D/questions/notes.txt" ]
+  # The lock is free: after an ordinary unstuck, a hold runs without the wait.
+  "$S/unstuck.sh" toy >/dev/null
+  _q "$BATS_TEST_TMPDIR/q.md"
+  local t0=$SECONDS
+  DEVAGENT_UNATTENDED=1 run "$S/hold.sh" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 0 ] || { echo "hold rc=$status out=$output" >&2; return 1; }
+  [ $((SECONDS - t0)) -lt 5 ]
+}
+
+@test "no overwrite: checklist-stuck and stuck refuse on a held issue and leave it byte-identical" {
+  _held_active
+  local before; before="$(_snap)"
+  run --separate-stderr "$S/checklist-stuck.sh" "$D" r
+  [ "$status" -eq "$OQ" ] || { echo "cs rc=$status err=$stderr" >&2; return 1; }
+  [ "$stderr" = "$(_refusal_lines checklist-stuck)" ]
+  run --separate-stderr "$S/stuck.sh" toy r
+  [ "$status" -eq "$OQ" ] || { echo "stuck rc=$status err=$stderr" >&2; return 1; }
+  [ "$stderr" = "$(_refusal_lines stuck)" ]
+  [ "$(_snap)" = "$before" ]
+}
+
+_leg_checklist_stuck() {
+  run --separate-stderr "$S/checklist-stuck.sh" "$D" "overwritten $1"
+  [ "$status" -eq 0 ] || { echo "cs rc=$status err=$stderr" >&2; return 1; }
+  grep -q "^Reason:      overwritten $1\$" "$D/STUCK"
+}
+_leg_stuck() {
+  run --separate-stderr "$S/stuck.sh" toy "overwritten $1"
+  [ "$status" -eq 0 ] || { echo "stuck rc=$status err=$stderr" >&2; return 1; }
+  grep -q "^Reason:      overwritten $1\$" "$D/STUCK"
+}
+
+@test "other kinds: checklist-stuck and stuck overwrite as today" {
+  _kinds _leg_checklist_stuck
+  _kinds _leg_stuck
+}

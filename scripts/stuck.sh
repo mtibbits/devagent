@@ -23,6 +23,17 @@ source "$PLUGIN_ROOT/scripts/lib/log.sh"
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/question-actions.sh"   # question_lock (#963)
+
+# #963: main refuses to overwrite an operator question. The check and the STUCK write
+# run under the question lock hold.sh takes while it creates STUCK, taken only
+# when questions/ exists (an issue that never held gets no directory). A lock
+# wait that runs out (its own stderr line is relayed) falls back to an
+# unlocked read, so a real stop is never lost. The EXIT trap releases the lock
+# and removes questions/ when it is left empty, as hold.sh does.
+_STUCK_DIR=""
+_stuck_exit() { set +e; question_unlock; rmdir "$_STUCK_DIR/questions" 2>/dev/null; return 0; }
 
 main() {
   local project="${1:-}"
@@ -36,6 +47,12 @@ quarantine_guard "stuck" "$project"
   local issue_dir
   issue_dir="$(issue_context_dir "$project")"
   [[ -d "$issue_dir" ]] || die "no issue_dir; nothing to mark stuck"
+  if [[ -d "$issue_dir/questions" ]]; then
+    _STUCK_DIR="$issue_dir"
+    trap _stuck_exit EXIT
+    question_lock "$issue_dir" || true
+  fi
+  [[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse stuck "$issue_dir"
 
   local checklist="$issue_dir/checklist.md"
   local cur cur_name last_good last_good_name
