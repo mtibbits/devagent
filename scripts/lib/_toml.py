@@ -277,10 +277,16 @@ def _list_tables(data: dict, prefix: str = "") -> list[str]:
     return out
 
 
+class _NotATable(Exception):
+    """#963: the named table exists but its value is not a table."""
+
+
 def _list_keys(data: dict, table: str | None) -> list[str]:
+    # KeyError: the table is absent. _NotATable: it is present but is not a
+    # table (`parked = true`), which a caller must not read as "no keys".
     cur = data if not table else _walk(data, table)
     if not isinstance(cur, dict):
-        raise KeyError(table or "")
+        raise _NotATable(table or "")
     return [k for k, v in cur.items() if not isinstance(v, dict)]
 
 
@@ -432,19 +438,35 @@ def main(argv: list[str]) -> int:
         return 0
 
     if verb == "list-tables":
-        data = _load(file, retry=True)
+        # #963: an unparseable or missing file exits 2, as `get` does (#99).
+        try:
+            data = _load(file, retry=True)
+        except Exception as e:
+            print(f"_toml: {file}: {e}", file=sys.stderr)
+            return 2
         for t in _list_tables(data):
             print(t)
         return 0
 
     if verb == "list-keys":
-        data = _load(file, retry=True)
+        # #963: rc 2 an unparseable or missing file (as `get`, #99), rc 1 the
+        # table is absent, rc 3 it is present but not a table (as get-list's
+        # wrong type) — distinct, so a caller can fail closed on 2 and 3.
+        try:
+            data = _load(file, retry=True)
+        except Exception as e:
+            print(f"_toml: {file}: {e}", file=sys.stderr)
+            return 2
         table = rest[0] if rest else None
         try:
-            for k in _list_keys(data, table):
-                print(k)
+            keys = _list_keys(data, table)
         except KeyError:
             return 1
+        except _NotATable:
+            print(f"_toml: '{table}' is not a table", file=sys.stderr)
+            return 3
+        for k in keys:
+            print(k)
         return 0
 
     # #100: mutation rewrites the file from the parsed tree, dropping comments
