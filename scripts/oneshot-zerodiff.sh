@@ -168,12 +168,12 @@ if [ -s "$ack" ]; then
     exit 5
 fi
 
-# Pre-flight BOTH of active_tree_resolve's die branches (active.sh:384-385 and
-# :391-392) so neither can surface as a boundary verdict — a state or config
-# fault is `indeterminate` with its real reason, not rc 1 (round-1 SE4, round-2
-# B6: the worktree branch is reachable after `revise.sh --retier oneshot` on a
+# Pre-flight BOTH of active_tree_resolve's die branches (its recorded-state-path
+# die and its configured-source_dir dies) so neither can surface as a boundary
+# verdict — a state or config fault is `indeterminate` with its real reason, not
+# rc 1 (round-1 SE4, round-2 B6: the worktree branch is reachable after `revise.sh --retier oneshot` on a
 # project that already ran step 8, so "unreachable by construction" was false).
-wt="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
+wt="$(state_ctx_get "$project" worktree_path "$issue_arg" || true)"
 case "$wt" in null|'""') wt="" ;; esac
 if [ -n "$wt" ]; then
     if ! "$DEVAGENT_GIT" -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
