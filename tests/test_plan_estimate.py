@@ -3,6 +3,7 @@ the plan's structured estimate line, read back, and the impact comparison line."
 import ast
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -341,7 +342,7 @@ def test_crash_exits_4_not_absent(tmp_path):
         "raise RuntimeError('planted')\n", encoding="utf-8")
     p = subprocess.run(["bash", str(tmp_path / SH.name), str(FIX / "confirmed-changed.md")],
                        capture_output=True, text=True, check=False,
-                       env={"PATH": "/usr/bin:/bin"})
+                       env={"PATH": os.environ["PATH"]})
     assert (p.returncode, p.stdout) == (4, "")
     assert p.stderr == "plan-estimate: internal error: RuntimeError: planted\n"
 

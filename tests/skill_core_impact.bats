@@ -83,6 +83,12 @@ PE_NOTE='interim: actuals stop at the impact step and count only the transcripts
   for s in '- Estimate vs actual (interim): no structured estimate' 'not measured (<reason>)' '<agent wall>' '<cost>' 'agent wall' 'input-token equivalents' 'unattributed'; do
     printf '%s\n' "$x" | grep -qF -- "$s" || { echo "missing: $s"; false; }
   done
+  run bash "$BATS_TEST_DIRNAME/../scripts/plan-estimate.sh" --impact-line "$PE_FIX/legacy-prose.md"
+  [ "$status" -eq 1 ]
+  printf '%s\n' "$x" | grep -qF -- "$output" || { echo "item 7 lacks the reader's absent line: $output"; false; }
+  run bash "$BATS_TEST_DIRNAME/../scripts/plan-estimate.sh" --impact-line "$PE_FIX/near-miss.md"
+  [ "$status" -eq 3 ]
+  case "$output" in "- Estimate vs actual (interim): not measured ("*) ;; *) false ;; esac
 }
 
 @test "core-impact output example carries the comparison line the reader prints (#738)" {
@@ -93,6 +99,8 @@ PE_NOTE='interim: actuals stop at the impact step and count only the transcripts
   filled="${line/<agent wall>/agent wall 2.41h}"
   filled="${filled/<cost>/12.4M input-token equivalents}"
   printf '%s\n' "$block" | grep -qF -- "$filled" || { echo "missing filled line: $filled"; false; }
+  printf '%s\n' "$block" | grep -qF -- '- Estimate vs actual (interim): no structured estimate'
+  printf '%s\n' "$block" | grep -qF -- '- Estimate vs actual (interim): not measured (<reason>)'
 }
 
 @test "core-impact item 7 records a failed reader as not measured (#738)" {
