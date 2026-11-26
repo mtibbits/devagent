@@ -141,7 +141,7 @@ case "$sub" in
         crc=0
         bash "$SCRIPTS/checklist-stuck.sh" "$issue_dir" "preship: evidence preflight: $first" || crc=$?
         if [ "$crc" -ne 0 ]; then
-          [ "$crc" = "$(bash -c '. "$1"; trust_exit_code operator-question' _ "$SCRIPTS/lib/refusals.sh")" ] \
+          [ "$crc" = "$(trust_exit_code operator-question)" ] \
             || exit "$crc"
         fi ;;
     esac

@@ -11,6 +11,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/question-actions.sh"   # question_step (#963)
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/transition.sh"
 . "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
@@ -35,9 +37,7 @@ _SYNC_CLOSEOUT_STEPS="mergetoall mergemr updatewbs impact lessonslearned cleanup
 _sync_closeout_unblock() {
     local issue_dir="$1" name flips=0 g held=""
     if [ "$(stuck_kind "$issue_dir")" = question ]; then
-        held="$(stuck_header_value "$issue_dir/STUCK" Step)"
-        held="${held##* }"
-        [ -n "$held" ] || return 0
+        held="$(question_step "$issue_dir/STUCK")" || return 0
     fi
     for name in $_SYNC_CLOSEOUT_STEPS; do
         [ "$name" != "$held" ] || continue

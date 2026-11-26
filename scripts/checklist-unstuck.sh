@@ -28,7 +28,7 @@ file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 [[ -f "$issue_dir/STUCK" ]] || die "no STUCK file at $issue_dir/STUCK"
 # #963: a question STUCK is cleared only by answering it.
-[[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse checklist-unstuck "$issue_dir"
+hold_guard checklist-unstuck "$issue_dir"
 
 # #587: the row-selection scan and the by-line mark live in
 # scripts/lib/checklist.sh (see checklist_find_glyph_line's header), shared with

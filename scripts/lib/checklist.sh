@@ -664,9 +664,14 @@ stuck_header_value() {
     }' "$1" 2>/dev/null
 }
 
+# hold_guard <caller> <issue-dir> — #963: returns 0 unless the issue is held on
+# an operator question (a question-kind STUCK), in which case hold_refuse.
+hold_guard() {
+  [[ "$(stuck_kind "$2")" != question ]] || hold_refuse "$1" "$2"
+}
+
 # hold_refuse <caller> <issue-dir> — #963: the one refusal for a command that
-# would undo an operator-question hold. Callers test the kind themselves:
-#   [[ "$(stuck_kind "$d")" != question ]] || hold_refuse <caller> "$d"
+# would undo an operator-question hold; hold_guard is the usual entry point.
 # Prints three lines on stderr (nothing on stdout) — the STUCK path and the
 # answer line: for an unfinished answer (a `## Answer` line) the answer line
 # with its last field replaced by `--finish`, else STUCK's own `## How to
@@ -679,8 +684,6 @@ hold_refuse() {
   declare -F trust_exit_code >/dev/null || source "$lib/refusals.sh"
   # shellcheck source=/dev/null
   declare -F question_answer_line >/dev/null || source "$lib/question-actions.sh"
-  # shellcheck source=/dev/null
-  declare -F question_answered >/dev/null || source "$lib/question-actions.sh"
   if line="$(question_answer_line "$stuck")"; then
     question_answered "$stuck" && line="${line% *} --finish"
   else

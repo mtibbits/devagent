@@ -238,7 +238,7 @@ def read_stuck(path) -> dict:
 
 def _null_stuck() -> dict:
     """The Stuck of a STUCK (or issue dir) that could not be read: all null."""
-    return {"step": None, "reason": None, "since": None, "kind": None}
+    return {**{k: None for k, _ in STUCK_KEYS}, "kind": None}
 
 
 # --- reference rollup ----------------------------------------------------------

@@ -51,7 +51,7 @@ if [[ -d "$issue_dir/questions" ]]; then
   trap _stuck_exit EXIT
   question_lock "$issue_dir" || true
 fi
-[[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse checklist-stuck "$issue_dir"
+hold_guard checklist-stuck "$issue_dir"
 
 if [[ -n "$by_name" ]]; then
   cur="$(checklist_step_num_by_name "$file" "$by_name")" \

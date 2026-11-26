@@ -52,7 +52,7 @@ quarantine_guard "stuck" "$project"
     trap _stuck_exit EXIT
     question_lock "$issue_dir" || true
   fi
-  [[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse stuck "$issue_dir"
+  hold_guard stuck "$issue_dir"
 
   local checklist="$issue_dir/checklist.md"
   local cur cur_name last_good last_good_name

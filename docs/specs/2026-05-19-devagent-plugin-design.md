@@ -1005,8 +1005,8 @@ STUCK it cannot read reads `stuck`; any other value prints as written
 (`question`, `watchdog`, ...).
 
 **Guards (#963).** While `stuck_kind` reads `question`, the commands that
-could undo the hold refuse it through one helper, `hold_refuse` in
-`scripts/lib/checklist.sh`: pull (after its trust and quarantine checks,
+could undo the hold refuse it through one guard, `hold_guard` (which calls
+`hold_refuse`) in `scripts/lib/checklist.sh`: pull (after its trust and quarantine checks,
 before any fetch), switch (a held target, before the park), resume, revise
 (with or without `--retier`), unstuck and checklist-unstuck (even with a `[!]`
 in an older revision block), stuck and checklist-stuck. Each changes nothing,
