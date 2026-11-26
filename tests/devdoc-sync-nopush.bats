@@ -102,7 +102,7 @@ TAIL="This step uses this machine's copy; the next cleanup syncs again."
     [ "$SYNC_RC" = 1 ]
     [ "$SYNC_REASON" = lock-busy ]
     [ "$SYNC_OUTCOME" = skipped ]
-    [ "$el" -lt 2 ]
+    [ "$el" -lt 4 ]                                              # whole-second SECONDS; the bound is 5
     [ "$SYNC_LINE" = "devDoc sync skipped for $(_top) (main): the devDoc lock is busy. $TAIL" ]
     # (b) push mode keeps its bound
     export DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
