@@ -332,13 +332,44 @@ active_resolve_issue() {
 # invocation keeps today's shared-slot behavior byte-for-byte (including the
 # stale-issue_dir edge after cleanup — deliberately unchanged).
 
+# _active_warn_wt_divergence <project> <issue> — #879. Called only after a
+# pinned/arg'd worktree_path read returned EMPTY. state_issue_get already falls
+# back to a non-empty top level on a table MISS for the shared issue, so "empty
+# result + top level non-empty + issue is the shared active_issue" can only be an
+# empty table HIT: the table wins (#240) and the run silently falls back to
+# source_dir while the top level names a worktree. Warn; never change the value.
+# Cheapest exit first: 1 extra read in the common no-worktree case, at most 2.
+_active_warn_wt_divergence() {
+  local project="$1" issue="$2" top ai
+  top="$(state_get "$project" worktree_path 2>/dev/null || true)"
+  case "$top" in ''|null|'""') return 0 ;; esac
+  ai="$(state_get "$project" active_issue 2>/dev/null || true)"
+  [ "$ai" = "$issue" ] || return 0
+  warn "state_ctx_get: worktree_path diverges for $issue: [context.$issue].worktree_path = \"\" (the table wins, #240) but top-level worktree_path = \"$top\"; set the same value in both homes of $(state_path "$project") while $issue is the shared active_issue"
+}
+
 # state_ctx_get <project> <key> [issue-arg] — session-view read.
+# A pinned/arg'd worktree_path read warns on stderr when the table value is
+# empty beside a non-empty top-level mirror for the shared issue (#879); the
+# printed value and rc are unchanged. _ACTIVE_SKIP_WT_DIVERGENCE=1 skips the
+# check (active_tree_resolve, whose read is muted and must not pay for it).
 state_ctx_get() {
   local project="$1" key="$2" arg="${3:-}"
   if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "$arg" ]; then
     local issue
     issue="$(active_resolve_issue "$project" "$arg")" || return 1
-    state_issue_get "$project" "$issue" "$key"
+    if [ "$key" != "worktree_path" ]; then
+      state_issue_get "$project" "$issue" "$key"
+      return
+    fi
+    local out rc
+    out="$(state_issue_get "$project" "$issue" "$key")"; rc=$?
+    if [ "$rc" -eq 0 ] && [ -z "$out" ] && [ -z "${_ACTIVE_SKIP_WT_DIVERGENCE:-}" ]; then
+      _active_warn_wt_divergence "$project" "$issue"
+    fi
+    # stdout as state_issue_get left it: nothing on an empty failure (rc 2)
+    if [ "$rc" -eq 0 ] || [ -n "$out" ]; then printf '%s\n' "$out"; fi
+    return "$rc"
   else
     state_get "$project" "$key"
   fi
@@ -378,7 +409,9 @@ active_tree_resolve() {
   local project="$1" arg="${2:-}" wt src
   # same shape as ship.sh:92 — kept byte-identical deliberately; the fail-closed
   # liveness check below is what makes the `|| true` safe (register Issue-314/316).
-  wt="$(state_ctx_get "$project" worktree_path "$arg" 2>/dev/null || true)"
+  # The read stays muted and skips the #879 divergence check: a warning nobody
+  # sees must not cost the ~13 callers two extra state reads.
+  wt="$(_ACTIVE_SKIP_WT_DIVERGENCE=1 state_ctx_get "$project" worktree_path "$arg" 2>/dev/null || true)"
   case "$wt" in null|'""') wt="" ;; esac
   if [ -n "$wt" ]; then
     "${DEVAGENT_GIT:-git}" -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
