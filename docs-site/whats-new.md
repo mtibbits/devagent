@@ -118,5 +118,8 @@ These are directions, not promises.
 - **One issue, several small merge requests.** Coming: the plan splits a large
   issue into slices that each land as their own reviewable merge request,
   while the design and close-out happen once.
+- **Self-hosted GitLab.** Coming: a project on your own GitLab server, even one
+  behind an internal certificate authority, runs the whole workflow as it does
+  on GitHub, from pull to the verified merge.
 
-Roadmap last checked against the open epics on 2026-11-19.
+Roadmap last checked against the open epics on 2026-11-26.
