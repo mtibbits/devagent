@@ -109,6 +109,15 @@ _refuse() {
   [ "$(sed -n 3p <<<"$stderr")" = "  Answer:   /devagent:answer toy Issue-7 01 --finish" ]
 }
 
+@test "hold_refuse: a trailing slash on the issue dir still names the issue" {
+  _held
+  run --separate-stderr bash -c '
+    for l in paths io checklist; do source "$PLUGIN_ROOT/scripts/lib/$l.sh"; done
+    hold_refuse "$1" "$2"' _ resume "$D//"
+  [ "$status" -eq "$OQ" ]
+  [ "$stderr" = "$(_refusal_lines resume)" ]
+}
+
 @test "hold_refuse: a question STUCK with no answer line still refuses" {
   _held
   sed -i '/^## How to answer$/,$d' "$D/STUCK"
@@ -174,7 +183,7 @@ _active8() {
   run --separate-stderr "$S/switch.sh" toy Issue-7
   [ "$status" -eq "$OQ" ] || { echo "rc=$status err=$stderr" >&2; return 1; }
   grep -q '^active_issue = "Issue-8"$' "$DA_HOME/state/toy.toml"
-  ! grep -q '\[P\]' "$DEVDOC/Issue-8/checklist.md"
+  ! grep -q '\[P\]' "$DEVDOC/Issue-8/checklist.md" || false
   [ "$(_snap)" = "$before" ]
   [ "$stderr" = "$(_refusal_lines switch)" ]
 }
@@ -328,7 +337,7 @@ SH
   [ "$src" -eq "$OQ" ] || { echo "stuck rc=$src" >&2; cat "$t/st.out" >&2; return 1; }
   [ "$(head -1 "$D/STUCK")" = "Kind:        question" ]
   grep -q '^- \[?\]  5\. improve' "$CK"
-  ! grep -q '^- \[!\]' "$CK"
+  ! grep -q '^- \[!\]' "$CK" || false
   [ ! -e "$D/questions" ]
 }
 
@@ -340,7 +349,7 @@ SH
   [ "$status" -eq 0 ] || { echo "A rc=$status err=$stderr" >&2; return 1; }
   grep -q '^- \[!\]  5\. improve' "$CK"
   grep -q '^Reason:      real stop$' "$D/STUCK"
-  ! grep -q '^Kind:' "$D/STUCK"
+  ! grep -q '^Kind:' "$D/STUCK" || false
   [[ "$stderr" == *"hold: lock busy: $D/questions/.lock"* ]]
   # Leg B: held, then the stale lock.
   rm -rf "$DEVDOC" "$DA_HOME/state"/*
@@ -452,7 +461,7 @@ _sync_asserts() {
   [ "$status" -eq 0 ] || { echo "B rc=$status err=$stderr" >&2; return 1; }
   _sync_asserts
   # Path A: the merge marker is present.
-  ! (source "$S/lib/merge-marker.sh"; merge_marker_present "$CK")
+  ! (source "$S/lib/merge-marker.sh"; merge_marker_present "$CK") || false
   printf '%s\n' "- 2026-11-26 10:00  sync: on_merge fired; MR merged" >> "$CK"
   (source "$S/lib/merge-marker.sh"; merge_marker_present "$CK")
   sed -i 's/^- \[ \] 19\. mergetoall/- [?] 19. mergetoall/' "$CK"

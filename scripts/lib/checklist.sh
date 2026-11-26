@@ -679,7 +679,8 @@ hold_guard() {
 # Never returns. Sources refusals.sh and question-actions.sh on demand, so
 # checklist.sh's own contract (paths.sh + io.sh) stands.
 hold_refuse() {
-  local caller="$1" d="$2" stuck="$2/STUCK" lib="${BASH_SOURCE[0]%/*}" line code
+  local caller="$1" d="${2%"${2##*[!/]}"}" lib="${BASH_SOURCE[0]%/*}" line code stuck
+  stuck="$d/STUCK"
   # shellcheck source=/dev/null
   declare -F trust_exit_code >/dev/null || source "$lib/refusals.sh"
   # shellcheck source=/dev/null

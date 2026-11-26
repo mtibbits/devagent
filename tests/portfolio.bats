@@ -620,7 +620,7 @@ _fails_closed() {
   [ "$(_entries "$T/doc.json" | awk '{print $2}' | sort -u)" = null ]
   [ "$(_q "$T/doc.json" '[(r["source_line"], r["message"]) for r in d["parse_report"] if r["kind"] == "state_unreadable"]')" \
     = "[(None, 'devagent state could not be read; its issues have parked: null and its leaves with an issue are not ready')]" ]
-  ! grep -qF "$SF" "$T/doc.json"
+  ! grep -qF "$SF" "$T/doc.json" || false
   ! grep -qF '.toml' "$T/doc.json"
 }
 
