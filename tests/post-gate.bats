@@ -10,6 +10,7 @@ bats_require_minimum_version 1.5.0   # run --separate-stderr
 load 'lib/bats-helpers'
 load 'lib/post-gate-fixture'
 load 'lib/trust-fixture'
+. "${BATS_TEST_DIRNAME}/lib/changelog-text.bash"
 
 setup() {
   pg_setup
@@ -1059,6 +1060,6 @@ _has() { grep -qF -- "$1" || { echo "missing: $1" >&2; return 1; }; }
   req="$(_flat < "$PLUGIN_ROOT/docs/requirements.md")"
   _has 'EI-25: The operator'"'"'s private name list: devagent'"'"'s leak gate reads it by path only' <<<"$req"
   _has 'EI-20: Refusal exit codes: devagent'"'"'s trust, quarantine and leak-gate refusals' <<<"$req"
-  grep -qE '^- \*\*Added: .*\(#966\)\.\*\*' "$PLUGIN_ROOT/changelog.d/966.md"
-  [ "$(grep -c '^- ' "$PLUGIN_ROOT/changelog.d/966.md")" -eq 1 ]
+  local cl; cl="$(changelog_text "$PLUGIN_ROOT")"
+  [ "$(grep -cE '^- \*\*Added: .*\(#966\)\.\*\*' <<<"$cl")" -eq 1 ]
 }
