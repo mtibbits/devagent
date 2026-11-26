@@ -49,7 +49,7 @@ _held_active() {
 
 # _kinds <fn>: run <fn> once per non-question STUCK kind: one with no Kind:
 # line (reads `stuck`) and one with an unknown kind. <fn> gets the kind name;
-# each leg starts from a fresh _toy.
+# each leg starts from a fresh _toy. A failing leg fails the test (errexit).
 _kinds() {
   local k
   for k in stuck later-kind; do
@@ -62,7 +62,10 @@ _kinds() {
       _question_stuck improve 5 later-kind
     fi
     ( _lib; [ "$(stuck_kind "$D")" = "$k" ] ) || { echo "fixture kind != $k" >&2; return 1; }
-    "$@" "$k" || { echo "leg $k failed" >&2; return 1; }
+    # Called plainly, never under `||`: errexit is off inside a function run
+    # in a conditional context, which would skip every bare assertion.
+    echo "# leg: $1 $k" >&2
+    "$@" "$k"
   done
 }
 
@@ -412,4 +415,103 @@ _leg_stuck() {
 @test "other kinds: checklist-stuck and stuck overwrite as today" {
   _kinds _leg_checklist_stuck
   _kinds _leg_stuck
+}
+
+# ---- Task 5: sync skips the held closeout row; reap skips a question STUCK --
+
+# _closeout: Issue-7 shipped (18), mergetoall blocked [?] (19), impact in
+# progress (22), held at impact; mr_url set; mr-state answers MERGED.
+_closeout() {
+  printf '%s\n' '- [x]  0. pull' '- [x] 18. ship' '- [?] 19. mergetoall' '- [~] 22. impact' \
+    '- [ ] 24. cleanup' '' '## Log' > "$CK"
+  cat >> "$DA_HOME/config.toml" <<'EOF2'
+
+[project.toy.code_source]
+backend = "stub"
+EOF2
+  local cb="$BATS_TEST_TMPDIR/code"
+  mkdir -p "$cb"
+  printf '#!/usr/bin/env bash\n[ "$1" = mr-state ] && echo MERGED\n' > "$cb/stub.sh"
+  chmod +x "$cb/stub.sh"
+  export DEVAGENT_CODE_BACKEND_DIR="$cb"
+  _held_active "${1:-impact}"
+  _tset mr_url '"https://example.invalid/pull/1"'
+}
+
+_sync_asserts() {
+  grep -q '^- \[?\] 22\. impact' "$CK"
+  grep -q '^- \[ \] 19\. mergetoall' "$CK"
+  [ "$(head -1 "$D/STUCK")" = "Kind:        question" ]
+  grep -q 'sync: unblocked 1 closeout step(s)' "$CK"
+}
+
+@test "sync: a held closeout row stays [?] through both paths while other closeout [?] rows flip" {
+  _closeout
+  # Path B: no merge marker; mr-state says merged.
+  run --separate-stderr "$S/sync.sh" toy
+  [ "$status" -eq 0 ] || { echo "B rc=$status err=$stderr" >&2; return 1; }
+  _sync_asserts
+  # Path A: the merge marker is present.
+  ! (source "$S/lib/merge-marker.sh"; merge_marker_present "$CK")
+  printf '%s\n' "- 2026-11-26 10:00  sync: on_merge fired; MR merged" >> "$CK"
+  (source "$S/lib/merge-marker.sh"; merge_marker_present "$CK")
+  sed -i 's/^- \[ \] 19\. mergetoall/- [?] 19. mergetoall/' "$CK"
+  sed -i '/sync: unblocked 1 closeout/d' "$CK"
+  run --separate-stderr "$S/sync.sh" toy
+  [ "$status" -eq 0 ] || { echo "A rc=$status err=$stderr" >&2; return 1; }
+  _sync_asserts
+}
+
+@test "sync: a question STUCK with no Step: line flips no closeout row" {
+  _closeout
+  sed -i '/^Step:/d' "$D/STUCK"
+  run --separate-stderr "$S/sync.sh" toy
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  grep -q '^- \[?\] 22\. impact' "$CK"
+  grep -q '^- \[?\] 19\. mergetoall' "$CK"
+  ! grep -q 'sync: unblocked' "$CK"
+}
+
+_reap() {
+  DEVAGENT_DEVDOC_DIR="$DEVDOC" DEVAGENT_PROJECT=toy DEVAGENT_PLUGIN_DIR="$PLUGIN_ROOT" \
+    DEVAGENT_STATE_DIR="$BATS_TEST_TMPDIR/rstate" run --separate-stderr "$S/capture/reap.sh" --dry-run
+  [ "$status" -eq 0 ] || { echo "reap rc=$status err=$stderr" >&2; return 1; }
+}
+_reap_count() { grep -c $'\t'"$1"$'/STUCK\t' <<<"$output" || true; }
+
+@test "reap: no candidate for a question STUCK, one for a plain STUCK elsewhere" {
+  _held
+  printf '%s\n' 'Step:        5 improve' 'Reason:      plain stop' 'Created:     2026-11-20 10:00' > "$DEVDOC/Issue-8/STUCK"
+  _reap
+  [ "$(_reap_count Issue-7)" -eq 0 ]
+  [ "$(_reap_count Issue-8)" -eq 1 ]
+}
+
+_leg_sync() {
+  printf '%s\n' '- [x]  0. pull' '- [x] 18. ship' '- [?] 19. mergetoall' '- [?] 22. impact' \
+    '- [ ] 24. cleanup' '' '## Log' > "$CK"
+  sed -i 's/^Step: .*/Step:        22 impact/' "$D/STUCK"
+  cat >> "$DA_HOME/config.toml" <<'EOF2'
+
+[project.toy.code_source]
+backend = "stub"
+EOF2
+  local cb="$BATS_TEST_TMPDIR/code"
+  mkdir -p "$cb"
+  printf '#!/usr/bin/env bash\n[ "$1" = mr-state ] && echo MERGED\n' > "$cb/stub.sh"
+  chmod +x "$cb/stub.sh"
+  _tset mr_url '"https://example.invalid/pull/1"'
+  DEVAGENT_CODE_BACKEND_DIR="$cb" run --separate-stderr "$S/sync.sh" toy
+  [ "$status" -eq 0 ] || { echo "sync rc=$status err=$stderr" >&2; return 1; }
+  grep -q '^- \[ \] 22\. impact' "$CK"
+  grep -q '^- \[ \] 19\. mergetoall' "$CK"
+}
+_leg_reap() {
+  _reap
+  [ "$(_reap_count Issue-7)" -eq 1 ]
+}
+
+@test "other kinds: sync flips and reap emits as today" {
+  _kinds _leg_sync
+  _kinds _leg_reap
 }

@@ -30,9 +30,17 @@ _SYNC_CLOSEOUT_STEPS="mergetoall mergemr updatewbs impact lessonslearned cleanup
 # Flip any closeout step stuck at [?] (the impact "not merged" halt) → [ ], so
 # post-merge /devagent:next proceeds instead of "blocked-external, consider park".
 # Only [?] (never [x]/[-]/[!]/[P]); revision-scoped; ≥1 flip → one log line.
+# #963: a question STUCK holds the row its `Step:` names; that row stays [?].
+# With no readable `Step:`, no closeout row is flipped (fail closed).
 _sync_closeout_unblock() {
-    local issue_dir="$1" name flips=0 g
+    local issue_dir="$1" name flips=0 g held=""
+    if [ "$(stuck_kind "$issue_dir")" = question ]; then
+        held="$(stuck_header_value "$issue_dir/STUCK" Step)"
+        held="${held##* }"
+        [ -n "$held" ] || return 0
+    fi
     for name in $_SYNC_CLOSEOUT_STEPS; do
+        [ "$name" != "$held" ] || continue
         g="$(checklist_step_state_by_name "$issue_dir/checklist.md" "$name" 2>/dev/null || true)"
         if [ "$g" = "?" ]; then
             checklist_mark_by_name "$issue_dir/checklist.md" "$name" " "

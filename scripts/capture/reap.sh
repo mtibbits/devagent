@@ -21,6 +21,9 @@ source "${SCRIPT_DIR}/../lib/log.sh"
 # name overlap. Needed for the STATE_DIR default below.
 # shellcheck source=../lib/paths.sh
 source "${SCRIPT_DIR}/../lib/paths.sh"
+# #963: stuck_kind — a question STUCK is a hold, not a follow-up chore.
+# shellcheck source=../lib/checklist.sh
+source "${SCRIPT_DIR}/../lib/checklist.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -203,7 +206,7 @@ emit_candidates() {
 
     # 2. STUCK file
     local s="${d}/STUCK"
-    if [[ -f "${s}" ]]; then
+    if [[ -f "${s}" ]] && [[ "$(stuck_kind "${d}")" != question ]]; then
       local reason
       reason="$(awk '/^Reason:/{sub(/^Reason:[ ]*/,""); print; exit}' "${s}")"
       [[ -z "${reason}" ]] && reason="${issue_name} STUCK"
