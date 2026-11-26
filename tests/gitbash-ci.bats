@@ -735,15 +735,18 @@ REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files
 }
 
 @test "gate: a shard that starts inside <start-secs> is no longer judged by it" {
+  # Start bound 4s: the first (queued) poll may take up to ~3s on a loaded runner
+  # ($SECONDS ticks whole seconds) and still be inside it; the shard then stays
+  # in_progress for polls 2-6 (t of about 5s, past the bound) before it succeeds.
+  local n
   stub_gh
   resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|queued||"
   resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||1"
-  cp "$STUB_DIR/resp.2" "$STUB_DIR/resp.3"
-  cp "$STUB_DIR/resp.2" "$STUB_DIR/resp.4"
-  resp 5 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
-  gate 3 1 3600 2
+  for n in 3 4 5 6; do cp "$STUB_DIR/resp.2" "$STUB_DIR/resp.$n"; done
+  resp 7 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate 3 1 3600 4
   [ "$status" -eq 0 ]
-  [ "$(calls)" -eq 5 ]
+  [ "$(calls)" -eq 7 ]
 }
 
 @test "gate: a future started_at (clock skew) is age 0, never negative" {
