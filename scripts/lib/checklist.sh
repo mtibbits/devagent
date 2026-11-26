@@ -467,8 +467,9 @@ checklist_describe_row() {
 # /devagent:unstuck clears", shared by next.sh, where.sh and revise.sh. Prints
 # checklist_find_glyph_line's `<line>:<step>` answer for `[!]` when ALL hold:
 #   - <issue-dir>/STUCK is a regular file (`-f`, the same test as unstuck.sh),
-#   - its kind is `stuck` (a #962 `question` STUCK is a hold: routing it to
-#     /devagent:unstuck would delete the held question),
+#   - its kind is not `question` (a #962 question STUCK is a hold: routing it
+#     to /devagent:unstuck would delete the held question; every other kind,
+#     spec §5.3's `stuck`, `watchdog`, ..., is one unstuck.sh clears),
 #   - <issue-dir>/checklist.md exists and a row in ANY revision block is `[!]`.
 # Otherwise prints nothing. Always returns 0, so it is safe in `$( ... )` under
 # errexit; a missing checklist prints nothing rather than dying.
@@ -477,7 +478,7 @@ checklist_describe_row() {
 checklist_sentinel_stall() {
   local dir="$1"
   [[ -f "$dir/STUCK" ]] || return 0
-  [[ "$(stuck_kind "$dir")" == stuck ]] || return 0
+  [[ "$(stuck_kind "$dir")" != question ]] || return 0
   [[ -f "$dir/checklist.md" ]] || return 0
   checklist_find_glyph_line "$dir/checklist.md" '!' || true
   return 0

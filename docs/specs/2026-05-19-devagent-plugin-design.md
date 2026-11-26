@@ -997,7 +997,7 @@ new glyph (#587). `/devagent:checklist-unstuck` applies the same rule to an
 explicit issue directory.
 
 **A stall in any revision block (#880).** `next` and `where` treat a regular
-`Kind: stuck` STUCK file plus a `[!]` row in ANY revision block as a stall —
+STUCK file of any `Kind:` but `question` plus a `[!]` row in ANY revision block as a stall —
 the exact case `/devagent:unstuck` clears (`checklist_sentinel_stall`). `next`
 halts before dispatching (and before a complete `--through` target or a done
 active block can return 0), naming the row's step, line and block; `where`

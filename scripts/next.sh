@@ -221,7 +221,7 @@ _stall_gate_a_fires() {
 
 # stall_stop (#880): gate (b), "is this issue stuck anywhere?". Reads main's
 # project, issue_dir, checklist and stall_warned (dynamic scope).
-# A stall (checklist_sentinel_stall: a regular kind-stuck STUCK plus a [!] row in
+# A stall (checklist_sentinel_stall: a regular non-question STUCK plus a [!] row in
 # ANY revision block) prints the STUCK line and the STUCK body and returns 1, so a
 # complete --through target or a done active block cannot return 0 first. When
 # gate (a) would fire, the line is gate (a)'s own text. Otherwise it names the
