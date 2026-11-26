@@ -30,6 +30,17 @@
 #         gitbash-tagged: <n> file(s), <k> failed
 #       Each failed file is also annotated "::error file=<file>::<reasons>".
 #       rc 0 when every file is OK, 1 otherwise, 2 on usage.
+#   gitbash-tagged.sh shard <index> <count> <timings> <file>...
+#       (#1197) Print shard <index> of <count> (1-based) of <file>..., one per line,
+#       heaviest first (ties: list order). Weights: <timings> rows by basename; a
+#       file with no row weighs 60 and is named on stderr ("gitbash-tagged: untimed
+#       <file> (weighted 60s)"). Files are taken largest first (ties: list order),
+#       each onto the least-loaded shard (ties: lowest index). stderr ends
+#       "gitbash-tagged: shard <i> of <k>: <n> file(s), weight <w>s".
+#       rc 0 listed; 2 usage, unreadable or bad timings; 3 the shard is empty.
+#       A <timings> row is "<basename> <seconds>"; blank and '#' lines are skipped.
+#       The weights only balance the shards: a missing or stale row never drops a
+#       file from the union of the <count> shards.
 #
 # A file FAILS on any of: bats rc != 0, no rc recorded, no TAP output, a "not ok"
 # line, no plan line, plan != ran, zero tests ran, every test skipped, or a skip
@@ -52,7 +63,72 @@ bare_skip_re='^ok ([0-9]+) .* # skip[[:space:]]*$'
 
 die() { local rc="$1"; shift; printf 'gitbash-tagged: %s\n' "$*" >&2; exit "$rc"; }
 usage() {
-  die 2 "usage: gitbash-tagged.sh select <dir> | run [--jobs N] <outdir> <file>... | summarize <outdir> <file>..."
+  die 2 "usage: gitbash-tagged.sh select <dir> | run [--jobs N] <outdir> <file>... | summarize <outdir> <file>... | shard <index> <count> <timings> <file>..."
+}
+
+# shard: bounded widths (a digit regex alone does not bound arithmetic, #774).
+shard_num_re='^[1-9][0-9]{0,2}$'
+times_row_re='^([A-Za-z0-9][A-Za-z0-9._-]*\.bats) ([0-9]{1,5})$'
+UNTIMED_SECS=60
+
+cmd_shard() {
+  [ $# -ge 4 ] || usage
+  local idx="$1" cnt="$2" tab="$3" line n=0 name f b i j s best
+  shift 3
+  [[ $idx =~ $shard_num_re ]] || die 2 "bad shard index: $idx"
+  [[ $cnt =~ $shard_num_re ]] || die 2 "bad shard count: $cnt"
+  [ "$idx" -le "$cnt" ] || die 2 "shard index $idx > count $cnt"
+  { [ -f "$tab" ] && [ -r "$tab" ]; } || die 2 "cannot read timings: $tab"
+
+  local -A secs=() seen=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    line="${line//$'\r'/}"          # CRLF table: strip by expansion, never grep (#962)
+    [ -z "$line" ] && continue
+    [[ $line == '#'* ]] && continue
+    [[ $line =~ $times_row_re ]] || die 2 "bad timings line $n: $line"
+    name="${BASH_REMATCH[1]}"
+    [ -z "${secs[$name]+x}" ] || die 2 "duplicate timings row: $name"
+    secs[$name]=$((10#${BASH_REMATCH[2]}))   # 10#: a leading 0 is decimal, not octal
+  done < "$tab"
+
+  local -a files=("$@") wt=() untimed=() order=() load=() mine=()
+  for f in "${files[@]}"; do
+    b="${f##*/}"
+    [ -z "${seen[$b]+x}" ] || die 2 "duplicate file basename: $b"
+    seen[$b]=1
+    if [ -n "${secs[$b]+x}" ]; then wt+=("${secs[$b]}"); untimed+=(""); else wt+=("$UNTIMED_SECS"); untimed+=(1); fi
+  done
+
+  # Stable insertion sort of indexes by weight, heaviest first (ties: list order).
+  for ((i = 0; i < ${#files[@]}; i++)); do
+    j=${#order[@]}
+    order+=("$i")
+    while [ "$j" -gt 0 ] && [ "${wt[${order[j-1]}]}" -lt "${wt[i]}" ]; do
+      order[j]="${order[j-1]}"; j=$((j - 1))
+    done
+    order[j]="$i"
+  done
+
+  # LPT: each file onto the least-loaded shard (ties: lowest index).
+  for ((s = 1; s <= cnt; s++)); do load[s]=0; done
+  for i in "${order[@]}"; do
+    best=1
+    for ((s = 2; s <= cnt; s++)); do
+      [ "${load[s]}" -lt "${load[best]}" ] && best="$s"
+    done
+    load[best]=$((load[best] + wt[i]))
+    [ "$best" -eq "$idx" ] && mine+=("$i")
+  done
+
+  [ ${#mine[@]} -gt 0 ] || die 3 "shard $idx of $cnt is empty (${#files[@]} file(s) for $cnt shards)"
+  for i in "${mine[@]}"; do
+    printf '%s\n' "${files[i]}"
+    [ -z "${untimed[i]}" ] \
+      || printf 'gitbash-tagged: untimed %s (weighted %ss)\n' "${files[i]}" "$UNTIMED_SECS" >&2
+  done
+  printf 'gitbash-tagged: shard %s of %s: %s file(s), weight %ss\n' \
+    "$idx" "$cnt" "${#mine[@]}" "${load[idx]}" >&2
 }
 
 cmd_select() {
@@ -224,5 +300,6 @@ case "$verb" in
   _one)      [ $# -eq 2 ] || usage; cmd_one "$@"
              printf 'done: %s rc=%s %ss\n' "$2" "$ONE_RC" "$ONE_SECS" ;;
   summarize) cmd_summarize "$@" ;;
+  shard)     cmd_shard "$@" ;;
   *)         usage ;;
 esac
