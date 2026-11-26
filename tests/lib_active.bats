@@ -436,7 +436,8 @@ _wt879_assert_divergent_warn() {
   out="$(state_ctx_get volk worktree_path Issue-7)"
   [ "$out" = "$BATS_TEST_TMPDIR/lab/a" ]
   [ "$(_wt879_calls)" -eq 1 ]
-  ! grep -qxF "get $(state_path volk) worktree_path" "$BATS_TEST_TMPDIR/toml-calls"
+  run grep -qxF "get $(state_path volk) worktree_path" "$BATS_TEST_TMPDIR/toml-calls"
+  [ "$status" -eq 1 ]   # SC2314: never a bare !
 }
 
 @test "cost: the divergent pinned read costs exactly 3 calls (#879 AC3)" {
