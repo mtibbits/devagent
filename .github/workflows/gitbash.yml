@@ -86,10 +86,14 @@ env:
   LANG: C.UTF-8
 
 jobs:
-  tagged:
-    name: Git Bash tagged files
+  shards:
+    name: Git Bash shard ${{ matrix.shard }} of ${{ strategy.job-total }}
     runs-on: windows-2025
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - name: Confirm Git Bash
         run: |
@@ -136,13 +140,44 @@ jobs:
           echo "locale: $LC_ALL is UTF-8"
 
       - name: Select tagged files
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
         run: |
           scripts/ci/gitbash-tagged.sh select tests > "$RUNNER_TEMP/gitbash-files.txt"
-          cat "$RUNNER_TEMP/gitbash-files.txt"
           echo "count: $(wc -l < "$RUNNER_TEMP/gitbash-files.txt")"
+          mapfile -t all < "$RUNNER_TEMP/gitbash-files.txt"
+          scripts/ci/gitbash-tagged.sh shard "$SHARD" "$SHARDS" scripts/ci/gitbash-times.txt \
+            "${all[@]}" > "$RUNNER_TEMP/gitbash-shard.txt"
+          cat "$RUNNER_TEMP/gitbash-shard.txt"
 
       - name: Run tagged files
         run: |
-          mapfile -t files < "$RUNNER_TEMP/gitbash-files.txt"
+          mapfile -t files < "$RUNNER_TEMP/gitbash-shard.txt"
           scripts/ci/gitbash-tagged.sh run --jobs 2 "$RUNNER_TEMP/tap" "${files[@]}"
 
+  # The check job (#1197): the gate. No needs: (a needs: job has no check run until
+  # its needs finish), so `Git Bash tagged files` reads pending from the start of the
+  # run and goes green only when every shard job succeeded. Bounds: a shard running
+  # past 2100s (its 30-minute timeout plus 5 minutes) or not started after 1800s
+  # fails it; 70 minutes >= (1800 + 2100 + 300) / 60.
+  tagged:
+    name: Git Bash tagged files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Wait for every shard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh --version
+          jq --version
+          scripts/ci/gitbash-tagged.sh gate 3 30 2100 1800
