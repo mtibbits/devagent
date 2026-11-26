@@ -55,6 +55,11 @@ linked worktree or an equal-`origin` clone of the tree about to be measured
 refuses with `TREE MISMATCH` **even when the project was passed explicitly**
 — re-run from the measured tree, record your checkout as the issue's
 `worktree_path`, or use the per-call `DEVAGENT_TREE_GUARD_OVERRIDE=1`.
+Record it in `[context.<issue>].worktree_path`, the home a pinned or arg'd read
+uses, and, while that issue is the shared `active_issue`, in the top-level
+`worktree_path` as well: the two must agree, because a park re-snapshots the
+table from the top level ([#879](https://github.com/mtibbits/devagent/issues/879);
+the refusal names the exact keys and state file).
 Since [#659](https://github.com/mtibbits/devagent/issues/659) `run-suite.sh` must
 also be told which ISSUE it measures: pass it
 (`run-suite.sh <project> <Issue-N>`) or pin `DEVAGENT_ACTIVE_ISSUE`; the

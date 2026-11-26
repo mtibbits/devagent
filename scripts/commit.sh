@@ -113,7 +113,7 @@ issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 #                                 no-op success, mark [x] and exit (#116)
 #   clean tree AND no commits  -> genuine artifact-only, auto-mark [-] and exit
 source_dir="$(config_get_project_field "$project" source_dir)"
-worktree="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
+worktree="$(state_ctx_get "$project" worktree_path "$issue_arg" || true)"
 work_dir="${worktree:-$source_dir}"
 
 # Success epilogue for step 12 — shared by the real-commit tail and the #116

@@ -28,6 +28,18 @@ teardown() { devagent_test_teardown; }
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 x commit
 }
 
+@test "commit.sh: a divergent worktree_path warns on stderr (#879)" {
+    # Table empty beside a non-empty top-level mirror for the shared Issue-1:
+    # the read keeps the table value (#240), so the commit still lands in
+    # source_dir, and the warning must reach the operator, not a 2>/dev/null.
+    local st="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$st" context.Issue-1.worktree_path ""
+    devagent_state_set "$st" worktree_path "$DEVAGENT_TMP/elsewhere"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'[context.Issue-1].worktree_path = ""'* ]]
+}
+
 @test "commit.sh dies when the latest born-red artifact is FLAGGED (#362)" {
     printf 'verdict: FLAGGED (1 green-at-baseline)\n' \
         > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
