@@ -47,6 +47,9 @@ quarantine_guard "unstuck" "$project"
     info "no STUCK file at $issue_dir/STUCK — nothing to clear"
     return 0
   fi
+  # #963: a question STUCK is cleared only by answering it, even when an
+  # older revision block still carries a [!] row.
+  [[ "$(stuck_kind "$issue_dir")" != question ]] || hold_refuse unstuck "$issue_dir"
 
   local checklist="$issue_dir/checklist.md"
   # #587: locate the row that CARRIES [!] and mark that LINE — never carry a

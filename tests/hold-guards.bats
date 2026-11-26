@@ -228,3 +228,52 @@ _leg_pull() {
   _kinds _leg_revise
   _kinds _leg_pull
 }
+
+# ---- Task 3: unstuck and checklist-unstuck refuse a question STUCK ----------
+
+# _revised_held: an older block with a [!] draft row, the current block with
+# _toy's rows, then the hold (Issue-7 still active).
+_revised_held() {
+  { printf '%s\n' '## Revision 1' '' '- [!]  2. draft' '' '## Revision 2' ''
+    _rows "$CK"
+    printf '%s\n' '' '## Log'
+  } > "$CK.new"
+  mv "$CK.new" "$CK"
+  _held_active
+}
+
+@test "unstuck: an older-block [!] does not clear a question; both unstuck commands refuse" {
+  _revised_held
+  grep -q '^- \[!\]  2\. draft' "$CK"
+  local before ans; before="$(_snap)"
+  ans="$( (_lib; question_answer_line "$D/STUCK") )"
+  [ -n "$ans" ]
+  run --separate-stderr "$S/unstuck.sh" toy
+  [ "$status" -eq "$OQ" ] || { echo "unstuck rc=$status err=$stderr" >&2; return 1; }
+  [[ "$stderr" == *"  Answer:   $ans"* ]]
+  [[ "$stderr" == *"  Question: $D/STUCK"* ]]
+  run --separate-stderr "$S/checklist-unstuck.sh" --pending "$D"
+  [ "$status" -eq "$OQ" ] || { echo "checklist-unstuck rc=$status err=$stderr" >&2; return 1; }
+  [[ "$stderr" == *"  Answer:   $ans"* ]]
+  [ "$(_snap)" = "$before" ]
+}
+
+_leg_unstuck() {
+  "$S/checklist-mark.sh" "$D" 5 '!' improve >/dev/null
+  run --separate-stderr "$S/unstuck.sh" toy
+  [ "$status" -eq 0 ] || { echo "unstuck rc=$status err=$stderr" >&2; return 1; }
+  [ ! -e "$D/STUCK" ]
+  grep -q '^- \[~\]  5\. improve' "$CK"
+}
+_leg_checklist_unstuck() {
+  "$S/checklist-mark.sh" "$D" 5 '!' improve >/dev/null
+  run --separate-stderr "$S/checklist-unstuck.sh" --pending "$D"
+  [ "$status" -eq 0 ] || { echo "checklist-unstuck rc=$status err=$stderr" >&2; return 1; }
+  [ ! -e "$D/STUCK" ]
+  grep -q '^- \[ \]  5\. improve' "$CK"
+}
+
+@test "other kinds: both unstuck commands clear as today" {
+  _kinds _leg_unstuck
+  _kinds _leg_checklist_unstuck
+}
