@@ -210,6 +210,57 @@ question_stop() {
   question_stop ""
 }
 
+# _stall_gate_a_fires (#880): true when gate (a) in main — the active block's
+# CURRENT row is [!] — would halt. The same two readers gate (a) uses, so the
+# deferral below holds exactly when (a) fires. Reads main's checklist.
+_stall_gate_a_fires() {
+  local c
+  c="$(checklist_current_step "$checklist")"
+  [[ "$c" != done && "$(checklist_step_state "$checklist" "$c")" == "!" ]]
+}
+
+# stall_stop (#880): gate (b), "is this issue stuck anywhere?". Reads main's
+# project, issue_dir, checklist and stall_warned (dynamic scope).
+# A stall (checklist_sentinel_stall: a regular kind-stuck STUCK plus a [!] row in
+# ANY revision block) prints the STUCK line and the STUCK body and returns 1, so a
+# complete --through target or a done active block cannot return 0 first. When
+# gate (a) would fire, the line is gate (a)'s own text. Otherwise it names the
+# row's line and block. The two shapes /devagent:unstuck cannot clear (a STUCK
+# with no [!] row; a [!] row with no regular STUCK) warn once per invocation and
+# return 0, so dispatch continues from the active block as before.
+# Cost: with no STUCK file, one checklist_find_glyph_line on the first iteration
+# and no fork after it; with a STUCK file, one scan per iteration.
+stall_stop() {
+  local found="" o c n stuck="$issue_dir/STUCK"
+  [[ -f "$stuck" ]] && found="$(checklist_sentinel_stall "$issue_dir")"
+  if [[ -n "$found" ]]; then
+    if _stall_gate_a_fires; then
+      c="$(checklist_current_step "$checklist")"
+      n="$(checklist_step_name "$checklist" "$c")" || n="?"
+      echo "STUCK: step $c ($n) is marked [!]. Run /devagent:unstuck to clear." >&2
+    else
+      echo "STUCK: $(checklist_describe_row "$checklist" "${found%%:*}") is marked [!]. Run /devagent:unstuck to clear." >&2
+    fi
+    sed 's/^/  /' "$stuck" >&2
+    return 1
+  fi
+  (( stall_warned == 0 )) || return 0
+  stall_warned=1
+  if [[ -f "$stuck" ]]; then
+    warn "$stuck is present but no row in $checklist is marked [!], so /devagent:unstuck refuses it; continuing from the active block."
+    return 0
+  fi
+  o="$(checklist_find_glyph_line "$checklist" '!')"
+  [[ -n "$o" ]] || return 0
+  _stall_gate_a_fires && return 0
+  if [[ -e "$stuck" || -L "$stuck" ]]; then
+    warn "$(checklist_describe_row "$checklist" "${o%%:*}") is marked [!] but $stuck is not a regular file, so /devagent:unstuck will not clear it; continuing from the active block."
+  else
+    warn "$(checklist_describe_row "$checklist" "${o%%:*}") is marked [!] but there is no STUCK file at $stuck, so /devagent:unstuck will not clear it; continuing from the active block."
+  fi
+  return 0
+}
+
 main() {
   local project="" auto=0 through="" note="" chained=0 breaks_on=1
   local -a rest=()
@@ -280,12 +331,18 @@ quarantine_guard "next" "$project"
 
   # #782: at most one CI read per invocation (see the window block below).
   local ci_done=0
+  # #880: gate (b) warns at most once per invocation on an undecidable shape.
+  local stall_warned=0
 
   # Dispatch loop. Each iteration re-reads the checklist so script steps
   # that mark themselves complete cause the next iteration to advance.
   while :; do
     # #962 rule 1: a question STUCK stops every call, before anything else.
     question_stop ""
+    # #880 gate (b): a STUCK [!] in ANY revision block stops the call, before
+    # the --through and done checks below can return 0. Gate (a) further down
+    # still halts on a current [!] that has no STUCK file.
+    stall_stop || return 1
     # Before identifying the current step, check whether the chain target
     # is already complete. This guards skill-backed targets: after the
     # skill marks itself [x], the model re-invokes next.sh and we must
