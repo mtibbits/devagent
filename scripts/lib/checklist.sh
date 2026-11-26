@@ -433,21 +433,27 @@ checklist_step_name_at_line() {
 # block is the last one (_checklist_active_start's rule). Returns 1 with
 # checklist_step_name_at_line's stderr when <line> is not a step row. Read-only.
 checklist_describe_row() {
-  local file="$1" line="$2" content num name labels own active
-  name="$(checklist_step_name_at_line "$file" "$line")" || return 1
-  content="$(sed -n "${line}{p;q}" "$file")"
-  [[ "$content" =~ $_checklist_line_re ]] || return 1
+  local file="$1" line="$2" content num name labels in_active own active
+  [[ "$line" =~ ^[0-9]+$ ]] && content="$(sed -n "${line}{p;q}" "$file" 2>/dev/null)"
+  if ! [[ "$content" =~ $_checklist_line_re ]]; then
+    checklist_step_name_at_line "$file" "$line" >/dev/null   # its die / stderr
+    return 1
+  fi
+  name="${BASH_REMATCH[3]}"
   num="$((10#${BASH_REMATCH[2]}))"
-  # "<own>\t<active>": the heading at-or-above <line>, and the last heading.
+  # "<in_active>\t<own>\t<active>": the heading at-or-above <line>, the last
+  # heading, and 1 when they are the same heading.
   labels="$(awk -v target="$line" '
     { sub(/\r$/, "") }
     /^## Revision / {
       h = $0; sub(/^## /, "", h); sub(/[ \t]+$/, "", h)
-      if (NR <= target) own = h
-      active = h
+      if (NR <= target) { own = h; own_nr = NR }
+      active = h; active_nr = NR
     }
-    END { printf "%s\t%s\n", own, active }
+    END { printf "%d\t%s\t%s\n", (own_nr == active_nr), own, active }
   ' "$file")"
+  in_active="${labels%%$'\t'*}"
+  labels="${labels#*$'\t'}"
   own="${labels%%$'\t'*}"
   active="${labels#*$'\t'}"
   if [[ -z "$active" ]]; then
@@ -455,7 +461,7 @@ checklist_describe_row() {
   elif [[ -z "$own" ]]; then
     printf 'step %s (%s) at line %s, above the first revision heading (the active block is %s)\n' \
       "$num" "$name" "$line" "$active"
-  elif (( $(_checklist_active_start "$file") <= line )); then
+  elif (( in_active )); then
     printf 'step %s (%s) at line %s, %s (the active block)\n' "$num" "$name" "$line" "$own"
   else
     printf 'step %s (%s) at line %s, %s (an older block; the active block is %s)\n' \
@@ -480,7 +486,7 @@ checklist_sentinel_stall() {
   [[ -f "$dir/STUCK" ]] || return 0
   [[ "$(stuck_kind "$dir")" != question ]] || return 0
   [[ -f "$dir/checklist.md" ]] || return 0
-  checklist_find_glyph_line "$dir/checklist.md" '!' || true
+  checklist_find_glyph_line "$dir/checklist.md" '!'
   return 0
 }
 

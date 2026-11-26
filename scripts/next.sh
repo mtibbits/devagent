@@ -210,13 +210,21 @@ question_stop() {
   question_stop ""
 }
 
-# _stall_gate_a_fires (#880): true when gate (a) in main — the active block's
-# CURRENT row is [!] — would halt. The same two readers gate (a) uses, so the
-# deferral below holds exactly when (a) fires. Reads main's checklist.
-_stall_gate_a_fires() {
+# _stuck_current_step (#880): prints the active block's current step when its row
+# is [!] (gate (a)'s condition in main), else nothing. Reads main's checklist.
+_stuck_current_step() {
   local c
   c="$(checklist_current_step "$checklist")"
-  [[ "$c" != "done" && "$(checklist_step_state "$checklist" "$c")" == "!" ]]
+  if [[ "$c" != "done" && "$(checklist_step_state "$checklist" "$c")" == "!" ]]; then
+    printf '%s
+' "$c"
+  fi
+  return 0
+}
+
+# stuck_line <row>: the one STUCK halt line, shared by gates (a) and (b).
+stuck_line() {
+  echo "STUCK: $1 is marked [!]. Run /devagent:unstuck to clear." >&2
 }
 
 # stall_stop (#880): gate (b), "is this issue stuck anywhere?". Reads main's
@@ -228,18 +236,17 @@ _stall_gate_a_fires() {
 # row's line and block. The two shapes /devagent:unstuck cannot clear (a STUCK
 # with no [!] row; a [!] row with no regular STUCK) warn once per invocation and
 # return 0, so dispatch continues from the active block as before.
-# Cost: with no STUCK file, one checklist_find_glyph_line on the first iteration
-# and no fork after it; with a STUCK file, one scan per iteration.
 stall_stop() {
-  local found="" o c n stuck="$issue_dir/STUCK"
+  local found="" o c n why stuck="$issue_dir/STUCK"
+  # The -f test spares the predicate's fork on the common no-STUCK path.
   [[ -f "$stuck" ]] && found="$(checklist_sentinel_stall "$issue_dir")"
   if [[ -n "$found" ]]; then
-    if _stall_gate_a_fires; then
-      c="$(checklist_current_step "$checklist")"
+    c="$(_stuck_current_step)"
+    if [[ -n "$c" ]]; then
       n="$(checklist_step_name "$checklist" "$c")" || n="?"
-      echo "STUCK: step $c ($n) is marked [!]. Run /devagent:unstuck to clear." >&2
+      stuck_line "step $c ($n)"
     else
-      echo "STUCK: $(checklist_describe_row "$checklist" "${found%%:*}") is marked [!]. Run /devagent:unstuck to clear." >&2
+      stuck_line "$(checklist_describe_row "$checklist" "${found%%:*}")"
     fi
     sed 's/^/  /' "$stuck" >&2
     return 1
@@ -252,12 +259,12 @@ stall_stop() {
   fi
   o="$(checklist_find_glyph_line "$checklist" '!')"
   [[ -n "$o" ]] || return 0
-  _stall_gate_a_fires && return 0
+  [[ -z "$(_stuck_current_step)" ]] || return 0
+  why="there is no STUCK file at $stuck"
   if [[ -e "$stuck" || -L "$stuck" ]]; then
-    warn "$(checklist_describe_row "$checklist" "${o%%:*}") is marked [!] but $stuck is not a regular file, so /devagent:unstuck will not clear it; continuing from the active block."
-  else
-    warn "$(checklist_describe_row "$checklist" "${o%%:*}") is marked [!] but there is no STUCK file at $stuck, so /devagent:unstuck will not clear it; continuing from the active block."
+    why="$stuck is not a regular file"
   fi
+  warn "$(checklist_describe_row "$checklist" "${o%%:*}") is marked [!] but $why, so /devagent:unstuck will not clear it; continuing from the active block."
   return 0
 }
 
@@ -374,7 +381,7 @@ quarantine_guard "next" "$project"
     local cur_state
     cur_state="$(checklist_step_state "$checklist" "$cur")"
     if [[ "$cur_state" == "!" ]]; then
-      echo "STUCK: step $cur ($name) is marked [!]. Run /devagent:unstuck to clear." >&2
+      stuck_line "step $cur ($name)"
       [[ -f "$issue_dir/STUCK" ]] && sed 's/^/  /' "$issue_dir/STUCK" >&2
       return 1
     fi
