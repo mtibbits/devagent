@@ -17,12 +17,6 @@ teardown() { chmod -R u+w "$R" 2>/dev/null || true; rm -rf "$R"; }
 
 # _calls <wrapper dir> <sub> — how many <sub> calls the wrapper logged.
 _calls() { grep -cx -- "$2" "$1/calls" 2>/dev/null || true; }
-_lockdir() { printf '%s/devagent-devdoc.lock\n' "$(cd "$SYNC_B" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"; }
-_stub_holder() {
-    mkdir "$1"
-    printf '%s\n' token=4242.1700000000.7 pid=4242 host=otherhost issue=Issue-9 \
-        start=2026-11-01T10:00:00Z cmd=cleanup.sh > "$1/holder"
-}
 _top() { (cd "$SYNC_B" && pwd -P); }
 TAIL="This step uses this machine's copy; the next cleanup syncs again."
 
@@ -98,7 +92,7 @@ TAIL="This step uses this machine's copy; the next cleanup syncs again."
 }
 
 @test "#1149 no-push: a busy lock is one attempt; push mode still waits" {
-    _stub_holder "$(_lockdir)"
+    devdoc_lock_stub_holder "$SYNC_B" Issue-9 >/dev/null
     sync_commit "$SYNC_B" b.txt b 'B: b'
     export DEVAGENT_DEVDOC_LOCK_TIMEOUT=5
     # (a) no-push: one attempt
@@ -111,12 +105,12 @@ TAIL="This step uses this machine's copy; the next cleanup syncs again."
     [ "$el" -lt 2 ]
     [ "$SYNC_LINE" = "devDoc sync skipped for $(_top) (main): the devDoc lock is busy. $TAIL" ]
     # (b) push mode keeps its bound
-    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=2
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
     t0=$SECONDS
     sync_run "$SYNC_B_DOC" Issue-7 30
     el=$((SECONDS - t0))
     [ "$SYNC_REASON" = lock-busy ]
-    [ "$el" -ge 2 ]
+    [ "$el" -ge 1 ]
 }
 
 @test "#1149 no-push: a conflict refuses with the step-21 line, nothing changed" {

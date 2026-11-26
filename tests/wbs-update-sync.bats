@@ -22,16 +22,9 @@ setup() {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
-# #735: cleanup starts the actuals rebuild detached; wait for it (bounded).
-_wait_rebuild() {
-    local pidf="$HOME/.claude/devagent/actuals-rebuild.pid" pid n=0
-    [ -f "$pidf" ] || return 0
-    pid="$(cat "$pidf")"
-    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
-}
 teardown() {
     local rc=0
-    _wait_rebuild
+    sync_wait_rebuild
     [ ! -e "$DEVAGENT_TMP/network.log" ] || { echo "a real backend CLI ran:" >&2; cat "$DEVAGENT_TMP/network.log" >&2; rc=1; }
     devagent_test_teardown
     return "$rc"
@@ -44,14 +37,8 @@ _wbs_fixture() {
         '  - [~] Working leaf {issue: Issue-1, est: 1w}' \
         '  - [ ] Next leaf {issue: Issue-2, est: 1w}' > "$DEVDOC_DIR/WBS.md"
     [ "${1:-}" = --no-git ] || sync_close_fixture
-    export WBS_STUB_ROOT="$DEVAGENT_TMP"
-    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
-    export DEVAGENT_CODE_BACKEND_DIR="$DEVAGENT_TMP/code-backends"
-    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
-    wbs_mr_install_stub "$DEVAGENT_CODE_BACKEND_DIR"
+    sync_stub_backends
     printf '1\tdone\n' > "$DEVAGENT_TMP/state-list.github"
-    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
-    export PATH="$DEVAGENT_TMP/shims:$PATH"
     export DEVAGENT_DEVDOC_LOCK_TIMEOUT=30
 }
 # _a_flip — the other machine marks Issue-2 done and pushes; sets a (its tip).
@@ -66,6 +53,7 @@ _head() { git -C "$DEVDOC_REPO" rev-parse HEAD; }
 _has() { grep -qxF -- "$1" "$DEVDOC_DIR/WBS.md"; }
 _cleanup() { run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1; }
 _nsync() { grep -c 'devDoc sync' <<< "$1" || true; }
+SYNC_SUBS='ls-remote|fetch|push|merge|merge-tree|commit-tree'   # the git subcommands a sync runs
 
 @test "#1149 behind at step 21: lands on origin's WBS.md; cleanup pushes clean" {
     _wbs_fixture
@@ -206,7 +194,7 @@ _off_leg() {
     [ -z "$h" ] || [ "$(_head)" = "$h" ] || { echo "$label: HEAD moved" >&2; return 1; }
     [ -s "$w1/calls" ] || { echo "$label: the wrapper logged nothing (run 1)" >&2; return 1; }
     [ -s "$w2/calls" ] || { echo "$label: the wrapper logged nothing (run 2)" >&2; return 1; }
-    [ "$(grep -cxE 'ls-remote|fetch|push|merge|merge-tree|commit-tree' "$w1/calls" || true)" = 0 ] \
+    [ "$(grep -cxE "$SYNC_SUBS" "$w1/calls" || true)" = 0 ] \
         || { echo "$label: a sync call ran:" >&2; cat "$w1/calls" >&2; return 1; }
 }
 
@@ -227,8 +215,8 @@ _off_leg() {
     unset DEVAGENT_WBS_OFFLINE
 }
 
-# _rows_before <log> <n> — the rows before row <n> whose subcommand is a sync call.
-_sync_rows() { awk -F'\t' -v c="$2" 'NR < c && ($1 == "ls-remote" || $1 == "fetch" || $1 == "merge" || $1 == "merge-tree" || $1 == "commit-tree")' "$1"; }
+# _sync_rows <log> <n> — the rows before row <n> whose subcommand is a sync call.
+_sync_rows() { awk -F'\t' -v c="$2" -v re="^($SYNC_SUBS)$" 'NR < c && $1 ~ re' "$1"; }
 
 @test "#1149 cleanup's reconcile does not sync" {
     _wbs_fixture

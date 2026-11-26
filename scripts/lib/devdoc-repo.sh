@@ -782,10 +782,12 @@ devdoc_sync() {
     DEVDOC_SYNC_OUTCOME=off; DEVDOC_SYNC_REASON=""; DEVDOC_SYNC_REPO=""; DEVDOC_SYNC_BRANCH=""; DEVDOC_SYNC_LINE=""
     _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_TMPD=""; _DS_ERR=/dev/null; _DS_LIST=/dev/null; _DS_DETACHED=0; _DS_BRANCH=""
     _DS_ISSUE="$2"; _DS_BUDGET="$3"; _DS_MODE="${4:-push}"; _DS_SUBJ="$_DS_ISSUE cleanup"
-    _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""; _DS_KIND=""
+    _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""; _DS_KIND=""; _DS_LOCK_WAIT="${DEVAGENT_DEVDOC_LOCK_TIMEOUT:-}"
     case "$_DS_MODE" in
         push) ;;
-        no-push) case "$_DS_ISSUE" in ""|-) _DS_SUBJ="wbs update" ;; *) _DS_SUBJ="$_DS_ISSUE wbs update" ;; esac ;;
+        no-push)
+            _DS_LOCK_WAIT=0
+            case "$_DS_ISSUE" in ""|-) _DS_SUBJ="wbs update" ;; *) _DS_SUBJ="$_DS_ISSUE wbs update" ;; esac ;;
         *) _ds_set skipped bad-mode "unknown sync mode '$_DS_MODE'"; _DS_MODE=push ;;
     esac
     [ -n "$DEVDOC_SYNC_REASON" ] || _devdoc_sync_body "$1" || true
@@ -864,11 +866,8 @@ _devdoc_sync_body() {
     esac
     # 2. One short hold: no network call under the lock; the wait spends no budget.
     bounded_now_us; t0="$BOUNDED_NOW_US"
-    if [ "$_DS_MODE" = no-push ]; then                               # one attempt (#1149)
-        DEVAGENT_DEVDOC_LOCK_TIMEOUT=0 devdoc_lock_acquire "$devdoc_dir" "$_DS_ISSUE" "the next close" 2>/dev/null || lrc=$?
-    else
-        devdoc_lock_acquire "$devdoc_dir" "$_DS_ISSUE" "the next close" 2>/dev/null || lrc=$?
-    fi
+    DEVAGENT_DEVDOC_LOCK_TIMEOUT="$_DS_LOCK_WAIT" \
+        devdoc_lock_acquire "$devdoc_dir" "$_DS_ISSUE" "the next close" 2>/dev/null || lrc=$?   # no-push: one attempt (#1149)
     case "$lrc" in
         0) ;;
         1) _ds_set skipped lock-busy "the devDoc lock is busy" "Skipped for this close; the next close retries."; return 0 ;;
