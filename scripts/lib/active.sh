@@ -409,14 +409,17 @@ issue_context_dir() {
 # SETTER-GLOBALS, and it dies: never command-substitute it (#282/#120).
 #   ACTIVE_TREE_DIR   the tree to act on
 #   ACTIVE_TREE_FROM  "state" (recorded worktree_path) | "config" (source_dir)
+#   ACTIVE_TREE_PROJECT, ACTIVE_TREE_ARG  this call's inputs, for
+#                     active_guard_tree's refusal text (#879)
 active_tree_resolve() {
   local project="$1" arg="${2:-}" wt src
   # #879: kept for active_guard_tree's refusal text, which resolves the issue id
   # lazily (die path only) — no spawn here.
   # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
   ACTIVE_TREE_PROJECT="$project" ACTIVE_TREE_ARG="$arg"
-  # same shape as ship.sh:92 — kept byte-identical deliberately; the fail-closed
-  # liveness check below is what makes the `|| true` safe (register Issue-314/316).
+  # same `|| true` shape as ship.sh's read, but muted and check=0 (#879); the
+  # fail-closed liveness check below is what makes the `|| true` safe (register
+  # Issue-314/316).
   # The read stays muted and skips the #879 divergence check (check=0): a
   # warning nobody sees must not cost the ~13 callers two extra state reads.
   wt="$(_state_ctx_read 0 "$project" worktree_path "$arg" 2>/dev/null || true)"
@@ -577,7 +580,7 @@ active_guard_tree() {
     fi
   fi
   remedy="$(_active_guard_remedy "$top")"
-  die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is recorded for this issue). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree $remedy, or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
+  die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is visible to this read). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree $remedy, or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
 }
 
 # _active_guard_remedy <top> — #879: the "record this tree" clause of the guard's

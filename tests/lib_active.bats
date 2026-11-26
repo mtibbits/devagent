@@ -383,6 +383,17 @@ _wt879_assert_divergent_warn() {
   [ ! -s "$err" ]
 }
 
+@test "state_ctx_get: table empty and top level a null placeholder — no warning (#879)" {
+  state_init volk
+  state_set volk active_issue Issue-7
+  state_issue_set_many volk Issue-7 str worktree_path ""
+  state_set volk worktree_path null
+  local out err="$BATS_TEST_TMPDIR/err"
+  { out="$(state_ctx_get volk worktree_path Issue-7)"; } 2>"$err"
+  [ -z "$out" ]
+  [ ! -s "$err" ]
+}
+
 @test "state_ctx_get: table empty and top level empty — no warning (#879)" {
   state_init volk
   state_set volk active_issue Issue-7
