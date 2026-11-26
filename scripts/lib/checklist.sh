@@ -663,3 +663,35 @@ stuck_header_value() {
       if (v != "") { print v; exit }
     }' "$1" 2>/dev/null
 }
+
+# hold_refuse <caller> <issue-dir> — #963: the one refusal for a command that
+# would undo an operator-question hold. Callers test the kind themselves:
+#   [[ "$(stuck_kind "$d")" != question ]] || hold_refuse <caller> "$d"
+# Prints three lines on stderr (nothing on stdout) — the STUCK path and the
+# answer line: for an unfinished answer (a `## Answer` line) the answer line
+# with its last field replaced by `--finish`, else STUCK's own `## How to
+# answer` line, else a pointer to that section — and exits `operator-question`.
+# Never returns. Sources refusals.sh and question-actions.sh on demand, so
+# checklist.sh's own contract (paths.sh + io.sh) stands.
+hold_refuse() {
+  local caller="$1" d="$2" stuck="$2/STUCK" lib="${BASH_SOURCE[0]%/*}" line code
+  # shellcheck source=/dev/null
+  declare -F trust_exit_code >/dev/null || source "$lib/refusals.sh"
+  # shellcheck source=/dev/null
+  declare -F question_answer_line >/dev/null || source "$lib/question-actions.sh"
+  # shellcheck source=/dev/null
+  declare -F question_answered >/dev/null || source "$lib/question-actions.sh"
+  if line="$(question_answer_line "$stuck")"; then
+    question_answered "$stuck" && line="${line% *} --finish"
+  else
+    line="(no answer line; read the STUCK's ## How to answer section)"
+  fi
+  {
+    printf '%s: %s is held on an operator question; nothing was changed.\n' "$caller" "${d##*/}"
+    printf '  Question: %s\n' "$stuck"
+    printf '  Answer:   %s\n' "$line"
+  } >&2
+  code="$(trust_exit_code operator-question || true)"
+  [[ "$code" =~ ^[0-9]+$ ]] || die "the exit table has no numeric operator-question code"
+  exit "$code"
+}
