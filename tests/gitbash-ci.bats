@@ -547,3 +547,291 @@ count_lines() { printf '%s\n' "$2" | grep -cxF -- "$1"; }
     [ "$(printf '%s\n' "$got" | wc -l)" -eq "$n" ]
   done
 }
+
+# --------------------------------------------------------------------- gate
+# #1197: `gate <count> <interval-secs> <run-secs> <start-secs>` is the body of the
+# `Git Bash tagged files` job: it polls the run's own jobs and passes only when every
+# shard job completed with success. gh is a PATH binstub; the gate reads the real
+# clock (jq `now`), so ages are written as real UTC timestamps.
+
+# stub_gh: a binstub gh PREPENDED to PATH. On call n it prints $STUB_DIR/resp.<n>
+# (repeating the last response it has), logs its argv to $STUB_DIR/argv.log, and
+# exits $STUB_DIR/rc.<n> (0 if absent).
+stub_gh() {
+  STUB_DIR="$BATS_TEST_TMPDIR/gh"
+  mkdir -p "$STUB_DIR/bin"
+  export STUB_DIR
+  cat > "$STUB_DIR/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+d="$STUB_DIR"
+n=1
+[ -f "$d/calls" ] && n=$(( $(cat "$d/calls") + 1 ))
+printf '%s\n' "$n" > "$d/calls"
+printf '%s\n' "$*" >> "$d/argv.log"
+r="$n"
+while [ "$r" -gt 1 ] && [ ! -f "$d/resp.$r" ]; do r=$((r - 1)); done
+[ -f "$d/resp.$r" ] && cat "$d/resp.$r"
+rc=0
+[ -f "$d/rc.$n" ] && rc="$(cat "$d/rc.$n")"
+exit "$rc"
+STUB
+  chmod +x "$STUB_DIR/bin/gh"
+  PATH="$STUB_DIR/bin:$PATH"
+}
+calls() { cat "$STUB_DIR/calls" 2>/dev/null || echo 0; }
+
+# ts <age>: the UTC timestamp <age> seconds before now.
+ts() { date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ; }
+# jobs_json "<name>|<status>|<conclusion>|<age>"...: the jobs API's response shape.
+# An empty conclusion is null; an age of '-' or none is a null started_at. Job k's
+# html_url is https://github.com/o/r/actions/runs/123/job/<k>.
+jobs_json() {
+  local j k=0 name status concl age sep='' out='{"total_count":'"$#"',"jobs":['
+  for j in "$@"; do
+    k=$((k + 1))
+    IFS='|' read -r name status concl age <<<"$j"
+    [ -n "$concl" ] && concl="\"$concl\"" || concl=null
+    if [ -n "$age" ] && [ "$age" != - ]; then age="\"$(ts "$age")\""; else age=null; fi
+    out+="$sep{\"name\":\"$name\",\"status\":\"$status\",\"conclusion\":$concl,\"started_at\":$age,\"html_url\":\"https://github.com/o/r/actions/runs/123/job/$k\"}"
+    sep=,
+  done
+  printf '%s]}\n' "$out"
+}
+# resp <n> <job>...: response n of the stub.
+resp() { local n="$1"; shift; jobs_json "$@" > "$STUB_DIR/resp.$n"; }
+# gate [args...]: run the gate in a run; default arguments 3 0 3600 3600.
+gate() {
+  [ $# -gt 0 ] || set -- 3 0 3600 3600
+  GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=123 run --separate-stderr "$H" gate "$@"
+}
+S1='Git Bash shard 1 of 3'
+S2='Git Bash shard 2 of 3'
+S3='Git Bash shard 3 of 3'
+NAMED='Git Bash tagged files'
+REMEDY='re-run failed jobs (not a single shard) to refresh Git Bash tagged files'
+
+@test "gate: passes when every shard of K completed with success" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300" "$NAMED|in_progress||300"
+  gate
+  [ "$status" -eq 0 ]
+  [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: gate: 3 of 3 shards succeeded" ]
+  [ "$(cat "$STUB_DIR/argv.log")" = 'api repos/o/r/actions/runs/123/jobs?filter=latest&per_page=100' ]
+}
+
+@test "gate: waits while a shard is queued or in progress, then passes" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|queued||" "$S3|queued||"
+  resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||10"
+  resp 3 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate
+  [ "$status" -eq 0 ]
+  [ "$(calls)" -eq 3 ]
+  [ "$(printf '%s\n' "${lines[@]}" | grep -oE '^gitbash-tagged: gate: [0-9]+ of 3 shards done ' | cut -d' ' -f3)" = "$(printf '1\n2\n3')" ]
+  [[ "$output" == *"gate: 1 of 3 shards done ($S1=success, $S2=queued, $S3=queued)"* ]]
+}
+
+@test "gate: fails on every non-success conclusion, as soon as that shard completes" {
+  local c
+  for c in failure cancelled skipped timed_out neutral action_required stale ''; do
+    rm -rf "$BATS_TEST_TMPDIR/gh"
+    stub_gh
+    resp 1 "$S1|in_progress||10" "$S2|completed|$c|100" "$S3|in_progress||10"
+    gate
+    local shown="${c:-no conclusion}"
+    [ "$status" -eq 1 ] || { echo "[$c]: rc $status"; return 1; }
+    [ "$(calls)" -eq 1 ] || { echo "[$c]: $(calls) calls"; return 1; }
+    [[ "$output" == *"::error::$S2: $shown"* ]] || { echo "[$c]: $output"; return 1; }
+    [[ "$output" == *"gitbash-tagged: gate: FAIL ($S2: $shown)"* ]] || { echo "[$c]: $output"; return 1; }
+    [[ "$output" == *"https://github.com/o/r/actions/runs/123/job/2"* ]] || { echo "[$c]: no html_url"; return 1; }
+    [[ "$output" == *"$REMEDY"* ]] || { echo "[$c]: no remedy"; return 1; }
+  done
+}
+
+@test "gate: fails on a shard job outside 1..K or of another total, or duplicated" {
+  stub_gh
+  resp 1 "$S1|in_progress||10" "Git Bash shard 4 of 4|in_progress||10" "$S3|in_progress||10"
+  gate
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (unexpected shard job: Git Bash shard 4 of 4)"* ]]
+  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  resp 1 "$S1|in_progress||10" "Git Bash shard 4 of 3|in_progress||10"
+  gate
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (unexpected shard job: Git Bash shard 4 of 3)"* ]]
+  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  resp 1 "$S1|completed|success|10" "$S2|completed|success|10" "$S3|completed|success|10" "$S3|completed|success|10"
+  gate
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (duplicate shard job: $S3)"* ]]
+}
+
+@test "gate: other jobs never count" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300" \
+    "Git Bash shard x|in_progress||10" "$NAMED|in_progress||10" "$NAMED (other)|completed|failure|10"
+  gate
+  [ "$status" -eq 0 ]
+  [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: gate: 3 of 3 shards succeeded" ]
+}
+
+@test "gate: a shard in progress past <run-secs> fails, naming it and its age" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||100"
+  gate 3 0 60 3600
+  [ "$status" -eq 1 ]
+  [ "$(calls)" -eq 1 ]
+  [[ "$output" =~ FAIL\ \(Git\ Bash\ shard\ 3\ of\ 3\ in\ progress\ 1[0-9]{2}s\ since\ started_at,\ past\ 60s\) ]]
+  [[ "$output" == *"https://github.com/o/r/actions/runs/123/job/3"* ]]
+}
+
+@test "gate: a shard in progress within <run-secs> keeps it waiting" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||10"
+  resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate 3 0 60 3600
+  [ "$status" -eq 0 ]
+  [ "$(calls)" -eq 2 ]
+}
+
+@test "gate: a missing shard fails after <start-secs> of the gate's own wait" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300"
+  gate 3 1 3600 2
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (not started after 2s: $S3 (missing))"* ]]
+  [ "$(calls)" -ge 2 ]
+}
+
+@test "gate: a queued shard fails after <start-secs>, naming its status" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|queued||"
+  gate 3 1 3600 2
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (not started after 2s: $S3 (queued))"* ]]
+}
+
+@test "gate: an in-progress shard with no started_at is judged by <start-secs> only" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||-"
+  gate 3 1 60 2
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (not started after 2s: $S3 (in_progress, no started_at))"* ]]
+}
+
+@test "gate: queue time never counts toward <run-secs>" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|queued||5000"
+  resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||5"
+  resp 3 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate 3 0 60 3600
+  [ "$status" -eq 0 ]
+  [ "$(calls)" -eq 3 ]
+}
+
+@test "gate: a shard that starts inside <start-secs> is no longer judged by it" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|queued||"
+  resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||1"
+  cp "$STUB_DIR/resp.2" "$STUB_DIR/resp.3"
+  cp "$STUB_DIR/resp.2" "$STUB_DIR/resp.4"
+  resp 5 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate 3 1 3600 2
+  [ "$status" -eq 0 ]
+  [ "$(calls)" -eq 5 ]
+}
+
+@test "gate: a future started_at (clock skew) is age 0, never negative" {
+  stub_gh
+  resp 1 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|in_progress||-30"
+  resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate 3 0 60 3600
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$S3=in_progress 0s)"* ]]
+}
+
+@test "gate: a failed or non-JSON read is retried, and fails after 5 in a row" {
+  stub_gh
+  echo 1 > "$STUB_DIR/rc.1"
+  resp 2 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate
+  [ "$status" -eq 0 ]
+  [ "$(calls)" -eq 2 ]
+
+  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  echo '<html>' > "$STUB_DIR/resp.1"
+  gate
+  [ "$status" -eq 1 ]
+  [ "$(calls)" -eq 5 ]
+  [[ "$output" == *"FAIL (could not read the run's jobs 5 times in a row: "* ]]
+
+  # Four failures then a good read reset the count: a fifth failure later is not fatal.
+  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  local n
+  for n in 1 2 3 4; do echo '<html>' > "$STUB_DIR/resp.$n"; done
+  resp 5 "$S1|completed|success|300" "$S2|in_progress||10" "$S3|completed|success|300"
+  echo '{"message":"no jobs here"}' > "$STUB_DIR/resp.6"
+  resp 7 "$S1|completed|success|300" "$S2|completed|success|300" "$S3|completed|success|300"
+  gate
+  [ "$status" -eq 0 ]
+  [ "$(calls)" -eq 7 ]
+}
+
+@test "gate: refuses bad arguments and a missing run, rc 2" {
+  local a
+  stub_gh
+  run --separate-stderr env -u GITHUB_RUN_ID GITHUB_REPOSITORY=o/r "$H" gate 3 0 3600 3600
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"GITHUB_RUN_ID"* ]]
+  run --separate-stderr env -u GITHUB_REPOSITORY GITHUB_RUN_ID=123 "$H" gate 3 0 3600 3600
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"GITHUB_REPOSITORY"* ]]
+  for a in '0 0 3600 3600' '1000 0 3600 3600' 'x 0 3600 3600' '3 x 3600 3600' \
+           '3 10000 3600 3600' '3 0 0 3600' '3 0 x 3600' '3 0 3600 0' '3 0 3600 x' \
+           '3 0 123456 3600' '3 0 3600' '3 0 3600 3600 9'; do
+    # shellcheck disable=SC2086
+    gate $a
+    [ "$status" -eq 2 ] || { echo "[$a]: rc $status"; return 1; }
+  done
+  [ "$(calls)" -eq 0 ]
+}
+
+# The spike's real jobs-API responses (Issue-1197 spike: run 45765050697,
+# attempts 1-3, and queue run 45765050676), with only the job names rewritten to this workflow's names.
+@test "gate: real API responses: attempt 1 failed, attempt 2 copied the success" {
+  local F="$PLUGIN_ROOT/tests/fixtures/gitbash-gate"
+  stub_gh
+  cp "$F/attempt1-failed.json" "$STUB_DIR/resp.1"
+  gate 2 0 3600 3600
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (Git Bash shard 2 of 2: failure)"* ]]
+
+  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  cp "$F/attempt2-copied.json" "$STUB_DIR/resp.1"
+  gate 2 0 3600 3600
+  [ "$status" -eq 0 ]
+  [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: gate: 2 of 2 shards succeeded" ]
+}
+
+@test "gate: real API responses: in progress, single-job re-run, queued" {
+  local F="$PLUGIN_ROOT/tests/fixtures/gitbash-gate"
+  # Both legs in progress since the spike: past any small run bound.
+  stub_gh
+  cp "$F/in-progress.json" "$STUB_DIR/resp.1"
+  gate 2 0 60 3600
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ FAIL\ \(Git\ Bash\ shard\ 1\ of\ 2\ in\ progress\ [0-9]+s\ since\ started_at,\ past\ 60s\) ]]
+  # A single-shard re-run: the named job's stale success never counts.
+  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  cp "$F/attempt3-single-rerun.json" "$STUB_DIR/resp.1"
+  gate 2 0 60 3600
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"gate: 1 of 2 shards done"* ]]
+  [[ "$output" =~ FAIL\ \(Git\ Bash\ shard\ 2\ of\ 2\ in\ progress ]]
+  # A queued job's started_at is set (= created_at) yet never read.
+  rm -rf "$BATS_TEST_TMPDIR/gh"; stub_gh
+  cp "$F/queued.json" "$STUB_DIR/resp.1"
+  gate 1 1 60 1
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL (not started after 1s: Git Bash shard 1 of 1 (queued))"* ]]
+}
