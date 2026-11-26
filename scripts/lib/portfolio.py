@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""portfolio.py — #726. Build the portfolio document (schema v1.3, #725) over
+"""portfolio.py — #726. Build the portfolio document (schema v1.4, #725) over
 every configured project's WBS.md, with a parse report that drops nothing
 silently, and write it only when it passes both the structural checker
 (portfolio-check.py) and this module's own cross-field invariants I1–I17.
@@ -19,9 +19,12 @@ path variable set only when configured (it may be empty), PORTFOLIO_WORKTREE_<i>
 also when derived from source_dir as <source_dir>-wt (#1050), and (#890)
 PORTFOLIO_MODEL_THINKING_<i>, PORTFOLIO_MODEL_CHECKING_<i> and
 PORTFOLIO_MODEL_DEFAULT_<i>, the project's step_models values, set only when
-the key exists. `build` also needs PORTFOLIO_ACTUALS (#735), the path of
-<devagent_home>/actuals.json, which it reads (never runs) to fill the actuals
-slots.
+the key exists. (#963) PORTFOLIO_STATE_STATUS_<i> is `absent`, `unreadable`
+or `read` (unset means absent): portfolio.sh's verdict on the project's
+devagent state file; PORTFOLIO_PARKED_<i>, read only under `read`, is that
+file's `[parked]` keys, one per line. `build` also needs PORTFOLIO_ACTUALS
+(#735), the path of <devagent_home>/actuals.json, which it reads (never runs)
+to fill the actuals slots.
 
 Standard library only (3.10+), like portfolio-check.py. docs/portfolio-schema.md
 is the contract; commands/portfolio.md is the user doc.
@@ -200,14 +203,42 @@ def checklist_next(path) -> tuple[str, int | None, str | None]:
 STUCK_KEYS = (("step", "Step:"), ("reason", "Reason:"), ("since", "Created:"))
 
 
+def stuck_header_kind(lines: list[str]) -> str:
+    """#963: the STUCK header's kind by stuck_kind's rule (scripts/lib/checklist.sh).
+
+    The header is the lines before the first blank-or-whitespace line or `## `
+    heading, one trailing CR stripped from each; the first non-empty value of a
+    `Kind:` line starting at column 0, trimmed, else `stuck`. The port of
+    stuck_header_value plus stuck_kind's default; a test holds the two equal.
+    """
+    for line in lines:
+        if line.endswith("\r"):
+            line = line[:-1]
+        if line.strip(" \t") == "" or line.startswith("## "):
+            break
+        if line.startswith("Kind:"):
+            value = line[len("Kind:"):].strip(" \t")
+            if value:
+                return value
+    return "stuck"
+
+
 def read_stuck(path) -> dict:
-    """A STUCK file's Step:/Reason:/Created: values verbatim (first of each)."""
+    """A STUCK file's Step:/Reason:/Created: values verbatim (first of each),
+    and (#963) its derived header `kind`."""
+    lines = _read_lines(path, StuckError)
     out: dict[str, str | None] = {k: None for k, _ in STUCK_KEYS}
-    for line in _read_lines(path, StuckError):
+    for line in lines:
         for key, prefix in STUCK_KEYS:
             if out[key] is None and line.startswith(prefix):
                 out[key] = line[len(prefix):].strip()
+    out["kind"] = stuck_header_kind(lines)
     return out
+
+
+def _null_stuck() -> dict:
+    """The Stuck of a STUCK (or issue dir) that could not be read: all null."""
+    return {"step": None, "reason": None, "since": None, "kind": None}
 
 
 # --- reference rollup ----------------------------------------------------------
@@ -417,8 +448,9 @@ def _models_violations(node: dict, minor: int, add) -> None:
 def invariant_violations(doc: dict) -> list[str]:
     """The cross-field rules the structural checker does not decide (#725).
 
-    Each entry is `"I<n>: <message>"`. Reads known v1.3 fields only, so a
-    document at a newer minor is checked on what this producer knows.
+    Each entry is `"I<n>: <message>"`. Reads known v1.4 fields only, so a
+    document at a newer minor is checked on what this producer knows; `ready`
+    is recomputed only at the producer's own minor (version rule 7).
     Assumes `portfolio-check.check(doc)` already passed.
     """
     out: list[str] = []
@@ -500,12 +532,17 @@ def invariant_violations(doc: dict) -> list[str]:
     for r in doc["parse_report"]:
         if r["project"] not in known:
             add("I15", f"report entry names project {r['project']!r}, not in the document")
-    _readiness_violations(projects, add)
+    _readiness_violations(projects, add, minor)
     return out
 
 
-def _readiness_violations(projects: list[dict], add) -> None:
-    """I16: the readiness fields are all null, or all equal a recomputation."""
+def _readiness_violations(projects: list[dict], add, minor: int) -> None:
+    """I16: the readiness fields are all null, or all equal a recomputation.
+
+    #963, version rule 7: `ready` is the producer's verdict, so at a minor
+    other than this producer's it is taken as written and not compared.
+    """
+    own_minor = minor == pc.parse_version(SCHEMA_VERSION)[1]
     nodes = [n for p in projects for n in p["nodes"]]
     if not any(n["ready"] is not None or n.get("ready_via_parent_row") is not None
                or any(d["resolved"] is not None for d in n["depends_on"]) for n in nodes):
@@ -519,6 +556,8 @@ def _readiness_violations(projects: list[dict], add) -> None:
                 add("I16", f"node {nid}: depends_on[{i}].resolved {d['resolved']!r} "
                            f"!= recomputed {want!r}")
         for key, want in fields.items():
+            if key == "ready" and not own_minor:
+                continue
             got = n.get(key)
             if got is not want:
                 add("I16", f"node {nid}: {key} {got!r} != recomputed {want!r}")
@@ -604,10 +643,12 @@ def _strong_components(adj: list[list[int]]) -> list[list[int]]:
 def compute_readiness(projects: list[dict]) -> Readiness:
     """Readiness over the document's own project and node dicts (pure).
 
-    Reads only project `project`/`status` and node `id`, `parent`, `leaf`,
-    `state`, `issue`, `source_line` and `depends_on[].raw/scope/project/issue`.
-    The rule is commands/portfolio.md's "Ready leaves": a leaf is ready when
-    it is pending, no ancestor is parked, stuck, blocked externally or
+    Reads only project `project`/`status`, node `id`, `parent`, `leaf`,
+    `state`, `issue`, `source_line` and `depends_on[].raw/scope/project/issue`,
+    and `issues[].issue/stuck/parked`. The rule is commands/portfolio.md's
+    "Ready leaves": a leaf is ready when it is pending, its issue (if any) has
+    no `stuck` and a `parked` of false (#963; an absent `parked` reads false),
+    no ancestor is parked, stuck, blocked externally or
     skipped, every effective dependency (its own plus every ancestor's)
     resolves, every node it resolves to is done, and the leaf is in no
     dependency cycle. The ancestor walk stops at an unknown parent id and at
@@ -620,9 +661,14 @@ def compute_readiness(projects: list[dict]) -> Readiness:
     by_id: dict[str, dict[str, dict]] = {}
     seen_ids: set[str] = set()
     ambiguous: set[str] = set()
+    # (project, issue) -> its IssueEntry, over read projects (#963, rule 1).
+    issue_entries: dict[tuple[str, str], dict] = {}
     for p in projects:
         name = p["project"]
         by_name.setdefault(name, p)
+        if p["status"] == "read":
+            for e in p["issues"]:
+                issue_entries.setdefault((name, e["issue"]), e)
         ids = by_id.setdefault(name, {})
         issues = index.setdefault(name, {}) if p["status"] == "read" else None
         for n in p["nodes"]:
@@ -719,7 +765,10 @@ def compute_readiness(projects: list[dict]) -> Readiness:
         if not n["leaf"]:
             continue
         lineage, rows = lineages[k], effective[k]
+        entry = None if n["issue"] is None else issue_entries.get((name, n["issue"]))
         ok = (n["state"] == "pending"
+              and (entry is None or (entry.get("stuck") is None
+                                     and entry.get("parked", False) is False))
               and not any(a["state"] in BLOCKING_ANCESTOR for a in lineage)
               and all(hits and all(t["state"] == "done" for t in hits) for _, _, hits in rows)
               and k not in in_cycle)
@@ -802,7 +851,15 @@ class ProjectInput:
     # #890: the step_models values portfolio.sh exports (thinking, checking,
     # default; descriptive, not enforced: project_models reads those three).
     step_models: Mapping[str, str] = field(default_factory=dict, hash=False)
+    # #963: portfolio.sh's verdict on the project's devagent state file
+    # (absent, unreadable or read) and, under read, its [parked] keys.
+    state_status: str = "absent"
+    parked: frozenset[str] = frozenset()
 
+
+STATE_STATUSES = ("absent", "unreadable", "read")
+STATE_UNREADABLE = ("devagent state could not be read; its issues have parked: null and its "
+                    "leaves with an issue are not ready")
 
 SCHEMA_VERSION = "1.4"
 
@@ -840,6 +897,7 @@ KINDS: tuple[str, ...] = (
     "checklist_unreadable",
     "stuck_unreadable",
     "actuals_unavailable",
+    "state_unreadable",
 )
 _KIND_INDEX = {k: i for i, k in enumerate(KINDS)}
 _LINE_RE = re.compile(r"\bline ([0-9]+)\b")
@@ -983,16 +1041,18 @@ def issue_dir_refusal(issue: str, names: "dict[str, frozenset[str]] | None") -> 
 
 def _both_unknown(entry: dict, report, why: str) -> dict:
     """Neither issue file can be read: both are unknown, not absent."""
-    entry["stuck"] = dict.fromkeys(k for k, _ in STUCK_KEYS)
+    entry["stuck"] = _null_stuck()
     report(None, "checklist_unreadable", why)
     report(None, "stuck_unreadable", why)
     return entry
 
 
 def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report,
-                 refused: bool, listing_error: OSError | None) -> dict:
+                 refused: bool, listing_error: OSError | None, parked: bool | None) -> dict:
+    # parked (#963) comes from devagent's state, not the issue dir, so it is
+    # set on an entry whose dir is not read too.
     entry = {"issue": issue, "nodes": node_ids, "stuck": None, "checklist": "absent",
-             "next_step": None, "next_step_number": None}
+             "next_step": None, "next_step_number": None, "parked": parked}
     if refused:
         return entry
     issue_dir = devdoc / issue
@@ -1023,16 +1083,17 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report,
         try:
             entry["stuck"] = read_stuck(stuck)
         except StuckError as e:
-            entry["stuck"] = {"step": None, "reason": None, "since": None}
+            entry["stuck"] = _null_stuck()
             report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {e}")
     elif kind != "absent":
-        entry["stuck"] = {"step": None, "reason": None, "since": None}
+        entry["stuck"] = _null_stuck()
         report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {detail}")
     return entry
 
 
 def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
-                        step_models) -> dict:
+                        step_models, state_status: str = "absent",
+                        parked: frozenset[str] = frozenset()) -> dict:
     rung: dict = {}
     for cls, (choice, message) in project_models(step_models).items():
         rung[cls] = choice
@@ -1118,7 +1179,9 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
                 report(ln, "unknown_meta_key", f"unknown metadata key '{key}'")
 
     issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report,
-                           refused[i] is not None, listing_error) for i in carriers]
+                           refused[i] is not None, listing_error,
+                           None if state_status == "unreadable" else i in parked)
+              for i in carriers]
     return {"project": name, "status": "read", "status_reason": None,
             "wbs_title": tree["title"], "nodes": nodes, "issues": issues,
             "rollup": rollup(nodes)}
@@ -1207,7 +1270,13 @@ def build_document(projects: list[ProjectInput], generated_at: str, actuals: str
             out.append(_empty_project(p.name, status, reason))
             continue
         out.append(_build_read_project(p.name, Path(p.devdoc), text, next_id,
-                                       report_for(p.name), p.step_models))
+                                       report_for(p.name), p.step_models,
+                                       p.state_status, p.parked))
+    for p in projects:
+        # #963: one per manifest project whose state could not be read, whether
+        # or not its WBS was; the message never names the state path.
+        if p.state_status == "unreadable":
+            report_for(p.name)(None, "state_unreadable", STATE_UNREADABLE)
     apply_readiness(out, report_for)
     top = apply_actuals(out, actuals, generated_at, report_for) if actuals is not None else None
     order = {p.name: i for i, p in enumerate(projects)}
@@ -1254,9 +1323,17 @@ def read_manifest(env=None) -> list[ProjectInput]:
             v = env.get(f"PORTFOLIO_MODEL_{key.upper()}_{i}")
             if v is not None:
                 step_models[key] = v
+        status = env.get(f"PORTFOLIO_STATE_STATUS_{i}", "absent")
+        if status not in STATE_STATUSES:
+            raise ManifestError(f"PORTFOLIO_STATE_STATUS_{i} is {status!r}, "
+                                "not absent, unreadable or read")
+        parked = frozenset()
+        if status == "read":
+            parked = frozenset(k for k in env.get(f"PORTFOLIO_PARKED_{i}", "").split("\n") if k)
         out.append(ProjectInput(name, env.get(f"PORTFOLIO_DEVDOC_{i}"),
                                 env.get(f"PORTFOLIO_SOURCE_{i}"),
-                                env.get(f"PORTFOLIO_WORKTREE_{i}"), step_models))
+                                env.get(f"PORTFOLIO_WORKTREE_{i}"), step_models,
+                                status, parked))
     return out
 
 
@@ -1379,6 +1456,8 @@ def _checked_document(projects, actuals: str | None = None) -> tuple[dict, int |
 
 
 NOT_READ_MSG = "portfolio: {project}: not read ({status}); its leaves are not listed"
+STATE_UNREADABLE_MSG = ("portfolio: {project}: devagent state could not be read; "
+                        "leaves with an issue are not listed")
 
 
 def _ready_view() -> int:
@@ -1390,9 +1469,13 @@ def _ready_view() -> int:
     doc, failed = _checked_document(projects)
     if failed is not None:
         return failed
+    # #963: keyed on the manifest's state status, never inferred from the document.
+    state = {p.name: p.state_status for p in projects}
     for p in doc["projects"]:
         if p["status"] != "read":
             sys.stderr.write(NOT_READ_MSG.format(project=p["project"], status=p["status"]) + "\n")
+        elif state.get(p["project"]) == "unreadable":
+            sys.stderr.write(STATE_UNREADABLE_MSG.format(project=p["project"]) + "\n")
     sys.stderr.flush()
     # Bytes, not text mode: Windows text-mode stdout would end lines CRLF and
     # encode with the console code page (mr-link.py's emit does the same).

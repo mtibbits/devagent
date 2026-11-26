@@ -474,9 +474,21 @@ def _call(fn):
 RU = ("projects", 0, "rollup")
 
 
+def _at_own_minor(d):
+    """#963: label the example at the producer's minor, where I16 recomputes
+    `ready` (rule 7), with the null leaf models that minor requires (I17)."""
+    d["schema_version"] = pf.SCHEMA_VERSION
+    for p in d["projects"]:
+        for n in p["nodes"]:
+            if n["leaf"]:
+                n.setdefault("models", {"thinking": None, "checking": None})
+
+
 def _computed(*fs):
-    """A row that first fills the example's readiness fields, then mutates."""
+    """A row that first fills the example's readiness fields at the producer's
+    minor, then mutates."""
     def f(d):
+        _at_own_minor(d)
         pf.apply_readiness(d["projects"], lambda p: lambda *a: None)
         for g in fs:
             g(d)
@@ -577,6 +589,8 @@ MUTATION_ROWS = [
     ("I16", "resolved-only-on-uncomputed", _dset("n3", 0, "resolved", True)),
     ("I16", "via-parent-row-only-on-uncomputed", _nset("n6", "ready_via_parent_row", False)),
     ("I16", "computed-with-duplicate-id", _computed(_nset("n9", "id", "n1"))),
+    ("I16", "stuck-ignored-at-own-minor", _computed(_iset("Issue-10", "stuck", {
+        "step": "2 draft", "reason": None, "since": None}))),
     ("I17", "models-on-parent", _nset("n1", "models", {"thinking": None, "checking": None})),
     ("I17", "models-missing-at-1.2", _set(("schema_version",), "1.2")),
     ("I17", "wbs-value-differs", _many(_meta("n2", "thinking", "opus"),
@@ -617,7 +631,7 @@ def test_invariant_rows_total():
     tags = {t for t, _, _ in MUTATION_ROWS}
     assert tags == set(pf.INVARIANTS)
     assert pf.INVARIANTS == tuple(f"I{i}" for i in range(1, 18))
-    assert len(MUTATION_ROWS) == 58 + 5
+    assert len(MUTATION_ROWS) == 59 + 5
     assert len({(t, r) for t, r, _ in MUTATION_ROWS}) == len(MUTATION_ROWS)
 
 
@@ -781,14 +795,14 @@ def test_read_stuck_both_writers(tmp_path):
     p.write_text(STUCK_SH, encoding="utf-8", newline="")
     assert pf.read_stuck(p) == {"step": "9 implement",
                                 "reason": "waiting on the operator's call on the token key",
-                                "since": "2026-11-04 08:47"}
+                                "since": "2026-11-04 08:47", "kind": "stuck"}
     p.write_bytes(CHECKLIST_STUCK_SH.replace("\n", "\r\n").encode("utf-8"))
     assert pf.read_stuck(p) == {"step": "16 redmr", "reason": "red-team found a blocker",
-                                "since": "2026-11-04T08:47:12-05:00"}
+                                "since": "2026-11-04T08:47:12-05:00", "kind": "stuck"}
     p.write_text("Step:        9 implement\nCreated:     2026-11-04 08:47\n",
                  encoding="utf-8", newline="")
     assert pf.read_stuck(p) == {"step": "9 implement", "reason": None,
-                                "since": "2026-11-04 08:47"}
+                                "since": "2026-11-04 08:47", "kind": "stuck"}
 
 
 def test_read_stuck_undecodable(tmp_path):
@@ -918,9 +932,12 @@ def test_kinds_all_planted(tmp_path):
     _, tok = _tok_doc(tmp_path / "tok-build")  # #737: tests/fixtures/portfolio stays untouched
     unwired = pf.build_document([pf.ProjectInput("solo", None)], GENERATED_AT,
                                 str(tmp_path / "none" / "actuals.json"))  # #735
-    kinds = {r["kind"] for d in (doc, ready, models, tok, unwired) for r in d["parse_report"]}
+    no_state = pf.build_document([pf.ProjectInput("solo", None, state_status="unreadable")],
+                                 GENERATED_AT, None)  # #963
+    kinds = {r["kind"] for d in (doc, ready, models, tok, unwired, no_state)
+             for r in d["parse_report"]}
     assert kinds == set(pf.KINDS)
-    assert len(pf.KINDS) == len(set(pf.KINDS)) == 22
+    assert len(pf.KINDS) == len(set(pf.KINDS)) == 23
 
 
 def _walk_lines(tree):
@@ -1009,11 +1026,12 @@ def test_issue_dir_fields(tmp_path):
     pick = lambda e: (e["checklist"], e["next_step_number"], e["next_step"], e["stuck"])  # noqa: E731
     assert pick(alpha["Issue-1"]) == ("complete", None, None, None)
     assert pick(alpha["Issue-2"]) == ("open", 5, "improve", {
-        "step": "16 redmr", "reason": "red-team found a blocker", "since": "2026-11-04 08:47"})
+        "step": "16 redmr", "reason": "red-team found a blocker", "since": "2026-11-04 08:47",
+        "kind": "stuck"})
     assert pick(alpha["Issue-3"]) == ("absent", None, None, None)
     assert pick(alpha["Issue-4"]) == ("absent", None, None, None)
     assert pick(alpha["Issue-5"]) == ("absent", None, None,
-                                      {"step": None, "reason": None, "since": None})
+                                      {"step": None, "reason": None, "since": None, "kind": None})
     assert pick(alpha["GH-726!"]) == ("absent", None, None, None)
     report = {r["kind"]: r["message"] for r in doc["parse_report"] if r["source_line"] is None}
     assert report["checklist_unreadable"].startswith("Issue-4/checklist.md could not be read: ")
@@ -1331,14 +1349,14 @@ def test_ready_lines_empty_extreme(tmp_path):
 # The multi fixture's ready leaves, derived by hand from the rule: alpha's
 # leaves that are pending and have no or only resolved-and-done dependencies
 # (plant-outline, plant-issue4 and plant-bracket hold unresolved entries;
-# plant-issue1 is done, plant-issue2 in progress), and beta's two pending
-# leaves without a dependency (plant-beta-dep waits on alpha's in-progress
-# Issue-2).
+# plant-issue1 is done, plant-issue2 in progress; #963: plant-issue5's STUCK
+# cannot be read, so its stuck is non-null and rule 1 leaves it out), and
+# beta's two pending leaves without a dependency (plant-beta-dep waits on
+# alpha's in-progress Issue-2).
 MULTI_READY = [
     ("alpha", m) for m in ("plant-issue3", "plant-dup3", "plant-noissue-est", "plant-est-src",
                            "plant-jira", "plant-merged", "plant-trailing", "plant-dupkey",
-                           "plant-swallowed", "plant-issue-list", "plant-not-id",
-                           "plant-issue5")
+                           "plant-swallowed", "plant-issue-list", "plant-not-id")
 ] + [("beta", "plant-beta-issue1"), ("beta", "plant-beta-after")]
 
 
@@ -1347,7 +1365,7 @@ def test_multi_ready_pinned(tmp_path):
     got = {(p["project"], n["source_line"]) for p in doc["projects"]
            for n in p["nodes"] if n["ready"] is True}
     want = {(p, _line_of(_wbs_text(p), m)) for p, m in MULTI_READY}
-    assert len(want) == 14
+    assert len(want) == 13
     assert got == want
 
 
@@ -1846,7 +1864,8 @@ def test_command_doc_defines_ready():
     block = text[text.index(READY_START):text.index(READY_END)]
     assert re.findall(r"^([0-9])\. ", block, re.MULTILINE) == ["1", "2", "3", "4", "5"]
     for term in ("dep_unresolved", "dep_skipped", "dep_cycle", "parent_done_leaf_pending",
-                 "ready_via_parent_row", "<project>:<issue>"):
+                 "ready_via_parent_row", "<project>:<issue>", "STUCK", "parked",
+                 "state_unreadable"):
         assert term in block, term
     paragraphs = re.split(r"\n\s*\n", block)
     assert any("TAB" in para and all(f"`{f}`" in para for f in ("project", "issue", "est", "text"))
@@ -1935,7 +1954,7 @@ def test_unstatable_issue_files_are_reported_not_absent(tmp_path, monkeypatch):
     stuck = [r["message"] for r in doc["parse_report"] if r["kind"] == "stuck_unreadable"]
     assert "Issue-2/ could not be read: PermissionError: Permission denied" in stuck
     assert alpha["Issue-1"]["checklist"] == "absent"
-    assert alpha["Issue-2"]["stuck"] == {"step": None, "reason": None, "since": None}
+    assert alpha["Issue-2"]["stuck"] == {"step": None, "reason": None, "since": None, "kind": None}
     assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
 
 
@@ -2009,7 +2028,7 @@ def test_fifo_issue_files_are_unreadable_not_opened(tmp_path):
         ("stuck_unreadable", "Issue-1/STUCK could not be read: not a regular file")]
     entry = doc["projects"][0]["issues"][0]
     assert entry["checklist"] == "absent"
-    assert entry["stuck"] == {"step": None, "reason": None, "since": None}
+    assert entry["stuck"] == {"step": None, "reason": None, "since": None, "kind": None}
 
 
 def test_non_regular_issue_files_are_unreadable(tmp_path):
@@ -2070,7 +2089,8 @@ def test_noncanonical_issue_ids_are_not_followed(tmp_path):
     assert _pick(issues["Issue-7."]) == ("absent", None, None, None)
     assert _pick(issues["issue-7"]) == ("absent", None, None, None)
     assert _pick(issues["Issue-7"]) == ("open", 2, "draft",
-                                        {"step": "2 draft", "reason": None, "since": None})
+                                        {"step": "2 draft", "reason": None, "since": None,
+                                         "kind": "stuck"})
     assert _pick(issues["Issue-9"]) == ("absent", None, None, None)
     assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == []
     assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
@@ -2137,7 +2157,7 @@ def test_unlistable_devdoc_fails_closed(tmp_path, monkeypatch):
         ("issue_not_id", "issue 'Issue-8.' ends in '.'; its issue dir is not read")]
     issues = {e["issue"]: e for e in doc["projects"][0]["issues"]}
     assert _pick(issues["Issue-7"]) == ("absent", None, None,
-                                        {"step": None, "reason": None, "since": None})
+                                        {"step": None, "reason": None, "since": None, "kind": None})
     assert _pick(issues["Issue-8."]) == ("absent", None, None, None)
     assert _pick(issues["Issue-9"]) == ("absent", None, None, None)
     assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
@@ -2184,7 +2204,8 @@ def test_one_bad_symlink_in_devdoc_does_not_fail_the_listing(tmp_path):
     doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
     assert _report_of(doc, "checklist_unreadable", "stuck_unreadable") == []
     entry = doc["projects"][0]["issues"][0]
-    assert _pick(entry) == ("open", 2, "draft", {"step": "2 draft", "reason": None, "since": None})
+    assert _pick(entry) == ("open", 2, "draft", {"step": "2 draft", "reason": None, "since": None,
+                                                 "kind": "stuck"})
 
 
 # --- #735: the actuals slot, the project field and the top-level object ---------
@@ -2418,3 +2439,169 @@ def test_actuals_with_a_lone_surrogate_is_unusable_not_a_crash(tmp_path, monkeyp
                                                  "valid UTF-8 (a lone surrogate); actuals are empty; run "
                                                  "/devagent:actuals")]
     assert doc["actuals"] is None
+
+
+# --- #963: parked, stuck.kind, rule 1, state_unreadable ------------------------
+
+@pytest.mark.parametrize("text,want", [
+    ("Step: 5 improve\nReason: r\n", "stuck"),
+    ("Kind:        question\nStep: 5 improve\n", "question"),
+    ("Step: 5 improve\n\nKind: question\n", "stuck"),
+    ("Kind: question\r\nStep: 5 improve\r\n\r\nKind: x\r\n", "question"),
+    ("Kind:\nStep: 5 improve\n", "stuck"),
+    ("Kind:\nKind: later\n", "later"),
+    ("Step: 5 improve\n## Question\nKind: question\n", "stuck"),
+    ("Step: 5 improve\n \t\nKind: question\n", "stuck"),
+    (" Kind: x\nStep: 5 improve\n", "stuck"),
+    ("Step: 5 improve\n### x\nKind: deep\n", "deep"),
+], ids=["no-kind", "question", "after-blank", "crlf", "lone-blank", "blank-then-later",
+        "ends-at-h2", "whitespace-line", "indented", "h3-not-end"])
+def test_stuck_header_kind_rule(text, want):
+    assert pf.stuck_header_kind(text.split("\n")) == want
+
+
+def _rule1_devdoc(tmp_path, stucks=None):
+    """A WBS with three pending issue leaves and one no-issue leaf."""
+    devdoc = tmp_path / "devdoc"
+    devdoc.mkdir(parents=True)
+    (devdoc / "WBS.md").write_text(
+        "# p\n\n- [ ] Held {issue: Issue-1}\n- [ ] Parked {issue: Issue-2}\n"
+        "- [ ] Free {issue: Issue-3}\n- [ ] Loose\n", encoding="utf-8")
+    for issue in ("Issue-1", "Issue-2", "Issue-3"):
+        (devdoc / issue).mkdir()
+    for issue, text in (stucks or {}).items():
+        (devdoc / issue / "STUCK").write_text(text, encoding="utf-8")
+    return devdoc
+
+
+def _rule1_doc(tmp_path, state_status="read", parked=frozenset(), stucks=None):
+    devdoc = _rule1_devdoc(tmp_path, stucks)
+    p = pf.ProjectInput("p", str(devdoc), state_status=state_status, parked=frozenset(parked))
+    return pf.build_document([p], GENERATED_AT, None)
+
+
+def _by_issue(doc):
+    nodes = {n["text"]: n for n in doc["projects"][0]["nodes"]}
+    entries = {e["issue"]: e for e in doc["projects"][0]["issues"]}
+    return nodes, entries
+
+
+QUESTION_STUCK = "Kind:        question\nStep:        5 improve\nReason:      r\n\n## Question\n\nq?\n"
+PLAIN_STUCK = "Step:        5 improve\nReason:      r\n"
+
+
+def test_ready_excludes_held_issue(tmp_path):
+    doc = _rule1_doc(tmp_path, stucks={"Issue-1": QUESTION_STUCK})
+    nodes, entries = _by_issue(doc)
+    assert nodes["Held"]["ready"] is False
+    assert entries["Issue-1"]["stuck"]["kind"] == "question"
+    assert not any("\tIssue-1\t" in line for line in pf.ready_lines(doc))
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def test_ready_excludes_parked_issue(tmp_path):
+    doc = _rule1_doc(tmp_path, parked={"Issue-2"})
+    nodes, entries = _by_issue(doc)
+    assert nodes["Parked"]["ready"] is False
+    assert entries["Issue-2"]["parked"] is True
+    assert entries["Issue-2"]["stuck"] is None
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def test_ready_excludes_plain_stuck_issue(tmp_path):
+    doc = _rule1_doc(tmp_path, stucks={"Issue-1": PLAIN_STUCK})
+    nodes, entries = _by_issue(doc)
+    assert nodes["Held"]["ready"] is False
+    assert entries["Issue-1"]["stuck"]["kind"] == "stuck"
+
+
+def test_ready_unaffected_issue(tmp_path):
+    for status in ("read", "absent"):
+        doc = _rule1_doc(tmp_path / status, state_status=status)
+        nodes, entries = _by_issue(doc)
+        assert entries["Issue-3"]["parked"] is False
+        assert nodes["Free"]["ready"] is True
+        assert nodes["Loose"]["ready"] is True
+    doc = _rule1_doc(tmp_path / "unreadable", state_status="unreadable")
+    nodes, _ = _by_issue(doc)
+    assert nodes["Loose"]["ready"] is True
+
+
+def test_state_unreadable_fails_closed(tmp_path):
+    doc = _rule1_doc(tmp_path, state_status="unreadable")
+    nodes, entries = _by_issue(doc)
+    assert all(e["parked"] is None for e in entries.values())
+    assert [nodes[t]["ready"] for t in ("Held", "Parked", "Free")] == [False, False, False]
+    found = [r for r in doc["parse_report"] if r["kind"] == "state_unreadable"]
+    assert len(found) == 1 and found[0]["project"] == "p" and found[0]["source_line"] is None
+    assert not any(str(tmp_path) in r["message"] or ".toml" in r["message"]
+                   for r in doc["parse_report"])
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def test_state_unreadable_reported_when_wbs_not_read(tmp_path):
+    p = pf.ProjectInput("q", str(tmp_path / "missing"), state_status="unreadable")
+    doc = pf.build_document([p], GENERATED_AT, None)
+    assert [r["kind"] for r in doc["parse_report"]] == ["state_unreadable"]
+
+
+def test_stuck_kind_null_when_unreadable(tmp_path):
+    devdoc = _rule1_devdoc(tmp_path)
+    (devdoc / "Issue-1" / "STUCK").mkdir()
+    doc = pf.build_document([pf.ProjectInput("p", str(devdoc))], GENERATED_AT, None)
+    _, entries = _by_issue(doc)
+    assert entries["Issue-1"]["stuck"] == {"step": None, "reason": None, "since": None,
+                                           "kind": None}
+    assert [r["kind"] for r in doc["parse_report"]].count("stuck_unreadable") == 1
+
+
+def test_absent_parked_reads_false(tmp_path):
+    doc = _rule1_doc(tmp_path)
+    projects = copy.deepcopy(doc["projects"])
+    for e in projects[0]["issues"]:
+        assert e.pop("parked") is False
+    with_key, without = pf.compute_readiness(doc["projects"]), pf.compute_readiness(projects)
+    assert with_key.ready == without.ready
+
+
+def test_older_minor_ready_not_recomputed():
+    d = _example()
+    d["schema_version"] = "1.1"
+    pf.apply_readiness(d["projects"], lambda p: lambda *a: None)
+    assert _node(d, "n5")["ready"] is True
+    _entry(d, "Issue-10")["stuck"] = {"step": "2 draft", "reason": None, "since": None}
+    assert pf.invariant_violations(d) == []
+    # The same document at the producer's minor is recomputed and differs.
+    _at_own_minor(d)
+    assert any(v.startswith("I16: node n5: ready") for v in pf.invariant_violations(d))
+
+
+def test_read_manifest_state_vars(monkeypatch):
+    _manifest(monkeypatch, [("a", "/d/a"), ("b", "/d/b"), ("c", "/d/c")])
+    monkeypatch.setenv("PORTFOLIO_STATE_STATUS_1", "read")
+    monkeypatch.setenv("PORTFOLIO_PARKED_1", "Issue-1\nIssue-2\n")
+    monkeypatch.setenv("PORTFOLIO_STATE_STATUS_2", "unreadable")
+    monkeypatch.setenv("PORTFOLIO_PARKED_2", "Issue-9")
+    a, b, c = pf.read_manifest()
+    assert (a.state_status, a.parked) == ("absent", frozenset())
+    assert (b.state_status, b.parked) == ("read", frozenset({"Issue-1", "Issue-2"}))
+    assert (c.state_status, c.parked) == ("unreadable", frozenset())
+    monkeypatch.setenv("PORTFOLIO_STATE_STATUS_0", "bogus")
+    with pytest.raises(pf.ManifestError,
+                       match=r"^PORTFOLIO_STATE_STATUS_0 is 'bogus', not absent, unreadable or read$"):
+        pf.read_manifest()
+
+
+def test_main_ready_state_unreadable_line(tmp_path, monkeypatch, capsys):
+    devdoc = _rule1_devdoc(tmp_path)
+    _manifest(monkeypatch, [("p", str(devdoc)), ("q", str(tmp_path / "missing"))])
+    monkeypatch.setenv("PORTFOLIO_STATE_STATUS_0", "unreadable")
+    monkeypatch.setenv("PORTFOLIO_STATE_STATUS_1", "unreadable")
+    assert pf.main(["ready"]) == pf.EXIT_OK
+    out, err = capsys.readouterr()
+    assert err.splitlines() == [
+        pf.STATE_UNREADABLE_MSG.format(project="p"),
+        pf.NOT_READ_MSG.format(project="q", status="no_devdoc_dir")]
+    assert err.splitlines()[0] == ("portfolio: p: devagent state could not be read; "
+                                   "leaves with an issue are not listed")
+    assert out == "p\t\t\tLoose\n"

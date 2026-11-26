@@ -90,8 +90,12 @@ readiness fields by the rule below; the document itself carries them too.
 <!-- ready-rule:start -->
 A leaf is **ready** when all of these hold:
 
-1. Its state is pending (`[ ]`). In progress, stuck, parked, blocked
-   externally, done and skipped leaves are not ready.
+1. Its state is pending (`[ ]`), and, when it has an issue, that issue's
+   entry has no `stuck` and a `parked` of false. In progress, stuck, parked,
+   blocked externally, done and skipped leaves are not ready, and neither is a
+   leaf with an issue that has a `STUCK` file, is parked in devagent's state,
+   or belongs to a project whose devagent state could not be read
+   (`state_unreadable`).
 2. Its effective dependencies are its own `depends_on` plus the
    `depends_on` of every ancestor row.
 3. Every effective dependency resolves, within the same project — or, for a

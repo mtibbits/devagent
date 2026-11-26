@@ -540,6 +540,7 @@ they do not know. A project's status is not repeated in the report.
 | `checklist_unreadable` | null | An issue dir or its `checklist.md` cannot be read, `checklist.md` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), it holds a step number beyond the interpreter's integer-string limit, it has no step rows in its active revision block, or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`checklist` reads `absent`). |
 | `stuck_unreadable` | null | An issue dir or its `STUCK` cannot be read, `STUCK` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`stuck` has all-null fields). |
 | `actuals_unavailable` | null | One per project when `<devagent_home>/actuals.json` (#735) does not exist, cannot be read, is not a usable actuals document (the first reason), or was generated more than 7 days before the document; every `actuals` slot, project field and the top-level `actuals` are then null. |
+| `state_unreadable` | null | One per project whose devagent state file exists but cannot be loaded or whose `[parked]` is not a table (`_toml.py list-keys` exit 2 or 3); its issues carry `parked: null` and its leaves with an issue are not ready. The message does not name the state path. |
 <!-- report-kinds:end -->
 
 ## Deferred
