@@ -1,8 +1,18 @@
 #!/usr/bin/env bats
 load 'helpers/common'
+load 'helpers/devdoc-repo'
+bats_require_minimum_version 1.5.0
 
 setup() {
     devagent_test_setup
+    # #1055: commit_devdoc is true in the common config, so the default devDoc
+    # must be outside git — else a ship could commit into an enclosing repository
+    # (a TMPDIR inside a work tree). Real git: the stub below answers anything.
+    if /usr/bin/git -C "$DEVDOC_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+        echo "DEVDOC_DIR is inside a git work tree: $DEVDOC_DIR" >&2
+        return 1
+    fi
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN DEVAGENT_DEVDOC_LOCK_DEADLINE
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x \
       && echo hi > a.txt && git add a.txt \
       && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
@@ -792,4 +802,110 @@ _target_repo() {
     [ "$status" -eq 0 ]
     devagent_assert_logged "gh pr create --repo acme/testproj"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
+}
+
+# --- #1055: ship commits the issue's devDoc folder alone ----------------------
+
+# _ship_git_devdoc — real git (push stubbed), then a devDoc repository one level
+# above DEVDOC_DIR (testproj/Issue-1, testproj/Issue-2, proj2/Issue-9 seeded),
+# with another issue left modified and an untracked capture.
+_ship_git_devdoc() {
+    _install_real_git_except_push_stub
+    devdoc_parent_repo_fixture
+    printf 'edit\n' >> "$DEVDOC_DIR/Issue-2/checklist.md"
+    mkdir -p "$DEVDOC_DIR/Captures/c1"
+    printf '# c1\n' > "$DEVDOC_DIR/Captures/c1/draft.md"
+}
+
+_ship_count() { /usr/bin/git -C "$DEVDOC_REPO" rev-list --count HEAD; }
+
+# _ship_head_only_issue1 — the HEAD commit lists at least one path, all under
+# testproj/Issue-1/, including its checklist.
+_ship_head_only_issue1() {
+    local names p
+    names="$(/usr/bin/git -C "$DEVDOC_REPO" show --name-only --format= HEAD)"
+    [[ "$names" == *"testproj/Issue-1/checklist.md"* ]] || return 1
+    while IFS= read -r p; do
+        [ -z "$p" ] || [[ "$p" == testproj/Issue-1/* ]] || { echo "outside Issue-1: $p" >&2; return 1; }
+    done <<< "$names"
+}
+
+@test "ship.sh commits only the issue folder to devDoc with row 18 [x] (#1055)" {
+    _ship_git_devdoc
+    before="$(_ship_count)"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr create --repo acme/testproj"
+    [ "$(_ship_count)" -eq $((before + 1)) ]
+    [ "$(/usr/bin/git -C "$DEVDOC_REPO" log -1 --format=%s)" = "devdoc: Issue-1 ship" ]
+    [ "$(/usr/bin/git -C "$DEVDOC_REPO" log -1 --format='%an <%ae>')" = "devagent <devagent@local>" ]
+    _ship_head_only_issue1
+    /usr/bin/git -C "$DEVDOC_REPO" show HEAD:testproj/Issue-1/checklist.md > "$DEVAGENT_TMP/committed.md"
+    assert_step "$DEVAGENT_TMP/committed.md" 18 x ship
+    grep -q 'ship: MR https://github.com/acme/testproj/pull/77' "$DEVAGENT_TMP/committed.md"
+    [ -z "$(/usr/bin/git -C "$DEVDOC_REPO" status --porcelain -- testproj/Issue-1)" ]
+    run /usr/bin/git -C "$DEVDOC_REPO" status --porcelain
+    [[ "$output" == *" M testproj/Issue-2/checklist.md"* ]]
+    [[ "$output" == *"?? testproj/Captures/"* ]]
+}
+
+@test "ship.sh zero-diff skip commits the issue folder with row 18 [-] (#1055)" {
+    _ship_git_devdoc
+    tip="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x)"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$tip"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"zero-diff"* ]]
+    devagent_refute_logged "gh pr create"
+    [ "$(/usr/bin/git -C "$DEVDOC_REPO" log -1 --format=%s)" = "devdoc: Issue-1 ship" ]
+    _ship_head_only_issue1
+    /usr/bin/git -C "$DEVDOC_REPO" show HEAD:testproj/Issue-1/checklist.md > "$DEVAGENT_TMP/committed.md"
+    assert_step "$DEVAGENT_TMP/committed.md" 18 '-' ship
+}
+
+@test "ship.sh with commit_devdoc=false makes no devDoc commit and takes no lock (#1055)" {
+    _ship_git_devdoc
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
+    hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
+    cp "$hp/holder" "$DEVAGENT_TMP/holder.before"
+    before="$(_ship_count)"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
+    [ "$(_ship_count)" -eq "$before" ]
+    [[ "$output" != *"devdoc lock"* ]]
+    cmp "$hp/holder" "$DEVAGENT_TMP/holder.before"
+}
+
+@test "ship.sh with devDoc outside git makes no commit and takes no lock (#1055)" {
+    _install_real_git_except_push_stub
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
+    hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
+    [ "$hp" = "$(cd "$DEVDOC_DIR" && pwd -P)/.devagent-wbs.lock" ]
+    cp "$hp/holder" "$DEVAGENT_TMP/holder.before"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
+    [[ "$output" != *"devdoc lock"* ]]
+    [[ "$output" != *"WARNING"* ]]
+    cmp "$hp/holder" "$DEVAGENT_TMP/holder.before"
+}
+
+@test "ship.sh with the devDoc lock held warns, exits 0 and keeps the PR (#1055)" {
+    _ship_git_devdoc
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
+    hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
+    cp "$hp/holder" "$DEVAGENT_TMP/holder.before"
+    before="$(_ship_count)"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "https://github.com/acme/testproj/pull/77" ]
+    # shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
+    [[ "$stderr" == *"WARNING: devdoc commit of $DEVDOC_DIR/Issue-1 skipped - devdoc lock timeout; commit it by hand:"* ]]
+    devagent_assert_logged "gh pr create --repo acme/testproj"
+    grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
+    [ "$(_ship_count)" -eq "$before" ]
+    cmp "$hp/holder" "$DEVAGENT_TMP/holder.before"
 }

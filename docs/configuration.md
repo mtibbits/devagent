@@ -105,6 +105,7 @@ merge_mr         = false       # true: step 20 merges the PR at the preship-veri
 merge_to_all_prs = false       # step 19 local integration branch (merge_mr no longer gates it)
 commit_devdoc    = true        # step 24 commits the devdoc and, with an origin, syncs it (fetch, merge, push)
                                # and step 21 (wbs update) fetches and merges it first, without a push (#1149)
+                               # filing and the ship step each commit their own folder (#1055)
 transition_issue = true        # every tracker transition (draft, ship, sync) writes only when true
 
 [project.myproj.issue_source]  # where tickets live

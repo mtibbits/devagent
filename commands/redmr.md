@@ -51,8 +51,8 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    force-push). ship.sh (18) refuses to push when tracked files are modified.
    Committing here also re-anchors the report to `baseline..HEAD`, so the
    report and the pushed branch cannot diverge (the #101/#102 failure). Devdoc
-   artifacts (analysis/, mr.md) are NOT committed here; they are governed by
-   `commit_devdoc` at cleanup.
+   artifacts (analysis/, mr.md) are NOT committed here; they are committed with
+   the issue folder at ship and again at cleanup, under `commit_devdoc`.
 7a. **Re-stamp the Evidence block (#894), only when this step committed** (a fix,
    a merge-forward), so mr.md's `suite:` line names HEAD again. After a
    merge-forward, run `rebaseline.sh` before the re-stamp (#885):
