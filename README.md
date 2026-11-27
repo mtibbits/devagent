@@ -62,7 +62,8 @@ namerefs), `python3` ≥ 3.11 (or 3.8–3.10 plus `tomli`), `jq`, and `git`. Whe
 `run-suite.sh` measures a tree that has an `origin`, it also needs coreutils `timeout`
 on PATH and `git` ≥ 2.29, for its bounded freshness check (#660). Cleanup's devDoc
 sync needs `timeout` too: without it every close skips the sync (`no-timeout`) and the
-devDoc is no longer pushed (#1148). A project with
+devDoc is no longer pushed (#1148); step 21's sync before the WBS reconcile skips
+the same way (#1149). A project with
 `analyze = "shellcheck"` also needs `shellcheck` on PATH (step 13 stops without it);
 devAgent is tested against `shellcheck` 0.9.0 or newer, and nothing checks the version
 at run time — `commands/analyze.md` says where it is recorded. The backend and auth
@@ -752,16 +753,27 @@ LC_ALL=C.UTF-8 bats --jobs 4 --no-parallelize-within-files tests/
 **The `gitbash` tag (#1096).** A test file that also runs under Git Bash on Windows
 carries the literal column-0 line `# bats file_tags=gitbash`, directly after its
 shebang; other tags may sit before or after `gitbash` on that line, comma-separated.
-The `Git Bash tagged files` job in `.github/workflows/gitbash.yml` runs every tagged
-file on a pinned Windows runner, one bats invocation per file. Add the tag when a test
+The `Git Bash tagged files` check in `.github/workflows/gitbash.yml` passes only when
+every tagged file passed, across the workflow's shard jobs (`Git Bash shard <i> of <K>`)
+on pinned Windows runners, one bats invocation per file; the files are split by their
+recorded times in `scripts/ci/gitbash-times.txt`. To retry a red check, re-run failed
+jobs: re-running a single shard leaves `Git Bash tagged files` at its old verdict
+(mergemr still sees the shard's own red check, but a branch-protection rule that
+requires only `Git Bash tagged files` does not), so after one, re-run the gate job too. Tagging a file that runs for minutes should add its row
+there (the recipe is in its header); a missing row only weighs the file at 60 s, so a
+well-formed refresh changes the balance, never which files run (a malformed row fails
+every shard). Add the tag when a test
 exercises behaviour that differs under Git Bash (drive-letter paths, MSYS path
 rewriting, a native Windows `python3`, CRLF), and only when the whole file passes in
-that job. A tagged file keeps skipping, each with a reason, the tests that cannot run
+that check. A tagged file keeps skipping, each with a reason, the tests that cannot run
 there: POSIX file modes (the `is_git_bash` pattern in `tests/backend-disk.bats`), real
-symlinks, or a tool the runner lacks. The job fails on a skip without a reason, on a
+symlinks, or a tool the runner lacks. The check fails on a skip without a reason, on a
 file whose every test skipped, and on any other spelling of `gitbash` on a `file_tags`
 comment line (an indented line, `#bats`, a different case, `gitbash2`), so such a
-misspelling cannot silently drop a file from the run. On Linux the line is inert: `test.yml`
+misspelling cannot silently drop a file from the run. A red check with no failing file
+has other causes: one is a shard with no files (the tagged list dropped below the shard
+count); others are a malformed `gitbash-times.txt` row, a shard that never started or
+ran past its bound, and a setup step that failed. On Linux the line is inert: `test.yml`
 passes no `--filter-tags`.
 
 ### Writing a new test file

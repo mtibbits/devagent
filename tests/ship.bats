@@ -59,6 +59,19 @@ EOF
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
 }
 
+@test "ship.sh: a divergent worktree_path warns on stderr (#879)" {
+    # Table empty beside a non-empty top-level mirror for the shared Issue-1:
+    # the read keeps the table value (#240) and the warning must reach the
+    # operator, not a 2>/dev/null. push_mr=false stops it before any push.
+    local st="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.push_mr" false
+    devagent_state_set "$st" context.Issue-1.worktree_path ""
+    devagent_state_set "$st" worktree_path "$DEVAGENT_TMP/elsewhere"
+    run bash -c "'$DEVAGENT_ROOT/scripts/ship.sh' '$TEST_PROJECT' Issue-1 </dev/null"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'[context.Issue-1].worktree_path = ""'* ]]
+}
+
 @test "ship.sh halts when push_mr=false and non-interactive (no DA_YES)" {
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.push_mr" false
     # Force closed stdin so confirm() sees non-tty regardless of how bats

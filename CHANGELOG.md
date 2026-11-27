@@ -28,6 +28,257 @@ compiles the files into its dated section.
 
 ## [Unreleased]
 
+## [3.5.0] — 2026-11-26
+
+A minor release: new commands, new config and new trust checks, with no
+change that breaks an existing project's `config.toml`, devdoc layout or
+command contract. Added: `/devagent:actuals` and `/devagent:milestones`, and
+portfolio schema 1.3 carries the actuals; required CI checks as acceptance
+evidence at mergemr (`required_checks`); a hold on an operator question
+(`scripts/hold.sh`), a no-progress watchdog for unattended sessions, and a
+devDoc sync before step 21's WBS reconcile; under a trust policy, pull stages
+the fetched ticket and quarantines it on a steering, size or
+invisible-character check; a leak gate and a gated `post-comment` verb,
+which nothing calls yet; and a `[prerequisites]` block in
+`/devagent:doctor`. Changed: Git Bash is the supported Windows platform,
+and a trust policy's
+`allowed_steering` is now a closed set, so a policy that lists a value the
+scaffold would not apply refuses until that entry is fixed. Fixed: the tree
+guard's refusal names the right state key, and a pinned read of an empty
+`worktree_path` beside a set top-level one warns.
+
+- **Added: step 21 syncs devDoc with origin before the WBS reconcile (#1149).**
+  `wbs.sh update` (step 21, and a hand-run `/devagent:wbs update`) first brings
+  devDoc's `origin/<branch>` in through cleanup's sync in a new no-push mode, so
+  the reconcile edits origin's current `WBS.md` and the close's push conflicts
+  on adjacent leaves only when origin changes again before cleanup. It fast-forwards, or makes one `devagent` merge
+  commit (`devdoc: merge origin/<branch> into <branch> (<issue> wbs update)`),
+  and never pushes; that commit shows in `/devagent:status` until the next
+  cleanup pushes it. The gate is cleanup's (`commit_devdoc = true`, the devDoc in
+  git, an `origin`), and `--offline` or `DEVAGENT_WBS_OFFLINE=1` skips it. It
+  makes one attempt at the devDoc lock, and the reconcile's write keeps its full
+  bound. A sync that refuses or skips prints one line ending "This step uses this
+  machine's copy; the next cleanup syncs again." and the update's exit is
+  unchanged. Cleanup's own reconcile does not sync.
+
+- **Added: required CI checks as acceptance evidence (#1097).** A project lists the CI checks it requires with `required_checks` (and, optionally, `required_checks_paths`) under `[project.<name>]`. With `merge_mr = true`, step 20 (mergemr) merges only when each is `success` at the verified head, turns forge auto-merge off while one is not, and stops on a self-certifying diff until the operator acknowledges it in `.devagent-selfcert-ack` (rule 21); under `merge_mr = false` its waiting line reports both. On a code backend that cannot report checks it stops `[!]` `CI NOT CHECKED` (rule 20) whatever `merge_mr` says. Preship's verifier records a criterion such a check meets as `deferred to CI at merge: <check>` after `scripts/preship-deferred.sh` checks its static half at the pinned head, and capture writes that criterion into a new issue's draft. `mr-checks` `pass` lines now end in the check's conclusion. See docs/configuration.md "Required CI checks".
+
+- **Added: doctor reports missing prerequisites (#986).** `/devagent:doctor` prints a `[prerequisites]` block with four rows: `bash` 4.4 or later, `git`, a usable `python3` (3.11 or later, or 3.8-3.10 with `tomli`, probed without `-I` from an empty temporary directory so a user-site `tomli` counts) and `jq`. `jq` is FAIL only when something configured needs it (a GitHub, GitLab or Jira issue backend, a GitHub or GitLab code backend, or `git_guard` on), SKIP otherwise, and WARN when the config cannot be read. Each FAIL carries a one-line remedy; on Git Bash it names the Windows fix (`winget`), and a failing `python3` under `WindowsApps` is named as the probable Store alias. A `bash` or `python3` FAIL stops doctor with a stop line and exit 1 — a broken `python3` no longer shows up as `config is valid TOML — tomllib failed to parse`; a `git` or `jq` FAIL counts toward exit 1 while the per-project checks still run. With a trust policy on the host the trust block stays first, and a broken `python3` there still exits 9 before the block. doctor's status-0 tests now need `jq` on the test host. The doctor no-policy golden (`tests/fixtures/trust-golden/doctor.out`) was re-captured on purpose for the new block.
+
+- **Changed: Git Bash is the supported Windows platform (#984).** README and
+  the install page now say devAgent supports Linux, or Windows with Git Bash;
+  WSL is for contributors to devAgent itself, and running Claude Code inside WSL
+  counts as Linux. Native Windows needs Git for Windows for its Git Bash (Claude
+  Code lists it as optional), and README names `CLAUDE_CODE_GIT_BASH_PATH` for a
+  Git Bash that Claude Code cannot find. A suite that references file modes,
+  devAgent's or your project's, still needs a WSL clone for suite evidence; the
+  `gitbash`-tagged files still run on Windows CI.
+
+- **Added: a leak gate and a gated comment verb for tracker posts (#966).** `scripts/issue/github.sh post-comment <repo> <num> --project <name> (--issue <issue-dir-name> | --capture <slug>) --file <post> --review <record>` posts a file as a new issue comment and prints its URL, and only after the leak gate, `scripts/lib/post-gate.sh`, passes inside the verb. The gate runs four checks in order (`permission`, `tracker`, `names`, `review`), prints one `post-gate: <check> pass` or `post-gate: <check> hold <cause>` line each on stderr, and fails closed: a hold exits the new registered code `leak-held` with nothing posted. Each check is also callable alone (`post-gate.sh check <name>`), and `post-gate.sh hash`, `record-denylist` and `denylist-status` serve the review record and the private-names list. Two new keys, read only from the top level of `config.toml`: `auto_post_owners` (trackers that pass without an owner lookup) and `[paths] denylist_path` (the private-names list, default `~/.config/denylist.txt`). `github.sh` also gains the read verb `repo-owner`. Nothing calls `post-comment` yet: `post.sh` (#927) makes the first post. A caller that reads the exit table should know the new row: `leak-held` means "held by the leak gate: read the cause token; do not retry until it is fixed". See spec §9.1, "Leak gate".
+
+- **Added: hold an issue on an operator question (#962).**
+  `scripts/hold.sh` is a step's one helper for a question the operator must
+  decide. In an interactive session it writes the open record
+  `questions/<NN>-<step>.md` and exits 3, and the session asks it with
+  AskUserQuestion; in an unattended session (`DEVAGENT_UNATTENDED`), or with
+  `--no-ask` after an ask that could not be shown or got no answer, it holds:
+  a `Kind: question` STUCK, the step `[?]`, the issue parked, and one `hold`
+  line in the notifications file. `/devagent:next` then exits
+  `operator-question` (a new row in the trust exit table, read by id with
+  `trust_exit_code`) until the answer is recorded, and prints `ASK:` for an
+  open record. The format lives in `scripts/lib/question-actions.sh`.
+  No step calls `hold.sh` yet: the holding steps (#926 to #931, #937, #938,
+  #970, #971) start calling it once #963 (the STUCK-writer guards) and #964
+  (the answer command) have landed.
+
+- **Changed: `park.sh --reason` (#962).** `/devagent:park <project> [issue]
+  --reason "<text>"` appends the reason to the park's log entry, which now
+  also records the marked row and its earlier mark; an issue held on a
+  question keeps its `[?]` row. `park.sh` now exits 2 with a usage line on a
+  third positional argument or an unknown flag, where it ignored extras.
+
+- **Added: a no-progress watchdog for unattended sessions (#932).**
+  `scripts/watchdog.sh check <project> <issue> --transcript <path> [--since
+  <ISO time>]` answers a launcher's one question about one session: `ok` (exit
+  0), or `stalled no-progress limit=…s age=…s last=<source> at=<time>` (exit
+  3) when neither the transcript, a subagent's transcript, a devagent script, a
+  dispatch, a `watchdog.sh heartbeat` nor a wrapped command moved within the
+  limit. Exit 1 means it could not tell and exit 2 a wrong call. It kills
+  nothing and writes nothing; what to do about a stall is the launcher's.
+  `DEVAGENT_WATCHDOG_TRANSCRIPT` can carry the path for a Windows launcher. In
+  an unattended session (`DEVAGENT_UNATTENDED` set, a UUID in
+  `CLAUDE_CODE_SESSION_ID`) every devagent script records its entry under
+  `$(devagent_home)/state/watchdog/<session id>/`. When the launcher also sets
+  `DEVAGENT_WATCHDOG_WRAP`, `next` prints one line after its `dispatch:` header
+  telling the session to run long commands as
+  `bash "<plugin_root>/libexec/long-run.sh" <command>`. **Launcher action:** set
+  `DEVAGENT_WATCHDOG_WRAP` only after granting
+  `Bash(bash "<plugin_root>/libexec/long-run.sh" *)`, which is the same as
+  allowing every command; without that rule the wrapped form is denied. No
+  devagent command or skill grants the wrapper, and it refuses to run when its
+  path is spelled with a `.` or `..` segment (the skills' `scripts/*` grant
+  matches `scripts/../libexec/…` as text). That wrapper passes the
+  command's output, stdin and exit code through unchanged, counts the output as
+  progress, and keeps a capped log per run under `state/watchdog/logs/`; old
+  logs and session directories are removed after 14 days. `--silent <N>`,
+  `<N>m` or `<N>s` on the wrapper or on `heartbeat` declares a silent window,
+  refused above the operator's maximum. Four optional config keys, in seconds:
+  `watchdog_no_progress_secs` (1200), `watchdog_telemetry_secs` (180),
+  `watchdog_silent_max_secs` (3600, `[defaults]` only) and
+  `analyze_silent_secs`; `/devagent:doctor` checks them and fails any
+  `watchdog_` key it does not know (a misspelling, or a key a later release
+  adds). `imPlan_template.md` gains a `## Declared silent windows`
+  section. Attended sessions get no heartbeat directory and no wrapping line,
+  but their wrapped runs still write logs (next entry). Spec
+  §7.3 has the contract and `docs/configuration.md` the keys.
+
+- **Changed: run-suite and the analyze legs run under the long-run wrapper (#932).**
+  `run-suite.sh`'s bats and pytest captures and every leg of
+  `analyze-sanitizers.sh` and `analyze-static.sh` now run through
+  `libexec/long-run.sh`, attended or not. Artifacts, exit codes and the `timed
+  out` text are unchanged; each run also leaves a log under
+  `$(devagent_home)/state/watchdog/logs/` (`no-session.<run>…` in an attended
+  session; directory `0700`, logs `0600`, since a log holds the command's whole
+  output, even output the caller discards). A leg now returns when its output
+  closes, not when its command exits: a build or test that leaves a child
+  holding stdout or stderr keeps the leg open past `analyze_timeout`. The
+  wrapper needs `python3`; without one that runs, the command
+  runs unwrapped after one warning. An `analyze_silent_secs` above
+  `watchdog_silent_max_secs` now stops step 13 before any leg runs.
+
+- **Changed: a refusal in an unattended session may leave one file (#932).**
+  A trust refusal (exit 9) or a quarantine refusal (exit 11) still writes no
+  issue state, but in an unattended session the script's entry has already
+  moved `state/watchdog/<session id>/script`. Nothing else is written, and
+  nothing at all in an attended session.
+
+- **Added: under a trust policy, pull quarantines pulled text that holds
+  invisible or unassigned characters (#923).** The floor gains a third check,
+  `chars`: a ticket whose title, body, labels, state or author holds a
+  Bidi_Control or Default_Ignorable_Code_Point character, a format (Cf),
+  unassigned (Cn) or surrogate (Cs) code point, a control character other than
+  TAB, LF and CR, or invalid UTF-8 quarantines with `chars` (exit 6). The set
+  is pinned to Unicode 16.0.0 from vendored UCD files (`scripts/lib/ucd/`),
+  never from the running Python's `unicodedata`. The marker gains an optional
+  line, `detail: <field> line <n> <U+XXXX|0xHH>[ (+N more)]`, naming the first
+  hit; `quarantine_print` shows it after `Reason:`. Characters the policy's
+  `allowed_chars` lists pass, in runs of at most two, and reach `issue.md` as
+  `<U+XXXX>`. The render also writes a mixed-script record,
+  `issue.md.mixed.json`, beside the staged file for the screen (#717); it is
+  removed with the staged file. With no policy in scope pull is unchanged. See
+  `commands/pull.md` and spec §3.3, §3.8, §9.3.
+  Operator notes: a subdivision-flag emoji always quarantines (its Tags
+  characters form a run longer than two), and so does an emoji sequence whose
+  joiners and variation selectors `allowed_chars` does not list; a `chars`
+  quarantine released without editing the text, removing the label or listing
+  the character quarantines again on every pull, #953 included. A C0 control
+  or DEL in the title or a header value stays #715's visible `<U+00HH>` and
+  does not quarantine; in the body it does. Measured on 2026-11-23 (Python
+  3.13, start-up included): rendering and scanning a 1 MB ticket takes under
+  2 s, a body of lone CRs included; a ticket made of mixed-script words
+  writes a record up to about sixteen times its size into the staging dir,
+  removed with it when `size_cap` quarantines the ticket. A character
+  assigned after Unicode 16.0 counts as unassigned and quarantines; list it in
+  `allowed_chars` to let it through.
+
+- **Fixed: tree-guard message names the right state home; divergent pinned worktree_path warns (#879).**
+  The #571 tree guard's `TREE MISMATCH` refusal no longer says "set
+  worktree_path in ~/.claude/devagent/state/<project>.toml". It names
+  `[context.<issue>].worktree_path` in the real state file, with the issue id
+  filled in. While that issue is the shared `active_issue`, it also names the
+  top-level `worktree_path`, because the two must agree and a park re-snapshots
+  the table from the top level. A pinned or arg'd `state_ctx_get … worktree_path`
+  read now warns once on stderr when the table value is empty beside a non-empty
+  top-level value for the shared issue. The returned value and exit code are
+  unchanged: the table still wins (#240). ship, commit and oneshot-zerodiff now
+  show that warning. `active_tree_resolve` callers do not: its read stays muted
+  and skips the check. The check costs at most two extra state reads, and only
+  when the pinned read comes back empty. That includes a table miss, where the
+  reads repeat what the existing fallback already did.
+
+- **Added: `/devagent:actuals` builds the per-issue actuals document, and the
+  portfolio carries it (#735).** `scripts/actuals.sh [--archive DIR]
+  [--project P] [--out PATH | --stdout] [--if-stale]` joins, per
+  `(project, issue)`, cost-report's tokens (input-token equivalents, with raw
+  per-model counts beside them), agent and operator time and sessions with
+  milestones' dated events, into `<devagent_home>/actuals.json`: versioned
+  (`actuals_version` 1.0), sorted, written owner-only, refused under a
+  project's dirs or in a git work tree. Every source consulted is a `sources`
+  row; a missing one never fails the build. The per-project milestones runs
+  overlap (up to 6), so a 14-project build took about 64 s. Portfolio schema
+  1.3 defines the per-issue `actuals` slot and adds optional project and
+  top-level `actuals`; the producer copies the file's objects (null, with one
+  `actuals_unavailable` entry per project, when the file is missing, unusable
+  or more than 7 days old) and still only reads. Cleanup, inside its
+  `[archive]` gate, rebuilds a stale file in the background without waiting.
+  Changed: cost-report `--json` and `--overhead --json` objects gain `raw`.
+  `portfolio.py build` now requires `PORTFOLIO_ACTUALS` and `build_document`
+  a third argument. `portfolio.sh --out` now refuses a path inside any git
+  work tree: the document carries session ids and working directories.
+  Cleanup's next close reports a background rebuild that failed, timed out,
+  or lost a source the old file had (`actuals.sh --if-stale` exit 4). Operator note: the new `[archive].actuals_max_age_hours`
+  (default 24, at most 168) makes a pre-#735 plugin refuse the `[archive]`
+  table, so set it only after every install reading that config is upgraded.
+
+- **Added: `/devagent:milestones` prints each issue's dated milestones (#734).**
+  `scripts/milestones.sh [project] [--issue <issue-id> | --all] [--json]`
+  prints one row per event of each issue in scope: `opened` and `closed`
+  from the tracker's `issue-list`, `mr_opened` and `mr_merged` (with the
+  MR's URL and base branch) from the code host's `issue-mrs`, and
+  `step_done`, `step_note`, `parked`, `resumed`, `revision_started` and
+  `log` from the issue's `checklist.md` log, with the log's zone assumed
+  from the checklist's `Created:` offset. Per-issue spans follow
+  (opened to merged, opened to closed, first step to closed, time parked).
+  The default scope is every checklist issue plus every open tracker
+  issue; `--all` adds closed ones. A failed source prints one WARNING and a
+  `missing:` line and never fails the run. It is read-only. Changed: the
+  `issue-mrs` `mr` line gains an optional trailing `<url>`/`<base>` pair,
+  which the GitHub and GitLab backends now print (GitHub asks for both in
+  the same GraphQL query); 6-field lines still parse. Spec §13.5 has the
+  contract.
+
+- **Added: under a trust policy, pull stages the fetched ticket and gates it
+  on a deterministic floor (#715).** In scope, pull fetches into
+  `state/staging/` under devAgent's state directory, renders the candidate
+  `issue.md` there with the comments reduced to a count
+  (`Comments not rendered under trust: N`), and runs two checks on it before
+  anything reads or prints it: `steering` (every `## Workflow flags` key line
+  and every `tier:*` label must be listed in the policy's `allowed_steering`)
+  and `size` (the candidate's bytes against `size_cap`). A failing check
+  quarantines the ticket (exit 6) and writes nothing but the marker; a re-pull
+  of an issue in work leaves its old `issue.md` untouched. On PASS the
+  candidate becomes `issue.md`. Until then pull prints no ticket text, the
+  backend's stderr included; a failed fetch, a layout defect or a missing
+  verdict exits 1 with nothing written. With no policy in scope pull is
+  unchanged. See `commands/pull.md` and spec §3.3, §9.3.
+  Operator notes: an empty `allowed_steering` quarantines every ticket that
+  carries a flags key or a `tier:*` label (22 of the 376 devagent tickets
+  measured on 2026-11-20); this queue uses six entries, `tier: standard`,
+  `research: required`, `spike: required`, `tier:check-fable`,
+  `tier:impl-fable` and `tier:impl-sonnet`. The first trusted re-pull of an
+  issue in work drops comment text from its `issue.md`, so scope amendments
+  posted as comments stop reaching draft, scope and preship until #953. A
+  released `steering` or `size` quarantine quarantines again on the next pull
+  unless the ticket or the policy changed, also until #953.
+
+- **Changed: GitHub `fetch` renders an issue title on one line (#715).**
+  `scripts/issue/github.sh` turns a CR or LF in a title into a space, with or
+  without a trust policy, so a title can no longer forge the `- Labels:`
+  header line that pull reads steering from. A title that truly holds a line
+  break now shows it as a space in `issue.md`.
+
+- **Changed: trust policy `allowed_steering` is a closed set, and `size_cap`
+  has a default (#715).** `allowed_steering` was a free-form list of strings
+  with no consumer. Each entry must now be one exact steering value the
+  scaffold would apply (`tier: <tier>`, `tier: <model>-checking`,
+  `research: required`, `spike: required`, `implementation-model: <model>`,
+  `checking-model: <model>`, or a `tier:impl-<model>`, `tier:check-<model>` or
+  `tier:<model>-checking` label; spec §3.8), so one illegal entry now refuses
+  every trust entry point (exit 9). Its default is `[]`. `size_cap` defaults to
+  65536 bytes and refuses a value over 2147483647. Every policy's digest moves
+  once, because both defaults now enter it; a policy that sets neither key
+  loads unchanged.
+
 ## [3.4.0] — 2026-11-19
 
 A minor release: a new command, new config and two fixes for unattended

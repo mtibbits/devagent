@@ -94,6 +94,14 @@ issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
 # #963: a new block (or --retier) would move the active block off the held row.
 hold_guard revise "$issue_dir"
 
+# #880: a new block over a stuck issue would leave the [!] behind in the older
+# block while its [ ] twin in the new block is what the dispatch path runs next.
+# Refuse before any write, on both the genuine and --retier paths.
+stall="$(checklist_sentinel_stall "$issue_dir")"
+if [[ -n "$stall" ]]; then
+  die "$ISSUE is stuck: $(checklist_describe_row "$issue_dir/checklist.md" "${stall%%:*}") is marked [!] and $issue_dir/STUCK is present; a new revision block would leave that row behind. Run /devagent:unstuck $PROJECT first, then re-run /devagent:revise. Nothing was changed."
+fi
+
 n_cur=$(revision_current "$PROJECT" "$ISSUE")
 n_new=$((n_cur + 1))
 

@@ -233,7 +233,9 @@ is not read). It runs whether or not this close committed, so commits from
 `statusreport.sh`, `promote-potholes.sh`, a hand commit or an earlier failed
 sync go out too. With `commit_devdoc = false` or no `origin` nothing changes
 and no network call runs. This is unrelated to `/devagent:sync`, which detects
-merged MRs.
+merged MRs. Step 21 (`wbs update`) brings origin in first, without pushing, so the
+reconcile edits origin's current `WBS.md`; cleanup's push then carries that
+step's merge commit, if any (#1149, `commands/updatewbs.md`).
 
 | Local branch compared with origin's | What the sync does |
 |---|---|
@@ -306,7 +308,8 @@ seconds, default 30). Each call is bounded by what is left of it, measured
 finer than whole seconds; lock waits do not spend it; no call starts with under
 1 s left. A call that hits its bound gets 5 s more to exit, so allow the knob
 plus 5 s (under bash older than 5 the clock is whole seconds and can overrun by
-under 1 s).
+under 1 s). The same knob bounds step 21's sync (`commands/updatewbs.md`), as a
+budget of its own.
 
 ## Transcript archive (#731)
 

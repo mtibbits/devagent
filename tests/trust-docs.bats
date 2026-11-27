@@ -93,7 +93,8 @@ _key_rows() {
   run trust_py load "$BATS_TEST_TMPDIR/a"
   [ "$status" -eq 0 ] || { echo "pull.md sample: $output" >&2; return 1; }
   # The six entries the changelog says this queue uses.
-  six="$(sed -n '/this queue uses six entries/,/tier:impl-sonnet/p' "$PLUGIN_ROOT/changelog.d/715.md" | tr '\n' ' ' \
+  local cl; cl="$(changelog_text "$PLUGIN_ROOT")"
+  six="$(sed -n '/this queue uses six entries/,/tier:impl-sonnet/p' <<<"$cl" | tr '\n' ' ' \
     | sed 's/.*this queue uses six entries,//; s/tier:impl-sonnet`.*/tier:impl-sonnet`/' | grep -oE '`[^`]+`' | tr -d '`')"
   [ "$(grep -c . <<<"$six")" -eq 6 ]
   list=""

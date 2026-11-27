@@ -61,7 +61,8 @@ holder record and the remedy are specified in spec §3.3. At the end of each
 close, cleanup syncs the repository with its `origin` (#1148): the fetch and
 push run unlocked and the merge and move take one short hold, so machines that
 share the devDoc through `origin` stay in step; a failed sync warns and shows
-in `/devagent:status`. One cleanup's waits
+in `/devagent:status`. Step 21 (`wbs update`) brings origin in first, without
+pushing, with one attempt at the lock (#1149). One cleanup's waits
 share one deadline, so they total at most the bound; still give `next.sh` a
 long Bash tool timeout (600000 ms), since a timeout that kills a close after
 its mark leaves the row `[x]` with nothing committed.

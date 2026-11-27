@@ -29,3 +29,11 @@ Breaks for a fresh session on long runs | kw:phase breaks
 Close-out without a break once the pull request is merged | #933
 devagent's own written requirements | #915
 Model-tier proposals when an issue is captured | #1101
+What each issue really cost | #735
+A dated timeline per issue | kw:`/devagent:milestones`
+Required CI checks as evidence at merge | #1097
+Pulled issues screened before devagent reads them | #715
+Windows through Git Bash | #984
+A doctor that checks the tools devagent needs | #986
+A hold when devagent needs your answer | kw:`scripts/hold.sh`
+A watchdog for stalled unattended runs | #932
