@@ -94,9 +94,11 @@
 #   their TAP afterwards in list order. Since #1197 that is per shard: two files
 #   at a time on each of the K runners.
 #
-# Last green run: https://github.com/mtibbits/devagent/actions/runs/43622037992 @ 05c93d4545ade82550b28fb3944f7106a5edd728 in 13m39s
-#   The job's time on that run, before #1197's shards. The run of this
-#   header-only commit is not counted.
+# Last green run: https://github.com/mtibbits/devagent/actions/runs/45919682588 @ af4a80db9d819449a5cf6f6791e5aa4b1ec236bc: slowest shard 10m43s, run 11m51s
+#   The slowest shard's job time (what its timeout-minutes bounds), then the run's
+#   wall time to the gate's verdict. That run's runner was 1.20x master's 4db94e5 run
+#   (45347081966); scaled to the slowest runner seen (1.64x) the slowest shard is
+#   14.7 min (#1197). The run of this header-only commit is not counted.
 #
 # For #987 (the user-path job): a sibling job copies these steps verbatim:
 # Confirm Git Bash, the workflow env (LC_ALL/LANG), Install bats 1.14.0, Ensure

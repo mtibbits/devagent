@@ -290,9 +290,10 @@ def test_checkout_depth_one(wf):
 
 
 def test_header_records_last_green_run(header):
-    # P5 (#1096 Task 8): the Time AC. The run, the head it measured, and the job time.
+    # P5 (#1096 Task 8), sharded since #1197: the run, the head it measured, the
+    # slowest shard's job time and the run's wall time.
     pat = re.compile(r"^# Last green run: https://github\.com/mtibbits/devagent/actions/runs/\d+ "
-                     r"@ [0-9a-f]{40} in \d+m\d{2}s$")
+                     r"@ [0-9a-f]{40}: slowest shard \d+m\d{2}s, run \d+m\d{2}s$")
     assert len([line for line in header if pat.match(line)]) == 1
 
 
