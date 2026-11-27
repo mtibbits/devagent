@@ -212,7 +212,7 @@ _strip() {
   [ "$output" = "" ] && [ "$stderr" = "" ]
   [ "$(sha256sum "$DA_HOME/actuals.json")" = "$sum" ]
   [ ! -s "$TMPROOT/backend.log" ]   # fresh: no milestones call
-  local backdated rebuilt
+  local backdated rebuilt ts_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
   backdated="$(python3 - "$DA_HOME/actuals.json" <<'PY'
 import json, sys
 from datetime import datetime, timedelta, timezone
@@ -222,13 +222,13 @@ open(p, "w").write(json.dumps(d))
 print(d["generated_at"])
 PY
 )"
-  [[ "$backdated" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+  [[ "$backdated" =~ $ts_re ]]
   _act --if-stale
   [ "$status" -eq 0 ]
   [ "$output" = "actuals: wrote $DA_HOME/actuals.json (2 issues, 2 projects, 3 missing sources)" ]
   # No hash against the first build: a rebuild in the same UTC second has the same bytes (#1198).
   rebuilt="$(_py 'import json,sys; print(json.load(sys.stdin)["generated_at"])' < "$DA_HOME/actuals.json")"
-  [[ "$rebuilt" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+  [[ "$rebuilt" =~ $ts_re ]]
   [ "$rebuilt" != "$backdated" ]   # restamped: any rebuild is 25 h off the backdated value
   [ -s "$TMPROOT/backend.log" ]    # milestones ran on the rebuild (the fresh leg left it empty)
 }
