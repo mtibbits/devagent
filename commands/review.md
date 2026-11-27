@@ -108,7 +108,8 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    committed as of step 12; from this step on,
    uncommitted fixes are a defect — ship.sh (18) refuses to push when
    tracked files are modified. Devdoc artifacts (analysis/, mr.md) are
-   NOT committed here; they are governed by `commit_devdoc` at cleanup.
+   NOT committed here; they are committed with the issue folder at ship and
+   again at cleanup, under `commit_devdoc`.
 6a. **Re-stamp the Evidence block (#894), only when this step committed.** Any
    commit made during this step (a fix, a merge-forward) moves HEAD past the
    suite-count artifact, so mr.md's `suite:` line names an old SHA. Re-measure,

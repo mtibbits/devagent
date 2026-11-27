@@ -29,7 +29,8 @@ tiers_read() {
   if [[ ! -f "$f" || ! -r "$f" ]]; then
     TIERS_ERR="$f: not a regular readable file"; return 1
   fi
-  # validate FIRST: list-keys / list-tables on invalid TOML raise a traceback.
+  # validate FIRST: list-keys / list-tables on invalid TOML exit 2 (#963) with
+  # a one-line error; validate's message is the one this reports.
   rc=0; out="$(_config_toml validate "$f" 2>&1)" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
     out="${out%%$'\n'*}"; out="${out//$'\r'/}"

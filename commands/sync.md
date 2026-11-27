@@ -12,6 +12,11 @@ there is no positional issue/note argument.
 
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh" $ARGUMENTS`
 
+**A held issue (#963).** When the issue's `STUCK` is a question STUCK
+(`Kind: question`, a hold), sync leaves the closeout row its `Step:` names at
+`[?]` and flips the other closeout `[?]` rows as before. A question STUCK with
+no readable `Step:` flips no closeout row.
+
 ## Closeout handoff (#363)
 
 <!-- Sync is a standalone command with no checklist step of its own, so there is

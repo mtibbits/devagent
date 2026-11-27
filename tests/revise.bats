@@ -491,13 +491,20 @@ _make_stuck() {
   grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
 }
 
-@test "#880 a question STUCK beside an orphan [!] does not block revise" {
-  # Preservation leg: green at the base by design (a question STUCK is a hold).
+@test "#880 a question STUCK beside an orphan [!] is a hold, not #880's stuck refusal" {
+  # A question STUCK is a hold, so #880's orphan-[!] refusal does not claim it.
+  # Since #963, revise refuses a held issue with operator-question instead.
   sed -i 's/^- \[x\] 15\. review/- [!] 15. review/' "$FIX_ISSUE_DIR/checklist.md"
   printf 'Kind:        question\nStep:        15 review\n\n' > "$FIX_ISSUE_DIR/STUCK"
+  local oq ck
+  oq="$(bash -c 'source "$1"; trust_exit_code operator-question' _ "$DEVAGENT_ROOT/scripts/lib/refusals.sh")"
+  ck="$(sha256sum "$FIX_ISSUE_DIR/checklist.md")"
   run_revise volk Issue-676 --no-chain
-  [ "$status" -eq 0 ]
-  grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
+  [ "$status" -eq "$oq" ]
+  [[ "$output" != *"is stuck:"* ]]
+  [[ "$output" == *"Issue-676 is held on an operator question; nothing was changed."* ]]
+  [ "$(sha256sum "$FIX_ISSUE_DIR/checklist.md")" = "$ck" ]
+  [ ! -d "$FIX_ISSUE_DIR/revisions/r2" ]
 }
 
 @test "#880 unstuck then revise succeeds and next dispatches draft" {

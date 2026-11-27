@@ -91,6 +91,8 @@ issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
 [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
+# #963: a new block (or --retier) would move the active block off the held row.
+hold_guard revise "$issue_dir"
 
 # #880: a new block over a stuck issue would leave the [!] behind in the older
 # block while its [ ] twin in the new block is what the dispatch path runs next.

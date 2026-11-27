@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0   # run --separate-stderr
 load 'lib/bats-helpers'
 
 setup() {
@@ -375,4 +376,47 @@ PY
   run python3 "$TOML" set-many-if "$F" a "1" --then str x "y" --also str z "w"
   [ "$status" -eq 2 ]
   [ "$(cat "$F")" = "$before" ]
+}
+
+@test "list-keys on an unparseable file exits 2, distinct from table-absent (#963)" {
+  local f="$DA_HOME/s.toml"
+  printf 'x = [\n' > "$f"
+  run --separate-stderr python3 "$TOML" list-keys "$f" parked
+  [ "$status" -eq 2 ]
+  # The file is named, but not as "$f": on Git Bash a native Python is handed
+  # the path in its C:/ form.
+  [[ "$stderr" == "_toml: "*"s.toml: "* ]]
+  [[ "$stderr" != *Traceback* ]]
+  printf 'active_issue = "Issue-7"\n' > "$f"
+  run --separate-stderr python3 "$TOML" list-keys "$f" parked
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  printf 'active_issue = "Issue-7"\n\n[parked]\nIssue-7 = true\n' > "$f"
+  run --separate-stderr python3 "$TOML" list-keys "$f" parked
+  [ "$status" -eq 0 ]
+  [ "$output" = Issue-7 ]
+}
+
+@test "list-keys on a missing file exits 2 (#963)" {
+  run --separate-stderr python3 "$TOML" list-keys "$DA_HOME/absent.toml" parked
+  [ "$status" -eq 2 ]
+  [[ "$stderr" != *Traceback* ]]
+}
+
+@test "list-keys on a parked that is not a table exits 3 (#963)" {
+  local f="$DA_HOME/s.toml" v
+  for v in 'true' '["Issue-7"]'; do
+    printf 'parked = %s\n' "$v" > "$f"
+    run --separate-stderr python3 "$TOML" list-keys "$f" parked
+    [ "$status" -eq 3 ] || { echo "parked = $v → $status" >&2; return 1; }
+    [ -z "$output" ]
+  done
+}
+
+@test "list-tables on an unparseable file exits 2 (#963)" {
+  local f="$DA_HOME/s.toml"
+  printf 'x = [\n' > "$f"
+  run --separate-stderr python3 "$TOML" list-tables "$f"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" != *Traceback* ]]
 }

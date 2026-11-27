@@ -2,7 +2,8 @@
 # scripts/lib/devdoc-repo.sh — the devDoc repository discipline (#749).
 # Every devagent write into the shared devDoc repository goes through here:
 # read-only git calls that never take git's optional index lock, the ONE
-# definition of the paths a cleanup owns, and the mid-merge check.
+# definition of the paths a cleanup owns, the mid-merge check, and the
+# best-effort one-folder commit of filing and ship (#1055).
 # Needs io.sh (die/warn/info). Safe to source multiple times.
 
 : "${DEVAGENT_GIT:=git}"
@@ -360,6 +361,79 @@ devdoc_mid_operation() {
         DEVDOC_MID_OP=revert; return 0
     fi
     return 1
+}
+
+# ---------------------------------------------------------------------------
+# #1055: the best-effort commit of ONE devDoc folder — filing commits
+# Captures/<slug>/, ship commits the issue folder. This is a POLICY layer over
+# cleanup's steps (in-git check, the lock, the mid-operation check, a porcelain
+# probe, a pathspec add and commit): no commit options, no retry, never a die.
+# #1056 owns the shared add/commit primitive (and its index.lock retry); when
+# it lands, the probe/add/commit lines below move onto it — this is the one
+# site to move.
+# ---------------------------------------------------------------------------
+
+# _devdoc_commit_warn <dir> <subject> <reason> <remedy kind> — the ONE warning
+# line: `devdoc commit of <dir> skipped - <reason>; <remedy>`. Kinds: hand (the
+# hand command), op:<op> (finish or abort it first), detached, repo (no git
+# command: `-C <dir>` would run in the wrong repository).
+_devdoc_commit_warn() {
+    local dir="$1" subject="$2" reason="$3" kind="$4" cmd remedy
+    cmd="git -C ${dir@Q} add -A -- . && git -C ${dir@Q} commit -m ${subject@Q} -- ."
+    case "$kind" in
+        op:*)     remedy="finish or abort the ${kind#op:}, then: $cmd" ;;
+        detached) remedy="check out a branch, then: $cmd" ;;
+        repo)     remedy="commit it from the devDoc repository by hand" ;;
+        *)        remedy="commit it by hand: $cmd" ;;
+    esac
+    warn "devdoc commit of $dir skipped - $reason; $remedy"
+}
+
+# devdoc_commit_dir <devdoc_dir> <dir> <holder issue|-> <subject> — BEST EFFORT:
+# commit <dir> alone (a `:(top,literal)` pathspec add and commit) in the
+# repository holding <devdoc_dir>, under the devDoc lock, as devagent with no
+# sign-off. rc 0: committed, nothing to commit, or devDoc outside git (silent,
+# no lock). rc 1: not committed, exactly one warning printed. Never dies,
+# never prints to stdout, never pushes, never removes a lock it did not take.
+# Callers run it as `devdoc_commit_dir … || true` (errexit is then off inside,
+# so every git status is tested explicitly).
+devdoc_commit_dir() {
+    local devdoc_dir="$1" dir="$2" holder="${3:--}" subject="$4" rc=0 top="" rel=""
+    devdoc_in_git "$devdoc_dir" >/dev/null || rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) _devdoc_commit_warn "$dir" "$subject" \
+               "cannot determine the devdoc repository: a .git entry exists but git rev-parse failed" repo
+           return 1 ;;
+    esac
+    if ! top="$(devdoc_repo_top "$devdoc_dir")" || ! rel="$(_devdoc_rel "$top" "$dir")" || [ "$rel" = . ]; then
+        _devdoc_commit_warn "$dir" "$subject" "not inside the git repository holding $devdoc_dir" repo
+        return 1
+    fi
+    (
+        spec=":(top,literal)$rel"
+        trap devdoc_lock_release EXIT
+        _skip() { _devdoc_commit_warn "$dir" "$subject" "$1" "$2"; exit 1; }
+        # A step's best-effort tail waits briefly (an explicit env value wins;
+        # a run's shared deadline still caps it inside devdoc_lock_acquire).
+        lrc=0
+        DEVAGENT_DEVDOC_LOCK_TIMEOUT="${DEVAGENT_DEVDOC_LOCK_TIMEOUT:-10}" \
+            devdoc_lock_acquire "$devdoc_dir" "$holder" "the commit command in the warning below" || lrc=$?
+        case "$lrc" in
+            0) ;;
+            1) _skip "devdoc lock timeout" hand ;;
+            *) _skip "devdoc lock location cannot be determined" hand ;;
+        esac
+        ! devdoc_mid_operation "$top" || _skip "devdoc repository mid-$DEVDOC_MID_OP" "op:$DEVDOC_MID_OP"
+        devdoc_git_ro -C "$top" symbolic-ref -q HEAD >/dev/null 2>&1 || _skip "devdoc repository HEAD is detached" detached
+        st="$(devdoc_git_ro -C "$top" status --porcelain -- "$spec")" || _skip "git status failed" hand
+        [ -n "$st" ] || exit 0
+        "$DEVAGENT_GIT" -C "$top" add -A -- "$spec" >&2 || _skip "git add failed" hand
+        "$DEVAGENT_GIT" -C "$top" -c user.email=devagent@local -c user.name=devagent \
+            commit -q -m "$subject" -- "$spec" >&2 || _skip "git commit failed" hand
+        exit 0
+    )
 }
 
 # ---------------------------------------------------------------------------

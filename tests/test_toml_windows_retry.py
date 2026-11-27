@@ -149,6 +149,8 @@ def test_load_retry_wiring():
                 f.write_text('k = "v"\n')
                 seen.clear(); toml.main(["get", str(f), "k"])
                 assert seen == [True], f"get must _load(retry=True); saw {seen}"
+                seen.clear(); toml.main(["list-keys", str(f)])
+                assert seen == [True], f"list-keys must _load(retry=True); saw {seen}"
                 seen.clear(); toml.main(["set", str(f), "k2", '"w"'])
                 assert seen == [False], f"locked mutation must _load(retry=False); saw {seen}"
         finally:

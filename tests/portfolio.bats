@@ -101,6 +101,8 @@ EOF
 }
 
 teardown() {
+  # The untraversable-state-dir test chmods state/ to 000; give it back first.
+  [ -d "${DA_HOME:-}/state" ] && chmod 700 "$DA_HOME/state" 2>/dev/null
   teardown_tmp_devagent_home
 }
 
@@ -361,7 +363,7 @@ EOF
   echo "$output"
   echo "stderr: $stderr"
   [ "$status" -eq 0 ]
-  [ "$(printf '%s\n' "$output" | wc -l)" -eq 14 ]
+  [ "$(printf '%s\n' "$output" | wc -l)" -eq 13 ]   # #963: plant-issue5 (unreadable STUCK) is not ready
   [[ "$output" == *$'\n'"beta"$'\t'"Issue-1"$'\t'"3h"$'\t'"Adopt the schema plant-beta-issue1"* ]]
   [[ "$output" != *"rdy-"* ]]
   for p in gamma delta epsilon zeta eta iota; do
@@ -536,4 +538,168 @@ PY
   [[ "$slot" == *'"total": 12.0'* ]]
   [ "$(_q "$T/p.json" 'sum(1 for r in d["parse_report"] if r["kind"] == "actuals_unavailable")')" -eq 0 ]
   [ "$(_q "$T/p.json" 'd["actuals"]["actuals_version"]')" = "1.0" ]
+}
+
+# --- #963: devagent state, parked and stuck.kind ---------------------------------
+
+# _state_config: one project `p` whose WBS has Held (Issue-1, a question
+# STUCK), Parked (Issue-2), Plain (Issue-3, a STUCK with no Kind:), Free
+# (Issue-4), Also (Issue-5) and Loose (no issue). Sets P and SF (its state).
+_state_config() {
+  P="$T/st/p"
+  mkdir -p "$P"/Issue-{1,2,3,4,5}
+  printf '%s\n' '# p' '' '- [ ] Held {issue: Issue-1}' '- [ ] Parked {issue: Issue-2}' \
+    '- [ ] Plain {issue: Issue-3}' '- [ ] Free {issue: Issue-4}' '- [ ] Also {issue: Issue-5}' \
+    '- [ ] Loose' > "$P/WBS.md"
+  printf '%s\n' 'Kind:        question' 'Step:        5 improve' '' '## Question' '' 'q?' > "$P/Issue-1/STUCK"
+  printf '%s\n' 'Step:        5 improve' 'Reason:      r' > "$P/Issue-3/STUCK"
+  printf '[project.p]\ndevdoc_dir = "%s"\n' "$P" > "$DA_HOME/config.toml"
+  SF="$DA_HOME/state/p.toml"
+  mkdir -p "$DA_HOME/state"
+}
+
+# _entries <doc>: `issue parked kind` per IssueEntry.
+_entries() {
+  python3 -c 'import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+for e in d["projects"][0]["issues"]:
+    k = None if e["stuck"] is None else e["stuck"]["kind"]
+    # Bytes: Windows text-mode print() ends lines CRLF, and Git Bash $(...)
+    # strips only the last CR, so a multi-line compare would see the rest.
+    line = " ".join([e["issue"], json.dumps(e["parked"]), json.dumps(k)])
+    sys.stdout.buffer.write((line + "\n").encode("utf-8"))' "$1"
+}
+
+# _lines_of <issue> <text> ...: the --ready lines of project p.
+_lines_of() { printf 'p\t%s\t\t%s\n' "$@"; }
+
+@test "portfolio: --ready leaves out a held, a parked and a stuck issue and still lists the free one" {
+  _state_config
+  printf '%s\n' 'active_issue = "Issue-9"' '' '[parked]' 'Issue-2 = "operator"' 'Issue-5 = "waiting on #1"' > "$SF"
+  run --separate-stderr bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$output" = "$(_lines_of Issue-4 Free '' Loose)" ]
+  [ -z "$stderr" ]
+  run bash "$PORTFOLIO" --out "$T/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$(_entries "$T/doc.json")" = "$(printf '%s\n' 'Issue-1 false "question"' 'Issue-2 true null' \
+      'Issue-3 false "stuck"' 'Issue-4 false null' 'Issue-5 true null')" ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/portfolio-check.py" "$T/doc.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "portfolio: a state file with no [parked] table offers its ready leaves with parked false" {
+  _state_config
+  rm "$P/Issue-1/STUCK" "$P/Issue-3/STUCK"
+  printf '%s\n' 'active_issue = "Issue-9"' > "$SF"
+  run --separate-stderr bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(_lines_of Issue-1 Held Issue-2 Parked Issue-3 Plain Issue-4 Free Issue-5 Also '' Loose)" ]
+  run bash "$PORTFOLIO" --out "$T/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$(_entries "$T/doc.json" | awk '{print $2}' | sort -u)" = false ]
+}
+
+@test "portfolio: a project with no state file behaves like one with no parked issues" {
+  _state_config
+  rm "$P/Issue-1/STUCK" "$P/Issue-3/STUCK"
+  [ ! -e "$SF" ]
+  run --separate-stderr bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(_lines_of Issue-1 Held Issue-2 Parked Issue-3 Plain Issue-4 Free Issue-5 Also '' Loose)" ]
+  [ -z "$stderr" ]
+  run bash "$PORTFOLIO" --out "$T/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$(_entries "$T/doc.json" | awk '{print $2}' | sort -u)" = false ]
+  [ "$(_q "$T/doc.json" 'len([r for r in d["parse_report"] if r["kind"] == "state_unreadable"])')" = 0 ]
+}
+
+# _fails_closed: the unreadable-state verdict on _state_config's project.
+_fails_closed() {
+  run --separate-stderr bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$output" = "$(_lines_of '' Loose)" ]
+  [ "$stderr" = "portfolio: p: devagent state could not be read; leaves with an issue are not listed" ]
+  run bash "$PORTFOLIO" --out "$T/doc.json"
+  [ "$status" -eq 0 ]
+  [ "$(_entries "$T/doc.json" | awk '{print $2}' | sort -u)" = null ]
+  [ "$(_q "$T/doc.json" '[(r["source_line"], r["message"]) for r in d["parse_report"] if r["kind"] == "state_unreadable"]')" \
+    = "[(None, 'devagent state could not be read; its issues have parked: null and its leaves with an issue are not ready')]" ]
+  ! grep -qF "$SF" "$T/doc.json" || false
+  ! grep -qF '.toml' "$T/doc.json"
+}
+
+@test "portfolio: an unparseable state file fails closed" {
+  _state_config
+  printf 'x = [\n' > "$SF"
+  _fails_closed
+}
+
+@test "portfolio: a parked that is not a table fails closed" {
+  _state_config
+  printf 'parked = true\n' > "$SF"
+  _fails_closed
+}
+
+@test "portfolio: a state directory that cannot be searched fails closed" {
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) skip "Git Bash: no POSIX folder modes" ;; esac
+  [ "$(id -u)" -ne 0 ] || skip "root searches any folder"
+  _state_config
+  printf '[parked]\nIssue-2 = "operator"\n' > "$SF"
+  chmod 000 "$DA_HOME/state"
+  _fails_closed
+}
+
+# The Python kind, through the document's own reader (read_stuck); null when
+# the STUCK could not be read, as the document records it.
+PY_KIND='
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("portfolio", sys.argv[1])
+pf = importlib.util.module_from_spec(spec); sys.modules["portfolio"] = pf
+spec.loader.exec_module(pf)
+try:
+    print(pf.read_stuck(sys.argv[2])["kind"])
+except pf.StuckError:
+    print("null")
+'
+
+@test "portfolio: stuck kind agrees with stuck_kind on the shared fixtures" {
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"
+  source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
+  local w="$BATS_TEST_TMPDIR/kinds" bad="$BATS_TEST_TMPDIR/bad" d b p count=0
+  mkdir -p "$w"/{none,body,crlf,lf,unknown,empty,h2,held} "$bad"
+  printf 'Step: 5 improve\nReason: r\n' > "$w/none/STUCK"
+  printf 'Step: 5 improve\n\n## Note\n\nKind: question\n' > "$w/body/STUCK"
+  printf 'Kind: question\r\nStep: 5 improve\r\n\r\nKind: x\r\n' > "$w/crlf/STUCK"
+  printf 'Kind: question\nStep: 5 improve\n\nKind: x\n' > "$w/lf/STUCK"
+  printf 'Kind: brand-new\nStep: 5 improve\n' > "$w/unknown/STUCK"
+  printf 'Kind:\nStep: 5 improve\n' > "$w/empty/STUCK"
+  printf 'Step: 5 improve\n## Question\nKind: question\n' > "$w/h2/STUCK"
+  [[ "$(od -c "$w/crlf/STUCK" | tr -s ' ')" == *'\r \n'* ]]
+  # The eighth: a STUCK written by a real hold (#962).
+  ( source "$BATS_TEST_DIRNAME/lib/hold-fixture.bash"
+    _toy
+    _q "$BATS_TEST_TMPDIR/q.md"
+    DEVAGENT_UNATTENDED=1 "$PLUGIN_ROOT/scripts/hold.sh" toy Issue-7 --step improve --reason r \
+      --question-file "$BATS_TEST_TMPDIR/q.md" >/dev/null 2>&1
+    cp "$D/STUCK" "$w/held/STUCK" )
+  [ "$(head -1 "$w/held/STUCK")" = "Kind:        question" ]
+  for d in "$w"/*/; do
+    d="${d%/}"
+    b="$(stuck_kind "$d")"
+    p="$(python3 -c "$PY_KIND" "$PLUGIN_ROOT/scripts/lib/portfolio.py" "$d/STUCK" | tr -d '\r')"
+    echo "${d##*/}: bash=[$b] python=[$p]"
+    [[ "$b" == "$p" ]]
+    count=$((count + 1))
+  done
+  [ "$count" -eq 8 ]
+  [ "$(stuck_kind "$w/crlf")" = "$(stuck_kind "$w/lf")" ]
+  [ "$(stuck_kind "$w/crlf")" = question ]
+  [ "$(stuck_kind "$w/body")" = stuck ]
+  # Stated difference: a STUCK that is not valid UTF-8 reads a kind in bash and
+  # `kind: null` in the document ("could not be read").
+  printf 'Kind: question\n\xff\n' > "$bad/STUCK"
+  [ "$(stuck_kind "$bad")" = question ]
+  [ "$(python3 -c "$PY_KIND" "$PLUGIN_ROOT/scripts/lib/portfolio.py" "$bad/STUCK")" = null ]
 }

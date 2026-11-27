@@ -60,6 +60,13 @@ refuses; ship from a new branch: create it, set `branch` to it by hand in
 the state file's `[context.<issue>]` table and top-level mirror, and run
 ship again.
 
+## devDoc commit (#1055)
+
+With `commit_devdoc = true` and the devDoc in git, ship's last action
+commits the issue folder alone (zero-diff skip too). Best effort: a failure
+prints one `devdoc commit … skipped` warning; the exit is unchanged. Cleanup
+commits later changes. Spec §3.3.
+
 ## Run the script
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh" <argument tail>

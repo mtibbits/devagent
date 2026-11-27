@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.3,
+# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.4,
 # docs/portfolio-schema.md) over every configured project's WBS.md.
 # Usage: portfolio.sh [--out PATH | --ready]
 #
@@ -23,8 +23,12 @@
 # PORTFOLIO_MODEL_CHECKING_<i> and PORTFOLIO_MODEL_DEFAULT_<i>, the project's
 # raw step_models.thinking/.checking/.default (set when the key exists, even
 # empty; a key whose value is not a string, e.g. a table, is exported as
-# <unreadable>), which the per-leaf `models` field falls back to. Each
-# project's own devdoc_dir is read: never the test-only override that maps
+# <unreadable>), which the per-leaf `models` field falls back to. #963 adds
+# PORTFOLIO_STATE_STATUS_<i> (absent: no file at <devagent_home>/state/<p>.toml;
+# read; unreadable: `_toml.py list-keys` exit 2, a load failure, or 3, a
+# `parked` that is not a table) and, under read, PORTFOLIO_PARKED_<i>: the
+# file's `[parked]` keys, one per line. The state file is read, never written.
+# Each project's own devdoc_dir is read: never the test-only override that maps
 # every project to one devdoc.
 #
 # Exit: 0 written (or printed, under --ready); 1 config missing or invalid;
@@ -154,6 +158,24 @@ while IFS= read -r p; do
         export "$var=<unreadable>"
       fi
     done
+  fi
+  # #963: the project's devagent state, for issues[].parked and rule 1. Only
+  # existence is pre-gated, so a dangling link or a directory reaches the
+  # parser and reads unreadable (fail closed). A state directory that exists
+  # but cannot be searched hides the file from -e, so it is not "absent"
+  # either. state_list_parked is not reused: it returns nothing on an
+  # unreadable file, which would fail open.
+  sf="$(state_path "$p")"
+  sd="${sf%/*}"
+  if [[ ! -e "$sf" && ! -L "$sf" ]] && { [[ ! -e "$sd" ]] || [[ -d "$sd" && -x "$sd" ]]; }; then
+    export "PORTFOLIO_STATE_STATUS_$i=absent"
+  else
+    rc=0; keys="$(_config_toml list-keys "$sf" parked 2>/dev/null)" || rc=$?
+    case "$rc" in
+      0) export "PORTFOLIO_STATE_STATUS_$i=read" "PORTFOLIO_PARKED_$i=$keys" ;;
+      1) export "PORTFOLIO_STATE_STATUS_$i=read" ;;   # no [parked] table: none parked
+      *) export "PORTFOLIO_STATE_STATUS_$i=unreadable" ;;   # 2 load failure, 3 not a table
+    esac
   fi
   i=$((i + 1))
 done <<< "$list"

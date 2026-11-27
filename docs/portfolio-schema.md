@@ -1,4 +1,4 @@
-# Portfolio document schema (v1.3)
+# Portfolio document schema (v1.4)
 
 The portfolio document is one generated JSON file that describes every
 configured project: its WBS nodes, the issues those nodes name, and a
@@ -61,11 +61,12 @@ Two constraints are outside what the schema can say:
      character. Edit both together. -->
 
 1. schema_version is MAJOR.MINOR: two non-negative integers, no leading zeros.
-2. A MINOR bump adds optional fields, or defines the contents of a reserved slot. Nothing else.
-3. A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change.
+2. A MINOR bump adds optional fields, defines the contents of a reserved slot, or adds a condition to the ready rule under rule 7. Nothing else.
+3. A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning, except as rule 7 allows. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change.
 4. A reader refuses a document whose MAJOR differs from its own, with a message naming both versions.
 5. A reader that meets its own MAJOR with a newer MINOR reads the document and ignores fields it does not know. At its own or an older MINOR, an unknown field is an error.
 6. The document is regenerated on every run. A slot is filled at generation time from a source its owning epic defines, never by editing the output. A defined slot stays optional and object-or-null; making a slot required or non-nullable is a MAJOR bump.
+7. `ready` is the producer's verdict. A MINOR bump may add a condition to the ready rule only when every field the condition reads is in the document. A reader at a MINOR other than the document's takes `ready` as written and does not recompute it.
 
 A **reserved slot** is optional, typed object-or-null, accepts any contents,
 and carries `x-reserved: "<owner>"`. It is null in every document whose minor
@@ -107,6 +108,7 @@ declaring its properties.
 - `1.2` (#890): adds optional `projects[].nodes[].models`.
 - `1.3` (#735): defines the `projects[].issues[].actuals` slot and adds the
   optional `projects[].actuals` and top-level `actuals` objects.
+- `1.4` (#963): adds optional `projects[].issues[].parked` and `projects[].issues[].stuck.kind`, and version rule 7.
 
 ## Field reference
 
@@ -223,16 +225,19 @@ carried as written and never summed.
 | `projects[].issues[].checklist` | `absent` \| `open` \| `complete` | req | `absent`: no issue dir, no `checklist.md`, the issue dir is not read (`issue_not_id`), or `checklist.md` cannot be read (`checklist_unreadable`). `open`: a step is still to do. `complete`: every step is done or skipped. |
 | `projects[].issues[].next_step` | string\|null | req | The name of the first step not `[x]`/`[-]` in the **active revision block** (the rule `next.sh` uses, `checklist_current_step` in `scripts/lib/checklist.sh`). Null unless `open`. |
 | `projects[].issues[].next_step_number` | integer\|null | req | That step's number. Null unless `open`. |
+| `projects[].issues[].parked` | boolean\|null | opt | True when the issue is a key of `[parked]` in devagent's state (`<devagent_home>/state/<project>.toml`) with a non-table value, whatever that value says: an operator park, a hold, a dependency wait or a displacement. devagent writes string values only; a sub-table (`[parked.Issue-2]`) is not read as a park. False when it is not, or when the project has no state file. Null when the state file could not be read, or the state directory cannot be searched (`state_unreadable`). Absent (before 1.4) reads as false. Added in 1.4 (#963). |
 | `projects[].issues[].actuals` | object\|null | opt | The issue's actuals (see "Actuals" below). A slot reserved for #729, defined in 1.3 (#735). |
 | `projects[].issues[].estimates` | slot (#736) | opt | Reserved: derived estimates. |
 
 ### Stuck — `projects[].issues[].stuck`
 
-All three are copied **verbatim** from the `STUCK` file, and each is null when
-its line is missing. No format is promised. Since #909 every writer emits
-`Created:` with `date -Iseconds`, but a STUCK written before #909 keeps its
-writer's form and is not rewritten: `stuck.sh` wrote a zoneless
-`%Y-%m-%d %H:%M`, `checklist-stuck.sh` wrote `date -Iseconds`. Tightening the
+`step`, `reason` and `since` are copied **verbatim** from the `STUCK` file, and
+each is null when its line is missing. The fourth, `kind` (1.4, #963), is
+derived: the header's `Kind:` value by the rule `stuck_kind` uses, or `stuck`.
+No format is promised for `since`. Since #909 every writer (`checklist-stuck.sh`,
+`stuck.sh`, and `hold.sh` for a question, #962) emits `Created:` with
+`date -Iseconds`, but a STUCK written before #909 keeps its writer's form and is
+not rewritten: `stuck.sh` wrote a zoneless `%Y-%m-%d %H:%M`. Tightening the
 promise for new files is a #725 follow-up. `Last good:` is not carried.
 
 | Path | Type | Req | Meaning |
@@ -240,6 +245,7 @@ promise for new files is a #725 follow-up. `Last good:` is not carried.
 | `projects[].issues[].stuck.step` | string\|null | req | The `Step:` value. |
 | `projects[].issues[].stuck.reason` | string\|null | req | The `Reason:` value. |
 | `projects[].issues[].stuck.since` | string\|null | req | The `Created:` value. |
+| `projects[].issues[].stuck.kind` | string\|null | opt | The `Kind:` value of the header (the lines before the first blank line or `## ` heading, one trailing CR stripped from each; a `Kind:` line must start at column 0; the first non-empty value, trimmed), or `stuck` when the header has none (every `STUCK` written before #962). Null when the `STUCK` file or the issue dir could not be read. A string, not an enum: `question` (a hold, #962), `stuck` and `watchdog` (#972) are in use, and a new kind needs no bump. Added in 1.4 (#963). |
 
 ### Rollup — `projects[].rollup`
 
@@ -439,7 +445,8 @@ dispatch is read.
 | `models` | #890, from the leaf's `thinking`/`checking` keys, else the project's `step_models` class then `default`, read by `portfolio.sh` through `config_get_project_field` |
 | `depends_on[].scope`, `.project`, `.issue` | #726, by the split rule above (#887) |
 | `ready`, `ready_via_parent_row`, `depends_on[].resolved` | #727, by the readiness rule in `commands/portfolio.md` |
-| `stuck` | #726, from the issue dir's `STUCK` file |
+| `stuck` | #726, from the issue dir's `STUCK` file; `stuck.kind` #963, by `stuck_kind`'s header rule |
+| `parked` | #963, from the `[parked]` keys of `<devagent_home>/state/<project>.toml`, read by `portfolio.sh` through `_toml.py list-keys` (never written) |
 | `checklist`, `next_step`, `next_step_number` | #726, from the issue dir's `checklist.md` |
 | `parse_report[].kind` | #726 (open vocabulary) |
 | `projects[].issues[].actuals`, `projects[].actuals`, top-level `actuals` | #735, copied from `<devagent_home>/actuals.json` (`scripts/actuals.sh`) |
@@ -463,7 +470,7 @@ one per line, prefixed `portfolio-check: `. stdout stays silent.
 | `0` | Valid. At a newer minor, also prints "document is schema X, newer than this reader's Y; fields this reader does not know are ignored". |
 | `1` | Invalid: not a JSON object, not a portfolio document, a malformed `schema_version`, or structural errors. |
 | `2` | Could not run: a usage error, an unreadable file, input that is not strict JSON, or a schema load error. |
-| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.3)`. |
+| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.4)`. |
 
 Structural errors name a JSONPath-like location, such as
 `$.projects[0].nodes[2].est.class: 'quantity' is not one of ...`,
@@ -496,7 +503,9 @@ The checker does not verify that:
 - `checklist` is `open` exactly when the next-step fields are set;
 - a report entry names a project in the document;
 - `ready`, `ready_via_parent_row` and `depends_on[].resolved` are either all
-  null or all equal to a recomputation by the readiness rule (I16);
+  null or all equal to a recomputation by the readiness rule (I16). `ready` is
+  recomputed only in a document at the producer's own minor (version rule 7,
+  #963); at another minor it is taken as written;
 - `models` sits on leaves only (on every leaf from minor 2) and agrees with
   the leaf's `thinking`/`checking` keys (I17). The project rung is not
   re-derivable from the document, since `step_models` is not in it.
@@ -536,6 +545,7 @@ they do not know. A project's status is not repeated in the report.
 | `checklist_unreadable` | null | An issue dir or its `checklist.md` cannot be read, `checklist.md` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), it holds a step number beyond the interpreter's integer-string limit, it has no step rows in its active revision block, or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`checklist` reads `absent`). |
 | `stuck_unreadable` | null | An issue dir or its `STUCK` cannot be read, `STUCK` is not a regular file (a FIFO, a directory, a dangling symlink; it is never opened), or the issue dir is present but its spelling cannot be verified because the devdoc listing failed (`stuck` has all-null fields). |
 | `actuals_unavailable` | null | One per project when `<devagent_home>/actuals.json` (#735) does not exist, cannot be read, is not a usable actuals document (the first reason), or was generated more than 7 days before the document; every `actuals` slot, project field and the top-level `actuals` are then null. |
+| `state_unreadable` | null | One per project whose devagent state file exists but cannot be loaded or whose `[parked]` is not a table (`_toml.py list-keys` exit 2 or 3); its issues carry `parked: null` and its leaves with an issue are not ready. The message does not name the state path. |
 <!-- report-kinds:end -->
 
 ## Deferred
