@@ -170,7 +170,9 @@ an issue dir with a `[context]` table, a parked entry, or the shared
 `active_issue`). Then it is a warning that names the stale units — commit or
 remove them by hand. Cleanup never commits a capture: filing commits a filed
 capture's folder and ship commits the issue folder first (#1055), so a stale
-filed capture was edited after filing or filed with `commit_devdoc` off.
+filed capture was edited after filing, filed with `commit_devdoc` off or with
+no single owning project, filed before #1055, or its filing commit was skipped
+(the filing printed a `devdoc commit … skipped` warning).
 
 ## Order, the repository lock, and a failed close (#749)
 

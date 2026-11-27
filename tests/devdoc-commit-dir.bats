@@ -120,7 +120,7 @@ _mid_merge() {
     [[ "$stderr" == *"devdoc commit of $F skipped - not inside the git repository holding $DEVDOC_DIR; commit it from the devDoc repository by hand"* ]]
     [[ "$stderr" != *"git -C"* ]]
     [ "$(_count "$DEVDOC_REPO")" -eq "$before" ]
-    ! git -C "$F" rev-parse -q --verify HEAD >/dev/null
+    run ! git -C "$F" rev-parse -q --verify HEAD
 }
 
 @test "devdoc_commit_dir: a mid-merge devDoc warns, keeps MERGE_HEAD and releases the lock" {
