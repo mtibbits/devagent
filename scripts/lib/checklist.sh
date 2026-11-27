@@ -730,3 +730,47 @@ stuck_header_value() {
       if (v != "") { print v; exit }
     }' "$1" 2>/dev/null
 }
+
+# ---- the STUCK writer (#909) -------------------------------------------------
+# One header for every STUCK writer: checklist-stuck.sh and stuck.sh write it
+# through stuck_write, and hold.sh's question STUCK takes its `Last good:` from
+# stuck_last_good (question_render keeps its own printf until #972, and
+# tests/stuck-format.bats holds its header lines to stuck_render's). The four
+# lines carry no blank and no `## ` line for a one-line reason, so
+# stuck_header_value and stuck_kind above read the whole header; status.sh,
+# preship-verified-head.sh, reap.sh and portfolio.py read Step:/Reason:/Created:
+# by hand, and Gantry's read_stuck takes `Created:` from the header's last line.
+# Seam for #972: kind and body arrive after these five arguments; a `Kind:` line
+# goes before stuck_render's lines, the body after a blank line, so `Created:`
+# stays the header's last line.
+
+# stuck_last_good <checklist> <N>: the nearest earlier [x] row as `<M> <name>`,
+# or `(none)`; per number, active block first, else the first row in the whole
+# file (checklist_step_state). 0, or 1 when a row's name cannot be read.
+stuck_last_good() {
+  local file="$1" cur="$2" i st name
+  for ((i = cur - 1; i >= 0; i--)); do
+    st="$(checklist_step_state "$file" "$i" 2>/dev/null)" || continue
+    if [[ "$st" == "x" ]]; then
+      name="$(checklist_step_name "$file" "$i")" || return 1
+      printf '%s %s\n' "$i" "$name"
+      return 0
+    fi
+  done
+  printf '(none)\n'
+}
+
+# stuck_render <N> <name> <reason> <last-good> <created>: the four header lines.
+stuck_render() {
+  printf 'Step:        %s %s\nReason:      %s\nLast good:   %s\nCreated:     %s\n' \
+    "$1" "$2" "$3" "$4" "$5"
+}
+
+# stuck_write <issue-dir> <N> <name> <reason> <last-good>: <issue-dir>/STUCK =
+# stuck_render … "$(date -Iseconds)", by a plain `>` redirect (no temp file and
+# rename: #972 owns the atomic replace, and must keep the umask mode). 0, or 1.
+stuck_write() {
+  local dir="$1" created
+  created="$(date -Iseconds)" || return 1
+  stuck_render "$2" "$3" "$4" "$5" "$created" > "$dir/STUCK" || return 1
+}
