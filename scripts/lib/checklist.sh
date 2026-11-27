@@ -474,7 +474,8 @@ checklist_describe_row() {
 # checklist_find_glyph_line's `<line>:<step>` answer for `[!]` when ALL hold:
 #   - <issue-dir>/STUCK is a regular file (`-f`, the same test as unstuck.sh),
 #   - its kind is not `question` (a #962 question STUCK is a hold: routing it
-#     to /devagent:unstuck would delete the held question; every other kind,
+#     to /devagent:unstuck is wrong, since unstuck refuses a held issue (#963)
+#     and must never delete the held question; every other kind,
 #     spec §5.3's `stuck`, `watchdog`, ..., is one unstuck.sh clears),
 #   - <issue-dir>/checklist.md exists and a row in ANY revision block is `[!]`.
 # Otherwise prints nothing. Always returns 0, so it is safe in `$( ... )` under
@@ -729,4 +730,40 @@ stuck_header_value() {
       v = substr($0, length(key) + 1); gsub(/^[ \t]+|[ \t]+$/, "", v)
       if (v != "") { print v; exit }
     }' "$1" 2>/dev/null
+}
+
+# hold_guard <caller> <issue-dir> — #963: returns 0 unless the issue is held on
+# an operator question (a question-kind STUCK), in which case hold_refuse.
+hold_guard() {
+  [[ "$(stuck_kind "$2")" != question ]] || hold_refuse "$1" "$2"
+}
+
+# hold_refuse <caller> <issue-dir> — #963: the one refusal for a command that
+# would undo an operator-question hold; hold_guard is the usual entry point.
+# Prints three lines on stderr (nothing on stdout) — the STUCK path and the
+# answer line: for an unfinished answer (a `## Answer` line) the answer line
+# with its last field replaced by `--finish`, else STUCK's own `## How to
+# answer` line, else a pointer to that section — and exits `operator-question`.
+# Never returns. Sources refusals.sh and question-actions.sh on demand, so
+# checklist.sh's own contract (paths.sh + io.sh) stands.
+hold_refuse() {
+  local caller="$1" d="${2%"${2##*[!/]}"}" lib="${BASH_SOURCE[0]%/*}" line code stuck
+  stuck="$d/STUCK"
+  # shellcheck source=/dev/null
+  declare -F trust_exit_code >/dev/null || source "$lib/refusals.sh"
+  # shellcheck source=/dev/null
+  declare -F question_answer_line >/dev/null || source "$lib/question-actions.sh"
+  if line="$(question_answer_line "$stuck")"; then
+    question_answered "$stuck" && line="${line% *} --finish"
+  else
+    line="(no answer line; read the STUCK's ## How to answer section)"
+  fi
+  {
+    printf '%s: %s is held on an operator question; nothing was changed.\n' "$caller" "${d##*/}"
+    printf '  Question: %s\n' "$stuck"
+    printf '  Answer:   %s\n' "$line"
+  } >&2
+  code="$(trust_exit_code operator-question || true)"
+  [[ "$code" =~ ^[0-9]+$ ]] || die "the exit table has no numeric operator-question code"
+  exit "$code"
 }

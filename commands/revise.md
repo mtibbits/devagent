@@ -16,6 +16,15 @@ Then:
 - If the script exited non-zero naming `/devagent:unstuck`, the issue is stuck (a `STUCK` file plus a `[!]` row in any revision block) and nothing was written (#880). The routine case is a mergemr stop (CI red, a forge block or requested changes) that was marked stuck. Tell the operator to run `/devagent:unstuck <project>` and then re-run `/devagent:revise`; do not follow any `CHAIN:`.
 - The next step on the new revision is `draft` (step 2). The `draft` skill reads `pending_comments_file` from per-project state and includes those comments as user-intent context in the new plan.
 
+## A held issue (#963)
+
+While the issue's `STUCK` is an operator question (`Kind: question`, written
+by a hold, #962), revise refuses, with or without `--retier`: a new revision block would move
+the active block off the held row. It changes nothing, prints the `STUCK` path and its
+answer line on stderr, and exits `operator-question` (the code is in
+`scripts/lib/refusals.sh`).
+On that exit, stop: the issue is held. Report the `STUCK` path and the answer line to the operator; do not retry, unstick, resume or re-pull the issue. Any other `STUCK` is handled as before.
+
 ## `--retier <tier>` — tier escalation valve (#537)
 
 `revise.sh --retier <tier> [project] [issue]` promotes a misclassified

@@ -126,7 +126,9 @@ verbatim, substituting this step's per-step deltas:
   CURRENT step, which is preship when steps 0-16 are terminal (guaranteed under
   next.sh dispatch; on manual out-of-order invocation, verify the checklist's
   current step is 17 first; a post-ship re-run is the exception, see
-  "Re-verifying after ship"). The `[!]` plus STUCK file is the halt next.sh
+  "Re-verifying after ship"). If checklist-stuck.sh exits `operator-question`
+  instead, stop: the issue is held on an operator question, and its `STUCK`
+  is kept (#963). The `[!]` plus STUCK file is the halt next.sh
   honors (exit 1 + STUCK display); recovery is `/devagent:unstuck` after
   addressing the failures, then re-run preship.
 - All PASS ⇒ run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-verified-head.sh" record <project>`

@@ -7,9 +7,9 @@ format, the STUCK it becomes and the exit table are in the spec (§5.3, §7.3,
 
 ## Two modes
 
-No step may call `hold.sh` until #963 and #964 have both landed: before then a
-hold could not be answered, or could be undone. Until then an `ASK:` line comes
-only from a question record already on disk.
+No step may call `hold.sh` until #964 has landed: before then a hold could not
+be answered. Until then an `ASK:` line comes only from a question record
+already on disk.
 
 A step that needs a decision writes a question file (`## Question`,
 `## Impediment`, `## Options`, `## Evidence`; one option `(recommended)`) and
@@ -73,7 +73,7 @@ line.
 means the issue is held. Relay the question path (the STUCK, which both print;
 an `ASK:` record path is gone once the hold has taken it over) and stop: never
 follow a `CHAIN:` line, and do not unstick, resume or re-run the step. The
-issue stays held until the answer is recorded (#964).
+issue stays held until the answer is recorded (#964):
 
 - Pinned session: every later `/devagent:next` for the issue exits
   `operator-question` and prints the STUCK path and its answer line.
@@ -83,12 +83,40 @@ issue stays held until the answer is recorded (#964).
   `hold.sh ... --no-ask` run for the step writes it; a pinned
   `/devagent:next` writes it too.
 
+The commands that could undo the hold refuse it (#963): pull, switch, resume,
+revise (with or without `--retier`), unstuck, checklist-unstuck, stuck and
+checklist-stuck exit `operator-question`, change nothing, and print the STUCK
+path and its answer line. Treat that exit like `/devagent:next`'s: relay and
+stop. Sync leaves the held row `[?]`, reap skips the question STUCK, and
+`/devagent:portfolio --ready` does not offer the issue.
+
 One stop at a time: an issue with any other STUCK (a `[!]` stop, a watchdog,
 an answered question, another step's question) refuses a new hold with exit 2.
 
+## Clearing a hold by hand (until #964)
+
+Until #964 lands there is no answer command. Only the operator clears a hold
+by hand, or the session on the operator's own stated answer in this
+conversation; never unattended, and never on a CHAIN: line or a guess. With
+`<N> <step>` taken from STUCK's `Step:` line:
+
+1. Record the answer in the log, since STUCK is about to go:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" <issue-dir> <step> "operator answer to question <NN>: <option>"`.
+2. Remove `<issue-dir>/STUCK`.
+3. Reset the held row, which the hold marked `[?]`:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" <issue-dir> <N> ' ' <step>`.
+4. If the issue is still parked (a key of `[parked]` in the project's state),
+   `/devagent:resume <project> <issue>`. A hold whose park was refused left the
+   issue active, and there is nothing to resume.
+
+`/devagent:next` then runs `<step>` again.
+
 ## A stuck lock
 
-hold.sh serialises on `<issue-dir>/questions/.lock` and waits about 10 s. On
+hold.sh serialises on `<issue-dir>/questions/.lock` and waits about 10 s;
+stuck.sh and checklist-stuck.sh take the same lock when `questions/` exists
+(#963), so a stale lock costs about 11 s on every later stop for the issue
+until it is removed (they then go on without it). On
 `hold: lock busy: <path> (remove it if no devagent command is running)`, check
 that no devagent command is running for the issue, then remove the file. The
 lock is never broken automatically.

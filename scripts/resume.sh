@@ -42,6 +42,8 @@ quarantine_guard "resume" "$project" "$issue"
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   issue_dir="${devdoc%/}/$issue"
   [[ -d "$issue_dir" ]] || die "issue dir missing: $issue_dir"
+  # #963: a held issue stays parked until its question is answered.
+  hold_guard resume "$issue_dir"
 
   # Flip [P] back to [~]
   local checklist="$issue_dir/checklist.md"

@@ -45,6 +45,11 @@ Args: `[project]` (optional; defaults to active project)
    the issue itself. Best-effort: an issue with no checklist (or no
    `## Log` section) is skipped, and `--dry-run` writes none.
 
+A question STUCK (`Kind: question`, a hold, #962) is not a candidate: it is a
+pending operator question, not a follow-up chore, and its body carries
+operator-facing prose and local paths (#963). Any other `STUCK`, of any kind
+but `question`, is a candidate as before.
+
 ## Idempotence
 
 The script records content hashes in

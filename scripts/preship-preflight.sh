@@ -135,7 +135,15 @@ case "$sub" in
           mv -- "$issue_dir/preship.md" "$issue_dir/$sup"
           _log "preflight: moved preship.md to $sup"
         fi
-        bash "$SCRIPTS/checklist-stuck.sh" "$issue_dir" "preship: evidence preflight: $first" ;;
+        # #963: a held issue refuses the mark (exit operator-question) and keeps
+        # its question; preflight still reports and exits with rc. Any other
+        # failure (a trust or quarantine refusal, a die) stops with its own code.
+        crc=0
+        bash "$SCRIPTS/checklist-stuck.sh" "$issue_dir" "preship: evidence preflight: $first" || crc=$?
+        if [ "$crc" -ne 0 ]; then
+          [ "$crc" = "$(trust_exit_code operator-question)" ] \
+            || exit "$crc"
+        fi ;;
     esac
     printf 'evidence rc=%s\n' "$rc"
     exit "$rc" ;;

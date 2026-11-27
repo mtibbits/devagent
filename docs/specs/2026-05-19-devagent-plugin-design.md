@@ -882,7 +882,8 @@ doctor lists `separate_identity`, `signatures` and `system_policy
 **Exit codes.** 9 is a host-level refusal (stop and fix the host; never retry
 or work around it), 10 asks for a retry; 6, 7 and 11 are emitted by #714's
 quarantine, 8 is reserved for #719, and `operator-question` (#962) is
-`/devagent:next`'s exit while the issue is held on an operator question. The
+`/devagent:next`'s exit while the issue is held on an operator question, and
+(#963) the exit of the commands that would undo the hold (§5.3 "Guards"). The
 registry is `scripts/lib/refusals.sh`; `commands/pull.md` carries the table and
 each code's consumer action. Two rows are emitted with no trust policy and no
 quarantine marker: `operator-question`, and `leak-held` (#966), the leak gate's
@@ -1054,6 +1055,23 @@ block while the stall stands and changes nothing; unstuck first.
 with no `Kind:` line (every STUCK written before #962), an empty value, or a
 STUCK it cannot read reads `stuck`; any other value prints as written
 (`question`, `watchdog`, ...).
+
+**Guards (#963).** While `stuck_kind` reads `question`, the commands that
+could undo the hold refuse it through one guard, `hold_guard` (which calls
+`hold_refuse`) in `scripts/lib/checklist.sh`: pull (after its trust and quarantine checks,
+before any fetch), switch (a held target, before the park), resume, revise
+(with or without `--retier`), unstuck and checklist-unstuck (even with a `[!]`
+in an older revision block), stuck and checklist-stuck. Each changes nothing,
+prints the STUCK path and its answer line (for an unfinished answer, the
+answer line ending `--finish`), and exits `operator-question` (§3.8). sync
+leaves the closeout row the STUCK's `Step:` names at `[?]` (no readable
+`Step:`: no closeout row is flipped), and reap emits no candidate for it.
+stuck and checklist-stuck make the check and the STUCK write under the
+question lock hold.sh holds while it creates STUCK, taken only when
+`questions/` exists; a lock wait that runs out falls back to an unlocked read,
+so a real stop is never lost. Every other kind keeps its old handling. These
+rules keep a model from undoing a hold by accident or through a devagent
+command; they are not a security boundary.
 
 **Question STUCK (#962).** `scripts/hold.sh` writes it, through the one
 renderer in `scripts/lib/question-actions.sh`:
@@ -4829,9 +4847,16 @@ Since schema 1.2 (#890) the document also publishes each leaf's planned
 Since schema 1.3 (#735) it also carries actuals: each IssueEntry's `actuals`
 slot, an optional project `actuals` field and a top-level `actuals`, copied
 from `<devagent_home>/actuals.json` (§13.6).
+Since schema 1.4 (#963) the producer also reads each project's state file,
+`<devagent_home>/state/<project>.toml` (never writing it), for its `[parked]`
+keys: each IssueEntry carries `parked` (null when the file cannot be read,
+with one `state_unreadable` report entry) and `stuck.kind`, the STUCK header's
+kind by `stuck_kind`'s rule.
 
 #727 fills the readiness fields (`ready`, `ready_via_parent_row`,
-`depends_on[].resolved`) by the rule in `commands/portfolio.md`, and
+`depends_on[].resolved`) by the rule in `commands/portfolio.md`, whose rule 1
+since 1.4 leaves out a leaf whose issue is held, has a STUCK, is parked, or
+belongs to a project whose state could not be read (#963), and
 `/devagent:portfolio --ready` prints every project's ready leaves as TSV lines
 instead of writing the document; the view writes nothing.
 

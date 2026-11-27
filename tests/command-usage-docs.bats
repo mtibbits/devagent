@@ -104,3 +104,22 @@ C="$REPO/commands"
   grep -qE '^### 7\.6 Standing answers$' "$S"
   grep -qF -- '--reason' "$REPO/commands/park.md"
 }
+
+# --- #963: the commands that refuse a held issue map exit operator-question ------
+@test "#963 the guarded command docs map operator-question; sync and reap state the skip" {
+  local c
+  for c in pull switch resume revise unstuck checklist-unstuck stuck checklist-stuck preship updatewbs; do
+    grep -qF '`operator-question`' "$REPO/commands/$c.md" || { echo "commands/$c.md" >&2; return 1; }
+  done
+  for c in pull switch resume revise unstuck checklist-unstuck stuck checklist-stuck; do
+    grep -qF 'do not retry, unstick, resume or re-pull' "$REPO/commands/$c.md" \
+      || { echo "commands/$c.md: no stop instruction" >&2; return 1; }
+  done
+  grep -qF 'question STUCK' "$REPO/commands/sync.md"
+  grep -qF 'question STUCK' "$REPO/commands/reap.md"
+  ! grep -qF 'pull emits none of these codes' "$REPO/commands/pull.md" || false
+  # The manual clear (until #964) that tests/hold-guards.bats "manual clear" runs.
+  local O="$REPO/skills/next/references/operator-questions.md"
+  grep -qF 'scripts/checklist-log.sh" <issue-dir> <step>' "$O"
+  grep -qF "scripts/checklist-mark.sh\" <issue-dir> <N> ' ' <step>" "$O"
+}
