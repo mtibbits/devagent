@@ -1,0 +1,44 @@
+# scripts/ci/gitbash-times.txt — #1197: per-file weights for `gitbash-tagged.sh shard`,
+# which splits the gitbash-tagged files across the shard jobs of
+# .github/workflows/gitbash.yml. Rows are "<basename> <seconds>" in any order (kept
+# sorted by convention); blank and '#' lines are skipped.
+#
+# WEIGHTS ONLY. A row changes how the files balance across the shards, never which
+# files run: every tagged file runs in exactly one shard whether it has a row or not.
+# A file with no row weighs 60s and its shard's log says so ("gitbash-tagged: untimed
+# <file> (weighted 60s)"). A well-formed weights-only refresh therefore changes
+# balance, never coverage; a malformed row fails every shard (rc 2), never drops one.
+# Tagging a file that runs for minutes should add its row here.
+#
+# Source: the `done:` lines of master run 45647194154 (6ceb78a, job 139321238487),
+# plus post-gate-names.bats from run 45686304072 (job 139459703485); both on
+# windows-2025 runners at roughly 1.40-1.46x a fast image's time.
+#
+# Refresh, from a green run of this workflow (every shard's log at once):
+#   gh run view <run-id> -R mtibbits/devagent --log | tr -d '\r' \
+#     | sed -nE 's/.*done: tests\/([^ ]+\.bats) rc=[0-9]+ ([0-9]+)s$/\1 \2/p' | sort
+# Merge rule: a row from the run replaces the matching row; a file the run did not
+# finish keeps its old row; a row whose file is no longer tagged is dropped.
+backend-disk.bats 160
+backend-local.bats 77
+capacity.bats 96
+changelog-text.bats 4
+chars.bats 7
+claims-check.bats 453
+commit-guard.bats 56
+devdoc-sync.bats 324
+evidence-stamp.bats 302
+floor.bats 39
+heartbeat.bats 21
+hooks-scaffold.bats 8
+lib_notify.bats 125
+lib_question.bats 31
+long-run.bats 77
+post-gate-names.bats 236
+preship-deferred.bats 220
+preship-evidence.bats 563
+preship-preflight.bats 54
+staging.bats 48
+suite-platform.bats 410
+watchdog-check.bats 118
+watchdog-dispatch.bats 46
