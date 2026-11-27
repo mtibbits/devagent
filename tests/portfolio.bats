@@ -101,6 +101,8 @@ EOF
 }
 
 teardown() {
+  # The untraversable-state-dir test chmods state/ to 000; give it back first.
+  [ -d "${DA_HOME:-}/state" ] && chmod 700 "$DA_HOME/state" 2>/dev/null
   teardown_tmp_devagent_home
 }
 
@@ -633,6 +635,15 @@ _fails_closed() {
 @test "portfolio: a parked that is not a table fails closed" {
   _state_config
   printf 'parked = true\n' > "$SF"
+  _fails_closed
+}
+
+@test "portfolio: a state directory that cannot be searched fails closed" {
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) skip "Git Bash: no POSIX folder modes" ;; esac
+  [ "$(id -u)" -ne 0 ] || skip "root searches any folder"
+  _state_config
+  printf '[parked]\nIssue-2 = "operator"\n' > "$SF"
+  chmod 000 "$DA_HOME/state"
   _fails_closed
 }
 

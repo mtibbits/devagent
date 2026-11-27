@@ -45,7 +45,9 @@ quarantine_guard_dir "checklist-stuck" "$issue_dir"
 # when questions/ exists (an issue that never held gets no directory). A lock
 # wait that runs out (its own stderr line is relayed) falls back to an
 # unlocked read, so a real stop is never lost. The EXIT trap releases the lock
-# and removes questions/ when it is left empty, as hold.sh does.
+# and removes questions/ when it is left empty. Unlike hold.sh, which removes
+# only a questions/ it created, this also removes an empty one that was there
+# before the call.
 _stuck_exit() { set +e; question_unlock; rmdir "$issue_dir/questions" 2>/dev/null; return 0; }
 if [[ -d "$issue_dir/questions" ]]; then
   trap _stuck_exit EXIT

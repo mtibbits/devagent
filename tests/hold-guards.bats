@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# Not gitbash-tagged: the Git Bash job budget (#1197). Tagging this file is
-# #1188's; its Windows evidence is the hand-run file in the issue directory.
+# Not gitbash-tagged: tagging this file is #1188's (#1197's sharding has
+# landed). Its Windows evidence is the hand-run file in the issue directory.
 # tests/hold-guards.bats — #963: the commands that could undo an operator-
 # question hold refuse it (exit `operator-question`) or skip it, through one
 # helper, hold_refuse (scripts/lib/checklist.sh). Every refusal asserts the

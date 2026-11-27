@@ -161,10 +161,13 @@ while IFS= read -r p; do
   fi
   # #963: the project's devagent state, for issues[].parked and rule 1. Only
   # existence is pre-gated, so a dangling link or a directory reaches the
-  # parser and reads unreadable (fail closed). state_list_parked is not reused:
-  # it returns nothing on an unreadable file, which would fail open.
+  # parser and reads unreadable (fail closed). A state directory that exists
+  # but cannot be searched hides the file from -e, so it is not "absent"
+  # either. state_list_parked is not reused: it returns nothing on an
+  # unreadable file, which would fail open.
   sf="$(state_path "$p")"
-  if [[ ! -e "$sf" && ! -L "$sf" ]]; then
+  sd="${sf%/*}"
+  if [[ ! -e "$sf" && ! -L "$sf" ]] && { [[ ! -e "$sd" ]] || [[ -d "$sd" && -x "$sd" ]]; }; then
     export "PORTFOLIO_STATE_STATUS_$i=absent"
   else
     rc=0; keys="$(_config_toml list-keys "$sf" parked 2>/dev/null)" || rc=$?

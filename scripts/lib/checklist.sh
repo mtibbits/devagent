@@ -474,7 +474,8 @@ checklist_describe_row() {
 # checklist_find_glyph_line's `<line>:<step>` answer for `[!]` when ALL hold:
 #   - <issue-dir>/STUCK is a regular file (`-f`, the same test as unstuck.sh),
 #   - its kind is not `question` (a #962 question STUCK is a hold: routing it
-#     to /devagent:unstuck would delete the held question; every other kind,
+#     to /devagent:unstuck is wrong, since unstuck refuses a held issue (#963)
+#     and must never delete the held question; every other kind,
 #     spec §5.3's `stuck`, `watchdog`, ..., is one unstuck.sh clears),
 #   - <issue-dir>/checklist.md exists and a row in ANY revision block is `[!]`.
 # Otherwise prints nothing. Always returns 0, so it is safe in `$( ... )` under

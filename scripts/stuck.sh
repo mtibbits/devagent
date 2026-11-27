@@ -31,7 +31,9 @@ source "$PLUGIN_ROOT/scripts/lib/question-actions.sh"   # question_lock (#963)
 # when questions/ exists (an issue that never held gets no directory). A lock
 # wait that runs out (its own stderr line is relayed) falls back to an
 # unlocked read, so a real stop is never lost. The EXIT trap releases the lock
-# and removes questions/ when it is left empty, as hold.sh does.
+# and removes questions/ when it is left empty. Unlike hold.sh, which removes
+# only a questions/ it created, this also removes an empty one that was there
+# before the call.
 _STUCK_DIR=""
 _stuck_exit() { set +e; question_unlock; rmdir "$_STUCK_DIR/questions" 2>/dev/null; return 0; }
 
