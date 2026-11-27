@@ -60,6 +60,20 @@ refuses; ship from a new branch: create it, set `branch` to it by hand in
 the state file's `[context.<issue>]` table and top-level mirror, and run
 ship again.
 
+## devDoc commit (#1055)
+
+With `commit_devdoc = true` and the devDoc in git, `ship.sh` commits the
+issue's devDoc folder alone (`Issue-<N>/` or `Issue-Fork-<N>/`) as its last
+action: after the ship row, its log line and the MR URL, and on the
+zero-diff skip after its `[-]` row and log line. The subject is
+`devdoc: <issue> ship`, the author `devagent <devagent@local>`, and the
+commit runs under the devDoc lock. Other folders, captures and staged paths
+are left as they are. The gate off or a devDoc outside git means no commit
+and no lock. It is best effort: a failure prints one
+`ship.sh: WARNING: devdoc commit of <dir> skipped - <reason>; <remedy>` line
+and ship's exit is unchanged, with the MR kept. Changes after ship (the
+later steps' records) are committed by cleanup.
+
 ## Run the script
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh" <argument tail>

@@ -168,7 +168,9 @@ printed. The line is information unless a unit is stale: no file in it changed
 in the last 7 days and it is not in flight (a capture without `filed.toml`, or
 an issue dir with a `[context]` table, a parked entry, or the shared
 `active_issue`). Then it is a warning that names the stale units — commit or
-remove them by hand. Captures are no longer committed by any cleanup.
+remove them by hand. Cleanup never commits a capture: filing commits a filed
+capture's folder and ship commits the issue folder first (#1055), so a stale
+filed capture was edited after filing or filed with `commit_devdoc` off.
 
 ## Order, the repository lock, and a failed close (#749)
 
