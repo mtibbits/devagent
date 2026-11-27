@@ -10,6 +10,12 @@ is the [changelog](../CHANGELOG.md).
 Each item links the first published release that has it.
 
 ### Plan from your tracker
+- **What each issue really cost.** One command gathers the tokens, time and
+  sessions each issue took into one document, and the portfolio carries it.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
+- **A dated timeline per issue.** One command lists when each issue was
+  opened, started, shipped and closed.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
 
 - **Work breakdown built from the tracker.** devagent can build a project's
   work breakdown from the issues and epics already on its tracker.
@@ -28,6 +34,10 @@ Each item links the first published release that has it.
   [Release 3.4.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.4.0)
 
 ### Ship on evidence
+- **Required CI checks as evidence at merge.** A project names the CI checks
+  it requires, and devagent merges only when each one passed on the exact
+  commit that was verified.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
 
 - **Evidence attested across environments.** A test run made in one
   environment and checked from another counts only with an attestation of the
@@ -47,6 +57,11 @@ Each item links the first published release that has it.
   [Release 3.0.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.0.0)
 
 ### Trust
+- **Pulled issues screened before devagent reads them.** Under a trust
+  policy, devagent sets a fetched issue aside and checks it first: one that
+  tries to steer devagent beyond what the policy allows, is too large, or
+  hides invisible characters is quarantined unread.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
 
 - **A trust policy baseline for shared queues.** A policy file kept outside
   devagent's reach names the repositories it covers and the accounts devagent
@@ -55,6 +70,12 @@ Each item links the first published release that has it.
   [Release 3.0.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.0.0)
 
 ### Start small
+- **Windows through Git Bash.** devagent supports Windows users through Git
+  Bash, and its install page says how to set it up.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
+- **A doctor that checks the tools devagent needs.** The doctor command checks
+  bash, git, python3 and jq, and names the fix for each one that is missing.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
 
 - **Issues kept as files on disk.** Issues can be plain files in a folder, with
   no account and no network.
@@ -76,6 +97,13 @@ Each item links the first published release that has it.
   [Release 3.4.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.4.0)
 
 ### Cost and rules
+- **A hold when devagent needs your answer.** When an unattended run reaches
+  a question only you can decide, it holds the issue, tells you, and waits
+  for your answer instead of guessing.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
+- **A watchdog for stalled unattended runs.** A check that tells a launcher
+  when an unattended session has stopped making progress.
+  [Release 3.5.0](https://github.com/mtibbits/devagent/releases/tag/devagent--v3.5.0)
 
 - **Token cost per issue and step.** A report shows what each issue, and each
   step of it, cost in tokens.
