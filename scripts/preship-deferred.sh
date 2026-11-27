@@ -45,7 +45,7 @@
 #       '<check>' is not in [project.<p>] required_checks
 #           Byte for byte. It proves the name is listed, not what the check runs.
 #       <test-file> is not selected by the job: it must be tests/<name>.bats
-#           The job runs `gitbash-tagged.sh select tests`, which globs tests/*.bats: a
+#           Each shard job runs `gitbash-tagged.sh select tests`, which globs tests/*.bats: a
 #           subdirectory, another directory or a dot-file is never run.
 #       <test-file> does not exist at <pin7>
 #       <test-file> carries no gitbash tag line at <pin7>

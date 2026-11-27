@@ -439,3 +439,83 @@ EOF
   grep -qE '^- \[x\]  8\. branch' <<<"$r1"
   grep -qE '^- \[~\]  9\. implement' <<<"$r1"
 }
+
+# --- #880: revise refuses over a stuck issue ----------------------------------
+# _make_stuck: Revision 1's 15. review -> [!] plus a kind-stuck STUCK file. It
+# asserts its own precondition so a byte-identical limb cannot pass vacuously.
+_make_stuck() {
+  sed -i 's/^- \[x\] 15\. review/- [!] 15. review/' "$FIX_ISSUE_DIR/checklist.md"
+  printf 'Step:        15 review\nReason:      reviewer unavailable\n' > "$FIX_ISSUE_DIR/STUCK"
+  [ -n "$(grep -nE '^- \[!\]' "$FIX_ISSUE_DIR/checklist.md")" ]
+  [ -f "$FIX_ISSUE_DIR/STUCK" ]
+}
+
+@test "#880 revise refuses over a stuck issue and changes nothing" {
+  _make_stuck
+  local bang ck st
+  bang="$(grep -nE '^- \[!\]' "$FIX_ISSUE_DIR/checklist.md" | head -1 | cut -d: -f1)"
+  ck="$(sha256sum "$FIX_ISSUE_DIR/checklist.md")"
+  st="$(sha256sum "$FIX_STATE_FILE")"
+  run_revise volk Issue-676
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"revise: Issue-676 is stuck: step 15 (review) at line $bang, Revision 1 (the active block) is marked [!]"* ]]
+  [[ "$output" == *"Run /devagent:unstuck volk first"* ]]
+  [ "$(sha256sum "$FIX_ISSUE_DIR/checklist.md")" = "$ck" ]
+  [ "$(sha256sum "$FIX_STATE_FILE")" = "$st" ]
+  [ ! -d "$FIX_ISSUE_DIR/revisions/r2" ]
+  [ ! -f "$BATS_TEST_TMPDIR/chain.log" ]
+}
+
+@test "#880 revise --retier refuses over a stuck issue and changes nothing" {
+  _make_stuck
+  local bang ck st
+  bang="$(grep -nE '^- \[!\]' "$FIX_ISSUE_DIR/checklist.md" | head -1 | cut -d: -f1)"
+  ck="$(sha256sum "$FIX_ISSUE_DIR/checklist.md")"
+  st="$(sha256sum "$FIX_STATE_FILE")"
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"revise: Issue-676 is stuck: step 15 (review) at line $bang, Revision 1 (the active block) is marked [!]"* ]]
+  [[ "$output" == *"Run /devagent:unstuck volk first"* ]]
+  [ "$(sha256sum "$FIX_ISSUE_DIR/checklist.md")" = "$ck" ]
+  [ "$(sha256sum "$FIX_STATE_FILE")" = "$st" ]
+  [ ! -d "$FIX_ISSUE_DIR/revisions/r2" ]
+  [ ! -f "$BATS_TEST_TMPDIR/chain.log" ]
+}
+
+@test "#880 a STUCK file with no [!] row does not block revise" {
+  # Preservation leg: green at the base by design.
+  # Pins the predicate boundary: this shape is out of scope, so behaviour is today's.
+  printf 'Step:        15 review\nReason:      reviewer unavailable\n' > "$FIX_ISSUE_DIR/STUCK"
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
+}
+
+@test "#880 a question STUCK beside an orphan [!] does not block revise" {
+  # Preservation leg: green at the base by design (a question STUCK is a hold).
+  sed -i 's/^- \[x\] 15\. review/- [!] 15. review/' "$FIX_ISSUE_DIR/checklist.md"
+  printf 'Kind:        question\nStep:        15 review\n\n' > "$FIX_ISSUE_DIR/STUCK"
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
+}
+
+@test "#880 unstuck then revise succeeds and next dispatches draft" {
+  _make_stuck
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Run /devagent:unstuck volk first"* ]]
+  # Follow the printed remedy, then re-run revise and next.
+  run bash "$DEVAGENT_ROOT/scripts/unstuck.sh" volk
+  [ "$status" -eq 0 ]
+  [ ! -f "$FIX_ISSUE_DIR/STUCK" ]
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
+  [ "$(grep -c '^- \[!\]' "$FIX_ISSUE_DIR/checklist.md")" -eq 0 ]
+  [ ! -f "$FIX_ISSUE_DIR/STUCK" ]
+  run bash "$DEVAGENT_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 2 (draft)"* ]]
+  [[ "$output" != *"STUCK"* ]]
+}

@@ -525,7 +525,9 @@ tracker.
   changes nothing in its phase, warns once and exits zero. It writes under
   the devDoc repository lock, after every lookup, replaces the file
   atomically, and exits non-zero when the lock is held past its bound or the
-  write fails. {refines: SR-9}
+  write fails. Run as step 21 (`wbs.sh update`), it first brings the devDoc
+  repository's origin branch in without pushing, unless offline (#1149).
+  {refines: SR-9}
 - FR-67: devagent sorts each parent's children by dependency, then
   inherited priority, then fan-out, moving whole blocks and never top-level
   nodes; it writes only a pure permutation, otherwise leaves the order and
@@ -1073,7 +1075,8 @@ From the design spec's permission gates and gates under trust:
 - CON-9: The gates are `push_mr` (ship and file), `merge_mr` (mergemr),
   `merge_to_all_prs` (mergetoall), `commit_devdoc` (the devdoc commits of
   cleanup and the status report, and, with an `origin`, cleanup's devDoc sync:
-  fetch, merge, push) and `transition_issue` (every tracker
+  fetch, merge, push, and step 21's fetch and merge before the WBS reconcile)
+  and `transition_issue` (every tracker
   transition). The spec also lists `cleanup_on_merge`, for a cleanup after
   sync, which no step performs. `/devagent:file` to a disk folder asks no
   `push_mr`: nothing leaves the machine.

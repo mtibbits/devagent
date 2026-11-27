@@ -83,7 +83,8 @@ devAgent/
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
 │                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
-│                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
+│                            #   in shard jobs on pinned Windows runners (#1197); one check,
+│                            #   `Git Bash tagged files`)
 ├── commands/                # one .md file per command-form slash command (59)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
@@ -133,8 +134,10 @@ devAgent/
 │   │                        #   fetch-policy scanner check-fetches.py (#1030); #996: the family files in
 │   │                        #   static/ (family.css, family.js, top bar and footer partials) and the
 │   │                        #   placeholder filler fill-placeholders.py
-│   ├── ci/                  # #1096: gitbash-tagged.sh — selection, run loop and TAP rules
-│   │                        #   behind .github/workflows/gitbash.yml
+│   ├── ci/                  # #1096: gitbash-tagged.sh — selection, the shard split (#1197),
+│   │                        #   run loop, TAP rules and the gate behind
+│   │                        #   .github/workflows/gitbash.yml; gitbash-times.txt holds the
+│   │                        #   per-file weights (#1197)
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
@@ -538,7 +541,20 @@ per repository (`scripts/lib/devdoc-repo.sh`):
   case the knob plus 5 s (whole seconds under bash < 5). A close's bounded parts
   then stay inside its 120 s command timeout: 60 s of lock waits plus 35 s of
   sync, leaving 25 s for the WBS reconcile's tracker calls, which are not
-  bounded. This variable is defined here and in `commands/cleanup.md`.
+  bounded. This variable is defined here and in `commands/cleanup.md`; it also
+  bounds step 21's sync, as a budget of its own (`commands/updatewbs.md`).
+- **Step-21 sync (#1149).** `wbs update` (step 21, and a hand-run
+  `/devagent:wbs update`; never cleanup's own reconcile) runs the same
+  `devdoc_sync` in its `no-push` mode before its tracker calls, under cleanup's
+  gate plus `--offline`. It fetches unlocked and moves under one short hold,
+  but its acquire is one attempt (`DEVAGENT_DEVDOC_LOCK_TIMEOUT=0` for that
+  acquire only): a busy lock skips the sync, and the reconcile's write that
+  follows keeps its full bound. No network call runs under either hold. The
+  budget is the same `DEVAGENT_DEVDOC_SYNC_SECS`. It never pushes: a diverged
+  run leaves one `devagent` merge commit, `devdoc: merge origin/<branch> into
+  <branch> (<issue> wbs update)`, for the next cleanup to push. A refusal or
+  skip prints one `info` line ending "This step uses this machine's copy; the
+  next cleanup syncs again." and the exit is unchanged.
 
 `WBS.md` itself is replaced atomically under the lock (`write_document`,
 §13.2), and its replace retries a `PermissionError` for about 8 s (20
@@ -997,6 +1013,17 @@ across revision blocks; STUCK is removed only after that row has taken the
 new glyph (#587). `/devagent:checklist-unstuck` applies the same rule to an
 explicit issue directory.
 
+**A stall in any revision block (#880).** `next` and `where` treat a regular
+STUCK file of any `Kind:` but `question` plus a `[!]` row in ANY revision block as a stall —
+the exact case `/devagent:unstuck` clears (`checklist_sentinel_stall`). `next`
+halts before dispatching (and before a complete `--through` target or a done
+active block can return 0), naming the row's step, line and block (the current
+step keeps gate (a)'s `step N (name)` text); `where`
+prints its `STUCK:` section for it. `next` warns once, without halting, on the
+two shapes unstuck cannot clear: a `[!]` row with no regular STUCK file, and a
+STUCK file with no `[!]` row. `revise` (and `--retier`) refuses to append a
+block while the stall stands and changes nothing; unstuck first.
+
 **`Kind:` (#962).** The header (the lines before the first blank line or
 `## ` heading) may carry `Kind: <value>`. `stuck_kind` in
 `scripts/lib/checklist.sh` is its one reader: no STUCK reads `none`; a STUCK
@@ -1327,7 +1354,8 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
 - Bypass permission gates. If `permissions.push_mr=false`, `ship`
   still halts and prompts `y/N` (the local code backend excepted: it
   pushes nothing, so `push_mr` is not asked, #1016).
-- Continue past a step that exits `[!]`. STUCK halts the chain.
+- Continue past a step that exits `[!]`. STUCK halts the chain — a `STUCK`
+  file with a `[!]` row in any revision block, not only the current step (#880).
 - Continue past an operator question (#962). A held issue (a `Kind:
   question` STUCK) makes every `next` exit `operator-question` before it
   dispatches anything; a step whose `hold.sh` exits 0 is held, and the
@@ -4665,7 +4693,8 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   the checklist, except that an all-done checklist gives `[~]` until the
   issue closes. An id the tracker does not list keeps its glyph. A failed
   lookup changes no glyph, prints one warning and exits 0. `--offline`
-  (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703).
+  (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703) and the step-21 devDoc
+  sync (#1149).
   Then an MR phase (#704) reads linked-MR state through the code backend's
   `issue-mrs` (§9.2), once per issue source with open leaves whose backend
   is the project's `code_source.backend`. A leaf whose issue is open takes
@@ -4683,9 +4712,11 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   Last, it sorts each non-root node's children by the §13.1 ordering rule
   (#803) on every run, `--offline` and an aborted lookup included, unless
   `[project.<p>.wbs] order_on_update = false`. One write carries the
-  glyphs, the MR phase's values and the moves. That write alone runs under
-  the devDoc repository lock (§3.3, #749), after every tracker and MR call;
-  a lock held past its bound exits `1` with nothing written.
+  glyphs, the MR phase's values and the moves. The write runs under the
+  devDoc repository lock (§3.3, #749), after every tracker and MR call; a
+  lock held past its bound exits `1` with nothing written. Before the
+  tracker calls, the step-21 sync (§3.3, #1149) takes one short hold of its
+  own.
 - `/devagent:wbs order [--dry-run]` (#803) — sort each non-root node's
   children by the §13.1 ordering rule and write the result; `wbs update`
   runs the same pass by default. It honours `completed_last`, and ignores

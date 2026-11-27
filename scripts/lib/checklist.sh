@@ -423,6 +423,73 @@ checklist_step_name_at_line() {
   return 1
 }
 
+# checklist_describe_row <file> <line> — #880: names a step row for an operator:
+# its step number and name, its line, and which revision block holds it.
+#   step 15 (review) at line 5, Revision 1 (an older block; the active block is Revision 2)
+#   step 15 (review) at line 12, Revision 2 (the active block)
+#   step 2 (draft) at line 2, above the first revision heading (the active block is Revision 2)
+#   step 2 (draft) at line 2                      (the file has no `## Revision` heading)
+# The block is the nearest `## Revision ` heading at or above <line>; the active
+# block is the last one (_checklist_active_start's rule). Returns 1 with
+# checklist_step_name_at_line's stderr when <line> is not a step row. Read-only.
+checklist_describe_row() {
+  local file="$1" line="$2" content="" num name labels in_active own active
+  [[ "$line" =~ ^[0-9]+$ ]] && content="$(sed -n "${line}{p;q}" "$file" 2>/dev/null)"
+  if ! [[ "$content" =~ $_checklist_line_re ]]; then
+    checklist_step_name_at_line "$file" "$line" >/dev/null   # its die / stderr
+    return 1
+  fi
+  name="${BASH_REMATCH[3]}"
+  num="$((10#${BASH_REMATCH[2]}))"
+  # "<in_active>\t<own>\t<active>": the heading at-or-above <line>, the last
+  # heading, and 1 when they are the same heading.
+  labels="$(awk -v target="$line" '
+    { sub(/\r$/, "") }
+    /^## Revision / {
+      h = $0; sub(/^## /, "", h); sub(/[ \t]+$/, "", h)
+      if (NR <= target) { own = h; own_nr = NR }
+      active = h; active_nr = NR
+    }
+    END { printf "%d\t%s\t%s\n", (own_nr == active_nr), own, active }
+  ' "$file")"
+  in_active="${labels%%$'\t'*}"
+  labels="${labels#*$'\t'}"
+  own="${labels%%$'\t'*}"
+  active="${labels#*$'\t'}"
+  if [[ -z "$active" ]]; then
+    printf 'step %s (%s) at line %s\n' "$num" "$name" "$line"
+  elif [[ -z "$own" ]]; then
+    printf 'step %s (%s) at line %s, above the first revision heading (the active block is %s)\n' \
+      "$num" "$name" "$line" "$active"
+  elif (( in_active )); then
+    printf 'step %s (%s) at line %s, %s (the active block)\n' "$num" "$name" "$line" "$own"
+  else
+    printf 'step %s (%s) at line %s, %s (an older block; the active block is %s)\n' \
+      "$num" "$name" "$line" "$own" "$active"
+  fi
+}
+
+# checklist_sentinel_stall <issue-dir> — #880: the ONE predicate for "a stall
+# /devagent:unstuck clears", shared by next.sh, where.sh and revise.sh. Prints
+# checklist_find_glyph_line's `<line>:<step>` answer for `[!]` when ALL hold:
+#   - <issue-dir>/STUCK is a regular file (`-f`, the same test as unstuck.sh),
+#   - its kind is not `question` (a #962 question STUCK is a hold: routing it
+#     to /devagent:unstuck would delete the held question; every other kind,
+#     spec §5.3's `stuck`, `watchdog`, ..., is one unstuck.sh clears),
+#   - <issue-dir>/checklist.md exists and a row in ANY revision block is `[!]`.
+# Otherwise prints nothing. Always returns 0, so it is safe in `$( ... )` under
+# errexit; a missing checklist prints nothing rather than dying.
+# unstuck.sh and checklist-unstuck.sh keep their own inline checks (the shared
+# checklist_unstick helper is deferred in #587).
+checklist_sentinel_stall() {
+  local dir="$1"
+  [[ -f "$dir/STUCK" ]] || return 0
+  [[ "$(stuck_kind "$dir")" != question ]] || return 0
+  [[ -f "$dir/checklist.md" ]] || return 0
+  checklist_find_glyph_line "$dir/checklist.md" '!'
+  return 0
+}
+
 # checklist_mark_line <file> <line> <glyph>
 # Sets the glyph of the step row at <line>. No number resolution, no revision
 # re-scoping (#587): the caller has already located the row.

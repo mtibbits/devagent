@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+bats_require_minimum_version 1.5.0
 
 load 'lib/bats-helpers'
 
@@ -457,6 +458,120 @@ EOC
   [ "$output" = "1:4" ]
   run checklist_find_glyph_line "$ISSUE_DIR/checklist.md" '.'
   [ -z "$output" ]                      # '.' must NOT match '?' or 'x'
+}
+
+# --- checklist_describe_row / checklist_sentinel_stall (#880) ---------------
+@test "checklist_describe_row names an older block and the active one (#880)" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [x]  2. draft
+- [!] 15. review
+
+## Revision 2
+
+- [ ] 15. review
+EOC
+  run checklist_describe_row "$ISSUE_DIR/checklist.md" 4
+  [ "$status" -eq 0 ]
+  [ "$output" = "step 15 (review) at line 4, Revision 1 (an older block; the active block is Revision 2)" ]
+}
+
+@test "checklist_describe_row names the active block (#880)" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [x]  2. draft
+
+## Revision 2
+
+- [x]  2. draft
+- [!] 15. review
+EOC
+  run checklist_describe_row "$ISSUE_DIR/checklist.md" 8
+  [ "$status" -eq 0 ]
+  [ "$output" = "step 15 (review) at line 8, Revision 2 (the active block)" ]
+}
+
+@test "checklist_describe_row names a row above the first revision heading (#880)" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+- [x]  0. pull
+- [!]  2. draft
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  run checklist_describe_row "$ISSUE_DIR/checklist.md" 2
+  [ "$status" -eq 0 ]
+  [ "$output" = "step 2 (draft) at line 2, above the first revision heading (the active block is Revision 2)" ]
+}
+
+@test "checklist_describe_row on a checklist with no revision headings (#880)" {
+  printf '%s\n' '- [x]  0. pull' '- [!]  2. draft' > "$ISSUE_DIR/checklist.md"
+  run checklist_describe_row "$ISSUE_DIR/checklist.md" 2
+  [ "$status" -eq 0 ]
+  [ "$output" = "step 2 (draft) at line 2" ]
+}
+
+@test "checklist_describe_row refuses a non-row line (#880)" {
+  printf '%s\n' '## Revision 1' '- [!]  2. draft' > "$ISSUE_DIR/checklist.md"
+  run --separate-stderr checklist_describe_row "$ISSUE_DIR/checklist.md" 1
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"not a checklist step row"* ]]
+}
+
+@test "checklist_sentinel_stall needs both the STUCK file and a [!] row (#880)" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [x]  2. draft
+- [!] 15. review
+
+## Revision 2
+
+- [ ] 15. review
+EOC
+  local bang
+  bang="$(grep -nE '^- \[!\]' "$ISSUE_DIR/checklist.md" | head -1 | cut -d: -f1)"
+  # (a) both -> the row's line:step
+  printf 'Step:        15 review\nReason:      reviewer unavailable\n' > "$ISSUE_DIR/STUCK"
+  run checklist_sentinel_stall "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$bang:15" ]
+  # (f) a question STUCK beside the [!] is not an unstuck-able stall
+  printf 'Kind:        question\nStep:        15 review\n\n' > "$ISSUE_DIR/STUCK"
+  run checklist_sentinel_stall "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # (g) any other Kind (spec §5.3: `watchdog`, ...) is a stall unstuck clears
+  printf 'Kind:        watchdog\nStep:        15 review\n\n' > "$ISSUE_DIR/STUCK"
+  run checklist_sentinel_stall "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$bang:15" ]
+  # (c) [!] only -> empty, rc 0
+  rm -f "$ISSUE_DIR/STUCK"
+  run checklist_sentinel_stall "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # (d) STUCK as a directory -> empty
+  mkdir "$ISSUE_DIR/STUCK"
+  run checklist_sentinel_stall "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  rmdir "$ISSUE_DIR/STUCK"
+  # (b) STUCK only -> empty, rc 0
+  sed -i 's/^- \[!\] 15\. review/- [x] 15. review/' "$ISSUE_DIR/checklist.md"
+  printf 'Step:        15 review\nReason:      reviewer unavailable\n' > "$ISSUE_DIR/STUCK"
+  run checklist_sentinel_stall "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # (e) no checklist.md, STUCK present -> empty, rc 0
+  rm -f "$ISSUE_DIR/checklist.md"
+  run checklist_sentinel_stall "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "checklist_mark_line marks the named line and nothing else" {
