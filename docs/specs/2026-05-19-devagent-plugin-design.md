@@ -1009,6 +1009,17 @@ across revision blocks; STUCK is removed only after that row has taken the
 new glyph (#587). `/devagent:checklist-unstuck` applies the same rule to an
 explicit issue directory.
 
+**A stall in any revision block (#880).** `next` and `where` treat a regular
+STUCK file of any `Kind:` but `question` plus a `[!]` row in ANY revision block as a stall —
+the exact case `/devagent:unstuck` clears (`checklist_sentinel_stall`). `next`
+halts before dispatching (and before a complete `--through` target or a done
+active block can return 0), naming the row's step, line and block (the current
+step keeps gate (a)'s `step N (name)` text); `where`
+prints its `STUCK:` section for it. `next` warns once, without halting, on the
+two shapes unstuck cannot clear: a `[!]` row with no regular STUCK file, and a
+STUCK file with no `[!]` row. `revise` (and `--retier`) refuses to append a
+block while the stall stands and changes nothing; unstuck first.
+
 **`Kind:` (#962).** The header (the lines before the first blank line or
 `## ` heading) may carry `Kind: <value>`. `stuck_kind` in
 `scripts/lib/checklist.sh` is its one reader: no STUCK reads `none`; a STUCK
@@ -1339,7 +1350,8 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
 - Bypass permission gates. If `permissions.push_mr=false`, `ship`
   still halts and prompts `y/N` (the local code backend excepted: it
   pushes nothing, so `push_mr` is not asked, #1016).
-- Continue past a step that exits `[!]`. STUCK halts the chain.
+- Continue past a step that exits `[!]`. STUCK halts the chain — a `STUCK`
+  file with a `[!]` row in any revision block, not only the current step (#880).
 - Continue past an operator question (#962). A held issue (a `Kind:
   question` STUCK) makes every `next` exit `operator-question` before it
   dispatches anything; a step whose `hold.sh` exits 0 is held, and the
