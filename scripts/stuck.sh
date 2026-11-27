@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# scripts/stuck.sh — mark current step [!], write STUCK file. Spec §5.3, §6.5.
+# scripts/stuck.sh — mark current step [!], and write the STUCK header through
+# stuck_write (scripts/lib/checklist.sh, #909). Spec §5.3, §6.5.
 # Usage: stuck.sh <project> "<reason>"
 
 set -euo pipefail
@@ -38,35 +39,20 @@ quarantine_guard "stuck" "$project"
   [[ -d "$issue_dir" ]] || die "no issue_dir; nothing to mark stuck"
 
   local checklist="$issue_dir/checklist.md"
-  local cur cur_name last_good last_good_name
+  local cur cur_name last_good
   cur="$(checklist_current_step "$checklist")"
   [[ -n "$cur" && "$cur" != "done" ]] \
     || die "no current step to mark stuck (issue is complete or empty)"
   cur_name="$(checklist_step_name "$checklist" "$cur")"
 
-  # Walk back for "last good" — the last [x] step number strictly before cur.
-  # (checklist_steps_with_glyph is mawk-safe; the < cur bound stays in bash.)
-  local good_steps n
-  good_steps="$(checklist_steps_with_glyph "$checklist" x)"
-  while read -r n; do
-    [[ -n "$n" ]] || continue
-    (( n < cur )) && last_good="$n"
-  done <<< "$good_steps"
-  if [[ -n "$last_good" ]]; then
-    last_good_name="$(checklist_step_name "$checklist" "$last_good")"
-  fi
+  # The last good step for the STUCK header (#909: the one walk, stuck_last_good).
+  last_good="$(stuck_last_good "$checklist" "$cur")" \
+    || die "could not read the last good step before $cur in $checklist"
 
   checklist_mark "$checklist" "$cur" "!"
 
-  local ts; ts="$(date '+%Y-%m-%d %H:%M')"
-  {
-    printf 'Step:        %s %s\n' "$cur" "$cur_name"
-    printf 'Reason:      %s\n' "$reason"
-    if [[ -n "$last_good" ]]; then
-      printf 'Last good:   step %s %s\n' "$last_good" "${last_good_name:-}"
-    fi
-    printf 'Created:     %s\n' "$ts"
-  } > "$issue_dir/STUCK"
+  stuck_write "$issue_dir" "$cur" "$cur_name" "$reason" "$last_good" \
+    || die "could not write $issue_dir/STUCK"
 
   log_append "$issue_dir" "$cur_name" "stuck — $reason"
   info "marked step $cur ($cur_name) stuck — wrote $issue_dir/STUCK"

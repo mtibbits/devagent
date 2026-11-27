@@ -330,34 +330,6 @@ _checklist_valid_glyph() {
   esac
 }
 
-# checklist_steps_with_glyph <file> <glyph>
-# Prints the step NUMBER of every checklist line whose box holds exactly
-# <glyph> (e.g. 'x' '!' 'P' '~' ' '), one per line in file order. mawk-safe:
-# POSIX 2-arg match() + substr()/sub(), NOT gawk's 3-arg capture-array form
-# match(s, r, arr), which mawk parse-errors on (#73/#313). Callers apply
-# their own first/last/bound logic. Deliberately NOT revision-scoped, and after
-# #587 the only recovery caller left is stuck.sh, which wants the file-wide scan
-# by design (it asks for the last [x] BELOW the current step). The former
-# rationale here — that a [!]/[P] row is unique to the file and no revision
-# block ever re-introduces one — is FALSE: closeout numbers are REUSED across revision
-# blocks (#76), so a [!]/[P] can sit in an older block while the active block
-# holds a pending twin of the same number. That is exactly the #587 bug. A
-# caller that must act on the ROW carrying a glyph uses
-# checklist_find_glyph_line below, which returns the LINE, never the number.
-checklist_steps_with_glyph() {
-  local file="$1" glyph="$2"
-  [[ -f "$file" ]] || die "checklist_steps_with_glyph: no such file '$file'"
-  awk -v glyph="$glyph" '
-    match($0, /^- \[.\][ \t]+[0-9]+\./) {
-      if (substr($0, 4, 1) != glyph) next    # box char is column 4: "- [G]"
-      num = substr($0, RSTART, RLENGTH)
-      sub(/^- \[.\][ \t]+/, "", num)
-      sub(/\.$/, "", num)
-      print num + 0
-    }
-  ' "$file"
-}
-
 # checklist_find_glyph_line <file> <glyph>
 # Prints "<line>:<step-number>" for the row the RECOVERY callers (unstuck.sh,
 # checklist-unstuck.sh, resume.sh) must act on: the first row carrying <glyph>
@@ -377,8 +349,8 @@ checklist_steps_with_glyph() {
 # mawk-safe: POSIX 2-arg match() + substr()/sub(), not gawk match(s,r,arr)
 # (#73/#313). The glyph is compared as the COLUMN-4 character of "- [G]" and is
 # never interpolated into a regex: '?' and '.' are legal glyphs and would be
-# metacharacters. That is the SAME predicate checklist_steps_with_glyph uses, on
-# purpose: one question, one matcher (Issue-585).
+# metacharacters. checklist_mark_line and checklist_next_actionable read the box
+# the same way, on purpose: one question, one matcher (Issue-585).
 checklist_find_glyph_line() {
   local file="$1" glyph="$2"
   [[ -f "$file" ]] || die "checklist_find_glyph_line: no such file '$file'"
