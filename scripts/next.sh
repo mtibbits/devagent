@@ -210,6 +210,64 @@ question_stop() {
   question_stop ""
 }
 
+# _stuck_current_step (#880): prints the active block's current step when its row
+# is [!] (gate (a)'s condition in main), else nothing. Reads main's checklist.
+_stuck_current_step() {
+  local c
+  c="$(checklist_current_step "$checklist")"
+  if [[ "$c" != "done" && "$(checklist_step_state "$checklist" "$c")" == "!" ]]; then
+    printf '%s\n' "$c"
+  fi
+  return 0
+}
+
+# stuck_line <row>: the one STUCK halt line, shared by gates (a) and (b).
+stuck_line() {
+  echo "STUCK: $1 is marked [!]. Run /devagent:unstuck to clear." >&2
+}
+
+# stall_stop (#880): gate (b), "is this issue stuck anywhere?". Reads main's
+# issue_dir, checklist and stall_warned (dynamic scope).
+# A stall (checklist_sentinel_stall: a regular non-question STUCK plus a [!] row in
+# ANY revision block) prints the STUCK line and the STUCK body and returns 1, so a
+# complete --through target or a done active block cannot return 0 first. When
+# gate (a) would fire, the line is gate (a)'s own text. Otherwise it names the
+# row's line and block. The two shapes /devagent:unstuck cannot clear (a STUCK
+# with no [!] row; a [!] row with no regular STUCK) are checked on the first pass
+# only, warn at most once and return 0, so dispatch continues from the active
+# block as before.
+stall_stop() {
+  local found="" o c n why stuck="$issue_dir/STUCK"
+  # The -f test spares the predicate's fork on the common no-STUCK path.
+  [[ -f "$stuck" ]] && found="$(checklist_sentinel_stall "$issue_dir")"
+  if [[ -n "$found" ]]; then
+    c="$(_stuck_current_step)"
+    if [[ -n "$c" ]]; then
+      n="$(checklist_step_name "$checklist" "$c")" || n="?"
+      stuck_line "step $c ($n)"
+    else
+      stuck_line "$(checklist_describe_row "$checklist" "${found%%:*}")"
+    fi
+    sed 's/^/  /' "$stuck" >&2
+    return 1
+  fi
+  (( stall_warned == 0 )) || return 0
+  stall_warned=1
+  if [[ -f "$stuck" ]]; then
+    warn "$stuck is present but no row in $checklist is marked [!], so /devagent:unstuck refuses it; continuing from the active block."
+    return 0
+  fi
+  o="$(checklist_find_glyph_line "$checklist" '!')"
+  [[ -n "$o" ]] || return 0
+  [[ -z "$(_stuck_current_step)" ]] || return 0
+  why="there is no STUCK file at $stuck"
+  if [[ -e "$stuck" || -L "$stuck" ]]; then
+    why="$stuck is not a regular file"
+  fi
+  warn "$(checklist_describe_row "$checklist" "${o%%:*}") is marked [!] but $why, so /devagent:unstuck will not clear it; continuing from the active block."
+  return 0
+}
+
 main() {
   local project="" auto=0 through="" note="" chained=0 breaks_on=1
   local -a rest=()
@@ -280,12 +338,18 @@ quarantine_guard "next" "$project"
 
   # #782: at most one CI read per invocation (see the window block below).
   local ci_done=0
+  # #880: gate (b) checks the two undecidable shapes on the first pass only.
+  local stall_warned=0
 
   # Dispatch loop. Each iteration re-reads the checklist so script steps
   # that mark themselves complete cause the next iteration to advance.
   while :; do
     # #962 rule 1: a question STUCK stops every call, before anything else.
     question_stop ""
+    # #880 gate (b): a STUCK [!] in ANY revision block stops the call, before
+    # the --through and done checks below can return 0. Gate (a) further down
+    # still halts on a current [!] that has no STUCK file.
+    stall_stop || return 1
     # Before identifying the current step, check whether the chain target
     # is already complete. This guards skill-backed targets: after the
     # skill marks itself [x], the model re-invokes next.sh and we must
@@ -317,7 +381,7 @@ quarantine_guard "next" "$project"
     local cur_state
     cur_state="$(checklist_step_state "$checklist" "$cur")"
     if [[ "$cur_state" == "!" ]]; then
-      echo "STUCK: step $cur ($name) is marked [!]. Run /devagent:unstuck to clear." >&2
+      stuck_line "step $cur ($name)"
       [[ -f "$issue_dir/STUCK" ]] && sed 's/^/  /' "$issue_dir/STUCK" >&2
       return 1
     fi

@@ -13,6 +13,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/revise.sh" $ARGUMENTS
 Then:
 - If the script prints a line starting with `CHAIN: `, treat the remainder as the next slash command to invoke. Per spec §7, the same `--auto` semantics that govern `/devagent:next` apply transitively here: if the operator passed `--auto` upstream, continue chaining; otherwise pause and ask.
 - If the script exited non-zero because `revisions/r<N>/comments.md` is missing, tell the user to run `/devagent:comments` first.
+- If the script exited non-zero naming `/devagent:unstuck`, the issue is stuck (a `STUCK` file plus a `[!]` row in any revision block) and nothing was written (#880). The routine case is a mergemr stop (CI red, a forge block or requested changes) that was marked stuck. Tell the operator to run `/devagent:unstuck <project>` and then re-run `/devagent:revise`; do not follow any `CHAIN:`.
 - The next step on the new revision is `draft` (step 2). The `draft` skill reads `pending_comments_file` from per-project state and includes those comments as user-intent context in the new plan.
 
 ## `--retier <tier>` — tier escalation valve (#537)

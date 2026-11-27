@@ -18,7 +18,9 @@ commits not on origin (#1148), from local refs only:
 read; HEAD is detached). Only repositories that at least one project with
 `commit_devdoc = true` uses are shown, each once. That key is read from the
 config, not from a trust policy, so under a trust policy the shown set can differ
-from the repositories cleanup syncs. See `commands/cleanup.md`, "The devDoc sync".
+from the repositories cleanup syncs. A step-21 merge commit (`wbs update`'s sync,
+#1149) shows here until the next cleanup pushes it. See `commands/cleanup.md`,
+"The devDoc sync".
 
 For WBS structure, estimates and progress across every project, see
 `/devagent:portfolio`, which writes one JSON document over all of them; its

@@ -100,7 +100,7 @@ fi
 # scratch files) — the review/redmr docs' git-add instruction covers the
 # new-untracked-file fix variant. Worktree-aware like commit.sh's work_dir.
 # Placed after the zero-diff guard so artifact-only issues still auto-skip.
-worktree_path="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
+worktree_path="$(state_ctx_get "$project" worktree_path "$issue_arg" || true)"
 work_dir="${worktree_path:-$source_dir}"
 # Fail closed when git cannot inspect work_dir (stale worktree_path from a
 # clobbered/aborted session): a silent 0-count here would re-enable the exact

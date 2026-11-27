@@ -45,7 +45,7 @@ sub="$1"; shift
 
 case "$sub" in
   init)   exec bash "$SCRIPT_DIR/wbs-init.sh"   "$@" ;;
-  update) exec bash "$SCRIPT_DIR/wbs-update.sh" "$@" ;;
+  update) exec bash "$SCRIPT_DIR/wbs-update.sh" --sync-devdoc "$@" ;;
   order)  exec bash "$SCRIPT_DIR/wbs-order.sh"  "$@" ;;
   exclude) exec bash "$SCRIPT_DIR/wbs-exclude.sh" "$@" ;;
   show)   exec bash "$SCRIPT_DIR/wbs-show.sh"   "$@" ;;
