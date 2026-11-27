@@ -88,6 +88,7 @@ _mid_merge() {
 
 @test "devdoc_commit_dir: devDoc outside git returns 0 and takes no lock" {
     d="$DEVAGENT_TMP/plain"; mkdir -p "$d/Captures/s1"
+    [ "$(git -C "$d" rev-parse --is-inside-work-tree 2>/dev/null)" != true ]   # really outside git
     printf '# s1\n' > "$d/Captures/s1/draft.md"
     hp="$(devdoc_lock_stub_holder "$d" Issue-5)"
     cp "$hp/holder" "$DEVAGENT_TMP/holder.before"
@@ -181,7 +182,7 @@ _mid_merge() {
     [ "$(git -C "$DEVDOC_REPO" log -1 --format=%s)" = "$SUBJ" ]
 }
 
-@test "devdoc_commit_dir: the lock bound defaults to 10 s when unset" {
+@test "devdoc_commit_dir: with the bound unset the run deadline caps the wait (10 s default pinned in source)" {
     unset DEVAGENT_DEVDOC_LOCK_TIMEOUT
     hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
     DEVAGENT_DEVDOC_LOCK_DEADLINE="$(date +%s)"   # the deadline caps the default: no wait

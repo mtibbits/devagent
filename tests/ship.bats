@@ -8,9 +8,12 @@ setup() {
     # #1055: commit_devdoc is true in the common config, so the default devDoc
     # must be outside git — else a ship could commit into an enclosing repository
     # (a TMPDIR inside a work tree). Real git: the stub below answers anything.
-    ! /usr/bin/git -C "$DEVDOC_DIR" rev-parse --git-dir >/dev/null 2>&1
+    if /usr/bin/git -C "$DEVDOC_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+        echo "DEVDOC_DIR is inside a git work tree: $DEVDOC_DIR" >&2
+        return 1
+    fi
     unset DEVAGENT_DEVDOC_LOCK_TOKEN DEVAGENT_DEVDOC_LOCK_DEADLINE
-    ( cd "$SOURCE_DIR"&& git checkout -q -b feat/1-x \
+    ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x \
       && echo hi > a.txt && git add a.txt \
       && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"

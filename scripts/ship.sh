@@ -81,12 +81,6 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 # so a checklist without the row dies with nothing done.
 self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" ship)" || die "no step named 'ship' in $issue_dir/checklist.md"
 
-# Zero-diff guard (shared core, #241): artifact-only issues have no commits to
-# push/PR. Classify commits-ahead on the ISSUE BRANCH by name — source_dir's own
-# HEAD need not be the issue branch (never is under a worktree); refs are shared,
-# so "$branch" resolves regardless (#68). Only the 'empty' verdict authorizes the
-# auto-skip; 'indeterminate' (no baseline or a rev-list FAILURE) never collapses
-# into the destructive skip (fail-safe by direction, #25/#68).
 # #1055: commit the issue's devDoc folder alone — after the row and its log line
 # (and, on the normal path, after the URL is on stdout), so the commit carries
 # them and a kill during the bounded lock wait loses only the commit. Gated on
@@ -99,6 +93,12 @@ _ship_devdoc_commit() {
     devdoc_commit_dir "$dd" "$issue_dir" "$issue_arg" "devdoc: $(basename "$issue_dir") ship" || true
 }
 
+# Zero-diff guard (shared core, #241): artifact-only issues have no commits to
+# push/PR. Classify commits-ahead on the ISSUE BRANCH by name — source_dir's own
+# HEAD need not be the issue branch (never is under a worktree); refs are shared,
+# so "$branch" resolves regardless (#68). Only the 'empty' verdict authorizes the
+# auto-skip; 'indeterminate' (no baseline or a rev-list FAILURE) never collapses
+# into the destructive skip (fail-safe by direction, #25/#68).
 baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
