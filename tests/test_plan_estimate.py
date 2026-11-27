@@ -326,9 +326,23 @@ def test_hostile_heading_and_unclosed_fences_are_fast():
     assert time.monotonic() - t < 2
 
 
-def test_unclosed_fence_hides_what_follows():
+def test_unclosed_fence_over_an_estimate_reads_unreadable():
+    # Redmr MAJOR-2: an estimate hidden by a fence that never closes is never silent absent.
     r = pe.read_estimate(_section("```text", "- Estimate (scope): {est: 3-5h, tok: 8-12M}"))
-    assert r["status"] == "absent"
+    assert r["status"] == "unreadable"
+    assert r["line"] == 5 and r["text"].startswith("- Estimate (scope)")
+    assert any(p["line"] == 4 and "never closes" in p["message"] for p in r["problems"])
+
+
+def test_unclosed_fence_with_no_estimate_after_it_stays_absent():
+    r = pe.read_estimate(_section("```text", "some quoted text", "- not an estimate"))
+    assert (r["status"], r["problems"]) == ("absent", [])
+
+
+def test_unclosed_fence_after_a_found_estimate_does_not_override_it():
+    r = pe.read_estimate(_section("- Estimate (scope): {est: 3-5h, tok: 8-12M}", "```text",
+                                  "- Estimate (confirmed): {est: 9h, tok: 9M}"))
+    assert r["status"] == "present" and r["source"] == "scope"
 
 
 # 16-20: tighten additions

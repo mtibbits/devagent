@@ -5004,8 +5004,9 @@ devdoc's git history.
    `{…}` block with an `est` or `tok` key under another label, is a near-miss.
 4. The last estimate-shaped line in a section decides: an estimate line gives
    `present` with `source` its kind, a near-miss gives `unreadable`. With none,
-   a near-miss match anywhere else outside a fence gives `unreadable`; with
-   none at all the status is `absent`.
+   a near-miss match anywhere else outside a fence gives `unreadable`, and so
+   does one inside a fence that never closes (a problem names the opener's
+   line); with none at all the status is `absent`.
 5. `est` and `tok` come from the deciding line only (no per-key fallback);
    string values are stripped, then classified by `classify_estimate`.
 6. For a confirmed line, `changed` compares the class and bounds of `est` and

@@ -4,7 +4,7 @@
 The scope step writes `- Estimate (scope): {est: …, tok: …}` under the plan's
 `### Size estimate` heading, and the tighten step writes
 `- Estimate (confirmed): {…}` directly below it. This module finds those
-lines; it owns no grammar of its own. The block is a WBS metadata block, read
+lines; it owns no value grammar of its own. The block is a WBS metadata block, read
 by `wbs-parser.py`'s `_parse_meta_walk`, and each value is classified by its
 `classify_estimate` (#737). Fenced lines are skipped by one linear pass over
 `wbs-parser.py`'s `_FENCE_RE` (an opener with no closer runs to the end of the
@@ -17,7 +17,8 @@ ESTIMATE_LINE_RE is an estimate line, and any other line that matches
 ESTIMATE_NEAR_MISS_RE, or holds a `{` block with an `est` or `tok` key
 (BRACED_ESTIMATE_RE: a drifted label), is a near-miss; the last of these decides (`present`,
 or `unreadable` for a near-miss). With none, an estimate-shaped line anywhere
-else outside a fence makes the result `unreadable`; with none at all it is
+else outside a fence makes the result `unreadable`; so does one hidden by a
+fence that never closes (a problem names the opener); with none at all it is
 `absent`. `est` and `tok` come from the deciding line only. A confirmed line's
 `changed` compares the classes and bounds of both values with the nearest
 earlier scope line.
@@ -78,6 +79,7 @@ BRACED_ESTIMATE_RE = re.compile(r"\{[^{}]*\b(?:est|tok)[ \t]*:")
 NEAR_MISS_MESSAGE = ("estimate-shaped line is not in the form "
                      "`- Estimate (scope|confirmed): {est: <time>, tok: <tokens>}`")
 OUTSIDE_MESSAGE = "estimate-shaped line outside a `### Size estimate` section"
+UNCLOSED_MESSAGE = "code fence opened here never closes; it hides an estimate-shaped line"
 # `{key}` is est or tok; only est classifies as non-time.
 REASONS = {"absent": "no {key} value", "placeholder": "{key} is a placeholder",
            "non-time": "{key} is not in h, d or w"}
@@ -88,22 +90,26 @@ def _lines(text: str) -> list[str]:
     return [x[:-1] if x.endswith("\r") else x for x in text.split("\n")]
 
 
-def _fenced(lines: list[str]) -> list[bool]:
-    """True for each fence or code line: one pass, an unclosed fence runs to EOF."""
+def _fenced(lines: list[str]) -> tuple[list[bool], int | None]:
+    """True for each fence or code line: one pass, an unclosed fence runs to EOF.
+
+    Also returns the index of the opener left open at EOF, or None."""
     out = [False] * len(lines)
     run = None
+    opener = None
     for i, line in enumerate(lines):
         m = wbs_parser._FENCE_RE.match(line)
         if run is None:
             if m and not (m.group("run")[0] == "`" and "`" in m.group("info")):
                 run = m.group("run")
+                opener = i
                 out[i] = True
             continue
         out[i] = True
         if (m and m.group("run")[0] == run[0] and len(m.group("run")) >= len(run)
                 and not m.group("info").strip()):
             run = None
-    return out
+    return out, (opener if run is not None else None)
 
 
 def _classify(meta: dict, key: str):
@@ -122,7 +128,7 @@ def _empty(status: str, problems: list) -> dict:
 def read_estimate(text: str) -> dict:
     """The issue's estimate from a plan's text (C1 reading rules)."""
     lines = _lines(text)
-    fenced = _fenced(lines)
+    fenced, unclosed = _fenced(lines)
     in_section = False
     entries: list[dict] = []  # in-section estimate lines and near-misses, in order
     outside = None  # the last estimate-shaped line outside a size section
@@ -152,6 +158,13 @@ def read_estimate(text: str) -> dict:
             problems.append({"line": lineno, "message": OUTSIDE_MESSAGE})
             outside = {"line": lineno, "text": line, "kind": None}
     win = entries[-1] if entries else outside
+    if win is None and unclosed is not None:
+        # Never silent absent (A7): an unclosed fence hiding an estimate-shaped line.
+        hidden = next((j for j in range(unclosed + 1, len(lines))
+                       if ESTIMATE_NEAR_MISS_RE.match(lines[j])), None)
+        if hidden is not None:
+            problems.append({"line": unclosed + 1, "message": UNCLOSED_MESSAGE})
+            win = {"line": hidden + 1, "text": lines[hidden], "kind": None}
     if win is None:
         return _empty("absent", problems)
     if win["kind"] is None:
