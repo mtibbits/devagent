@@ -305,7 +305,7 @@ Last good:   4 scope" ]
 @test "#909 hold.sh's Last good line: (none), and the nearest [x] past a non-done row" {
   _q "$BATS_TEST_TMPDIR/q.md"
   # (none): no row before 5 improve is [x].
-  sed -i -E 's/^- \[x\] ( +[024]\. )/- [ ]\1/' "$CK"
+  sed -i -E 's/^- \[x\]( +[024]\. )/- [ ]\1/' "$CK"
   [ "$(grep -c '^- \[x\]' "$CK")" -eq 0 ]
   run "$H" toy Issue-7 --step improve --reason why --question-file "$BATS_TEST_TMPDIR/q.md"
   [ "$status" -eq 3 ]

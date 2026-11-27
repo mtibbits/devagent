@@ -2,8 +2,10 @@
 # #909: one STUCK header for every writer. The writer half (W*) pins the header
 # that checklist-stuck.sh and stuck.sh both write through stuck_write
 # (scripts/lib/checklist.sh) and holds the question STUCK's renderer to it. The
-# reader half (R*) drives every in-repo reader's real entry point over the new
-# output and over each pre-#909 form (tests/lib/stuck-forms.bash).
+# reader half (R*) drives the readers' real entry points over the new output and
+# over each pre-#909 form (tests/lib/stuck-forms.bash). statusreport, reap and
+# preship-verified-head get the same loop in their own bats files; portfolio.py
+# is covered by pytest.
 
 load 'lib/bats-helpers'
 load 'lib/hold-fixture'   # _lib and _question_stuck
@@ -194,6 +196,7 @@ _same() {
 @test "#909 stuck_write fails loudly into a missing directory" {
   run stuck_write "$BATS_TEST_TMPDIR/nope" 6 prune r '5 improve'
   [ "$status" -eq 1 ]
+  [[ "$output" == *"nope/STUCK"* ]]                     # bash names the path it could not open
   [ ! -e "$BATS_TEST_TMPDIR/nope" ]
 }
 
