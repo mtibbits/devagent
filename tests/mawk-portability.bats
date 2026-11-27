@@ -69,8 +69,9 @@ teardown() { teardown_tmp_devagent_home; }
   grep -E '^- \[!\]  4\. scope' "$DEVDOC/Issue-676/checklist.md"
   [ -f "$DEVDOC/Issue-676/STUCK" ]
   # The "last good" walk-back (last [x] step before the current one) must still
-  # resolve — step 2 (draft), not step 0 — proving the number extraction works.
-  grep -q 'Last good: *step 2 draft' "$DEVDOC/Issue-676/STUCK"
+  # resolve — step 2 (draft), not step 0 — proving the number extraction works,
+  # now through the unified walk (#909).
+  grep -qx 'Last good:   2 draft' "$DEVDOC/Issue-676/STUCK"
 }
 
 @test "unstuck.sh runs under mawk and flips [!] back to [~] (#313 born-red)" {
