@@ -49,6 +49,15 @@
 # this golden: whichever of #947 and #986 lands second re-captures on top of the
 # other. As with #1099, the @test name carries no SHA.
 #
+# 2026-11-27 (#1055): ship.argv gained `git rev-parse --git-common-dir` — ship
+# now probes whether the devDoc is in git for its best-effort folder commit
+# (commit_devdoc = true in helpers/common; under the no-op git stub the devDoc
+# reads as outside git, so nothing is committed). Only ship.argv's body and its
+# captured-at line moved, re-captured with `TRUST_GOLDEN_CAPTURE_SHA=<branch
+# HEAD> TRUST_GOLDEN_CAPTURE_KINDS=argv bats -f 'trust-golden: ship'
+# tests/trust-golden.bats`; ship.out/.err/.rc keep 891254c. As with #1099, the
+# @test name carries no SHA.
+#
 # Retirement: the four #713 fixtures stay until #902 merges (#902's AC reuses them).
 # After that, only "no-policy runs make no whoami/events call" is the standing
 # guard and the fixture comparisons may be deleted.
@@ -85,7 +94,7 @@ teardown() {
   [ "$(grep -c 'flags.sh: warn:' "$GOLDEN_DIR/pull-flagsdiag.err")" -ge 3 ]
 }
 
-@test "trust-golden: ship no-policy output is byte-identical to the 891254c golden" {
+@test "trust-golden: ship no-policy output is byte-identical to its golden (#713, re-captured #1055)" {
   _scenario_ship
   _golden_check ship "$GOLDEN_ARGV"
 }
