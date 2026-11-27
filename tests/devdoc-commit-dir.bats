@@ -70,7 +70,7 @@ _mid_merge() {
     _all_under testproj/Captures/s1/
     [ "$(git -C "$DEVDOC_REPO" log -1 --format=%s)" = "$SUBJ" ]
     [ "$(git -C "$DEVDOC_REPO" log -1 --format='%an <%ae>')" = "devagent <devagent@local>" ]
-    ! git -C "$DEVDOC_REPO" log -1 --format=%B | grep -q 'Signed-off-by'
+    [[ "$(git -C "$DEVDOC_REPO" log -1 --format=%B)" != *Signed-off-by* ]]
     [ "$(git -C "$DEVDOC_REPO" status --porcelain -- proj2/Issue-9/checklist.md)" = "M  proj2/Issue-9/checklist.md" ]
     [ ! -e "$LP" ]
 }
@@ -184,7 +184,8 @@ _mid_merge() {
 @test "devdoc_commit_dir: the lock bound defaults to 10 s when unset" {
     unset DEVAGENT_DEVDOC_LOCK_TIMEOUT
     hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
-    export DEVAGENT_DEVDOC_LOCK_DEADLINE="$(date +%s)"   # the deadline caps the default: no wait
+    DEVAGENT_DEVDOC_LOCK_DEADLINE="$(date +%s)"   # the deadline caps the default: no wait
+    export DEVAGENT_DEVDOC_LOCK_DEADLINE
     t0="$(date +%s)"
     _dcd "$DEVDOC_DIR" "$F" - "$SUBJ"
     t1="$(date +%s)"

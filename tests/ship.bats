@@ -885,6 +885,7 @@ _ship_head_only_issue1() {
     run --separate-stderr "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [ "${lines[0]}" = "https://github.com/acme/testproj/pull/77" ]
+    # shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
     [[ "$stderr" == *"WARNING: devdoc commit of $DEVDOC_DIR/Issue-1 skipped - devdoc lock timeout; commit it by hand:"* ]]
     devagent_assert_logged "gh pr create --repo acme/testproj"
     grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"

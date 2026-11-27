@@ -277,6 +277,7 @@ _dd_count() { git -C "${TMP_DEVDOC}" rev-list --count HEAD; }
   run --separate-stderr "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
   [ "$status" -eq 0 ]
   [ "$output" = "https://github.com/fakeorg/fake/issues/4242" ]
+  # shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
   [[ "$stderr" == *"file.sh: WARNING: devdoc commit of ${CAP_DIR} skipped - devdoc lock timeout; commit it by hand:"* ]]
   [ -f "${CAP_DIR}/filed.toml" ]
   [ "$(grep -c '^verb=create$' "${MOCK_INVOCATION_LOG}")" -eq 1 ]
