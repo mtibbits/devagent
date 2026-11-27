@@ -30,10 +30,12 @@ devdoc-sync.bats 324
 evidence-stamp.bats 302
 floor.bats 39
 heartbeat.bats 21
+hold.bats 534
 hooks-scaffold.bats 8
 lib_notify.bats 125
 lib_question.bats 31
 long-run.bats 77
+next-hold.bats 302
 post-gate-names.bats 236
 preship-deferred.bats 220
 preship-evidence.bats 563
