@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034  # its globals are read by the tests that source it
 # tests/lib/stuck-forms.bash — #909: the one home of the pre-#909 STUCK header
 # forms and of the unified header's Created: regex. A pure function layer: source
 # it with `. "$BATS_TEST_DIRNAME/lib/stuck-forms.bash"`, never with `load`, so it
