@@ -479,7 +479,7 @@ _sync_asserts() {
   [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
   grep -q '^- \[?\] 22\. impact' "$CK"
   grep -q '^- \[?\] 19\. mergetoall' "$CK"
-  ! grep -q 'sync: unblocked' "$CK"
+  ! grep -q 'sync: unblocked' "$CK" || false
 }
 
 _reap() {
