@@ -268,3 +268,31 @@ _clears() {
     run grep -q 'cleared mergemr stop' "$CL"
     [ "$status" -eq 1 ]
 }
+
+# _clears_form <form> <reason> (#909): _clears, with the stop's STUCK rewritten
+# in a pre-#909 stuck.sh form (tests/lib/stuck-forms.bash).
+_clears_form() {
+    local form="$1" reason="$2" h
+    _postship_checklist
+    _stop mergemr "$reason"
+    stuck_old_form "$form" "$ISSUE_DIR/STUCK" 20 mergemr "$reason" 19 mergetoall
+    h="$(_head)"
+    _pin_record
+    [ "$status" -eq 0 ]
+    [ "$(_key verified_head)" = "$h" ]
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -f "$ISSUE_DIR/STUCK" ]
+    grep -qE "^- [0-9-]+ [0-9:]+  preship: verified_head $h$" "$CL"
+    grep -qF "  preship: cleared mergemr stop (${reason:0:60})" "$CL"
+    [[ "$output" == *"preship: cleared mergemr stop (${reason:0:60})"* ]]
+}
+
+@test "#909 preship-verified-head: record clears a mergemr stop written in stuck.sh's old forms" {
+    . "$DEVAGENT_ROOT/tests/lib/stuck-forms.bash"
+    local f n=0
+    for f in sh sh-nolg; do
+        _clears_form "$f" "mergemr rule 10: no verified head for this PR; run /devagent:preship"
+        n=$((n + 1))
+    done
+    [ "$n" -eq 2 ]
+}

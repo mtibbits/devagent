@@ -375,3 +375,18 @@ AW
   [ ! -e "${da_home}/.claude/devagent/state/fake.reaped.toml" ]
   rm -rf "${da_home}" "${explicit}"
 }
+
+@test "#909 reap drafts a STUCK of every old form under its Reason" {
+  . "${REPO_ROOT}/tests/lib/stuck-forms.bash"
+  local f n=0
+  for f in "${STUCK_OLD_FORMS[@]}"; do
+    stuck_old_form "$f" "${TMP_DEVDOC}/Issue-101/STUCK" 6 prune 'waiting on the token key' 5 improve
+    run "${REPO_ROOT}/scripts/capture/reap.sh" --dry-run
+    [ "$status" -eq 0 ]
+    # The whole dry-run row: <id> TAB chore TAB <source> TAB <title>.
+    grep -qxE "[0-9a-f]{12}"$'\t'"chore"$'\t'"Issue-101/STUCK"$'\t'"STUCK: waiting on the token key" \
+      <<<"$output" || { echo "$f: $output" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 3 ]
+}

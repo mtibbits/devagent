@@ -234,3 +234,131 @@ Q
   [ -f "$BATS_TEST_TMPDIR/out-cs/STUCK" ]
   _same
 }
+
+# ---- reader half -------------------------------------------------------------
+# Forms: `new` (stuck.sh's real output) plus STUCK_OLD_FORMS. Each test loops
+# over all four, resets the fixture each pass, and ends on a form count.
+
+# _form <form>: a flat checklist stuck at 6 prune whose STUCK is in <form>.
+_form() {
+  rm -rf "$D"; mkdir -p "$D"
+  _ck flat
+  if [ "$1" = new ]; then
+    "$PLUGIN_ROOT/scripts/stuck.sh" toy 'waiting on the token key' > /dev/null 2>&1 \
+      || { echo "_form new: stuck.sh failed" >&2; return 1; }
+  else
+    sed -i 's/^- \[~\]  6\. prune$/- [!]  6. prune/' "$CK"
+    stuck_old_form "$1" "$D/STUCK" 6 prune 'waiting on the token key' 5 improve
+  fi
+  grep -qxF -- '- [!]  6. prune' "$CK" || { echo "_form $1: row 6 is not [!]" >&2; return 1; }
+  [ -f "$D/STUCK" ]
+}
+
+@test "#909 catchup.sh shows a STUCK of every form verbatim" {
+  local f n=0 body
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    run "$PLUGIN_ROOT/scripts/catchup.sh" toy
+    [ "$status" -eq 0 ]
+    body="$(sed 's/^/  /' "$D/STUCK")"
+    [[ "$output" == *"STUCK file present:"$'\n'"$body"* ]] || { echo "$f: $output" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
+@test "#909 where.sh shows the STUCK section for every form" {
+  local f n=0 body
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    run "$PLUGIN_ROOT/scripts/where.sh" toy
+    [ "$status" -eq 0 ]
+    body="$(sed 's/^/  /' "$D/STUCK")"
+    [[ "$output" == *"STUCK:"$'\n'"$body"$'\n\n'"Run /devagent:unstuck to clear."* ]] \
+      || { echo "$f: $output" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
+@test "#909 status.sh prints the Reason of every form" {
+  local f n=0
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    run "$PLUGIN_ROOT/scripts/status.sh"
+    [ "$status" -eq 0 ]
+    grep -qxF '  STUCK: waiting on the token key' <<<"$output" || { echo "$f: $output" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
+@test "#909 unstuck.sh clears every form" {
+  local f n=0
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    run "$PLUGIN_ROOT/scripts/unstuck.sh" toy
+    [ "$status" -eq 0 ] || { echo "$f: $output" >&2; return 1; }
+    grep -qxF -- '- [~]  6. prune' "$CK"
+    [ ! -e "$D/STUCK" ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
+@test "#909 checklist-unstuck.sh clears every form" {
+  local f n=0
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$D"
+    [ "$status" -eq 0 ] || { echo "$f: $output" >&2; return 1; }
+    grep -qxF -- '- [ ]  6. prune' "$CK"
+    [ ! -e "$D/STUCK" ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
+@test "#909 next.sh halts on every form" {
+  local f n=0 body
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    run "$PLUGIN_ROOT/scripts/next.sh" toy
+    [ "$status" -eq 1 ] || { echo "$f: status $status: $output" >&2; return 1; }
+    body="$(sed 's/^/  /' "$D/STUCK")"
+    [[ "$output" == *"STUCK: step 6 (prune) is marked [!]. Run /devagent:unstuck to clear."$'\n'"$body"* ]] \
+      || { echo "$f: $output" >&2; return 1; }
+    [[ "$output" != *"dispatch:"* ]]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
+@test "#909 the shared STUCK predicates read every form" {
+  local f n=0 line
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    line="$(grep -nxF -- '- [!]  6. prune' "$CK" | cut -d: -f1)"
+    [ "$(stuck_kind "$D")" = stuck ]
+    [ "$(stuck_header_value "$D/STUCK" Step)" = '6 prune' ]
+    [ "$(stuck_header_value "$D/STUCK" Reason)" = 'waiting on the token key' ]
+    [ "$(checklist_sentinel_stall "$D")" = "$line:6" ] || { echo "$f: stall [$(checklist_sentinel_stall "$D")]" >&2; return 1; }
+    [ "$(question_next_number "$D")" = 01 ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
+
+@test "#909 revise.sh refuses over every form" {
+  local f n=0
+  for f in new "${STUCK_OLD_FORMS[@]}"; do
+    _form "$f"
+    cp "$CK" "$BATS_TEST_TMPDIR/before.md"
+    run "$PLUGIN_ROOT/scripts/revise.sh" toy Issue-1 --no-chain
+    [ "$status" -eq 1 ] || { echo "$f: status $status: $output" >&2; return 1; }
+    [[ "$output" == *"is stuck:"* && "$output" == *"Nothing was changed."* ]]
+    cmp "$BATS_TEST_TMPDIR/before.md" "$CK"
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ]
+}
