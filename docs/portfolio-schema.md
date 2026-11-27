@@ -229,10 +229,11 @@ carried as written and never summed.
 ### Stuck — `projects[].issues[].stuck`
 
 All three are copied **verbatim** from the `STUCK` file, and each is null when
-its line is missing. No format is promised, because there are two writers:
-`checklist-stuck.sh` writes `Created:` with `date -Iseconds`, while `stuck.sh`
-writes a zoneless `%Y-%m-%d %H:%M`. `Last good:` is not carried: it may be
-absent, and its form also differs by writer.
+its line is missing. No format is promised. Since #909 every writer emits
+`Created:` with `date -Iseconds`, but a STUCK written before #909 keeps its
+writer's form and is not rewritten: `stuck.sh` wrote a zoneless
+`%Y-%m-%d %H:%M`, `checklist-stuck.sh` wrote `date -Iseconds`. Tightening the
+promise for new files is a #725 follow-up. `Last good:` is not carried.
 
 | Path | Type | Req | Meaning |
 |---|---|---|---|
