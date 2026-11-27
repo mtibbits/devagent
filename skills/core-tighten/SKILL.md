@@ -28,7 +28,9 @@ After prune, the plan is minimal. Tighten makes it executable:
 - Reads: full `<issue-dir>/imPlan.md`, scope evaluation, any
   `<issue-dir>/issue.md` clarifications.
 - Writes: modifies `<issue-dir>/imPlan.md` in place; may append a
-  `## Definition of done` section.
+  `## Definition of done` section; writes the
+  `- Estimate (confirmed): {…}` line directly below the scope estimate
+  line (#738).
 
 ## Checklist
 
@@ -47,9 +49,35 @@ After prune, the plan is minimal. Tighten makes it executable:
    "no test, because…" justification. Halt if any task lacks both.
 5. **Definition of done.** Append `## Definition of done` mapping
    each Scope > Success criterion to the task(s) that fulfill it.
-6. **Re-read silently.** A fresh subagent should be able to start
+6. **Confirm the estimate.** Find the last `Estimate (scope)` line under
+   a `### Size estimate` heading. Judge it against the tightened task
+   list: the whole issue, pull to cleanup (on a revision, what is already
+   spent plus what remains). Then write
+   `- Estimate (confirmed): {est: <agent time>, tok: <tokens>}`
+   directly below it: the same values when the estimate stands, new ones
+   when it does not. Always write it, changed or not: its presence is what
+   "confirmed" means on disk, and the impact step reports an estimate
+   without it as not confirmed. Units are the scope line's: `est` is agent
+   wall time in `h`, `d` or `w`, `tok` is input-token equivalents in `k`
+   or `M`, each one value or a `low-high` range. The label is exactly
+   `Estimate (confirmed)`, and nothing follows the closing `}`. Never edit
+   or delete the scope line. On a re-run, replace the confirmed line
+   already there instead of adding a second. With no scope estimate line,
+   write none, and add `no scope estimate line` to the log line's `note:`.
+7. **Re-read silently.** A fresh subagent should be able to start
    task 1 with zero clarifying questions. If you would ask one,
    tighten the plan until you wouldn't.
+
+## Output format (in imPlan.md)
+
+The scope step wrote the first two lines; this step adds the third:
+
+```markdown
+### Size estimate
+- ~XXX LOC across N files; ~Y hours.
+- Estimate (scope): {est: <agent time>, tok: <tokens>}
+- Estimate (confirmed): {est: <agent time>, tok: <tokens>}
+```
 
 ## Halt and ask if
 
@@ -67,6 +95,8 @@ After prune, the plan is minimal. Tighten makes it executable:
 Never auto-skip. If the plan is already tight (ordering, paths, tests
 all present), surface "plan is already tight; mark step `[-]`
 skipped?" for operator confirmation.
+A skipped tighten leaves the estimate unconfirmed, and the impact step
+reports it as `estimate not confirmed`.
 
 ## Logging
 

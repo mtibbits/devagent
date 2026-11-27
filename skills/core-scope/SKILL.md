@@ -48,6 +48,25 @@ ask.
 3. **Size.** Rough estimate: lines of code, files touched, hours of
    work. If size > 1 day or > 300 LOC, halt and ask whether the
    issue should be split.
+   Then record the issue's estimate as one structured line, directly
+   below that prose line under `### Size estimate` (#738):
+   `- Estimate (scope): {est: <agent time>, tok: <tokens>}`.
+   - It covers the whole issue, pull to cleanup; on a revision, what is
+     already spent plus what remains.
+   - `est` is agent wall time, the `agent wall` figure `cost-report.sh
+     --time` reports, in `h`, `d` (8 agent hours) or `w` (40 agent hours).
+   - `tok` is price-weighted input-token equivalents, the unit
+     `cost-report.sh` counts in, in `k` or `M`.
+   - Each takes one value or a `low-high` range with one trailing unit:
+     `est: 3-5h`, `est: 2d`, `tok: 8-12M`, `tok: 500k`. Write `?` when no
+     estimate can be given, and give the reason in the prose line.
+   - `est` is not the "hours of work" figure above, and it is not an input
+     to the split threshold.
+   - A closed issue of similar size is the reference: its `impact.md`
+     records `- Workflow cost:` and `- Workflow time:` lines.
+   - The label is exactly `Estimate (scope)`, and nothing follows the
+     closing `}`. The impact step reads this line back through
+     `scripts/plan-estimate.sh`; any other form reads as unreadable.
 4. **Ambiguity.** What in the issue or plan is unclear and would
    require a judgment call? List each ambiguity and how this plan
    resolves it (or marks it as "ask the maintainer").
@@ -84,6 +103,7 @@ ask.
 
 ### Size estimate
 - ~XXX LOC across N files; ~Y hours.
+- Estimate (scope): {est: <agent time>, tok: <tokens>}
 
 ### Ambiguities
 - ...
@@ -99,7 +119,12 @@ ask.
 
 - `<issue-dir>/imPlan.md` does not exist (no plan to evaluate).
 - The plan already has a `## Scope evaluation` section (ask whether to
-  overwrite, append a new revision sub-section, or abort).
+  overwrite, append a new revision sub-section, or abort). On "append a
+  new revision sub-section", the new evaluation carries its own
+  `### Size estimate` and estimate line, and earlier estimate lines are
+  never edited. On "overwrite", the rewritten section carries a fresh
+  `Estimate (scope)` line, and any earlier `Estimate (confirmed)` line is
+  gone with the old section.
 - Size estimate exceeds 1 day / 300 LOC — propose splitting the issue.
 - More than 3 ambiguities surface — propose a clarifying comment on
   the upstream issue before continuing.
