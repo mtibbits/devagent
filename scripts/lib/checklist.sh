@@ -704,17 +704,10 @@ stuck_header_value() {
 }
 
 # ---- the STUCK writer (#909) -------------------------------------------------
-# One header for every STUCK writer: checklist-stuck.sh and stuck.sh write it
-# through stuck_write, and hold.sh's question STUCK takes its `Last good:` from
-# stuck_last_good (question_render keeps its own printf until #972, and
-# tests/stuck-format.bats holds its header lines to stuck_render's). The four
-# lines carry no blank and no `## ` line for a one-line reason, so
-# stuck_header_value and stuck_kind above read the whole header; status.sh,
-# preship-verified-head.sh, reap.sh and portfolio.py read Step:/Reason:/Created:
-# by hand, and Gantry's read_stuck takes `Created:` from the header's last line.
-# Seam for #972: kind and body arrive after these five arguments; a `Kind:` line
-# goes before stuck_render's lines, the body after a blank line, so `Created:`
-# stays the header's last line.
+# One header for every STUCK writer (question_render keeps its own printf until
+# #972; tests/stuck-format.bats holds it to stuck_render). The header has no
+# blank line, so stuck_header_value and stuck_kind read all of it, and
+# `Created:` stays its last line, where Gantry's read_stuck looks for it.
 
 # stuck_last_good <checklist> <N>: the nearest earlier [x] row as `<M> <name>`,
 # or `(none)`; per number, active block first, else the first row in the whole

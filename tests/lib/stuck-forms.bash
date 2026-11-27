@@ -1,17 +1,15 @@
 # shellcheck shell=bash
 # tests/lib/stuck-forms.bash — #909: the one home of the pre-#909 STUCK header
-# forms and of the unified header's shape regexes. A pure function layer: it
-# sets two regexes, one array and one function, and nothing else. Source it with
-# `. "$BATS_TEST_DIRNAME/lib/stuck-forms.bash"`, never with `load`, so it stays
-# out of lib_setup_layers.bats's hermetic-env census.
+# forms and of the unified header's Created: regex. A pure function layer: source
+# it with `. "$BATS_TEST_DIRNAME/lib/stuck-forms.bash"`, never with `load`, so it
+# stays out of lib_setup_layers.bats's hermetic-env census.
 
 # The forms a STUCK written before #909 may have on disk; readers accept each.
 STUCK_OLD_FORMS=(cs sh sh-nolg)
 
 # The unified header's `Created:` (date -Iseconds: zone always as ±HH:MM, never
-# Z, also under the suite's TZ=UTC) and `Last good:` (<N> <name>, or (none)).
+# Z, also under the suite's TZ=UTC).
 STUCK_CREATED_RE='^Created:     [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$'
-STUCK_LAST_GOOD_RE='^Last good:   ([0-9]+ [A-Za-z][A-Za-z0-9_-]*|\(none\))$'
 
 # stuck_old_form <form> <file> <N> <name> <reason> <lg-N> <lg-name>
 # Writes <file> as a pre-#909 writer did; <lg-N>/<lg-name> are ignored by sh-nolg.

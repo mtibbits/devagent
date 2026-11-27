@@ -6,14 +6,11 @@
 # output and over each pre-#909 form (tests/lib/stuck-forms.bash).
 
 load 'lib/bats-helpers'
+load 'lib/hold-fixture'   # _lib and _question_stuck
 
 setup() {
   . "$BATS_TEST_DIRNAME/lib/stuck-forms.bash"
-  local l
-  for l in paths io config checklist question-actions; do
-    # shellcheck source=/dev/null
-    source "$PLUGIN_ROOT/scripts/lib/$l.sh"
-  done
+  _lib
   setup_tmp_devagent_home
   DEVDOC="$BATS_TEST_TMPDIR/devdoc"
   D="$DEVDOC/Issue-1"
@@ -100,28 +97,6 @@ _same() {
     || { diff "$BATS_TEST_TMPDIR/norm-sh" "$BATS_TEST_TMPDIR/norm-cs" >&2; return 1; }
 }
 
-# _qrec <file>: a valid question record (a copy of hold-fixture.bash's _q).
-_qrec() {
-  cat > "$1" <<'Q'
-## Question
-
-Proceed with round 4?
-
-## Impediment
-
-improve found 14 bugs after round 3 of 3.
-
-## Options
-
-- `a` (recommended) Run round 4.
-- `b` Stop and prune.
-
-## Evidence
-
-analysis/2026-11-20-improve.md
-Q
-}
-
 # ---- writer half -------------------------------------------------------------
 
 @test "#909 stuck_render prints the four header lines byte for byte" {
@@ -182,11 +157,10 @@ Q
 }
 
 @test "#909 checklist-stuck.sh --name mergemr keeps its header" {
-  local w="$BATS_TEST_TMPDIR/w5" s
+  local w="$BATS_TEST_TMPDIR/w5"
   "$PLUGIN_ROOT/scripts/checklist-init.sh" "$w" > /dev/null
-  for s in $(seq 0 18); do
-    "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$w" "$s" x > /dev/null
-  done
+  sed -i -E 's/^- \[ \]( +([0-9]|1[0-8])\. )/- [x]\1/' "$w/checklist.md"
+  grep -qE '^- \[x\] 18\. ship$' "$w/checklist.md"
   grep -qE '^- \[-\] 19\. mergetoall$' "$w/checklist.md"
   run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --name mergemr "$w" 'mergemr rule 10: x'
   [ "$status" -eq 0 ]
@@ -194,12 +168,9 @@ Q
 }
 
 @test "#909 the question STUCK header lines are the shared header" {
-  _qrec "$BATS_TEST_TMPDIR/q.md"
-  question_render "$BATS_TEST_TMPDIR/q.md" toy Issue-7 improve 5 why '4 scope' 03 \
-    2026-11-20T10:31:00-05:00 > "$BATS_TEST_TMPDIR/qr"
-  stuck_render 5 improve why '4 scope' 2026-11-20T10:31:00-05:00 > "$BATS_TEST_TMPDIR/sr"
-  sed -n 2,5p "$BATS_TEST_TMPDIR/qr" > "$BATS_TEST_TMPDIR/qh"
-  cmp "$BATS_TEST_TMPDIR/sr" "$BATS_TEST_TMPDIR/qh"
+  _question_stuck improve 5
+  stuck_render 5 improve r '4 scope' 2026-11-20T10:31:00-05:00 > "$BATS_TEST_TMPDIR/sr"
+  sed -n 2,5p "$D/STUCK" | cmp "$BATS_TEST_TMPDIR/sr" -
 }
 
 @test "#909 each writer's STUCK reads back through stuck_header_value" {

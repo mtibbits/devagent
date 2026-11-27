@@ -79,12 +79,6 @@ _hold_exit() {
   if (( _HOLD_MADE_QDIR )); then rmdir "$issue_dir/questions" 2>/dev/null || true; fi
 }
 
-# _last_good <checklist> <N>: the nearest earlier [x] row as <N> <name>, or
-# (none). The walk's one home is stuck_last_good (scripts/lib/checklist.sh, #909).
-_last_good() {
-  stuck_last_good "$1" "$2"
-}
-
 # _umask_mode: the mode a new file gets under the current umask (as STUCK).
 _umask_mode() { printf '%o\n' "$(( 0666 & ~8#$(umask) ))"; }
 
@@ -92,7 +86,7 @@ _umask_mode() { printf '%o\n' "$(( 0666 & ~8#$(umask) ))"; }
 # the umask mode.
 _render_to() {
   question_render "$2" "$project" "$issue" "$step" "$step_num" "$reason" \
-    "$(_last_good "$checklist" "$step_num")" "$3" "$(date -Iseconds)" > "$1" || return 1
+    "$(stuck_last_good "$checklist" "$step_num")" "$3" "$(date -Iseconds)" > "$1" || return 1
   chmod "$(_umask_mode)" "$1"
 }
 

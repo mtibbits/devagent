@@ -53,7 +53,6 @@ else
   name="$(checklist_step_name "$file" "$cur")" || die "no step $cur in $file"
 fi
 
-# The last good step for the STUCK header (#909: the one walk, stuck_last_good).
 last_good="$(stuck_last_good "$file" "$cur")" \
   || die "could not read the last good step before $cur in $file"
 

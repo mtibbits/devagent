@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# scripts/stuck.sh — mark current step [!], and write the STUCK header through
-# stuck_write (scripts/lib/checklist.sh, #909). Spec §5.3, §6.5.
+# scripts/stuck.sh — mark current step [!], write STUCK file. Spec §5.3, §6.5.
 # Usage: stuck.sh <project> "<reason>"
 
 set -euo pipefail
@@ -45,7 +44,6 @@ quarantine_guard "stuck" "$project"
     || die "no current step to mark stuck (issue is complete or empty)"
   cur_name="$(checklist_step_name "$checklist" "$cur")"
 
-  # The last good step for the STUCK header (#909: the one walk, stuck_last_good).
   last_good="$(stuck_last_good "$checklist" "$cur")" \
     || die "could not read the last good step before $cur in $checklist"
 
