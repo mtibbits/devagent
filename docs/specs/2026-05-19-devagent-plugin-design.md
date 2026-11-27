@@ -108,7 +108,7 @@ devAgent/
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
 │   │                        #   milestones.py — #734 milestone rows,
-│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock + #1148 sync with origin,
+│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock + #1148 sync with origin + #1055 best-effort folder commit,
 │   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
 │   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source,
 │   │                        #   prereqs.sh — #986 doctor's dependency-free prerequisite rows (bash 3.2-safe),
@@ -555,6 +555,30 @@ per repository (`scripts/lib/devdoc-repo.sh`):
   <branch> (<issue> wbs update)`, for the next cleanup to push. A refusal or
   skip prints one `info` line ending "This step uses this machine's copy; the
   next cleanup syncs again." and the exit is unchanged.
+- **Per-step commits (#1055).** Each devDoc path is committed by the step
+  after which it stops changing often:
+  - filing (`capture/file.sh`): `Captures/<slug>/`, after `filed.toml` is
+    written and the URL is on stdout, subject `devdoc: file <slug> as
+    <repo>#<issue_num>`;
+  - ship (`ship.sh`): the issue folder, after its row, its log line and the
+    URL, and on the zero-diff skip too, subject `devdoc: <issue> ship`;
+  - cleanup: the issue folder again, plus a changed `WBS.md`;
+  - statusreport: its report;
+  - the register drain: the pothole register layers.
+
+  Every commit runs under this lock and is pathspec-scoped to its own paths,
+  so another session's staged or dirty paths stay as they were. Filing and
+  ship commit as `devagent <devagent@local>` with no sign-off, through
+  `devdoc_commit_dir`, under cleanup's gate (`commit_devdoc = true`, read
+  through `permission_value`, and the devDoc in git; outside git is a silent
+  skip). They are best effort: the lock wait is bounded at 10 s unless
+  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` is set; it refuses mid-merge, mid-rebase,
+  mid-cherry-pick, mid-revert and on a detached HEAD; any failure prints one
+  `devdoc commit of <dir> skipped - <reason>; <remedy>` warning, where the
+  remedy is the hand commit when it is safe to print, and the step's exit is
+  unchanged. A capture edited after filing is not re-committed and shows in
+  cleanup's unowned report. These commits stay local until the next cleanup's
+  sync pushes them.
 
 `WBS.md` itself is replaced atomically under the lock (`write_document`,
 §13.2), and its replace retries a `PermissionError` for about 8 s (20
@@ -2921,7 +2945,7 @@ Gate set:
 | `push_mr` | `ship.sh` (not asked on the local code backend, #1016: nothing leaves the machine) |
 | `merge_mr` | `mergemr.sh` (#885; read directly, see above) |
 | `merge_to_all_prs` | `mergetoall.sh` (#885 retired its `merge_mr` fallback) |
-| `commit_devdoc` | `cleanup.sh`, `statusreport.sh` |
+| `commit_devdoc` | `cleanup.sh`, `statusreport.sh`, `ship.sh` (#1055), `capture/file.sh` (#1055), `wbs-update.sh`, `status.sh`, `promote-potholes.sh` |
 | `transition_issue` | every tracker transition: `on_draft_start` (`transition-draft-start.sh`, #325), `on_ship` (`ship.sh`, #710) and `on_merge` (`sync.sh`, #219; `mergemr.sh`, #885, through the shared `lib/merge-marker.sh`). |
 | `cleanup_on_merge` | `sync.sh` (opt-in to auto-cleanup post-merge) |
 

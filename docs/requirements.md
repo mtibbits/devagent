@@ -387,7 +387,8 @@ tracker.
   differ from the ones rebuilt from the newest record. {refines: SR-18}
 - FR-40: The ship step refuses while preship is unfinished or tracked files
   are modified; otherwise it pushes the branch and opens the MR against the
-  upstream or the fork, as a draft when the project or the issue asks.
+  upstream or the fork, as a draft when the project or the issue asks, and,
+  when permitted, commits the issue's devDoc folder alone.
   {refines: SR-1}
 - FR-41: devagent resolves each step's model from the per-issue marker, then
   a per-step override, then the step class's tier, then the default tier,
@@ -608,7 +609,8 @@ tracker.
 - FR-80: devagent's file creates the tracker issue on the origin or the fork,
   records its number and URL in the capture, asks first when the draft has no
   red-team record, stops before any tracker write while the filing gate is
-  closed, and never files one capture twice. {refines: SR-7}
+  closed, never files one capture twice, and, when permitted, commits the
+  capture's folder alone. {refines: SR-7}
 - FR-81: devagent's one-pass capture command runs capture, scaffold,
   red-team, bounded revision and filing for one topic without asking in
   between. It halts before filing when a finding challenges the capture's
@@ -1074,7 +1076,8 @@ From the design spec's permission gates and gates under trust:
   gate; only an edit to the config changes one.
 - CON-9: The gates are `push_mr` (ship and file), `merge_mr` (mergemr),
   `merge_to_all_prs` (mergetoall), `commit_devdoc` (the devdoc commits of
-  cleanup and the status report, and, with an `origin`, cleanup's devDoc sync:
+  cleanup and the status report, the filing and ship commits of their own
+  folders, and, with an `origin`, cleanup's devDoc sync:
   fetch, merge, push, and step 21's fetch and merge before the WBS reconcile)
   and `transition_issue` (every tracker
   transition). The spec also lists `cleanup_on_merge`, for a cleanup after

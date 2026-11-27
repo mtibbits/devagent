@@ -72,8 +72,21 @@ names a source with no `backend`, STOP and report the key —
    - Known gap: a labelled class's per-issue marker line overrides that
      class's `step_models.<N>` pins; the other class keeps them.
 
+   **devDoc commit (#1055).** With `commit_devdoc = true` (from
+   `[project.<owner>.permissions]` of the project that owns
+   `DEVAGENT_DEVDOC_DIR`, or the policy's value under a trust policy) and the
+   devDoc in git, `file.sh` commits `Captures/<slug>/` alone, `filed.toml`
+   included, after the URL is printed: subject `devdoc: file <slug> as
+   <repo>#<issue_num>`, as `devagent <devagent@local>`, under the devDoc
+   lock. No owner, the gate off, or a devDoc outside git means no commit and
+   no lock. The commit is best effort: a failure (lock busy for 10 s,
+   mid-merge, detached HEAD, a failed add or commit) prints one
+   `file.sh: WARNING: devdoc commit of <dir> skipped - <reason>; <remedy>`
+   line on stderr and the exit stays `0`, because the issue is filed.
+
 4. On success, print the returned URL, relay every `file.sh: tier …` stderr
-   line with it, and remind the operator that
+   line and any `devdoc commit … skipped` warning with it (the warning's
+   remedy is the hand commit), and remind the operator that
    `Captures/<slug>/filed.toml` now records the issue number.
 
 ## Targets
@@ -100,6 +113,8 @@ backend env vars `file.sh` consumes:
   policy and `DEVAGENT_ISSUE_BACKEND` unset, the backend comes from the config
   of the project that owns `DEVAGENT_DEVDOC_DIR`, and each repo var and the
   backend dir left unset is filled from it too; an exported value wins (#1009).
+- No env var carries `commit_devdoc`: `file.sh` reads it from config (or the
+  trust policy) itself (#1055).
 
 ## Non-goals
 

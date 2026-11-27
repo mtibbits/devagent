@@ -128,6 +128,8 @@ them. Exit 9 (a trust policy refused — the host, identity or `--yes`, #713)
 and exit 10 (a trust check could not run) halt the same way: stop, do not
 retry, and report the refusal line verbatim. Exit 3 (draft or state problem)
 and exit 2 (usage) are errors, not gate closures — report them as such.
+A `devdoc commit … skipped` warning on stderr (#1055) is copied into that
+capture's Outcome cell; the filing still counts as filed.
 
 Filing/processing order is your discretion, with one dependency: an epic
 must be filed before any promoted child's `Parent epic:` line can carry a
