@@ -85,8 +85,10 @@ _umask_mode() { printf '%o\n' "$(( 0666 & ~8#$(umask) ))"; }
 # _render_to <tmp> <question-file> <NN>: render the question into <tmp> with
 # the umask mode.
 _render_to() {
+  local last_good
+  last_good="$(stuck_last_good "$checklist" "$step_num")" || return 1
   question_render "$2" "$project" "$issue" "$step" "$step_num" "$reason" \
-    "$(stuck_last_good "$checklist" "$step_num")" "$3" "$(date -Iseconds)" > "$1" || return 1
+    "$last_good" "$3" "$(date -Iseconds)" > "$1" || return 1
   chmod "$(_umask_mode)" "$1"
 }
 

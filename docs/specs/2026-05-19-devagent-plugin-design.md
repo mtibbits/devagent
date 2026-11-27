@@ -1028,13 +1028,14 @@ Last good:   15 review
 Created:     2026-05-19T17:08:00-04:00
 ```
 
-**One header (#909).** Every writer, the question STUCK's renderer too, emits
-these four lines in this order and spacing. `Last good:` is the nearest earlier
-`[x]` step as `<N> <name>`, or `(none)` when there is none. The walk goes down
-by step number and reads each number from the active revision block when it is
-there, else from its first row in the file. `Created:` is `date -Iseconds`. `checklist-stuck.sh` and `stuck.sh` write it through
-`stuck_write` in `scripts/lib/checklist.sh`, and take `Last good:` from its
-`stuck_last_good`, which `hold.sh` also calls. A STUCK that `stuck.sh` wrote
+**One header (#909).** Every writer, the question STUCK's renderer too (after
+its `Kind:` line, #962), emits these four lines in this order and spacing.
+`Last good:` is the nearest earlier `[x]` step as `<N> <name>`, or `(none)`
+when there is none. The walk goes down by step number and reads each number
+from the active revision block when it is there, else from its first row in the
+file. `Created:` is `date -Iseconds`. `checklist-stuck.sh` and `stuck.sh` write
+it through `stuck_write` in `scripts/lib/checklist.sh`, and take `Last good:`
+from its `stuck_last_good`, which `hold.sh` also calls. A STUCK that `stuck.sh` wrote
 before #909 may read `Last good:   step <N> <name>`, or lack that line, with a
 zoneless `Created:` (`%Y-%m-%d %H:%M`). Such files are not rewritten, and every
 reader accepts them.
