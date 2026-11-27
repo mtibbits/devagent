@@ -9,7 +9,8 @@ argument-hint: "<project>"
 **Usage:** `/devagent:where <project>`
 
 Reports the active issue, the current step, the next actionable step,
-any STUCK file contents, and any parked issues for the project. Does
+any STUCK file contents (naming the `[!]` row's block and step even when
+it sits in an older revision block, #880), and any parked issues for the project. Does
 **not** execute the next step — invites the operator to run
 `/devagent:next` instead.
 

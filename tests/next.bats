@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+bats_require_minimum_version 1.5.0
 
 load 'lib/bats-helpers'
 load 'helpers/common'
@@ -1426,4 +1427,171 @@ EOC
   [ "$status" -ne 0 ]
   [[ "$output" == *"--through 'spike': that step is only in an older revision block of"* ]]
   [[ "$output" != *"dispatch: volk/Issue-676 — step 2 (draft)"* ]]
+}
+
+
+# --- #880: a STUCK [!] outside the active revision block ---------------------
+# _stall_fixture: an older-block [!] (Revision 1) with Revision 2 active. The
+# `## Log` section sits between the blocks, as revise.sh leaves it; unstuck.sh's
+# log_append needs one.
+_stall_fixture() {
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+## Revision 1
+
+- [x]  0. pull
+- [x]  2. draft
+- [!] 15. review
+
+## Log
+
+## Revision 2
+
+- [x]  2. draft
+- [ ] 15. review
+- [ ] 24. cleanup
+EOC
+}
+
+_stall_sentinel() {
+  printf 'Step:        15 review\nReason:      reviewer unavailable\n' > "$DEVDOC/Issue-676/STUCK"
+}
+
+_bang_line() { grep -nE '^- \[!\]' "$DEVDOC/Issue-676/checklist.md" | head -1 | cut -d: -f1; }
+
+@test "#880 next halts on a STUCK [!] in an older revision block" {
+  _stall_fixture; _stall_sentinel
+  local f="$DEVDOC/Issue-676/checklist.md" bang before
+  bang="$(_bang_line)"; [ -n "$bang" ]
+  before="$(sha256sum "$f")"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"STUCK: step 15 (review) at line $bang, Revision 1 (an older block; the active block is Revision 2) is marked [!]. Run /devagent:unstuck to clear."* ]]
+  [[ "$output" == *"reviewer unavailable"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  [[ "$output" != *"CHAIN:"* ]]
+  [ "$(sha256sum "$f")" = "$before" ]
+}
+
+@test "#880 next --auto halts on a STUCK [!] in an older revision block" {
+  _stall_fixture; _stall_sentinel
+  local f="$DEVDOC/Issue-676/checklist.md" bang before
+  bang="$(_bang_line)"; [ -n "$bang" ]
+  before="$(sha256sum "$f")"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"STUCK: step 15 (review) at line $bang, Revision 1 (an older block; the active block is Revision 2) is marked [!]. Run /devagent:unstuck to clear."* ]]
+  [[ "$output" == *"reviewer unavailable"* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  [[ "$output" != *"CHAIN:"* ]]
+  [ "$(sha256sum "$f")" = "$before" ]
+}
+
+@test "#880 a STUCK [!] in the active block that is not the current step halts" {
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+## Revision 1
+
+- [x]  0. pull
+- [x]  2. draft
+
+## Log
+
+## Revision 2
+
+- [ ]  2. draft
+- [!] 15. review
+- [ ] 24. cleanup
+EOC
+  _stall_sentinel
+  local bang; bang="$(_bang_line)"; [ -n "$bang" ]
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"STUCK: step 15 (review) at line $bang, Revision 2 (the active block) is marked [!]. Run /devagent:unstuck to clear."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+}
+
+@test "#880 an older-block stall halts even when the active block is complete" {
+  _stall_fixture; _stall_sentinel
+  sed -i -e 's/^- \[ \] 15\. review/- [x] 15. review/' -e 's/^- \[ \] 24\. cleanup/- [x] 24. cleanup/' \
+    "$DEVDOC/Issue-676/checklist.md"
+  local bang; bang="$(_bang_line)"; [ -n "$bang" ]
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"STUCK: step 15 (review) at line $bang, Revision 1 (an older block; the active block is Revision 2) is marked [!]."* ]]
+  [[ "$output" != *"All steps complete"* ]]
+}
+
+@test "#880 gate (a) keeps its message for the active block's current [!]" {
+  # Preservation leg: green at HEAD by design.
+  sed -i 's/^- \[ \]  4\. scope/- [!]  4. scope/' "$DEVDOC/Issue-676/checklist.md"
+  echo "Reason: blocked" > "$DEVDOC/Issue-676/STUCK"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"STUCK: step 4 (scope) is marked [!]. Run /devagent:unstuck to clear."* ]]
+  [[ "$output" != *"at line"* ]]
+}
+
+@test "#880 a STUCK [!] on the current step halts even when the --through target is complete" {
+  sed -i 's/^- \[ \]  4\. scope/- [!]  4. scope/' "$DEVDOC/Issue-676/checklist.md"
+  echo "Reason: blocked" > "$DEVDOC/Issue-676/STUCK"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --through draft
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"STUCK: step 4 (scope) is marked [!]. Run /devagent:unstuck to clear."* ]]
+  [[ "$output" == *"Reason: blocked"* ]]
+  [[ "$output" != *"Chain target"* ]]
+}
+
+@test "#880 an orphan older-block [!] with no STUCK warns once and dispatches as today" {
+  _stall_fixture
+  local bang; bang="$(_bang_line)"; [ -n "$bang" ]
+  run --separate-stderr "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 15 (review), skill-backed"* ]]
+  [ "$(grep -c 'WARNING:' <<<"$stderr")" -eq 1 ]
+  local w; w="$(grep 'WARNING:' <<<"$stderr")"
+  [[ "$w" == *"line $bang"* ]]
+  [[ "$w" == *"no STUCK file at $DEVDOC/Issue-676/STUCK"* ]]
+}
+
+@test "#880 a STUCK file with no [!] row warns once and dispatches as today" {
+  _stall_fixture; _stall_sentinel
+  sed -i 's/^- \[!\] 15\. review/- [x] 15. review/' "$DEVDOC/Issue-676/checklist.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 15 (review), skill-backed"* ]]
+  [ "$(grep -c 'WARNING:' <<<"$stderr")" -eq 1 ]
+  [[ "$(grep 'WARNING:' <<<"$stderr")" == *"$DEVDOC/Issue-676/STUCK is present but no row in"* ]]
+}
+
+@test "#880 a STUCK directory beside an older-block [!] warns it is not a regular file" {
+  _stall_fixture
+  mkdir "$DEVDOC/Issue-676/STUCK"
+  local bang; bang="$(_bang_line)"; [ -n "$bang" ]
+  run --separate-stderr "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 15 (review), skill-backed"* ]]
+  [ "$(grep -c 'WARNING:' <<<"$stderr")" -eq 1 ]
+  local w; w="$(grep 'WARNING:' <<<"$stderr")"
+  [[ "$w" == *"line $bang"* ]]
+  [[ "$w" == *"$DEVDOC/Issue-676/STUCK is not a regular file, so /devagent:unstuck will not clear it"* ]]
+}
+
+@test "#880 the halt's remedy clears the stall and next proceeds" {
+  _stall_fixture; _stall_sentinel
+  local f="$DEVDOC/Issue-676/checklist.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Run /devagent:unstuck to clear."* ]]
+  # Follow the printed remedy, then assert the recovered state.
+  run "$PLUGIN_ROOT/scripts/unstuck.sh" volk
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-676/STUCK" ]
+  local rev2 row
+  rev2="$(grep -n '^## Revision 2' "$f" | cut -d: -f1)"; [ -n "$rev2" ]
+  [ "$(grep -cE '^- \[~\][[:space:]]+15\. review' "$f")" -eq 1 ]
+  row="$(grep -nE '^- \[~\][[:space:]]+15\. review' "$f" | cut -d: -f1)"
+  [ "$row" -lt "$rev2" ]
+  run --separate-stderr "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 15 (review)"* ]]
+  [[ "$stderr" != *"WARNING:"* ]]
 }
