@@ -383,7 +383,9 @@ PY
   printf 'x = [\n' > "$f"
   run --separate-stderr python3 "$TOML" list-keys "$f" parked
   [ "$status" -eq 2 ]
-  [[ "$stderr" == "_toml: $f: "* ]]
+  # The file is named, but not as "$f": on Git Bash a native Python is handed
+  # the path in its C:/ form.
+  [[ "$stderr" == "_toml: "*"s.toml: "* ]]
   [[ "$stderr" != *Traceback* ]]
   printf 'active_issue = "Issue-7"\n' > "$f"
   run --separate-stderr python3 "$TOML" list-keys "$f" parked

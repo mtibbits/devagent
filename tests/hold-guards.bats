@@ -389,13 +389,14 @@ SH
   grep -q '^Reason:      new reason$' "$D/STUCK"
   [ ! -e "$D/questions/.lock" ]
   [ -f "$D/questions/notes.txt" ]
-  # The lock is free: after an ordinary unstuck, a hold runs without the wait.
+  # The lock is free: after an ordinary unstuck, a hold succeeds. No timing
+  # bound: question_lock never breaks a lock, so a lock left behind would make
+  # hold wait out its 10 s and exit 1 with the lock-busy line, not succeed.
   "$S/unstuck.sh" toy >/dev/null
   _q "$BATS_TEST_TMPDIR/q.md"
-  local t0=$SECONDS
   DEVAGENT_UNATTENDED=1 run "$S/hold.sh" toy Issue-7 --step improve --reason r --question-file "$BATS_TEST_TMPDIR/q.md"
   [ "$status" -eq 0 ] || { echo "hold rc=$status out=$output" >&2; return 1; }
-  [ $((SECONDS - t0)) -lt 5 ]
+  [[ "$output" != *"lock busy"* ]]
 }
 
 @test "no overwrite: checklist-stuck and stuck refuse on a held issue and leave it byte-identical" {

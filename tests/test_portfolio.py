@@ -1704,6 +1704,26 @@ def test_ready_stdout_is_utf8_lf_bytes(tmp_path):
     assert "Café naïve rdy-utf8" in r.stdout.decode("utf-8")
 
 
+def test_ready_stderr_lines_are_lf_bytes(tmp_path):
+    # #963: Windows text-mode stderr ends each line CRLF, and bats keeps the
+    # CR in $stderr. A sitecustomize gives this host's text-mode streams that
+    # same CRLF translation, so the check bites here and not only on Windows.
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(
+        "import sys\nfor s in (sys.stdout, sys.stderr):\n    s.reconfigure(newline='\\r\\n')\n",
+        encoding="utf-8")
+    root = _ready_copy(tmp_path)
+    env = _subprocess_env(projects=[("rho", root / "rho"), ("q", tmp_path / "missing")])
+    env["PORTFOLIO_STATE_STATUS_0"] = "unreadable"
+    env["PYTHONPATH"] = str(site)
+    r = subprocess.run([sys.executable, str(PRODUCER), "ready"], capture_output=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert r.stderr == (pf.STATE_UNREADABLE_MSG.format(project="rho") + "\n"
+                        + pf.NOT_READ_MSG.format(project="q", status="no_devdoc_dir")
+                        + "\n").encode("utf-8")
+
+
 def test_ready_broken_pipe_exits_quietly(tmp_path):
     # Enough ready leaves to overrun any pipe buffer, so the write meets the
     # closed pipe rather than finishing first.

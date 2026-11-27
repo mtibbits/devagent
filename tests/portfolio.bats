@@ -564,7 +564,10 @@ _entries() {
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 for e in d["projects"][0]["issues"]:
     k = None if e["stuck"] is None else e["stuck"]["kind"]
-    print(e["issue"], json.dumps(e["parked"]), json.dumps(k))' "$1"
+    # Bytes: Windows text-mode print() ends lines CRLF, and Git Bash $(...)
+    # strips only the last CR, so a multi-line compare would see the rest.
+    line = " ".join([e["issue"], json.dumps(e["parked"]), json.dumps(k)])
+    sys.stdout.buffer.write((line + "\n").encode("utf-8"))' "$1"
 }
 
 # _lines_of <issue> <text> ...: the --ready lines of project p.

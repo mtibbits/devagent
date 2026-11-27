@@ -1471,14 +1471,19 @@ def _ready_view() -> int:
         return failed
     # #963: keyed on the manifest's state status, never inferred from the document.
     state = {p.name: p.state_status for p in projects}
+    warnings = []
     for p in doc["projects"]:
         if p["status"] != "read":
-            sys.stderr.write(NOT_READ_MSG.format(project=p["project"], status=p["status"]) + "\n")
+            warnings.append(NOT_READ_MSG.format(project=p["project"], status=p["status"]))
         elif state.get(p["project"]) == "unreadable":
-            sys.stderr.write(STATE_UNREADABLE_MSG.format(project=p["project"]) + "\n")
+            warnings.append(STATE_UNREADABLE_MSG.format(project=p["project"]))
+    # Bytes on both streams, not text mode: Windows text-mode output would end
+    # lines CRLF and encode with the console code page (mr-link.py's emit does
+    # the same). The stderr lines are bytes too since #963: a caller matching
+    # them exactly (bats keeps a CR in $stderr) must see the same text everywhere.
     sys.stderr.flush()
-    # Bytes, not text mode: Windows text-mode stdout would end lines CRLF and
-    # encode with the console code page (mr-link.py's emit does the same).
+    sys.stderr.buffer.write("".join(w + "\n" for w in warnings).encode("utf-8"))
+    sys.stderr.buffer.flush()
     data = "".join(line + "\n" for line in ready_lines(doc)).encode("utf-8")
     try:
         sys.stdout.buffer.write(data)
