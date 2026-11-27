@@ -850,7 +850,7 @@ _ship_head_only_issue1() {
 @test "ship.sh with commit_devdoc=false makes no devDoc commit and takes no lock (#1055)" {
     _ship_git_devdoc
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
-    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
     hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
     cp "$hp/holder" "$DEVAGENT_TMP/holder.before"
     before="$(_ship_count)"
@@ -864,7 +864,7 @@ _ship_head_only_issue1() {
 
 @test "ship.sh with devDoc outside git makes no commit and takes no lock (#1055)" {
     _install_real_git_except_push_stub
-    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
     hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
     [ "$hp" = "$(cd "$DEVDOC_DIR" && pwd -P)/.devagent-wbs.lock" ]
     cp "$hp/holder" "$DEVAGENT_TMP/holder.before"
@@ -878,7 +878,7 @@ _ship_head_only_issue1() {
 
 @test "ship.sh with the devDoc lock held warns, exits 0 and keeps the PR (#1055)" {
     _ship_git_devdoc
-    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
     hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
     cp "$hp/holder" "$DEVAGENT_TMP/holder.before"
     before="$(_ship_count)"

@@ -373,16 +373,13 @@ devdoc_mid_operation() {
 # site to move.
 # ---------------------------------------------------------------------------
 
-# _devdoc_sq <text> — <text> as one single-quoted shell word.
-_devdoc_sq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
-
 # _devdoc_commit_warn <dir> <subject> <reason> <remedy kind> — the ONE warning
 # line: `devdoc commit of <dir> skipped - <reason>; <remedy>`. Kinds: hand (the
 # hand command), op:<op> (finish or abort it first), detached, repo (no git
 # command: `-C <dir>` would run in the wrong repository).
 _devdoc_commit_warn() {
     local dir="$1" subject="$2" reason="$3" kind="$4" cmd remedy
-    cmd="git -C $(_devdoc_sq "$dir") add -A -- . && git -C $(_devdoc_sq "$dir") commit -m $(_devdoc_sq "$subject") -- ."
+    cmd="git -C ${dir@Q} add -A -- . && git -C ${dir@Q} commit -m ${subject@Q} -- ."
     case "$kind" in
         op:*)     remedy="finish or abort the ${kind#op:}, then: $cmd" ;;
         detached) remedy="check out a branch, then: $cmd" ;;
@@ -417,34 +414,24 @@ devdoc_commit_dir() {
     (
         spec=":(top,literal)$rel"
         trap devdoc_lock_release EXIT
+        _skip() { _devdoc_commit_warn "$dir" "$subject" "$1" "$2"; exit 1; }
         # A step's best-effort tail waits briefly (an explicit env value wins;
         # a run's shared deadline still caps it inside devdoc_lock_acquire).
-        # shellcheck disable=SC2030  # deliberately subshell-local: the caller keeps its own bound
-        : "${DEVAGENT_DEVDOC_LOCK_TIMEOUT:=10}"
         lrc=0
-        devdoc_lock_acquire "$devdoc_dir" "$holder" "the commit command in the warning below" || lrc=$?
-        if [ "$lrc" -eq 1 ]; then
-            _devdoc_commit_warn "$dir" "$subject" "devdoc lock timeout" hand; exit 1
-        elif [ "$lrc" -ne 0 ]; then
-            _devdoc_commit_warn "$dir" "$subject" "devdoc lock location cannot be determined" hand; exit 1
-        fi
-        if devdoc_mid_operation "$top"; then
-            _devdoc_commit_warn "$dir" "$subject" "devdoc repository mid-$DEVDOC_MID_OP" "op:$DEVDOC_MID_OP"; exit 1
-        fi
-        if ! devdoc_git_ro -C "$top" symbolic-ref -q HEAD >/dev/null 2>&1; then
-            _devdoc_commit_warn "$dir" "$subject" "devdoc repository HEAD is detached" detached; exit 1
-        fi
-        if ! st="$(devdoc_git_ro -C "$top" status --porcelain -- "$spec")"; then
-            _devdoc_commit_warn "$dir" "$subject" "git status failed" hand; exit 1
-        fi
+        DEVAGENT_DEVDOC_LOCK_TIMEOUT="${DEVAGENT_DEVDOC_LOCK_TIMEOUT:-10}" \
+            devdoc_lock_acquire "$devdoc_dir" "$holder" "the commit command in the warning below" || lrc=$?
+        case "$lrc" in
+            0) ;;
+            1) _skip "devdoc lock timeout" hand ;;
+            *) _skip "devdoc lock location cannot be determined" hand ;;
+        esac
+        ! devdoc_mid_operation "$top" || _skip "devdoc repository mid-$DEVDOC_MID_OP" "op:$DEVDOC_MID_OP"
+        devdoc_git_ro -C "$top" symbolic-ref -q HEAD >/dev/null 2>&1 || _skip "devdoc repository HEAD is detached" detached
+        st="$(devdoc_git_ro -C "$top" status --porcelain -- "$spec")" || _skip "git status failed" hand
         [ -n "$st" ] || exit 0
-        if ! "$DEVAGENT_GIT" -C "$top" add -A -- "$spec" >&2; then
-            _devdoc_commit_warn "$dir" "$subject" "git add failed" hand; exit 1
-        fi
-        if ! "$DEVAGENT_GIT" -C "$top" -c user.email=devagent@local -c user.name=devagent \
-                commit -q -m "$subject" -- "$spec" >&2; then
-            _devdoc_commit_warn "$dir" "$subject" "git commit failed" hand; exit 1
-        fi
+        "$DEVAGENT_GIT" -C "$top" add -A -- "$spec" >&2 || _skip "git add failed" hand
+        "$DEVAGENT_GIT" -C "$top" -c user.email=devagent@local -c user.name=devagent \
+            commit -q -m "$subject" -- "$spec" >&2 || _skip "git commit failed" hand
         exit 0
     )
 }
@@ -869,9 +856,7 @@ devdoc_sync() {
     DEVDOC_SYNC_OUTCOME=off; DEVDOC_SYNC_REASON=""; DEVDOC_SYNC_REPO=""; DEVDOC_SYNC_BRANCH=""; DEVDOC_SYNC_LINE=""
     _DS_WHY=""; _DS_NEXT=""; _DS_ALSO=""; _DS_TMPD=""; _DS_ERR=/dev/null; _DS_LIST=/dev/null; _DS_DETACHED=0; _DS_BRANCH=""
     _DS_ISSUE="$2"; _DS_BUDGET="$3"; _DS_MODE="${4:-push}"; _DS_SUBJ="$_DS_ISSUE cleanup"
-    _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""; _DS_KIND=""
-    # shellcheck disable=SC2031  # devdoc_commit_dir's subshell-local bound is not this one
-    _DS_LOCK_WAIT="${DEVAGENT_DEVDOC_LOCK_TIMEOUT:-}"
+    _DS_LEFT_WHY=""; _DS_LEFT_NEXT=""; _DS_KIND=""; _DS_LOCK_WAIT="${DEVAGENT_DEVDOC_LOCK_TIMEOUT:-}"
     case "$_DS_MODE" in
         push) ;;
         no-push)

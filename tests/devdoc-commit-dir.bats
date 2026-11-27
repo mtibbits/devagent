@@ -107,6 +107,7 @@ _mid_merge() {
     [ -z "$output" ]
     [[ "$stderr" == *"WARNING: devdoc commit of $b/testproj/Captures/s1 skipped - cannot determine the devdoc repository: a .git entry exists but git rev-parse failed; commit it from the devDoc repository by hand"* ]]
     [ "$(printf '%s\n' "$stderr" | grep -c WARNING)" -eq 1 ]
+    [[ "$stderr" != *"git -C"* ]]   # an unresolvable repo prints no git command
 }
 
 @test "devdoc_commit_dir: a folder in a nested repository warns and commits in neither" {
@@ -115,7 +116,8 @@ _mid_merge() {
     _dcd "$DEVDOC_DIR" "$F" - "$SUBJ"
     [ "$status" -eq 1 ]
     [ -z "$output" ]
-    [[ "$stderr" == *"devdoc commit of $F skipped - not inside the git repository holding $DEVDOC_DIR"* ]]
+    [[ "$stderr" == *"devdoc commit of $F skipped - not inside the git repository holding $DEVDOC_DIR; commit it from the devDoc repository by hand"* ]]
+    [[ "$stderr" != *"git -C"* ]]
     [ "$(_count "$DEVDOC_REPO")" -eq "$before" ]
     ! git -C "$F" rev-parse -q --verify HEAD >/dev/null
 }
@@ -166,20 +168,6 @@ _mid_merge() {
     [ ! -e "$LP" ]
 }
 
-@test "devdoc_commit_dir: unresolvable-repo reasons print no git command" {
-    b="$DEVAGENT_TMP/broken"; mkdir -p "$b/testproj/Captures/s1"
-    printf 'gitdir: /nonexistent\n' > "$b/.git"
-    _dcd "$b/testproj" "$b/testproj/Captures/s1" - "$SUBJ"
-    [ "$status" -eq 1 ]
-    [[ "$stderr" == *"commit it from the devDoc repository by hand"* ]]
-    [[ "$stderr" != *"git -C"* ]]
-    git -C "$F" -c init.defaultBranch=main init -q
-    _dcd "$DEVDOC_DIR" "$F" - "$SUBJ"
-    [ "$status" -eq 1 ]
-    [[ "$stderr" == *"not inside the git repository holding"*"commit it from the devDoc repository by hand"* ]]
-    [[ "$stderr" != *"git -C"* ]]
-}
-
 @test "devdoc_commit_dir: the mid-merge remedy works once the merge is aborted" {
     _mid_merge
     _dcd "$DEVDOC_DIR" "$F" - "$SUBJ"
@@ -196,7 +184,7 @@ _mid_merge() {
 @test "devdoc_commit_dir: the lock bound defaults to 10 s when unset" {
     unset DEVAGENT_DEVDOC_LOCK_TIMEOUT
     hp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-5)"
-    export DEVAGENT_DEVDOC_LOCK_DEADLINE=$(( $(date +%s) + 2 ))
+    export DEVAGENT_DEVDOC_LOCK_DEADLINE="$(date +%s)"   # the deadline caps the default: no wait
     t0="$(date +%s)"
     _dcd "$DEVDOC_DIR" "$F" - "$SUBJ"
     t1="$(date +%s)"
@@ -205,7 +193,7 @@ _mid_merge() {
     [ $((t1 - t0)) -lt 5 ]
     [ -e "$hp/holder" ]
     # the unset default itself: no 10 s sleep in the suite, so pin the source
-    grep -q ': "${DEVAGENT_DEVDOC_LOCK_TIMEOUT:=10}"' "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"
+    grep -qF 'DEVAGENT_DEVDOC_LOCK_TIMEOUT="${DEVAGENT_DEVDOC_LOCK_TIMEOUT:-10}"' "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"
 }
 
 @test "devdoc_commit_dir: the printed hand command commits the folder alone" {

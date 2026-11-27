@@ -96,7 +96,6 @@ _ship_devdoc_commit() {
     [ "$(permission_value "$project" commit_devdoc)" = true ] || return 0
     local dd
     dd="$(project_devdoc_dir "$project" 2>/dev/null)" || return 0
-    [ -n "$dd" ] || return 0
     devdoc_commit_dir "$dd" "$issue_dir" "$issue_arg" "devdoc: $(basename "$issue_dir") ship" || true
 }
 

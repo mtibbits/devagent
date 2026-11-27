@@ -239,7 +239,7 @@ _dd_count() { git -C "${TMP_DEVDOC}" rev-list --count HEAD; }
 }
 
 @test "file: commit_devdoc=false makes no devDoc commit and takes no lock (#1055)" {
-  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
   _owner_config false; _git_devdoc
   DEVAGENT_GIT="$(devdoc_git_logging_wrapper "${TMP_HOME}/git.log")"; export DEVAGENT_GIT
   hp="$(devdoc_lock_stub_holder "${TMP_DEVDOC}" Issue-5)"
@@ -255,7 +255,7 @@ _dd_count() { git -C "${TMP_DEVDOC}" rev-list --count HEAD; }
 }
 
 @test "file: a devDoc outside git makes no commit and takes no lock (#1055)" {
-  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
   _owner_config true
   hp="$(devdoc_lock_stub_holder "${TMP_DEVDOC}" Issue-5)"
   [ "$hp" = "$(cd "${TMP_DEVDOC}" && pwd -P)/.devagent-wbs.lock" ]
@@ -269,7 +269,7 @@ _dd_count() { git -C "${TMP_DEVDOC}" rev-list --count HEAD; }
 }
 
 @test "file: a held devDoc lock warns, exits 0 and keeps the filed issue (#1055)" {
-  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=1
+  export DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_DEVDOC_LOCK_TIMEOUT=0
   _owner_config true; _git_devdoc
   hp="$(devdoc_lock_stub_holder "${TMP_DEVDOC}" Issue-5)"
   cp "${hp}/holder" "${TMP_HOME}/holder.before"
