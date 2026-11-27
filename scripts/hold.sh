@@ -79,18 +79,10 @@ _hold_exit() {
   if (( _HOLD_MADE_QDIR )); then rmdir "$issue_dir/questions" 2>/dev/null || true; fi
 }
 
-# _last_good <checklist> <N>: the nearest earlier `[x]` row as `<N> <name>`,
-# or `(none)`. Copied from checklist-stuck.sh; #909 merges the writers.
+# _last_good <checklist> <N>: the nearest earlier [x] row as <N> <name>, or
+# (none). The walk's one home is stuck_last_good (scripts/lib/checklist.sh, #909).
 _last_good() {
-  local file="$1" cur="$2" i st
-  for ((i = cur - 1; i >= 0; i--)); do
-    st="$(checklist_step_state "$file" "$i" 2>/dev/null || true)"
-    if [[ "$st" == "x" ]]; then
-      printf '%s %s\n' "$i" "$(checklist_step_name "$file" "$i")"
-      return 0
-    fi
-  done
-  printf '(none)\n'
+  stuck_last_good "$1" "$2"
 }
 
 # _umask_mode: the mode a new file gets under the current umask (as STUCK).
