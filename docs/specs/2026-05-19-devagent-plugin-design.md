@@ -151,7 +151,8 @@ devAgent/
 │   │   watchdog.sh (#932) — the no-progress watchdog: `check` for a launcher, `heartbeat` for a session (§7.3),
 │   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py),
 │   │   milestones.sh (#734; lib/milestones.py) — read-only milestone rows and spans,
-│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads, ...
+│   │   actuals.sh (#735; lib/actuals.py) — the per-issue actuals document the portfolio reads,
+│   │   plan-estimate.sh (#738; lib/plan-estimate.py) — the plan's structured estimate, read-only, ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -1681,10 +1682,10 @@ session's progress) and `libexec/long-run.sh` (its start is not progress; the
 command's output is), so a devagent script run as the wrapped command still
 counts its own entry (`tests/watchdog-check.bats`: `check and heartbeat do not
 move script, and check writes nothing`; `tests/long-run.bats`: `long-run.sh
-does not move script`). Seven top-level scripts never reach `paths.sh` and so
+does not move script`). Eight top-level scripts never reach `paths.sh` and so
 never move the file: `archive-transcripts.sh`, `build-docs-site.sh`,
 `cost-report.sh`, `install-git-hooks.sh`, `lessons-lint.sh`,
-`lessons-lint-corpus.sh` and `wbs.sh`. Their return still grows the session's
+`lessons-lint-corpus.sh`, `plan-estimate.sh` and `wbs.sh`. Their return still grows the session's
 transcript, which is a progress source of its own.
 
 #### The no-progress watchdog (#932)
@@ -4985,6 +4986,120 @@ run's log is kept as `actuals-rebuild.log.1`), `actuals-rebuild.pid` and
 `actuals-rebuild.status` (its exit status). Estimates (#736) and
 forecasts (#742) read the same file. The command doc is `commands/actuals.md`;
 the slot shapes are `docs/portfolio-schema.md`, "Actuals".
+
+### 13.7 Plan estimates (#738)
+
+The scope step writes one structured estimate line into the plan, the tighten
+step confirms it with a second, and the impact step sets the estimate beside
+the actuals it records (§13.6's cost-report figures) in one interim
+comparison line. The skills are `skills/core-scope`, `skills/core-tighten`
+and `skills/core-impact`; the reader is `scripts/plan-estimate.sh` (core
+`scripts/lib/plan-estimate.py`).
+
+**The lines.** Under the plan's `### Size estimate` heading:
+
+```text
+### Size estimate
+- ~XXX LOC across N files; ~Y hours.
+- Estimate (scope): {est: 3-5h, tok: 8-12M}
+- Estimate (confirmed): {est: 4-6h, tok: 10-14M}
+```
+
+Scope writes the `Estimate (scope)` line; tighten writes the
+`Estimate (confirmed)` line directly below the scope line it confirms, always,
+with the same values when the estimate stands. Nothing follows the closing
+`}`. The block is a WBS metadata block and `est` and `tok` take §13.1's values
+(#737): one number or a `low-high` range with one trailing unit, `est` in `h`,
+`d` (8 agent hours) or `w` (40), `tok` in `k` or `M`, `?` when no estimate can
+be given. `est` is agent wall time as `cost-report.sh --time` reports it and
+`tok` price-weighted input-token equivalents; both cover the whole issue,
+pull to cleanup, and on a revision what is already spent plus what remains.
+Other keys are legal and kept. A revision that appends a scope evaluation
+carries its own size section and lines; a re-draft that overwrites the plan
+overwrites an earlier revision's estimate, which then survives only in the
+devdoc's git history.
+
+**Reading rules**, in order:
+
+1. Lines are the `\n`-separated lines of the text, one trailing `\r` dropped,
+   numbered from 1. Fenced lines are skipped, headings inside them included:
+   one linear pass over wbs-parser's `_FENCE_RE`, where an opener with no
+   closer runs to the end of the file.
+2. A heading whose text starts with `Size estimate` opens the section; any
+   other heading closes it.
+3. Inside the section, a line that fullmatches `ESTIMATE_LINE_RE` (a `-`, `*`
+   or `+` bullet; `**` and backtick wrappers allowed) is an estimate line, and
+   its block goes through wbs-parser's `_parse_meta_walk`, whose problems are
+   reported. Any other line matching `ESTIMATE_NEAR_MISS_RE` (the label in any
+   case, as a bullet, numbered item, blockquote or bare text), or holding a
+   `{…}` block with an `est` or `tok` key under another label, is a near-miss.
+4. The last estimate-shaped line in a section decides: an estimate line gives
+   `present` with `source` its kind, a near-miss gives `unreadable`. With none,
+   a near-miss match anywhere else outside a fence gives `unreadable`, and so
+   does one inside a fence that never closes (a problem names the opener's
+   line); with none at all the status is `absent`.
+5. `est` and `tok` come from the deciding line only (no per-key fallback);
+   string values are stripped, then classified by `classify_estimate`.
+6. For a confirmed line, `changed` compares the class and bounds of `est` and
+   of `tok` with the nearest earlier scope line; null when there is none.
+
+| What happened | In the plan | Reader |
+|---|---|---|
+| tighten ran, estimate stands | confirmed line, same bounds | `confirmed`, `changed` false |
+| tighten ran, estimate moved | confirmed line, new values; scope line untouched | `confirmed`, `changed` true |
+| tighten skipped, not yet run, or not on the tier | no confirmed line after the last scope line | `scope` |
+| scope wrote no line (older plan; tier without scope) | none | `absent` |
+
+**The reader.** `read_estimate(text)`, `read_file(path)` and
+`impact_line(result)`. A result has exactly eleven keys: `schema` (1),
+`status` (`present`, `absent` or `unreadable`), `source` (`confirmed`, `scope`
+or null), `changed` (bool or null), `line` (the deciding line's number or
+null), `text` (its text or null), `est` and `tok` (`classify_estimate` dicts
+or null), `meta` (the deciding block, every key, or null), `scope` (`line`,
+`est` and `tok` of the scope line a confirmed line superseded, or null) and
+`problems` (`line` and `message` for each near-miss, out-of-section line and
+block problem). The CLI is `plan-estimate.sh [--json | --impact-line]
+<imPlan.md>`, `--json` the default; it takes one path and resolves no
+project, issue or state. Exit 0 `present`, 1 `absent` and 3 `unreadable` each
+print one LF-terminated line on stdout and nothing on stderr; exit 2 is a
+usage error or a file that cannot be read, and exit 4 an internal error, both
+with stdout empty and a `plan-estimate: ` line on stderr.
+
+**The comparison line**, in `impact.md` under Quantifiable after the Workflow
+lines. `--impact-line` prints one of:
+
+```text
+- Estimate vs actual (interim): agent time est 4-6h vs actual <agent wall>; tokens est 10-14M vs actual <cost> [estimate confirmed, changed from scope; interim: actuals stop at the impact step and count only the transcripts cost-report read]
+- Estimate vs actual (interim): no structured estimate
+- Estimate vs actual (interim): not measured (estimate line unreadable at plan line 12)
+```
+
+An estimate value prints raw when its class is `time` or `tokens`, else
+`not measured (<reason>)`: `no est value`, `est is a placeholder`,
+`est is not in h, d or w`, `est is unparseable`, or
+`est block problem at plan line N` when the block walk reported a problem on
+that line (for `tok` the same, less the unit reason). The mark is
+`estimate confirmed, unchanged`, `estimate confirmed, changed from scope`,
+`estimate confirmed, no scope line` or `estimate not confirmed`. The impact
+skill replaces `<agent wall>` with the `agent wall N.NNh` figure of its
+`- Workflow time:` line and `<cost>` with the `N.NM input-token equivalents`
+figure of its `- Workflow cost:` line, never the unattributed pair's, and
+computes no ratio. It writes two forms itself: a slot becomes
+`not measured (Workflow time not measured)` or
+`not measured (Workflow cost not measured)` when that side was recorded as not
+measured, and any exit other than 0, 1 or 3, or empty stdout, records
+`- Estimate vs actual (interim): not measured (plan-estimate failed: exit <N>)`.
+
+**Tiers** (`templates/checklist-*.md`, the `## Revision 1` block):
+
+| Tier | scope | tighten | impact | What the issue's record holds |
+|---|---|---|---|---|
+| standard, perf | yes | yes | yes | estimate, confirmation, comparison line |
+| research | yes | no | no | estimate, never confirmed, no comparison |
+| starter, docs-only, oneshot | no | no | no | no estimate, no comparison |
+
+A `/devagent:revise` revision appends the standard-shaped block whatever the
+tier, so it has all three steps. The reader keys on no tier: it reads the plan.
 
 ## 14. Status reports
 

@@ -753,9 +753,9 @@ Partly delivered. A requirement here that is not built yet starts with
   value as absent, placeholder, tokens or unparseable, and defines an
   agent-time estimate, a token estimate and a range form.
   {refines: SR-19}
-- FR-114: (Planned.) devagent records a structured estimate at the scope step, confirms
-  it at the tighten step, copies it onto the issue's leaf, and compares it
-  with the actuals at the impact step. {refines: SR-19}
+- FR-114: devagent records a structured estimate at the scope step, confirms it at
+  the tighten step, and compares it with the actuals at the impact step;
+  (planned) it copies the estimate onto the issue's leaf. {refines: SR-19}
 - FR-115: (Planned.) devagent publishes each project's calibration pairs (actual over
   estimate, for agent time and tokens) with their sample count, and reports
   open leaves without a usable estimate. {refines: SR-19}

@@ -103,7 +103,8 @@ also reads `_dep_ids`, `h_value` and `as_list`, #888, `split_dep`, #887, and
 `classify_estimate` with `ESTIMATE_KEYS`, `HOUR_FACTORS`, `TOKEN_FACTORS`,
 `EST_CLASSES`, `TOK_CLASSES`, `est_num`, `ESTIMATE_PLACEHOLDER_RE`,
 `ESTIMATE_VALUE_RE` and `ESTIMATE_KEY_ERROR` (#737; portfolio.py calls
-`classify_estimate` and `est_num`),
+`classify_estimate` and `est_num`; plan-estimate.py reads `_FENCE_RE`,
+`_parse_meta_walk` and `classify_estimate` for the plan's estimate line, #738),
 and for the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the

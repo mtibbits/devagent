@@ -30,6 +30,8 @@ numbers are not available or honest).
     measure — `performance` → benchmarks; `bug` → reproducer fixed;
     `docs` → operator-facing clarity).
   - `<issue-dir>/actualWork.md`.
+  - `<issue-dir>/imPlan.md`, through `scripts/plan-estimate.sh` only
+    (item 7; #738).
   - Pre/post evidence the operator points to (benchmark CSV, plot
     PNG from the project's evidence-plot script, etc.) — via `$NOTE`.
 - Writes: `<issue-dir>/impact.md`.
@@ -95,6 +97,34 @@ numbers are not available or honest).
    (captures, crrf, reap, WBS and status work, planning), which
    `cost-report.sh --overhead --project <project> --summary` reports per
    project.
+7. **Estimate vs actual.** Set the plan's estimate beside the actuals
+   item 6 just recorded (#738). Do not open `imPlan.md`; run the reader:
+
+   <!-- tests/skill_core_impact.bats executes the plan-estimate command line below; keep it on one line. -->
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/plan-estimate.sh" --impact-line "$ISSUE_DIR/imPlan.md"
+   ```
+
+   Exit 0, 1 or 3 prints one line. Record it under Quantifiable, after the
+   Workflow lines. It is one of:
+
+   - exit 0, the plan's estimate with two slots:
+     `- Estimate vs actual (interim): agent time est 4-6h vs actual <agent wall>; tokens est 10-14M vs actual <cost> [estimate confirmed, changed from scope; interim: actuals stop at the impact step and count only the transcripts cost-report read]`
+   - exit 1, the plan has no estimate line:
+     `- Estimate vs actual (interim): no structured estimate`
+   - exit 3, an estimate line the reader cannot read:
+     `- Estimate vs actual (interim): not measured (<reason>)`
+
+   Fill the two slots from item 6's project-attributed lines only, never
+   the unattributed pair: `<agent wall>` becomes the `agent wall N.NNh`
+   figure of the `- Workflow time:` line, and `<cost>` the
+   `N.NM input-token equivalents` figure of the `- Workflow cost:` line.
+   Where item 6 recorded a side as `not measured (…)`, its slot becomes the
+   fixed `not measured (Workflow time not measured)` or
+   `not measured (Workflow cost not measured)`, never item 6's reason text.
+   Record a line without slots as printed. Change nothing else in the line,
+   and compute no ratio. Any other exit, or an empty stdout, records
+   `- Estimate vs actual (interim): not measured (plan-estimate failed: exit <N>)`.
 
 ## Output format
 
@@ -111,11 +141,19 @@ numbers are not available or honest).
 - Workflow time: <project>/Issue-NNNN time: agent wall 2.41h, agent busy 3.87h,
   operator 0.62h (41 operator events, 3 returns after absence, 2 by fallback)
   (time rule: idle_gap 5m, tool_gap 60m, attention_cap 15m)
+- Estimate vs actual (interim): agent time est 4-6h vs actual agent wall 2.41h;
+  tokens est 10-14M vs actual 12.4M input-token equivalents [estimate confirmed,
+  changed from scope; interim: actuals stop at the impact step and count only
+  the transcripts cost-report read]
 
 ## Qualitative
 - Unblocks fusion of post-processing stages (separate issue).
 - Pattern documented for future stage-pair fusions.
 ```
+
+The comparison line is the filled form above, or, as the reader printed it,
+`- Estimate vs actual (interim): no structured estimate` or
+`- Estimate vs actual (interim): not measured (<reason>)`.
 
 ## Halt and ask if
 
