@@ -79,28 +79,16 @@ _hold_exit() {
   if (( _HOLD_MADE_QDIR )); then rmdir "$issue_dir/questions" 2>/dev/null || true; fi
 }
 
-# _last_good <checklist> <N>: the nearest earlier `[x]` row as `<N> <name>`,
-# or `(none)`. Copied from checklist-stuck.sh; #909 merges the writers.
-_last_good() {
-  local file="$1" cur="$2" i st
-  for ((i = cur - 1; i >= 0; i--)); do
-    st="$(checklist_step_state "$file" "$i" 2>/dev/null || true)"
-    if [[ "$st" == "x" ]]; then
-      printf '%s %s\n' "$i" "$(checklist_step_name "$file" "$i")"
-      return 0
-    fi
-  done
-  printf '(none)\n'
-}
-
 # _umask_mode: the mode a new file gets under the current umask (as STUCK).
 _umask_mode() { printf '%o\n' "$(( 0666 & ~8#$(umask) ))"; }
 
 # _render_to <tmp> <question-file> <NN>: render the question into <tmp> with
 # the umask mode.
 _render_to() {
+  local last_good
+  last_good="$(stuck_last_good "$checklist" "$step_num")" || return 1
   question_render "$2" "$project" "$issue" "$step" "$step_num" "$reason" \
-    "$(_last_good "$checklist" "$step_num")" "$3" "$(date -Iseconds)" > "$1" || return 1
+    "$last_good" "$3" "$(date -Iseconds)" > "$1" || return 1
   chmod "$(_umask_mode)" "$1"
 }
 

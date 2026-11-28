@@ -70,15 +70,8 @@ else
   name="$(checklist_step_name "$file" "$cur")" || die "no step $cur in $file"
 fi
 
-# Find last good step number for the STUCK file.
-last_good=""
-for ((i = cur - 1; i >= 0; i--)); do
-  st="$(checklist_step_state "$file" "$i" 2>/dev/null || true)"
-  if [[ "$st" == "x" ]]; then
-    last_good="$i $(checklist_step_name "$file" "$i")"
-    break
-  fi
-done
+last_good="$(stuck_last_good "$file" "$cur")" \
+  || die "could not read the last good step before $cur in $file"
 
 if [[ -n "$by_name" ]]; then
   checklist_mark_by_name "$file" "$by_name" '!'
@@ -86,12 +79,8 @@ else
   checklist_mark "$file" "$cur" '!' "$step_name"
 fi
 
-cat > "$issue_dir/STUCK" <<EOF
-Step:        $cur $name
-Reason:      $reason
-Last good:   ${last_good:-(none)}
-Created:     $(date -Iseconds)
-EOF
+stuck_write "$issue_dir" "$cur" "$name" "$reason" "$last_good" \
+  || die "could not write $issue_dir/STUCK"
 
 log_append "$issue_dir" "$name" "STUCK: $reason"
 echo "marked step $cur ($name) [!] and wrote $issue_dir/STUCK"

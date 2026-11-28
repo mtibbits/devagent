@@ -314,3 +314,20 @@ _pin() {
   [[ "$output" == *"re-run /devagent:statusreport testproj"* ]]
   [ "$(_pin)" = "2026-05-01T00:00:00+00:00" ]
 }
+
+@test "#909 statusreport counts a STUCK of every old form" {
+  . "$REPO/tests/lib/stuck-forms.bash"
+  printf '# %s\nStuck: {{STUCK_COUNT}} {{STUCK_LIST}}\n' '{{PROJECT}}' > "$TMPROOT/stuck909.md"
+  _set_statusreport_template_override "$TMPROOT/stuck909.md"
+  local f n=0 report
+  for f in "${STUCK_OLD_FORMS[@]}"; do
+    stuck_old_form "$f" "$TMPDEV/Issue-100/STUCK" 6 prune 'waiting on the token key' 5 improve
+    rm -rf "$TMPDEV/StatusReports"
+    run bash "$REPO/scripts/statusreport.sh" testproj
+    [ "$status" -eq 0 ]
+    report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
+    grep -qxF 'Stuck: 1 - Issue-100' "$report" || { echo "$f:" >&2; cat "$report" >&2; return 1; }
+    n=$((n + 1))
+  done
+  [ "$n" -eq 3 ]
+}

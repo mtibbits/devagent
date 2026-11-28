@@ -330,34 +330,6 @@ _checklist_valid_glyph() {
   esac
 }
 
-# checklist_steps_with_glyph <file> <glyph>
-# Prints the step NUMBER of every checklist line whose box holds exactly
-# <glyph> (e.g. 'x' '!' 'P' '~' ' '), one per line in file order. mawk-safe:
-# POSIX 2-arg match() + substr()/sub(), NOT gawk's 3-arg capture-array form
-# match(s, r, arr), which mawk parse-errors on (#73/#313). Callers apply
-# their own first/last/bound logic. Deliberately NOT revision-scoped, and after
-# #587 the only recovery caller left is stuck.sh, which wants the file-wide scan
-# by design (it asks for the last [x] BELOW the current step). The former
-# rationale here — that a [!]/[P] row is unique to the file and no revision
-# block ever re-introduces one — is FALSE: closeout numbers are REUSED across revision
-# blocks (#76), so a [!]/[P] can sit in an older block while the active block
-# holds a pending twin of the same number. That is exactly the #587 bug. A
-# caller that must act on the ROW carrying a glyph uses
-# checklist_find_glyph_line below, which returns the LINE, never the number.
-checklist_steps_with_glyph() {
-  local file="$1" glyph="$2"
-  [[ -f "$file" ]] || die "checklist_steps_with_glyph: no such file '$file'"
-  awk -v glyph="$glyph" '
-    match($0, /^- \[.\][ \t]+[0-9]+\./) {
-      if (substr($0, 4, 1) != glyph) next    # box char is column 4: "- [G]"
-      num = substr($0, RSTART, RLENGTH)
-      sub(/^- \[.\][ \t]+/, "", num)
-      sub(/\.$/, "", num)
-      print num + 0
-    }
-  ' "$file"
-}
-
 # checklist_find_glyph_line <file> <glyph>
 # Prints "<line>:<step-number>" for the row the RECOVERY callers (unstuck.sh,
 # checklist-unstuck.sh, resume.sh) must act on: the first row carrying <glyph>
@@ -377,8 +349,8 @@ checklist_steps_with_glyph() {
 # mawk-safe: POSIX 2-arg match() + substr()/sub(), not gawk match(s,r,arr)
 # (#73/#313). The glyph is compared as the COLUMN-4 character of "- [G]" and is
 # never interpolated into a regex: '?' and '.' are legal glyphs and would be
-# metacharacters. That is the SAME predicate checklist_steps_with_glyph uses, on
-# purpose: one question, one matcher (Issue-585).
+# metacharacters. checklist_mark_line and checklist_next_actionable read the box
+# the same way, on purpose: one question, one matcher (Issue-585).
 checklist_find_glyph_line() {
   local file="$1" glyph="$2"
   [[ -f "$file" ]] || die "checklist_find_glyph_line: no such file '$file'"
@@ -730,6 +702,43 @@ stuck_header_value() {
       v = substr($0, length(key) + 1); gsub(/^[ \t]+|[ \t]+$/, "", v)
       if (v != "") { print v; exit }
     }' "$1" 2>/dev/null
+}
+
+# ---- the STUCK writer (#909) -------------------------------------------------
+# One header for every STUCK writer (question_render keeps its own printf until
+# #972; tests/stuck-format.bats holds it to stuck_render). The header has no
+# blank line, so stuck_header_value and stuck_kind read all of it, and
+# `Created:` stays its last line, where Gantry's read_stuck looks for it.
+
+# stuck_last_good <checklist> <N>: the nearest earlier [x] row as `<M> <name>`,
+# or `(none)`; per number, active block first, else the first row in the whole
+# file (checklist_step_state). 0, or 1 when a row's name cannot be read.
+stuck_last_good() {
+  local file="$1" cur="$2" i st name
+  for ((i = cur - 1; i >= 0; i--)); do
+    st="$(checklist_step_state "$file" "$i" 2>/dev/null)" || continue
+    if [[ "$st" == "x" ]]; then
+      name="$(checklist_step_name "$file" "$i")" || return 1
+      printf '%s %s\n' "$i" "$name"
+      return 0
+    fi
+  done
+  printf '(none)\n'
+}
+
+# stuck_render <N> <name> <reason> <last-good> <created>: the four header lines.
+stuck_render() {
+  printf 'Step:        %s %s\nReason:      %s\nLast good:   %s\nCreated:     %s\n' \
+    "$1" "$2" "$3" "$4" "$5"
+}
+
+# stuck_write <issue-dir> <N> <name> <reason> <last-good>: <issue-dir>/STUCK =
+# stuck_render … "$(date -Iseconds)", by a plain `>` redirect (no temp file and
+# rename: #972 owns the atomic replace, and must keep the umask mode). 0, or 1.
+stuck_write() {
+  local dir="$1" created
+  created="$(date -Iseconds)" || return 1
+  stuck_render "$2" "$3" "$4" "$5" "$created" > "$dir/STUCK" || return 1
 }
 
 # hold_guard <caller> <issue-dir> — #963: returns 0 unless the issue is held on

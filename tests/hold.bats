@@ -302,6 +302,22 @@ Last good:   4 scope" ]
   [ "$(sha256sum < "$D/questions/02-improve.md")" = "$b" ]
 }
 
+@test "#909 hold.sh's Last good line: (none), and the nearest [x] past a non-done row" {
+  _q "$BATS_TEST_TMPDIR/q.md"
+  # (none): no row before 5 improve is [x].
+  sed -i -E 's/^- \[x\]( +[024]\. )/- [ ]\1/' "$CK"
+  [ "$(grep -c '^- \[x\]' "$CK")" -eq 0 ]
+  run "$H" toy Issue-7 --step improve --reason why --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  [ "$(sed -n 4p "$D/questions/01-improve.md")" = 'Last good:   (none)' ]
+  # (skip): the fixture's checklist again; the walk passes 5 improve [~].
+  rm -rf "$D/questions"
+  _toy
+  run "$H" toy Issue-7 --step prune --reason why --question-file "$BATS_TEST_TMPDIR/q.md"
+  [ "$status" -eq 3 ]
+  [ "$(sed -n 4p "$D/questions/01-prune.md")" = 'Last good:   4 scope' ]
+}
+
 # ---- the hold (Task 6) ----
 
 # _hold [args...]: an unattended hold of Issue-7 at improve with _q's question.

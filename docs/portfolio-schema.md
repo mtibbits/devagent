@@ -234,10 +234,11 @@ carried as written and never summed.
 `step`, `reason` and `since` are copied **verbatim** from the `STUCK` file, and
 each is null when its line is missing. The fourth, `kind` (1.4, #963), is
 derived: the header's `Kind:` value by the rule `stuck_kind` uses, or `stuck`.
-No format is promised for `since`, because there are three writers:
-`checklist-stuck.sh` and `hold.sh` (#962) write `Created:` with
-`date -Iseconds`, while `stuck.sh` writes a zoneless `%Y-%m-%d %H:%M`. `Last good:` is not carried: it may be
-absent, and its form also differs by writer.
+No format is promised for `since`. Since #909 every writer (`checklist-stuck.sh`,
+`stuck.sh`, and `hold.sh` for a question, #962) emits `Created:` with
+`date -Iseconds`, but a STUCK written before #909 keeps its writer's form and is
+not rewritten: `stuck.sh` wrote a zoneless `%Y-%m-%d %H:%M`. Tightening the
+promise for new files is a #725 follow-up. `Last good:` is not carried.
 
 | Path | Type | Req | Meaning |
 |---|---|---|---|
